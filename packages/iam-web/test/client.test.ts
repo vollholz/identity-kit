@@ -106,6 +106,15 @@ describe('Client', () => {
     await expect(iamFetch('/v1/roles')).rejects.toMatchObject({ name: 'AbortError' });
   });
 
+  it('behält Status und Referenz, wenn der Fehlerkörper kein Objekt ist (null, Liste, Text)', async () => {
+    for (const body of ['null', '[1]', '42', 'kaputt']) {
+      mockFetch({ 'GET /v1/roles': () => new Response(body, { status: 502, headers: { 'content-type': 'application/json', 'x-request-id': 'req-5' } }) });
+      const e = await iamFetch('/v1/roles').catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(ApiError);
+      expect(e).toMatchObject({ status: 502, title: 'Der Server ist nicht erreichbar.', requestId: 'req-5' });
+    }
+  });
+
   it('nutzt Standardtexte, wenn der Server keinen Titel liefert', () => {
     expect(new ApiError(403, {}).title).toBe('Dafür fehlt dir das Recht.');
     expect(new ApiError(412, {}).title).toBe('Inzwischen von jemand anderem geändert.');
@@ -118,6 +127,8 @@ describe('Client', () => {
     setTenant('mu ster');
     expect(withTenant('/v1/x')).toBe('/v1/x?x-tenant=mu%20ster');
     expect(withTenant('/v1/x?a=1')).toBe('/v1/x?a=1&x-tenant=mu%20ster');
+    expect(withTenant('/v1/x#page=2')).toBe('/v1/x?x-tenant=mu%20ster#page=2');
+    expect(withTenant('/v1/x?a=1#page=2?b')).toBe('/v1/x?a=1&x-tenant=mu%20ster#page=2?b');
     expect(loginUrl('/verwalten?a=1#b')).toBe('/auth/login?returnTo=%2Fverwalten%3Fa%3D1%23b');
     expect(loginUrl('/', 'muster')).toBe('/auth/login?returnTo=%2F&org=muster');
   });

@@ -195,7 +195,8 @@ export interface Organization {
 }
 export interface OrganizationList { items: Organization[] }
 export interface OrganizationInput { alias: string; name: string; description?: string; domains?: string[] }
-export interface OrganizationPatch { name?: string; description?: string; domains?: string[] }
+/** `description: null` leert die Beschreibung; fehlt das Feld, bleibt sie. */
+export interface OrganizationPatch { name?: string; description?: string | null; domains?: string[] }
 
 // ------------------------------------------------------------------------------------------ Zugriffsregeln (7.1, /v1/acl)
 

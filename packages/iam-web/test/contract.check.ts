@@ -1,7 +1,8 @@
 /**
  * Vertragstest auf Typebene (läuft mit `npm run typecheck`): Antworten der OpenAPI von Assets müssen sich den Typen des
  * Pakets zuweisen lassen (das Paket liest nur, was es gibt), und die Anfragekörper des Pakets haben dieselben Felder
- * wie die der OpenAPI (Schlüssel der Rechte sind im Paket `string`, in Assets eine Aufzählung). Weicht der Vertrag ab,
+ * wie die der OpenAPI und lassen jeden gültigen Körper der OpenAPI zu (Schlüssel der Rechte sind im Paket `string`, in
+ * Assets eine Aufzählung). Weicht der Vertrag ab,
  * schlägt die Typprüfung hier fehl. Quelle: test/fixtures/openapi-iam.json (Auszug), erzeugt mit `npm run contract:types`.
  */
 import type * as C from '../src/contract.ts';
@@ -79,3 +80,20 @@ ok<SameKeys<C.EntraEnforceInput, Body<'/v1/admin/entra/enforce', 'post'>>>();
 ok<SameKeys<C.OrganizationInput, Body<'/v1/platform/organizations', 'post'>>>();
 ok<SameKeys<C.OrganizationPatch, Body<'/v1/platform/organizations/{alias}', 'patch'>>>();
 ok<SameKeys<C.AclInput, Body<'/v1/acl', 'post'>>>();
+
+// Anfragekörper: jeder gültige Körper des Vertrags lässt sich mit dem Typ des Paketes ausdrücken (z. B. `null` zum Leeren)
+ok<Fits<Omit<Body<'/auth/switch', 'post'>, 'csrf'>, C.SwitchInput>>();
+ok<Fits<Body<'/v1/roles', 'post'>, C.RoleInput>>();
+ok<Fits<Body<'/v1/roles/{key}', 'patch'>, C.RolePatch>>();
+ok<Fits<Body<'/v1/admin/members', 'post'>, C.InviteInput>>();
+ok<Fits<Body<'/v1/admin/members/{id}/roles', 'put'>, C.RolesInput>>();
+ok<Fits<Body<'/v1/admin/members/entra', 'post'>, C.EntraAddInput>>();
+ok<Fits<Body<'/v1/admin/clients/{clientId}', 'put'>, C.ClientGrantInput>>();
+ok<Fits<Body<'/v1/admin/entra/consent', 'post'>, C.EntraConsentInput>>();
+ok<Fits<Body<'/v1/admin/entra/consent/complete', 'post'>, C.EntraConsentReturn>>();
+ok<Fits<Body<'/v1/admin/entra/domains', 'put'>, C.EntraDomainsInput>>();
+ok<Fits<Body<'/v1/admin/entra/enforce', 'post'>, C.EntraEnforceInput>>();
+ok<Fits<Body<'/v1/platform/organizations', 'post'>, C.OrganizationInput>>();
+ok<Fits<Body<'/v1/platform/organizations/{alias}', 'patch'>, C.OrganizationPatch>>();
+// `effect: 'allow'` ist der alte Name von `restrict`; der Vertrag nimmt ihn noch an, das Paket sendet ihn nie
+ok<Fits<Omit<Body<'/v1/acl', 'post'>, 'effect'> & { effect?: Exclude<Body<'/v1/acl', 'post'>['effect'], 'allow'> }, C.AclInput>>();

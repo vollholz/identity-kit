@@ -153,7 +153,7 @@ Was `defineCatalog` selbst tut:
    `tenantSettings`; `acl:read`, `acl:admin` und Ressourcentyp `tenant` mit `resources`; `audit:read` mit `audit`; die
    Gruppen `tenant`, `members`, `access`, `audit` für genutzte Rechte. Führt die App ein reserviertes Recht selbst auf,
    müssen Label und Gruppe stimmen; die Beschreibung darf sie anpassen (Assets: `tenant:admin` nennt den Assistenten),
-   die Reihenfolge bleibt ihre. So bleibt der Katalog von Assets byte-gleich.
+   die Reihenfolge bleibt ihre. So bleibt der Katalog von Assets gleich (ergänzt nur um `match` und `personOnly`, 13.1).
 2. **`org-admin`** erhält alle Rechte. Label fest, Beschreibung erzeugt («Verwaltet die Organisation vollständig:
    <Gruppen>. Enthält alle anderen Rollen.») oder von der App gesetzt (muss alle Gruppen nennen).
 3. **Prüfen** und bei Verstoss mit `CatalogError` (alle Befunde) abbrechen: Schlüsselmuster, keine Kollision mit
@@ -415,7 +415,9 @@ der letzte Teil veröffentlicht.
 Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests von Assets bleiben unverändert grün.
 
 1. `@vollholz/iam` gepinnt einbinden; `authz/permissions.ts` wird `defineCatalog({ product: 'assets', … })` mit
-   Assets-Katalog, Reihenfolge und Texten (Antwort von `GET /v1/authz/catalog` byte-gleich, Test vergleicht mit dem
+   Assets-Katalog, Reihenfolge und Texten (Antwort von `GET /v1/authz/catalog` gleich bis auf die ergänzten Felder
+   `groups[].match` und `permissions[].personOnly`, `platform.json` byte-gleich; der Pflichttest im Paket vergleicht
+   mit dem Abzug von Assets (`test/fixtures/assets-catalog.json`), Test vergleicht mit dem
    Stand vor der Umstellung).
 2. `ResourceModel` für Assets: Kette `tenant → schema → type… → object`, `connection`, `credential`; Lesesicht als
    `dbContext`; `exists` und `hints` wie `governance.ts`.
@@ -469,6 +471,11 @@ Auflagen der Hauptsession zur Freigabe (2026-10-22). Was hier steht, gilt vor de
 - **Nur für Personen** (Auflage 8): Ein Recht trägt `scope: false`, wenn es in keinem Scope stehen darf (Assets:
   `members:admin`, `assistant:use`, `connector:activate`). `defineCatalog` bricht ab, wenn ein Scope es enthält;
   `members:admin` ist immer `scope: false`. Im Katalog (`GET /v1/authz/catalog`) erscheint es als `personOnly: true`.
+- **Ergänzte Felder** der Antwort: `groups[].match` (Quelle des regulären Ausdrucks, Gross/klein egal; Texte werden
+  maskiert) und `permissions[].personOnly` (nur wo wahr). Beide sind zusätzlich zu den Feldern von Assets; Clients,
+  die sie nicht kennen, ignorieren sie. Das Test-Kit prüft sie ab 0.2.0, wenn vorhanden. Entschieden: die Felder sind
+  zulässig und stehen in Spez. 7.2/8.2 (Assets = bisherige Antwort plus diese Felder); das OpenAPI-Schema der Route
+  (Teil 4, Modul `account`) führt sie als optionale Felder.
 
 ### 13.2 Entscheidung: öffentliche API des `AccessService` (Auflage 2)
 

@@ -409,7 +409,10 @@ Der Rechtekatalog steht an **einer** Stelle im Code (`authz/permissions.ts`) und
 | `RESOURCE_TYPES`, `RESOURCE_LABELS` | Ressourcen der Zugriffsregeln |
 
 - `GET /v1/authz/catalog`: Rechte (mit `adminOnly`), Gruppen, Rollen (mit Rechten, `adminOnly`), Scopes,
-  Ressourcentypen (und MCP-Werkzeuge), für jede angemeldete Person und jeden Client, ohne Rechteprüfung.
+  Ressourcentypen (und MCP-Werkzeuge), für jede angemeldete Person und jeden Client, ohne Rechteprüfung. Ergänzt um
+  `groups[].match` (Stichwörter der Gruppe als regulärer Ausdruck, [8.2](#82-regeln-für-den-katalog)) und
+  `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind), jeweils nur, wo gesetzt; für Assets
+  ist die Antwort die bisherige plus diese Felder.
 - Die Oberfläche hat **keine** eigenen Listen und Labels; ein Test prüft, dass ihr Typ `Permission` genau dem Katalog
   entspricht.
 - `infra/keycloak/platform.json` wird aus dem Katalog erzeugt und vom Test auf Aktualität geprüft.
@@ -463,7 +466,8 @@ wie oben; `org-admin` enthält alle Rechte; `members:admin` steht in keinem Scop
   Schlüssel enthalten deshalb nie `/`.
 - Rollenbeschreibungen nennen alle Rechtegruppen der Rolle; geprüft über Stichwörter je Gruppe (`groups[].match`, ein
   regulärer Ausdruck), nicht über das Label.
-- Rechte mit `scope: false` sind Personen vorbehalten und stehen in keinem Scope (geprüft). Scopes nur für
+- Rechte mit `scope: false` sind Personen vorbehalten (`personOnly` im Katalog, [7.2](#72-eine-quelle-e1)) und stehen
+  in keinem Scope (geprüft). Scopes nur für
   Maschinen-Clients und MCP; Rechte, die Personen vorbehalten sind (`members:admin`, In-App-Assistent
   u. Ä.) oder Tokens an fremde Hosts schicken, in keinem Scope.
 - SOLL: Rollenset minimal; Rechte, die zusammen gebraucht werden, in denselben Rollen (Assets E4). Als Vorlage für den

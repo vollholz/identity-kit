@@ -1,0 +1,1718 @@
+{
+ "source": "vollholz/assets 3a148ae (src/platform/authz)",
+ "input": {
+  "product": "assets",
+  "permissions": {
+   "tenant:read": {
+    "label": "Organisation lesen",
+    "group": "tenant",
+    "description": "Name und Einstellungen der Organisation sehen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "tenant:admin": {
+    "label": "Organisation verwalten",
+    "group": "tenant",
+    "description": "Name und Einstellungen der Organisation ändern, Assistent einschalten und Budget setzen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "schema:read": {
+    "label": "Schemas lesen",
+    "group": "schemas",
+    "description": "Schemas, Objekttypen und Attribute sehen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type"
+    ]
+   },
+   "schema:write": {
+    "label": "Schemas ändern",
+    "group": "schemas",
+    "description": "Schemas, Objekttypen, Attribute, Referenztypen und Status anlegen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type"
+    ]
+   },
+   "object:read": {
+    "label": "Objekte lesen",
+    "group": "objects",
+    "description": "Objekte, Verlauf, Verweise, Kommentare und Anhänge sehen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "object:write": {
+    "label": "Objekte ändern",
+    "group": "objects",
+    "description": "Objekte anlegen und ändern.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "object:delete": {
+    "label": "Objekte löschen",
+    "group": "objects",
+    "description": "Objekte löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "connection:read": {
+    "label": "Verbindungen lesen",
+    "group": "integrations",
+    "description": "Verbindungen, Zuordnungen und Abgleichläufe sehen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "connection:write": {
+    "label": "Verbindungen ändern",
+    "group": "integrations",
+    "description": "Verbindungen anlegen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "connection:sync": {
+    "label": "Abgleich starten",
+    "group": "integrations",
+    "description": "Einen Abgleich einer Verbindung anstossen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "credential:read": {
+    "label": "Credentials lesen",
+    "group": "credentials",
+    "description": "Metadaten von Credentials sehen (nie die Werte).",
+    "resources": [
+     "tenant",
+     "credential"
+    ]
+   },
+   "credential:use": {
+    "label": "Credentials verwenden",
+    "group": "credentials",
+    "description": "Credentials an eine Verbindung binden und testen.",
+    "resources": [
+     "tenant",
+     "credential"
+    ]
+   },
+   "credential:write": {
+    "label": "Credentials verwalten",
+    "group": "credentials",
+    "description": "Credentials anlegen, Werte setzen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "credential"
+    ]
+   },
+   "mapping:edit": {
+    "label": "Zuordnung bearbeiten",
+    "group": "integrations",
+    "description": "Entwürfe von Zuordnungen und die Ressourcenauswahl bearbeiten.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "mapping:activate": {
+    "label": "Zuordnung aktivieren",
+    "group": "integrations",
+    "description": "Eine Zuordnungsversion aktivieren und den Quellenrang festlegen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "proposal:read": {
+    "label": "Prüfungen lesen",
+    "group": "proposals",
+    "description": "Prüfvorschläge aus Integrationen sehen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "proposal:decide": {
+    "label": "Prüfungen entscheiden",
+    "group": "proposals",
+    "description": "Prüfvorschläge annehmen oder ablehnen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ]
+   },
+   "webhook:read": {
+    "label": "Webhooks lesen",
+    "group": "webhooks",
+    "description": "Webhook-Abonnements und Zustellprotokoll sehen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "webhook:admin": {
+    "label": "Webhooks verwalten",
+    "group": "webhooks",
+    "description": "Webhook-Abonnements anlegen, ändern, löschen und Zustellungen wiederholen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "acl:read": {
+    "label": "Zugriff lesen",
+    "group": "access",
+    "description": "Zugriffsregeln (ACL) und wirksame Rechte sehen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "acl:admin": {
+    "label": "Zugriff verwalten",
+    "group": "access",
+    "description": "Zugriffsregeln (ACL) anlegen und löschen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "audit:read": {
+    "label": "Protokoll lesen",
+    "group": "audit",
+    "description": "Das Audit-Protokoll durchsuchen und seine Hash-Kette prüfen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "comment:write": {
+    "label": "Kommentieren",
+    "group": "discussion",
+    "description": "Objekte kommentieren und eigene Kommentare ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "comment:moderate": {
+    "label": "Kommentare moderieren",
+    "group": "discussion",
+    "description": "Kommentare anderer Personen ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "attachment:write": {
+    "label": "Anhänge hochladen",
+    "group": "discussion",
+    "description": "Dateien an Objekte anhängen und eigene Anhänge löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "attachment:delete": {
+    "label": "Anhänge löschen",
+    "group": "discussion",
+    "description": "Anhänge anderer Personen löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ]
+   },
+   "report:share": {
+    "label": "Reports und Dashboards teilen",
+    "group": "sharing",
+    "description": "Reports und Dashboards für die ganze Organisation teilen und geteilte bearbeiten.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "view:share": {
+    "label": "Ansichten teilen",
+    "group": "sharing",
+    "description": "Ansichten für die ganze Organisation teilen, geteilte bearbeiten und Standardansichten setzen.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "members:admin": {
+    "label": "Mitglieder und Rollen verwalten",
+    "group": "members",
+    "description": "Personen einladen, Rollen vergeben und entziehen, Maschinen-Clients freigeben.",
+    "resources": [
+     "tenant"
+    ],
+    "scope": false
+   },
+   "connector:activate": {
+    "label": "Konnektoren aktivieren",
+    "group": "connectors",
+    "description": "Eigene Konnektoren aktivieren und archivieren (legt fest, an welche Hosts Tokens gehen).",
+    "resources": [
+     "tenant"
+    ],
+    "scope": false
+   },
+   "connector:draft": {
+    "label": "Konnektor-Entwürfe schreiben",
+    "group": "connectors",
+    "description": "Entwürfe eigener Konnektoren schreiben und KI-Hilfen dafür nutzen, ohne Verbindungen oder Geheimnisse.",
+    "resources": [
+     "tenant"
+    ]
+   },
+   "assistant:use": {
+    "label": "Assistent benutzen",
+    "group": "assistant",
+    "description": "Den In-App-Assistenten benutzen (wenn er für die Organisation eingeschaltet ist).",
+    "resources": [
+     "tenant"
+    ],
+    "scope": false
+   }
+  },
+  "groups": [
+   {
+    "key": "tenant",
+    "label": "Organisation",
+    "match": {
+     "source": ".",
+     "flags": ""
+    }
+   },
+   {
+    "key": "schemas",
+    "label": "Schemas",
+    "match": {
+     "source": "schema",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "objects",
+    "label": "Objekte",
+    "match": {
+     "source": "objekt",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "discussion",
+    "label": "Kommentare und Anhänge",
+    "match": {
+     "source": "kommentier|anh[äa]ng",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "sharing",
+    "label": "Ansichten und Reports teilen",
+    "match": {
+     "source": "teil",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "integrations",
+    "label": "Verbindungen und Zuordnungen",
+    "match": {
+     "source": "verbindung",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "credentials",
+    "label": "Credentials",
+    "match": {
+     "source": "credential",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "connectors",
+    "label": "Konnektoren",
+    "match": {
+     "source": "konnektor",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "proposals",
+    "label": "Prüfungen",
+    "match": {
+     "source": "prüf",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "webhooks",
+    "label": "Webhooks",
+    "match": {
+     "source": "webhook",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "access",
+    "label": "Zugriff",
+    "match": {
+     "source": "zugriff",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "audit",
+    "label": "Protokoll",
+    "match": {
+     "source": "protokoll",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "members",
+    "label": "Mitglieder und Rollen",
+    "match": {
+     "source": "mitglieder",
+     "flags": "i"
+    }
+   },
+   {
+    "key": "assistant",
+    "label": "Assistent",
+    "match": {
+     "source": "assistent",
+     "flags": "i"
+    }
+   }
+  ],
+  "roles": {
+   "org-admin": {
+    "label": "Organisations-Admin",
+    "permissions": [
+     "tenant:read",
+     "tenant:admin",
+     "schema:read",
+     "schema:write",
+     "object:read",
+     "object:write",
+     "object:delete",
+     "connection:read",
+     "connection:write",
+     "connection:sync",
+     "credential:read",
+     "credential:use",
+     "credential:write",
+     "mapping:edit",
+     "mapping:activate",
+     "proposal:read",
+     "proposal:decide",
+     "webhook:read",
+     "webhook:admin",
+     "acl:read",
+     "acl:admin",
+     "audit:read",
+     "comment:write",
+     "comment:moderate",
+     "attachment:write",
+     "attachment:delete",
+     "report:share",
+     "view:share",
+     "members:admin",
+     "connector:activate",
+     "connector:draft",
+     "assistant:use"
+    ],
+    "description": "Verwaltet die Organisation vollständig: Mitglieder und Rollen, Schemas, Objekte, Kommentare und Anhänge, Teilen, Verbindungen, Credentials, Konnektoren, Prüfungen, Webhooks, Zugriff, Protokoll und Assistent. Enthält alle anderen Rollen."
+   },
+   "schema-admin": {
+    "label": "Schema-Admin",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "schema:write",
+     "object:read",
+     "audit:read",
+     "comment:write",
+     "view:share",
+     "report:share",
+     "assistant:use"
+    ],
+    "description": "Gestaltet Objektschemas, Typen und Attribute; liest Objekte und das Protokoll, kommentiert, teilt Ansichten und Reports und benutzt den Assistenten."
+   },
+   "integration-admin": {
+    "label": "Integrations-Admin",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "connection:write",
+     "connection:sync",
+     "credential:read",
+     "credential:use",
+     "credential:write",
+     "connector:draft",
+     "mapping:edit",
+     "mapping:activate",
+     "proposal:read",
+     "proposal:decide",
+     "webhook:read",
+     "webhook:admin",
+     "assistant:use"
+    ],
+    "description": "Richtet Verbindungen und Zuordnungen ein, verwaltet Credentials, schreibt Konnektor-Entwürfe, startet Abgleiche, entscheidet Prüfungen und verwaltet Webhooks; liest Schemas und Objekte und benutzt den Assistenten."
+   },
+   "reviewer": {
+    "label": "Prüfer:in",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "proposal:decide",
+     "comment:write",
+     "assistant:use"
+    ],
+    "description": "Entscheidet Prüfvorschläge aus Integrationen; liest Schemas, Objekte und Verbindungen, kommentiert und benutzt den Assistenten."
+   },
+   "editor": {
+    "label": "Bearbeiter:in",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "object:write",
+     "object:delete",
+     "proposal:read",
+     "connection:read",
+     "comment:write",
+     "attachment:write",
+     "attachment:delete",
+     "view:share",
+     "report:share",
+     "assistant:use"
+    ],
+    "description": "Legt Objekte an, ändert und löscht sie, kommentiert, verwaltet Anhänge und teilt Ansichten und Reports; liest Schemas, Verbindungen und Prüfungen und benutzt den Assistenten."
+   },
+   "viewer": {
+    "label": "Leser:in",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "assistant:use"
+    ],
+    "description": "Liest Schemas, Objekte, Verbindungen und Prüfungen, ändert nichts; benutzt den Assistenten."
+   },
+   "auditor": {
+    "label": "Auditor:in",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "credential:read",
+     "proposal:read",
+     "webhook:read",
+     "acl:read",
+     "audit:read",
+     "assistant:use"
+    ],
+    "description": "Liest Schemas, Objekte, Verbindungen, Credentials (ohne Werte), Prüfungen, Webhooks, Zugriffsregeln und das Protokoll – für Revision und Datenschutz; benutzt den Assistenten."
+   }
+  },
+  "scopes": {
+   "assets:read": {
+    "text": "Katalog, Schemas, Verbindungen, Prüfvorschläge und Webhooks lesen",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "webhook:read"
+    ]
+   },
+   "objects:write": {
+    "text": "Objekte anlegen, ändern, löschen",
+    "permissions": [
+     "object:write",
+     "object:delete"
+    ]
+   },
+   "schemas:write": {
+    "text": "Schemas, Typen und Attribute ändern",
+    "permissions": [
+     "schema:write"
+    ]
+   },
+   "connections:manage": {
+    "text": "Verbindungen und Zuordnungen bearbeiten, Abgleich anstossen",
+    "permissions": [
+     "connection:write",
+     "connection:sync",
+     "mapping:edit"
+    ]
+   },
+   "connections:sync": {
+    "text": "Abgleich anstossen (ohne Verbindungen zu ändern)",
+    "permissions": [
+     "connection:sync"
+    ]
+   },
+   "credentials:manage": {
+    "text": "Credentials lesen, anlegen, Werte setzen, binden und testen",
+    "permissions": [
+     "credential:read",
+     "credential:use",
+     "credential:write"
+    ]
+   },
+   "connectors:draft": {
+    "text": "Entwürfe eigener Konnektoren schreiben (ohne Aktivieren)",
+    "permissions": [
+     "connector:draft"
+    ]
+   },
+   "mappings:activate": {
+    "text": "Zuordnungsversionen aktivieren",
+    "permissions": [
+     "mapping:activate"
+    ]
+   },
+   "proposals:decide": {
+    "text": "Prüfvorschläge entscheiden",
+    "permissions": [
+     "proposal:decide"
+    ]
+   },
+   "webhooks:manage": {
+    "text": "Webhooks verwalten",
+    "permissions": [
+     "webhook:admin"
+    ]
+   },
+   "acl:read": {
+    "text": "Zugriffsregeln und wirksame Rechte lesen",
+    "permissions": [
+     "acl:read"
+    ]
+   },
+   "acl:manage": {
+    "text": "Zugriffsrechte lesen und ändern",
+    "permissions": [
+     "acl:read",
+     "acl:admin"
+    ]
+   },
+   "audit:read": {
+    "text": "Protokoll lesen",
+    "permissions": [
+     "audit:read"
+    ]
+   },
+   "comments:write": {
+    "text": "Kommentieren",
+    "permissions": [
+     "comment:write"
+    ]
+   },
+   "comments:moderate": {
+    "text": "Kommentare moderieren (nur für Clients mit Rolle Organisations-Admin wirksam)",
+    "permissions": [
+     "comment:moderate"
+    ]
+   },
+   "attachments:write": {
+    "text": "Anhänge hochladen und löschen",
+    "permissions": [
+     "attachment:write",
+     "attachment:delete"
+    ]
+   },
+   "views:share": {
+    "text": "Ansichten teilen",
+    "permissions": [
+     "view:share"
+    ]
+   }
+  },
+  "resources": {
+   "tenant": {
+    "label": "Organisation"
+   },
+   "schema": {
+    "label": "Schema"
+   },
+   "type": {
+    "label": "Objekttyp"
+   },
+   "object": {
+    "label": "Objekt",
+    "leaf": true
+   },
+   "connection": {
+    "label": "Verbindung"
+   },
+   "credential": {
+    "label": "Credential"
+   }
+  },
+  "capabilities": {
+   "object": {
+    "write": "object:write",
+    "delete": "object:delete"
+   },
+   "type": {
+    "createObjects": "object:write",
+    "write": "schema:write"
+   },
+   "schema": {
+    "write": "schema:write"
+   },
+   "connection": {
+    "write": "connection:write",
+    "sync": "connection:sync",
+    "editMapping": "mapping:edit",
+    "activateMapping": "mapping:activate"
+   },
+   "credential": {
+    "use": "credential:use",
+    "write": "credential:write"
+   }
+  },
+  "mcpTools": {
+   "objekte_suchen": {
+    "title": "Objekte suchen",
+    "permission": "object:read",
+    "readOnly": true
+   },
+   "objekt_lesen": {
+    "title": "Objekt lesen",
+    "permission": "object:read",
+    "readOnly": true
+   },
+   "objekt_verlauf": {
+    "title": "Verlauf eines Objekts",
+    "permission": "object:read",
+    "readOnly": true
+   },
+   "objekt_referenzen": {
+    "title": "Referenzen eines Objekts",
+    "permission": "object:read",
+    "readOnly": true
+   },
+   "objekt_anlegen": {
+    "title": "Objekt anlegen",
+    "permission": "object:write",
+    "readOnly": false
+   },
+   "objekt_aendern": {
+    "title": "Objekt ändern",
+    "permission": "object:write",
+    "readOnly": false
+   },
+   "schemas_auflisten": {
+    "title": "Objektschemas auflisten",
+    "permission": "schema:read",
+    "readOnly": true
+   },
+   "typen_auflisten": {
+    "title": "Objekttypen eines Schemas",
+    "permission": "schema:read",
+    "readOnly": true
+   },
+   "attribute_auflisten": {
+    "title": "Attribute eines Objekttyps",
+    "permission": "schema:read",
+    "readOnly": true
+   },
+   "pruefvorschlaege_auflisten": {
+    "title": "Prüfvorschläge auflisten",
+    "permission": "proposal:read",
+    "readOnly": true
+   },
+   "pruefvorschlag_entscheiden": {
+    "title": "Prüfvorschlag entscheiden",
+    "permission": "proposal:decide",
+    "readOnly": false
+   },
+   "verbindungen_auflisten": {
+    "title": "Verbindungen auflisten",
+    "permission": "connection:read",
+    "readOnly": true
+   },
+   "quellenrang_lesen": {
+    "title": "Quellenrang lesen",
+    "permission": "connection:read",
+    "readOnly": true
+   },
+   "sync_anstossen": {
+    "title": "Abgleich anstossen",
+    "permission": "connection:sync",
+    "readOnly": false
+   },
+   "audit_abfragen": {
+    "title": "Audit-Protokoll abfragen",
+    "permission": "audit:read",
+    "readOnly": true
+   },
+   "doku_abrufen": {
+    "title": "API-Doku abrufen",
+    "permission": "connector:draft",
+    "readOnly": true
+   },
+   "konnektor_schema": {
+    "title": "Schema der Konnektor-Manifeste",
+    "permission": "connection:read",
+    "readOnly": true
+   },
+   "konnektor_validieren": {
+    "title": "Manifest prüfen",
+    "permission": "connection:read",
+    "readOnly": true
+   },
+   "konnektor_entwurf_speichern": {
+    "title": "Manifest-Entwurf speichern",
+    "permission": "connector:draft",
+    "readOnly": false
+   },
+   "testaufruf": {
+    "title": "Testaufruf des Entwurfs",
+    "permission": "connection:write",
+    "readOnly": true
+   },
+   "objekttypen_auflisten": {
+    "title": "Objekttypen auflisten",
+    "permission": "schema:read",
+    "readOnly": true
+   },
+   "zuordnung_vorschlagen": {
+    "title": "Zuordnung vorschlagen",
+    "permission": "connection:read",
+    "readOnly": true
+   }
+  },
+  "features": {
+   "members": true,
+   "tenantSettings": true,
+   "audit": true
+  }
+ },
+ "expected": {
+  "permissions": [
+   {
+    "key": "tenant:read",
+    "label": "Organisation lesen",
+    "group": "tenant",
+    "description": "Name und Einstellungen der Organisation sehen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "tenant:admin",
+    "label": "Organisation verwalten",
+    "group": "tenant",
+    "description": "Name und Einstellungen der Organisation ändern, Assistent einschalten und Budget setzen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "schema:read",
+    "label": "Schemas lesen",
+    "group": "schemas",
+    "description": "Schemas, Objekttypen und Attribute sehen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "schema:write",
+    "label": "Schemas ändern",
+    "group": "schemas",
+    "description": "Schemas, Objekttypen, Attribute, Referenztypen und Status anlegen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "object:read",
+    "label": "Objekte lesen",
+    "group": "objects",
+    "description": "Objekte, Verlauf, Verweise, Kommentare und Anhänge sehen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "object:write",
+    "label": "Objekte ändern",
+    "group": "objects",
+    "description": "Objekte anlegen und ändern.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "object:delete",
+    "label": "Objekte löschen",
+    "group": "objects",
+    "description": "Objekte löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "connection:read",
+    "label": "Verbindungen lesen",
+    "group": "integrations",
+    "description": "Verbindungen, Zuordnungen und Abgleichläufe sehen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "connection:write",
+    "label": "Verbindungen ändern",
+    "group": "integrations",
+    "description": "Verbindungen anlegen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "connection:sync",
+    "label": "Abgleich starten",
+    "group": "integrations",
+    "description": "Einen Abgleich einer Verbindung anstossen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "credential:read",
+    "label": "Credentials lesen",
+    "group": "credentials",
+    "description": "Metadaten von Credentials sehen (nie die Werte).",
+    "resources": [
+     "tenant",
+     "credential"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "credential:use",
+    "label": "Credentials verwenden",
+    "group": "credentials",
+    "description": "Credentials an eine Verbindung binden und testen.",
+    "resources": [
+     "tenant",
+     "credential"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "credential:write",
+    "label": "Credentials verwalten",
+    "group": "credentials",
+    "description": "Credentials anlegen, Werte setzen, ändern und löschen.",
+    "resources": [
+     "tenant",
+     "credential"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "mapping:edit",
+    "label": "Zuordnung bearbeiten",
+    "group": "integrations",
+    "description": "Entwürfe von Zuordnungen und die Ressourcenauswahl bearbeiten.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "mapping:activate",
+    "label": "Zuordnung aktivieren",
+    "group": "integrations",
+    "description": "Eine Zuordnungsversion aktivieren und den Quellenrang festlegen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "proposal:read",
+    "label": "Prüfungen lesen",
+    "group": "proposals",
+    "description": "Prüfvorschläge aus Integrationen sehen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "proposal:decide",
+    "label": "Prüfungen entscheiden",
+    "group": "proposals",
+    "description": "Prüfvorschläge annehmen oder ablehnen.",
+    "resources": [
+     "tenant",
+     "connection"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "webhook:read",
+    "label": "Webhooks lesen",
+    "group": "webhooks",
+    "description": "Webhook-Abonnements und Zustellprotokoll sehen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "webhook:admin",
+    "label": "Webhooks verwalten",
+    "group": "webhooks",
+    "description": "Webhook-Abonnements anlegen, ändern, löschen und Zustellungen wiederholen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "acl:read",
+    "label": "Zugriff lesen",
+    "group": "access",
+    "description": "Zugriffsregeln (ACL) und wirksame Rechte sehen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "acl:admin",
+    "label": "Zugriff verwalten",
+    "group": "access",
+    "description": "Zugriffsregeln (ACL) anlegen und löschen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "audit:read",
+    "label": "Protokoll lesen",
+    "group": "audit",
+    "description": "Das Audit-Protokoll durchsuchen und seine Hash-Kette prüfen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "comment:write",
+    "label": "Kommentieren",
+    "group": "discussion",
+    "description": "Objekte kommentieren und eigene Kommentare ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "comment:moderate",
+    "label": "Kommentare moderieren",
+    "group": "discussion",
+    "description": "Kommentare anderer Personen ändern und löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "attachment:write",
+    "label": "Anhänge hochladen",
+    "group": "discussion",
+    "description": "Dateien an Objekte anhängen und eigene Anhänge löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "attachment:delete",
+    "label": "Anhänge löschen",
+    "group": "discussion",
+    "description": "Anhänge anderer Personen löschen.",
+    "resources": [
+     "tenant",
+     "schema",
+     "type",
+     "object"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "report:share",
+    "label": "Reports und Dashboards teilen",
+    "group": "sharing",
+    "description": "Reports und Dashboards für die ganze Organisation teilen und geteilte bearbeiten.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "view:share",
+    "label": "Ansichten teilen",
+    "group": "sharing",
+    "description": "Ansichten für die ganze Organisation teilen, geteilte bearbeiten und Standardansichten setzen.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "members:admin",
+    "label": "Mitglieder und Rollen verwalten",
+    "group": "members",
+    "description": "Personen einladen, Rollen vergeben und entziehen, Maschinen-Clients freigeben.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "connector:activate",
+    "label": "Konnektoren aktivieren",
+    "group": "connectors",
+    "description": "Eigene Konnektoren aktivieren und archivieren (legt fest, an welche Hosts Tokens gehen).",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "connector:draft",
+    "label": "Konnektor-Entwürfe schreiben",
+    "group": "connectors",
+    "description": "Entwürfe eigener Konnektoren schreiben und KI-Hilfen dafür nutzen, ohne Verbindungen oder Geheimnisse.",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "assistant:use",
+    "label": "Assistent benutzen",
+    "group": "assistant",
+    "description": "Den In-App-Assistenten benutzen (wenn er für die Organisation eingeschaltet ist).",
+    "resources": [
+     "tenant"
+    ],
+    "adminOnly": false
+   }
+  ],
+  "groups": [
+   {
+    "key": "tenant",
+    "label": "Organisation"
+   },
+   {
+    "key": "schemas",
+    "label": "Schemas"
+   },
+   {
+    "key": "objects",
+    "label": "Objekte"
+   },
+   {
+    "key": "discussion",
+    "label": "Kommentare und Anhänge"
+   },
+   {
+    "key": "sharing",
+    "label": "Ansichten und Reports teilen"
+   },
+   {
+    "key": "integrations",
+    "label": "Verbindungen und Zuordnungen"
+   },
+   {
+    "key": "credentials",
+    "label": "Credentials"
+   },
+   {
+    "key": "connectors",
+    "label": "Konnektoren"
+   },
+   {
+    "key": "proposals",
+    "label": "Prüfungen"
+   },
+   {
+    "key": "webhooks",
+    "label": "Webhooks"
+   },
+   {
+    "key": "access",
+    "label": "Zugriff"
+   },
+   {
+    "key": "audit",
+    "label": "Protokoll"
+   },
+   {
+    "key": "members",
+    "label": "Mitglieder und Rollen"
+   },
+   {
+    "key": "assistant",
+    "label": "Assistent"
+   }
+  ],
+  "roles": [
+   {
+    "key": "org-admin",
+    "label": "Organisations-Admin",
+    "description": "Verwaltet die Organisation vollständig: Mitglieder und Rollen, Schemas, Objekte, Kommentare und Anhänge, Teilen, Verbindungen, Credentials, Konnektoren, Prüfungen, Webhooks, Zugriff, Protokoll und Assistent. Enthält alle anderen Rollen.",
+    "permissions": [
+     "tenant:read",
+     "tenant:admin",
+     "schema:read",
+     "schema:write",
+     "object:read",
+     "object:write",
+     "object:delete",
+     "connection:read",
+     "connection:write",
+     "connection:sync",
+     "credential:read",
+     "credential:use",
+     "credential:write",
+     "mapping:edit",
+     "mapping:activate",
+     "proposal:read",
+     "proposal:decide",
+     "webhook:read",
+     "webhook:admin",
+     "acl:read",
+     "acl:admin",
+     "audit:read",
+     "comment:write",
+     "comment:moderate",
+     "attachment:write",
+     "attachment:delete",
+     "report:share",
+     "view:share",
+     "members:admin",
+     "connector:activate",
+     "connector:draft",
+     "assistant:use"
+    ],
+    "adminOnly": true
+   },
+   {
+    "key": "schema-admin",
+    "label": "Schema-Admin",
+    "description": "Gestaltet Objektschemas, Typen und Attribute; liest Objekte und das Protokoll, kommentiert, teilt Ansichten und Reports und benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "schema:write",
+     "object:read",
+     "audit:read",
+     "comment:write",
+     "view:share",
+     "report:share",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "integration-admin",
+    "label": "Integrations-Admin",
+    "description": "Richtet Verbindungen und Zuordnungen ein, verwaltet Credentials, schreibt Konnektor-Entwürfe, startet Abgleiche, entscheidet Prüfungen und verwaltet Webhooks; liest Schemas und Objekte und benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "connection:write",
+     "connection:sync",
+     "credential:read",
+     "credential:use",
+     "credential:write",
+     "connector:draft",
+     "mapping:edit",
+     "mapping:activate",
+     "proposal:read",
+     "proposal:decide",
+     "webhook:read",
+     "webhook:admin",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "reviewer",
+    "label": "Prüfer:in",
+    "description": "Entscheidet Prüfvorschläge aus Integrationen; liest Schemas, Objekte und Verbindungen, kommentiert und benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "proposal:decide",
+     "comment:write",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "editor",
+    "label": "Bearbeiter:in",
+    "description": "Legt Objekte an, ändert und löscht sie, kommentiert, verwaltet Anhänge und teilt Ansichten und Reports; liest Schemas, Verbindungen und Prüfungen und benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "object:write",
+     "object:delete",
+     "proposal:read",
+     "connection:read",
+     "comment:write",
+     "attachment:write",
+     "attachment:delete",
+     "view:share",
+     "report:share",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "viewer",
+    "label": "Leser:in",
+    "description": "Liest Schemas, Objekte, Verbindungen und Prüfungen, ändert nichts; benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   },
+   {
+    "key": "auditor",
+    "label": "Auditor:in",
+    "description": "Liest Schemas, Objekte, Verbindungen, Credentials (ohne Werte), Prüfungen, Webhooks, Zugriffsregeln und das Protokoll – für Revision und Datenschutz; benutzt den Assistenten.",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "credential:read",
+     "proposal:read",
+     "webhook:read",
+     "acl:read",
+     "audit:read",
+     "assistant:use"
+    ],
+    "adminOnly": false
+   }
+  ],
+  "scopes": [
+   {
+    "key": "assets:read",
+    "text": "Katalog, Schemas, Verbindungen, Prüfvorschläge und Webhooks lesen",
+    "permissions": [
+     "tenant:read",
+     "schema:read",
+     "object:read",
+     "connection:read",
+     "proposal:read",
+     "webhook:read"
+    ]
+   },
+   {
+    "key": "objects:write",
+    "text": "Objekte anlegen, ändern, löschen",
+    "permissions": [
+     "object:write",
+     "object:delete"
+    ]
+   },
+   {
+    "key": "schemas:write",
+    "text": "Schemas, Typen und Attribute ändern",
+    "permissions": [
+     "schema:write"
+    ]
+   },
+   {
+    "key": "connections:manage",
+    "text": "Verbindungen und Zuordnungen bearbeiten, Abgleich anstossen",
+    "permissions": [
+     "connection:write",
+     "connection:sync",
+     "mapping:edit"
+    ]
+   },
+   {
+    "key": "connections:sync",
+    "text": "Abgleich anstossen (ohne Verbindungen zu ändern)",
+    "permissions": [
+     "connection:sync"
+    ]
+   },
+   {
+    "key": "credentials:manage",
+    "text": "Credentials lesen, anlegen, Werte setzen, binden und testen",
+    "permissions": [
+     "credential:read",
+     "credential:use",
+     "credential:write"
+    ]
+   },
+   {
+    "key": "connectors:draft",
+    "text": "Entwürfe eigener Konnektoren schreiben (ohne Aktivieren)",
+    "permissions": [
+     "connector:draft"
+    ]
+   },
+   {
+    "key": "mappings:activate",
+    "text": "Zuordnungsversionen aktivieren",
+    "permissions": [
+     "mapping:activate"
+    ]
+   },
+   {
+    "key": "proposals:decide",
+    "text": "Prüfvorschläge entscheiden",
+    "permissions": [
+     "proposal:decide"
+    ]
+   },
+   {
+    "key": "webhooks:manage",
+    "text": "Webhooks verwalten",
+    "permissions": [
+     "webhook:admin"
+    ]
+   },
+   {
+    "key": "acl:read",
+    "text": "Zugriffsregeln und wirksame Rechte lesen",
+    "permissions": [
+     "acl:read"
+    ]
+   },
+   {
+    "key": "acl:manage",
+    "text": "Zugriffsrechte lesen und ändern",
+    "permissions": [
+     "acl:read",
+     "acl:admin"
+    ]
+   },
+   {
+    "key": "audit:read",
+    "text": "Protokoll lesen",
+    "permissions": [
+     "audit:read"
+    ]
+   },
+   {
+    "key": "comments:write",
+    "text": "Kommentieren",
+    "permissions": [
+     "comment:write"
+    ]
+   },
+   {
+    "key": "comments:moderate",
+    "text": "Kommentare moderieren (nur für Clients mit Rolle Organisations-Admin wirksam)",
+    "permissions": [
+     "comment:moderate"
+    ]
+   },
+   {
+    "key": "attachments:write",
+    "text": "Anhänge hochladen und löschen",
+    "permissions": [
+     "attachment:write",
+     "attachment:delete"
+    ]
+   },
+   {
+    "key": "views:share",
+    "text": "Ansichten teilen",
+    "permissions": [
+     "view:share"
+    ]
+   }
+  ],
+  "resourceTypes": [
+   {
+    "key": "tenant",
+    "label": "Organisation"
+   },
+   {
+    "key": "schema",
+    "label": "Schema"
+   },
+   {
+    "key": "type",
+    "label": "Objekttyp"
+   },
+   {
+    "key": "object",
+    "label": "Objekt"
+   },
+   {
+    "key": "connection",
+    "label": "Verbindung"
+   },
+   {
+    "key": "credential",
+    "label": "Credential"
+   }
+  ],
+  "mcpTools": [
+   {
+    "name": "objekte_suchen",
+    "title": "Objekte suchen",
+    "permission": "object:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "objekt_lesen",
+    "title": "Objekt lesen",
+    "permission": "object:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "objekt_verlauf",
+    "title": "Verlauf eines Objekts",
+    "permission": "object:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "objekt_referenzen",
+    "title": "Referenzen eines Objekts",
+    "permission": "object:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "objekt_anlegen",
+    "title": "Objekt anlegen",
+    "permission": "object:write",
+    "scope": "objects:write",
+    "readOnly": false
+   },
+   {
+    "name": "objekt_aendern",
+    "title": "Objekt ändern",
+    "permission": "object:write",
+    "scope": "objects:write",
+    "readOnly": false
+   },
+   {
+    "name": "schemas_auflisten",
+    "title": "Objektschemas auflisten",
+    "permission": "schema:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "typen_auflisten",
+    "title": "Objekttypen eines Schemas",
+    "permission": "schema:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "attribute_auflisten",
+    "title": "Attribute eines Objekttyps",
+    "permission": "schema:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "pruefvorschlaege_auflisten",
+    "title": "Prüfvorschläge auflisten",
+    "permission": "proposal:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "pruefvorschlag_entscheiden",
+    "title": "Prüfvorschlag entscheiden",
+    "permission": "proposal:decide",
+    "scope": "proposals:decide",
+    "readOnly": false
+   },
+   {
+    "name": "verbindungen_auflisten",
+    "title": "Verbindungen auflisten",
+    "permission": "connection:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "quellenrang_lesen",
+    "title": "Quellenrang lesen",
+    "permission": "connection:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "sync_anstossen",
+    "title": "Abgleich anstossen",
+    "permission": "connection:sync",
+    "scope": "connections:sync",
+    "readOnly": false
+   },
+   {
+    "name": "audit_abfragen",
+    "title": "Audit-Protokoll abfragen",
+    "permission": "audit:read",
+    "scope": "audit:read",
+    "readOnly": true
+   },
+   {
+    "name": "doku_abrufen",
+    "title": "API-Doku abrufen",
+    "permission": "connector:draft",
+    "scope": "connectors:draft",
+    "readOnly": true
+   },
+   {
+    "name": "konnektor_schema",
+    "title": "Schema der Konnektor-Manifeste",
+    "permission": "connection:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "konnektor_validieren",
+    "title": "Manifest prüfen",
+    "permission": "connection:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "konnektor_entwurf_speichern",
+    "title": "Manifest-Entwurf speichern",
+    "permission": "connector:draft",
+    "scope": "connectors:draft",
+    "readOnly": false
+   },
+   {
+    "name": "testaufruf",
+    "title": "Testaufruf des Entwurfs",
+    "permission": "connection:write",
+    "scope": "connections:manage",
+    "readOnly": true
+   },
+   {
+    "name": "objekttypen_auflisten",
+    "title": "Objekttypen auflisten",
+    "permission": "schema:read",
+    "scope": null,
+    "readOnly": true
+   },
+   {
+    "name": "zuordnung_vorschlagen",
+    "title": "Zuordnung vorschlagen",
+    "permission": "connection:read",
+    "scope": null,
+    "readOnly": true
+   }
+  ]
+ },
+ "platformJson": "{\n  \"roles\": {\n    \"org-admin\": \"Organisations-Admin\",\n    \"schema-admin\": \"Schema-Admin\",\n    \"integration-admin\": \"Integrations-Admin\",\n    \"reviewer\": \"Prüfer:in\",\n    \"editor\": \"Bearbeiter:in\",\n    \"viewer\": \"Leser:in\",\n    \"auditor\": \"Auditor:in\"\n  },\n  \"scopes\": [\n    \"assets:read\",\n    \"objects:write\",\n    \"schemas:write\",\n    \"connections:manage\",\n    \"connections:sync\",\n    \"credentials:manage\",\n    \"connectors:draft\",\n    \"mappings:activate\",\n    \"proposals:decide\",\n    \"webhooks:manage\",\n    \"acl:read\",\n    \"acl:manage\",\n    \"audit:read\",\n    \"comments:write\",\n    \"comments:moderate\",\n    \"attachments:write\",\n    \"views:share\"\n  ]\n}\n"
+}

@@ -60,9 +60,13 @@ function makeSession(me: Me, switchOrg: IamSession['switchOrg'], logout: IamSess
   };
 }
 
-/** Organisation des Tabs für die Anfragen danach; die App erfährt Person und Organisation (`onTenant`). */
+/**
+ * Organisation und CSRF-Token für die Anfragen danach – sofort, bevor Kinder zeichnen (auch ihre Layout-Effekte schreiben
+ * schon mit Token); die App erfährt Person und Organisation (`onTenant`).
+ */
 function applyMe(me: Me, config: IamConfig) {
   if (me.tenant) setTenant(me.tenant.alias);
+  setCsrfToken(me.csrfToken);
   config.onTenant?.(me);
 }
 
@@ -135,14 +139,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (e) { toast.error(e, t('iam.session.switchFailed')); }
   }, [qc, toast, config.paths.home]);
   const logout = useCallback(async () => {
-    const r = await authFetch('/auth/logout', { method: 'POST' });
+    let r: Response;
+    try {
+      r = await authFetch('/auth/logout', { method: 'POST' });
+      // 401: Sitzung schon weg, Abmelden gilt; andere Fehler: Sitzung besteht noch, nichts lokal verwerfen
+      if (!r.ok && r.status !== 401) throw await errorFrom(r);
+    } catch (e) { toast.error(e, t('iam.session.logoutFailed')); return; }
     let target = config.paths.loggedOut;
     try { const j = (await r.json()) as { redirect?: string }; if (j.redirect && j.redirect !== '/') target = j.redirect; } catch { /* Weiterleitung lokal */ }
     writeTabOrg(null);
     config.onLogout?.();
     qc.clear();
     window.location.assign(target);
-  }, [qc, config]);
+  }, [qc, config, toast]);
 
   const value = useMemo<IamSession | null>(() => (meQ.data ? makeSession(meQ.data, switchOrg, logout) : null), [meQ.data, switchOrg, logout]);
 

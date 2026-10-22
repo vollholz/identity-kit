@@ -43,6 +43,7 @@ export const de = {
   'iam.session.redirecting': 'Weiterleitung zur Anmeldung …',
   'iam.session.switchFailed': 'Organisation nicht gewechselt',
   'iam.session.logout': 'Abmelden',
+  'iam.session.logoutFailed': 'Abmelden fehlgeschlagen',
   'iam.session.login': 'Erneut anmelden',
   'iam.session.expired.title': 'Sitzung abgelaufen',
   'iam.session.expired.text': 'Deine Anmeldung ist nicht mehr gültig, zum Beispiel nach längerer Inaktivität. Melde dich erneut an – du kommst danach hierher zurück.',

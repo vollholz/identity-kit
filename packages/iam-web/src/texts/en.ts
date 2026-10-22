@@ -41,6 +41,7 @@ export const en: Record<IamTextKey, string> = {
   'iam.session.redirecting': 'Redirecting to sign-in …',
   'iam.session.switchFailed': 'Organization not switched',
   'iam.session.logout': 'Sign out',
+  'iam.session.logoutFailed': 'Sign-out failed',
   'iam.session.login': 'Sign in again',
   'iam.session.expired.title': 'Session expired',
   'iam.session.expired.text': 'Your sign-in is no longer valid, for example after a longer period of inactivity. Sign in again – you will return here afterwards.',

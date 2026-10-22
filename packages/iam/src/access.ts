@@ -108,8 +108,9 @@ export class AccessService<P extends string = string, S = unknown> {
   private matches(p: Principal, e: AclRow): boolean {
     switch (e.principal_type) {
       case 'user': return e.principal_ref === p.principalId || e.principal_ref === p.subject;
-      // Maschinen-Clients: der Client der Freigabe (bei Token-Austausch über MCP der ursprüngliche, nicht der MCP-Dienst)
-      case 'client': return e.principal_ref === (p.grantId ?? p.clientId);
+      // Getauschte Tokens eines Maschinen-Clients (grantId ≠ clientId): Verbote für den ursprünglichen Client und den
+      // MCP-Dienst wirken; Freigaben und Beschränkungen nur für den ursprünglichen Client (sicher ausgelegt)
+      case 'client': return e.principal_ref === (p.grantId ?? p.clientId) || (e.effect === 'deny' && e.principal_ref === p.clientId);
       case 'role': return p.roles.includes(e.principal_ref);
       case 'group': return p.groups.includes(e.principal_ref);
       default: return false;

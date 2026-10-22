@@ -115,7 +115,7 @@ export function checkCatalog(c: AuthzCatalog, o: { product?: string; acl?: boole
     if (!g && c.permissions.some(p => RESERVED_PERMISSIONS.some(r => r.key === p.key && r.group === k))) errors.push(`Gruppe «${k}» fehlt`);
   }
   for (const s of c.scopes) if (s.permissions.includes('members:admin')) errors.push(`Scope «${s.key}» enthält «members:admin» (nur Personen, in keinem Scope)`);
-  if (o.acl && c.resourceTypes && !c.resourceTypes.some(t => t.key === 'tenant')) errors.push('Ressourcentyp «tenant» fehlt (Wurzel der Zugriffsregeln)');
+  if (o.acl && !c.resourceTypes?.some(t => t.key === 'tenant')) errors.push('Ressourcentyp «tenant» fehlt (Wurzel der Zugriffsregeln)');
   const tenantType = c.resourceTypes?.find(t => t.key === 'tenant');
   if (tenantType && tenantType.label !== 'Organisation') errors.push(`Ressourcentyp «tenant»: Label «${tenantType.label}» statt «Organisation»`);
 

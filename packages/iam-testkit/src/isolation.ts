@@ -122,7 +122,10 @@ export function coverageProblems(o: { all: Iterable<string>; covered: Map<string
   };
 }
 
+/** Operationen eines Path Item (OpenAPI 3.1); übrige Schlüssel (`summary`, `parameters`, `servers`, `$ref` …) sind keine. */
+const OPERATIONS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
+
 /** Routen aus einer OpenAPI-Beschreibung (`paths`), z. B. gefiltert auf `/v1/`. */
 export function routesOf(doc: { paths: Record<string, Record<string, unknown>> }, filter: (route: string) => boolean = () => true): string[] {
-  return Object.entries(doc.paths).flatMap(([path, ops]) => Object.keys(ops).map(m => `${m.toUpperCase()} ${path}`)).filter(filter);
+  return Object.entries(doc.paths).flatMap(([path, ops]) => Object.keys(ops).filter(m => OPERATIONS.includes(m)).map(m => `${m.toUpperCase()} ${path}`)).filter(filter);
 }

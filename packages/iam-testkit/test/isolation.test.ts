@@ -64,5 +64,7 @@ describe('Isolations-Durchlauf', () => {
 
   test('routesOf aus OpenAPI', () => {
     assert.deepEqual(routesOf({ paths: { '/v1/notes': { get: {}, post: {} }, '/health': { get: {} } } }, r => r.includes(' /v1/')), ['GET /v1/notes', 'POST /v1/notes']);
+    // Angaben auf Ebene des Pfads (OpenAPI 3.1: summary, description, servers, parameters, $ref) sind keine Operationen
+    assert.deepEqual(routesOf({ paths: { '/v1/notes/{id}': { summary: 'Notiz', description: 'x', servers: [], parameters: [], $ref: '#/x', get: {}, delete: {}, trace: {} } } }), ['GET /v1/notes/{id}', 'DELETE /v1/notes/{id}', 'TRACE /v1/notes/{id}']);
   });
 });

@@ -89,7 +89,7 @@ export class KeycloakFake {
     if (!m) return json(404, { error: 'unbekannt' });
     const path = m[1] ?? '';
     this.calls.push(`${method} ${path}`);
-    if (!String((init?.headers as Record<string, string> | undefined)?.authorization ?? '').startsWith('Bearer fake-')) return json(401, { error: 'HTTP 401 Unauthorized' });
+    if (!(new Headers(init?.headers).get('authorization') ?? '').startsWith('Bearer fake-')) return json(401, { error: 'HTTP 401 Unauthorized' });
     if (this.before) await this.before(`${method} ${path}`);
     if (this.deny.some(r => r.test(`${method} ${path}`))) return json(403, { error: 'HTTP 403 Forbidden' });
     const failing = this.fail.find(f => f.re.test(`${method} ${path}`));

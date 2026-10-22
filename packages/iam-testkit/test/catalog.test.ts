@@ -46,6 +46,7 @@ describe('checkCatalog', () => {
     ['Rolle mit unbekanntem Recht', c => { c.roles[1]!.permissions.push('note:delete'); }, 'Rolle «editor»: Recht «note:delete» nicht im Katalog'],
     ['Scope ohne Text', c => { c.scopes[0]!.text = ' '; }, 'Scope «notes:read»: Text fehlt'],
     ['Ressourcentyp unbekannt', c => { c.permissions[6]!.resources = ['tenant', 'folder']; }, 'Ressourcentyp «folder» nicht im Katalog'],
+    ['Ressourcentypen fehlen ganz', c => { delete c.resourceTypes; }, 'Ressourcentyp «tenant» fehlt'],
     ['Ressourcentyp tenant fehlt', c => { c.resourceTypes = c.resourceTypes!.filter(t => t.key !== 'tenant'); for (const p of c.permissions) p.resources = p.resources.filter(r => r !== 'tenant'); }, 'Ressourcentyp «tenant» fehlt'],
     ['reservierte Gruppe falsches Label', c => { c.groups[3]!.label = 'Audit'; }, 'Gruppe «audit»: Label «Audit» statt «Protokoll»'],
     ['doppelte Rolle', c => { c.roles.push({ ...c.roles[1]! }); }, 'Rolle «editor» mehrfach'],

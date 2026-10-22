@@ -66,6 +66,10 @@ describe('KeycloakFake', () => {
     const tok = await (await kc.fetch('http://kc.test/realms/notes/protocol/openid-connect/token', { method: 'POST', body: 'grant_type=client_credentials' })).json() as { access_token: string };
     const orgs = await (await kc.fetch(`${base}/organizations`, { headers: { authorization: `Bearer ${tok.access_token}` } })).json() as { alias: string }[];
     assert.deepEqual(orgs.map(x => x.alias), ['acme']);
+    // Kopfzeilen sind unabhängig von der Schreibweise und als Headers-Objekt gültig (HeadersInit)
+    for (const headers of [{ Authorization: `Bearer ${tok.access_token}` }, new Headers({ authorization: `Bearer ${tok.access_token}` }), [['AUTHORIZATION', `Bearer ${tok.access_token}`]] as [string, string][]]) {
+      assert.equal((await kc.fetch(`${base}/organizations`, { headers })).status, 200);
+    }
     kc.deny.push(/^GET \/organizations$/);
     assert.equal((await kc.fetch(`${base}/organizations`, { headers: { authorization: `Bearer ${tok.access_token}` } })).status, 403);
   });

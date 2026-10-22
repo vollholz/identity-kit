@@ -35,8 +35,12 @@ export function Button(props: ButtonProps) {
   const cls = buttonClass(variant, size, className);
   const content = <>{icon ? <Icon name={icon} className="iam-ico" /> : null}{children}</>;
   if (rest.href !== undefined) {
-    const { ref, ...a } = rest as AnchorHTMLAttributes<HTMLAnchorElement> & { ref?: Ref<HTMLAnchorElement> };
-    return <a ref={ref} className={cls} {...a}>{content}</a>;
+    const { ref, onClick, ...a } = rest as AnchorHTMLAttributes<HTMLAnchorElement> & { ref?: Ref<HTMLAnchorElement> };
+    // gesperrter Link: bleibt fokussierbar, navigiert aber nicht
+    return (
+      <a ref={ref} className={cls} {...a} aria-disabled={busy || a['aria-disabled'] || undefined}
+        onClick={(e: MouseEvent<HTMLAnchorElement>) => { if (busy) { e.preventDefault(); return; } onClick?.(e); }}>{content}</a>
+    );
   }
   const { ref, type = 'button', onClick, ...b } = rest as ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement> };
   return (

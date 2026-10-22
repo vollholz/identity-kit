@@ -308,6 +308,16 @@ describe('Knopf und Tabelle', () => {
     expect(screen.getByRole('button', { name: 'Speichern' })).toHaveAttribute('aria-disabled', 'true');
     rerender(<Button href="/auth/login" variant="danger-solid">Erneut anmelden</Button>);
     expect(screen.getByRole('link', { name: 'Erneut anmelden' })).toHaveClass('iam-btn', 'iam-danger', 'iam-solid');
+    expect(screen.getByRole('link', { name: 'Erneut anmelden' })).not.toHaveAttribute('aria-disabled');
+    // gesperrter Link: aria-disabled, Klick navigiert nicht
+    const linkClick = vi.fn();
+    rerender(<Button href="/auth/login" busy onClick={linkClick}>Weiter</Button>);
+    const link = screen.getByRole('link', { name: 'Weiter' });
+    expect(link).toHaveAttribute('aria-disabled', 'true');
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(linkClick).not.toHaveBeenCalled();
   });
 
   it('Tabelle: Rahmenklassen und Stapeln unter 760 px', () => {

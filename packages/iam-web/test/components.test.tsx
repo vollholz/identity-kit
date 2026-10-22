@@ -290,6 +290,28 @@ describe('Auswahl (Picker)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
     expect(await screen.findByRole('option', { name: 'Treffer für nix!' })).toBeInTheDocument();
   });
+
+  it('nachgeladene Treffer gelten nur für ihren Suchbegriff: alte sind weder anklickbar noch per Enter wählbar', async () => {
+    const pending = new Map<string, (r: { value: string; label: string }[]) => void>();
+    const load = vi.fn((q: string) => new Promise<{ value: string; label: string }[]>(res => { pending.set(q, res); }));
+    const pick = vi.fn();
+    renderUi(<Picker anchor={anchor()} load={load} onPick={pick} onClose={() => {}} />);
+    await waitFor(() => expect(pending.has('')).toBe(true));
+    act(() => pending.get('')!([{ value: 'alt', label: 'Anna Alt' }]));
+    expect(await screen.findByRole('option', { name: 'Anna Alt' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('combobox'), 'b');
+    expect(screen.queryByRole('option')).toBeNull();
+    expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+    await userEvent.keyboard('{Enter}');
+    expect(pick).not.toHaveBeenCalled();
+    await waitFor(() => expect(pending.has('b')).toBe(true));
+    await userEvent.keyboard('{Enter}');
+    expect(pick).not.toHaveBeenCalled();
+    act(() => pending.get('b')!([{ value: 'neu', label: 'Berta Neu' }]));
+    expect(await screen.findByRole('option', { name: 'Berta Neu' })).toBeInTheDocument();
+    await userEvent.keyboard('{Enter}');
+    expect(pick).toHaveBeenCalledWith(['neu']);
+  });
 });
 
 describe('Knopf und Tabelle', () => {

@@ -31,7 +31,8 @@ export function Picker({ anchor, title, items, load, multi, selected = [], allow
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const [sel, setSel] = useState<string[]>(selected);
-  const [remote, setRemote] = useState<PickItem[] | null>(null);
+  /** Ergebnis je Suchbegriff: Bis die Antwort zum aktuellen Begriff da ist, gibt es nichts zu wählen (keine alten Treffer). */
+  const [remote, setRemote] = useState<{ q: string; items: PickItem[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -52,7 +53,7 @@ export function Picker({ anchor, title, items, load, multi, selected = [], allow
     let alive = true;
     setLoading(true);
     const timer = setTimeout(() => {
-      load(q).then(r => { if (alive) { setRemote(r); setFailed(false); setLoading(false); } }, () => { if (alive) { setRemote([]); setFailed(true); setLoading(false); } });
+      load(q).then(r => { if (alive) { setRemote({ q, items: r }); setFailed(false); setLoading(false); } }, () => { if (alive) { setRemote({ q, items: [] }); setFailed(true); setLoading(false); } });
     }, 180);
     return () => { alive = false; clearTimeout(timer); };
   }, [q, load, attempt]);
@@ -64,8 +65,10 @@ export function Picker({ anchor, title, items, load, multi, selected = [], allow
   }, [anchor, onClose]);
 
   const ql = q.trim().toLowerCase();
-  const list = load ? (remote ?? []) : (items ?? []).filter(i => !ql || i.label.toLowerCase().includes(ql) || i.sub?.toLowerCase().includes(ql));
+  const list = load ? (remote?.q === q ? remote.items : []) : (items ?? []).filter(i => !ql || i.label.toLowerCase().includes(ql) || i.sub?.toLowerCase().includes(ql));
   const cur = Math.min(idx, Math.max(0, list.length - 1));
+  // vom Tippen bis zur Antwort für diesen Begriff (inkl. Wartezeit vor der Anfrage)
+  const pending = loading || (!!load && remote?.q !== q);
 
   const choose = (v: string) => {
     if (!multi) { onPick([v]); onClose(); return; }
@@ -87,10 +90,10 @@ export function Picker({ anchor, title, items, load, multi, selected = [], allow
       </div>
       <div className="iam-pl">
         <div role="status" aria-live="polite">
-          {loading && !list.length ? <div className="iam-pi iam-muted">{t('iam.picker.loading')}</div> : null}
-          {!loading && !failed && !list.length ? <div className="iam-pi iam-muted">{t('iam.picker.none')}</div> : null}
+          {pending && !list.length ? <div className="iam-pi iam-muted">{t('iam.picker.loading')}</div> : null}
+          {!pending && !failed && !list.length ? <div className="iam-pi iam-muted">{t('iam.picker.none')}</div> : null}
         </div>
-        {!loading && failed ? <div className="iam-pi iam-muted" role="alert">{t('iam.picker.failed')} <Button size="sm" variant="ghost" onClick={() => setAttempt(a => a + 1)}>{t('iam.state.retry')}</Button></div> : null}
+        {!pending && failed ? <div className="iam-pi iam-muted" role="alert">{t('iam.picker.failed')} <Button size="sm" variant="ghost" onClick={() => setAttempt(a => a + 1)}>{t('iam.state.retry')}</Button></div> : null}
         <div role="listbox" id={listId} aria-label={title ?? t('iam.picker.list')} aria-multiselectable={multi || undefined}>
           {list.map((it, i) => {
             const on = sel.includes(it.value);

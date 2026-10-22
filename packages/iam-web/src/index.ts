@@ -1,6 +1,6 @@
 /**
  * @vollholz/iam-web – Oberfläche des IAM-Baukastens (Spezifikation Kap. 11, docs/entwurf.md).
- * Stand 2c: Vertragstypen, Client, Fehler, Organisation je Tab, Texte, Formatierung, Grundkomponenten, Provider und Sitzung.
+ * Stand 3: Vertragstypen, Client, Organisation je Tab, Texte, Grundkomponenten, Provider und Sitzung, Rechte-Bausteine.
  */
 export type * from './contract.ts';
 export { ApiError, describeError, errorFrom, fieldErrorText, networkError, statusText, type ErrorText } from './problem.ts';
@@ -31,3 +31,14 @@ export { historyRouter, type IamLinkProps, type IamRouter } from './router.tsx';
 export { iamKeys } from './keys.ts';
 export { useIamText } from './texts/react.tsx';
 export { useIamFetch } from './fetch.ts';
+export { useAdminStatus } from './admin.ts';
+export { MissingRight, missingRightText, NoPermission, type Need } from './rights/MissingRight.tsx';
+export { AdminHead, type AdminHeadProps } from './rights/AdminHead.tsx';
+export { Requires, RequiresPlatformAdmin, type RequiresProps } from './rights/Requires.tsx';
+export { RightsOverview, rightsModel, roleSummary, type RightRow, type RightsInput, type RightsOverviewProps, type RightStatus } from './rights/RightsOverview.tsx';
+export { RoleCompare, RoleMatrix, type RoleMatrixProps } from './rights/RoleMatrix.tsx';
+export { MyRightsDialog } from './rights/MyRights.tsx';
+export { AccountMenu, type AccountMenuProps } from './rights/AccountMenu.tsx';
+export { OrgName, useOrgSwitchItems, type OrgSwitchItem } from './rights/OrgSwitch.tsx';
+export { listAnd, listOr } from './texts/index.ts';
+export { formatNode } from './texts/node.tsx';

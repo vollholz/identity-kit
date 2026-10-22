@@ -152,8 +152,9 @@ Ohne Registrierung ist `Permission` = `string`. Die reservierten Rechte (`tenant
 | `<RightsOverview roles permissions scopes admin rulesNote>`, `rightsModel()` | Rechte-Übersicht für alle Blickwinkel (11.2) |
 | `<RoleMatrix>`, `<RoleCompare>` | Rechtegruppe × Rolle, ohne waagrechtes Scrollen |
 | `<MyRightsDialog>` | «Meine Rollen und Rechte» |
-| `<AccountMenu avatar? extraItems?>` | Kontomenü: Person, Organisation, «Meine Rollen und Rechte», Organisation wechseln, Abmelden; die App ergänzt eigene Einträge |
-| `<OrgName>`, `<OrgSwitchItems>` | Name der Organisation für die Kopfzeile; Einträge «Zu «X» wechseln» für die Befehlspalette der App |
+| `<AccountMenu avatar extraItems?>` | Kontomenü: Person, Organisation, «Meine Rollen und Rechte», Organisation wechseln, Abmelden; die App ergänzt eigene Einträge (`extraItems(close)`) |
+| `<OrgName>`, `useOrgSwitchItems()` | Name der Organisation für die Kopfzeile; Einträge «Zu «X» wechseln» (`{ alias, name, label, run }`) für die Befehlspalette der App |
+| `<AdminHead icon title sub? actions? crumbs?>` | Kopf der Verwalten-Seiten: Pfad «Produkt › Verwalten › … › Titel» mit Links über den Router-Adapter |
 | `<AclHint resourceType resourceId>` | «Zugriff eingeschränkt (n)» an einer Ressource (nur mit Zugriffsregeln) |
 | `<NotFound>`, `<ErrorState>`, `<ErrorBox>`, `<Loading>`, `<Empty>` | Zustände wie in Assets, 404-Text nach 11.1 |
 
@@ -244,8 +245,6 @@ interface IamResources {
   useChain?(type: string, id: string | null): { type: string; id: string; label: string }[] | undefined;
   /** Auf welchen Typen keine Freigabe möglich ist (Blatt der Kette, Spezifikation 7.1); Standard: Blatt. */
   noGrant?: string[];
-  /** Hinweis in der Rechte-Übersicht (Assets: «… für einzelne Schemas, Typen oder Verbindungen …»). */
-  rulesNote?: string;
 }
 ```
 
@@ -272,7 +271,7 @@ Der Baustein `<PersonName id>` löst gesammelt auf (ein Aufruf je Darstellung, Z
 |---|---|
 | `Permission` als Union aller 32 Rechte | `Register` der App (1.3) |
 | `ROLE_GROUPS` (Verwaltung/Arbeit/Kontrolle mit Assets-Rollen), `ROLE_ICON` | Props `roleGroups`, `roleIcons`; Standard: «Gesamte Organisation» (`org-admin`), «Rollen» (übrige vordefinierte), «Eigene Rollen» |
-| `RULES_NOTE` nennt Schemas, Typen, Verbindungen | Text `iam.rights.rulesNote`, die App setzt ihn über `resources.rulesNote` oder `texts` |
+| `RULES_NOTE` nennt Schemas, Typen, Verbindungen | Text `iam.rights.rulesNote` (neutral: «… für einzelne Bereiche …»); die App überschreibt ihn über `texts` |
 | Ressourcennamen aus `useCatalog`, `useConnections`, `useCredentials`; Regel «keine Freigabe auf `object`» | `resources` (1.7) |
 | `UserChip` und Personensuche aus `/v1/people` | `people`-Adapter mit Standard `/v1/people` (1.8) |
 | Marke «Assets» mit Symbol `layers` auf Auswahl- und Abmeldeseite | `product`, `brand` |
@@ -434,7 +433,7 @@ Eigener PR in vollholz/assets nach 0.1.0, Paket gepinnt (`"@vollholz/iam-web": "
    | `product` | `"Assets"` |
    | `brand` | Marke mit Symbol `layers` (heute in `Gate`) |
    | `locale` | `"de"` |
-   | `texts` | keine (die deutschen Texte des Pakets sind die von Assets) |
+   | `texts` | `{ de: { 'iam.rights.rulesNote': <heutiger RULES_NOTE> } }`; sonst keine (die deutschen Texte des Pakets sind die von Assets) |
    | `queryClient` | der bestehende `QueryClient` aus `main.tsx` |
    | `router` | TanStack-Router-Adapter (1.6) |
    | `paths` | keine (Standard = heutige Pfade) |
@@ -442,7 +441,7 @@ Eigener PR in vollholz/assets nach 0.1.0, Paket gepinnt (`"@vollholz/iam-web": "
    | `legacyTabKey` | `"assets.tab.org"` |
    | `components` | `{ Icon }` (Assets-Symbole), `toast` aus `ui/Toasts.tsx`; Knopf, Dialog, Menü, Tabelle aus dem Paket |
    | `roleGroups`, `roleIcons` | heutige `ROLE_GROUPS`, `ROLE_ICON` |
-   | `resources` | Schema, Typ (Kette Schema › Obertypen), Verbindung, Credential; `noGrant: ['object']`; `rulesNote` = heutiger `RULES_NOTE` |
+   | `resources` | Schema, Typ (Kette Schema › Obertypen), Verbindung, Credential; `noGrant: ['object']` |
    | `people` | keine (Standard `/v1/people`) |
    | `onTenant` | `me => setPrefScope(me.person.subject, me.tenant?.id ?? null)` |
    | `onLogout` | `clearPersonalPrefs` |

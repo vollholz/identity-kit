@@ -10,7 +10,7 @@ Inhalt (Ziel 0.1.0): `IamProvider`, Sitzung und `/auth/me`, Organisation je Tab,
 Herkunft: vollholz/assets `web/src/auth`, `web/src/shell/{UserMenu,MyRights}.tsx`, `web/src/ui/{MissingRight,
 RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}`, `web/src/features/{admin,acl}`.
 
-## Stand (Teil-PR 2c)
+## Stand (Teil-PR 3)
 
 | Baustein | Inhalt |
 |---|---|
@@ -30,6 +30,9 @@ RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}
 | `useAuthz`, `useRoles`, `roleGroupProblems` | Katalog (mit `Accept-Language`) und eigene Rollen; Gruppen der Rollen nach `roleGroups` |
 | `useResourceCan`, `useIamFetch`, `iamKeys` | Fähigkeiten je Ressource, Aufrufe an den Vertrag, Abfrageschlüssel |
 | `historyRouter`, `IamRouter` | Router-Adapter; ohne Router der App die History-API |
+| `Requires`, `RequiresPlatformAdmin`, `NoPermission`, `MissingRight`, `missingRightText` | Routen-Guards und Hinweis auf fehlende Rechte (Plattform-Administration aus `/v1/admin/status`) |
+| `RightsOverview`, `rightsModel`, `RoleMatrix`, `RoleCompare` | Rechte-Übersicht für alle Blickwinkel, Rollenmatrix |
+| `AccountMenu`, `MyRightsDialog`, `OrgName`, `useOrgSwitchItems`, `AdminHead`, `useAdminStatus` | Kontomenü, «Meine Rollen und Rechte», Organisation in Kopfzeile und Befehlspalette, Seitenkopf |
 | `@vollholz/iam-web/testing` | `StaticIam`, `mockIamApi`, `CATALOG`, `ME` für Tests der App |
 
 Noch `private`; veröffentlicht wird mit dem letzten Teil-PR.

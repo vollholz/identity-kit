@@ -39,7 +39,9 @@
 
   /* Grundlage wie in Assets: Rahmen in der Breite enthalten; Bedienelemente übernehmen Schrift und Farbe; Fokus sichtbar */
   :where([class^="iam-"], [class*=" iam-"]), :where([class^="iam-"], [class*=" iam-"]) :where(*, *::before, *::after) { box-sizing: border-box }
-  :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button) { font: inherit; cursor: pointer }
+  :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button, .iam-seg button, .iam-rights-wb, .iam-rm-tg) { font: inherit; color: inherit; cursor: pointer }
+  :where(.iam-search input) { font: inherit; color: inherit }
+  :where(details.iam-more > summary) { color: inherit }
   :where(.iam-pop input) { font: inherit; color: inherit }
   :where([class*="iam-"]):focus-visible { outline: 2px solid var(--iam-focus); outline-offset: 2px }
   @media (prefers-reduced-motion: reduce) { [class*="iam-"] { animation: none !important; transition: none !important } }
@@ -249,4 +251,133 @@
   /* aus Assets features/admin/admin.css: Einträge im Menü */
   .iam-menu-i.iam-danger{color:var(--iam-bad)}
   .iam-menu-i[disabled]{opacity:.45;cursor:not-allowed}
+
+  /* Rechte-Bausteine: Rechte-Übersicht, Rollenmatrix, «Meine Rollen und Rechte», Kontomenü (aus Assets base.css, app.css) */
+  .iam-seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--iam-surface-2);border:1px solid var(--iam-line)}
+  .iam-seg button{border:0;background:none;padding:5px 10px;border-radius:6px;color:var(--iam-text-2);font-weight:500;font-size:13px}
+  .iam-seg button.iam-on{background:var(--iam-surface);color:var(--iam-text);box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px var(--iam-line)}
+  .iam-search{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--iam-line-2);border-radius:7px;background:var(--iam-surface);min-width:0;flex:0 1 280px}
+  .iam-search input{border:0;outline:0;background:none;flex:1;min-width:0}
+  .iam-search:focus-within{border-color:var(--iam-accent);box-shadow:0 0 0 3px var(--iam-accent-soft)}
+  .iam-seg button[disabled]{opacity:.45;cursor:not-allowed}
+  .iam-seg.iam-xs button{padding:4px 8px;font-size:12.5px}
+  .iam-seg button[aria-pressed="true"]{background:var(--iam-surface);color:var(--iam-text);box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px var(--iam-line)}
+  .iam-card{border:1px solid var(--iam-line);border-radius:12px;background:var(--iam-surface);min-width:0}
+  .iam-seg.iam-wrap{flex-wrap:wrap}
+  .iam-card.iam-pad{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+  details.iam-more > summary{cursor:pointer;font-weight:600;font-size:13.5px;list-style:none;display:flex;align-items:center;gap:8px}
+  details.iam-more > summary::-webkit-details-marker{display:none}
+  details.iam-more > summary::before{content:"";width:6px;height:6px;border-right:1.6px solid var(--iam-text-3);border-bottom:1.6px solid var(--iam-text-3);transform:rotate(-45deg);transition:transform .15s;flex:none}
+  details.iam-more[open] > summary::before{transform:rotate(45deg)}
+  details.iam-more[open] > summary{margin-bottom:12px}
+  details.iam-more.iam-card.iam-pad{gap:0}
+  .iam-usermenu{position:relative}
+  .iam-menu-h{display:flex;flex-direction:column;gap:3px;padding:8px 10px 10px;border-bottom:1px solid var(--iam-line);margin-bottom:4px}
+  .iam-seg button:focus-visible{outline:2px solid var(--iam-focus);outline-offset:1px}
+  .iam-role-matrix{margin-top:8px;border:1px solid var(--iam-line);border-radius:10px}
+  .iam-role-matrix table{width:100%;min-width:0;table-layout:fixed;border-collapse:separate;border-spacing:0}
+  .iam-role-matrix th,.iam-role-matrix td{padding:5px 4px;font-size:12px;border-bottom:1px solid var(--iam-line)}
+  .iam-role-matrix tbody tr:last-child > *{border-bottom:0}
+  .iam-role-matrix th.iam-rm-g{width:170px;text-align:left;font-weight:500;padding-left:10px;white-space:normal;overflow-wrap:anywhere;position:sticky;left:0;z-index:1;background:var(--iam-surface)}
+  .iam-role-matrix thead th{position:sticky;top:-10px;z-index:2;background:var(--iam-surface);vertical-align:bottom;font-weight:600}
+  .iam-role-matrix thead th.iam-rm-g{z-index:3}
+  .iam-role-matrix th.iam-rm-role{text-align:center;padding:8px 2px}
+  .iam-role-matrix th.iam-rm-role > span:first-child{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;display:inline-block}
+  .iam-role-matrix .iam-rm-sep{border-left:1px solid var(--iam-line)}
+  .iam-role-matrix td{text-align:center;font-variant-numeric:tabular-nums}
+  .iam-role-matrix td.iam-rm-some{color:var(--iam-text-2)}
+  .iam-role-matrix td.iam-rm-none{color:var(--iam-text-3)}
+  .iam-role-matrix .iam-rm-tg{all:unset;box-sizing:border-box;display:flex;align-items:baseline;gap:7px;width:100%;cursor:pointer;border-radius:4px}
+  .iam-role-matrix .iam-rm-tg::before{content:"";width:5px;height:5px;border-right:1.5px solid var(--iam-text-3);border-bottom:1.5px solid var(--iam-text-3);transform:translateY(-2px) rotate(-45deg);transition:transform .15s;flex:none}
+  .iam-role-matrix .iam-rm-tg[aria-expanded="true"]::before{transform:translateY(-3px) rotate(45deg)}
+  .iam-role-matrix .iam-rm-tg:focus-visible{outline:2px solid var(--iam-focus);outline-offset:2px}
+  .iam-role-matrix tr.iam-rm-open th.iam-rm-g{font-weight:600}
+  .iam-role-matrix tr.iam-rm-perm th.iam-rm-g{font-weight:400;color:var(--iam-text-2);padding-left:22px}
+  .iam-role-matrix tr.iam-rm-perm > *{padding-top:3px;padding-bottom:3px}
+  .iam-role-matrix .iam-mine{background:var(--iam-accent-soft)}
+  .iam-role-matrix thead th.iam-mine{background:var(--iam-accent-soft)}
+  .iam-role-matrix tbody tr:hover td.iam-mine{background:var(--iam-accent-soft)}
+  @media (forced-colors: active){
+    .iam-role-matrix .iam-mine{outline:1px solid CanvasText;outline-offset:-1px}
+  }
+  @media (max-width:640px){
+    .iam-role-matrix th.iam-rm-g{width:112px;padding-left:8px}
+    .iam-role-matrix th,.iam-role-matrix td{padding-left:2px;padding-right:2px;font-size:11.5px}
+    .iam-role-matrix tr.iam-rm-perm th.iam-rm-g{padding-left:14px}
+  }
+  .iam-my-rights h4{margin:16px 0 8px;font:600 13px var(--iam-font)}
+  .iam-my-rights > h4:first-of-type{margin-top:12px}
+  .iam-my-rights .iam-role-compare{margin-top:18px}
+  .iam-my-roles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:8px}
+  .iam-my-roles li{display:flex;flex-direction:column;gap:2px;padding:9px 12px;line-height:1.4;border-left:3px solid var(--iam-accent)}
+  .iam-rights{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .iam-rights-head{display:flex;flex-direction:column;gap:6px}
+  .iam-rights-n{margin:0;font-size:13.5px;line-height:1.45}
+  .iam-rights-n b{font-weight:600;font-variant-numeric:tabular-nums}
+  .iam-rights-admin{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:9px 12px;border-radius:8px;background:var(--iam-accent-soft);color:var(--iam-text);font-size:13px}
+  .iam-rights-admin .iam-ico{width:16px;height:16px;color:var(--iam-accent);flex:none}
+  .iam-rights-admin .iam-linkbtn{color:var(--iam-accent);font-size:13px;font-weight:500;margin-left:auto}
+  .iam-rights-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .iam-rights-tools .iam-seg button{display:inline-flex;align-items:center;gap:5px}
+  .iam-rights-search{flex:1 1 180px;height:30px}
+  .iam-rights-groups{display:flex;flex-direction:column;border:1px solid var(--iam-line);border-radius:10px;overflow:hidden}
+  .iam-rights-g + .iam-rights-g{border-top:1px solid var(--iam-line)}
+  .iam-rights-gh{margin:0;display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;font-weight:600;color:var(--iam-text-2);background:var(--iam-surface-2)}
+  .iam-rights-gh > span:first-child{flex:1;min-width:0}
+  .iam-rights-gc{font-weight:500;font-variant-numeric:tabular-nums;color:var(--iam-text-3)}
+  .iam-rights-list{list-style:none;margin:0;padding:0}
+  .iam-rights-r{display:grid;grid-template-columns:18px minmax(0,1fr) auto auto;align-items:center;column-gap:10px;padding:6px 12px;font-size:13px;border-top:1px solid var(--iam-line)}
+  .iam-rights-ico{display:inline-flex;width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center}
+  .iam-rights-ico .iam-ico{width:12px;height:12px;stroke-width:2.4}
+  .iam-rights-r.iam-is-allowed .iam-rights-ico{background:var(--iam-ok-soft);color:var(--iam-ok)}
+  .iam-rights-r.iam-is-role .iam-rights-ico{background:var(--iam-surface-2);color:var(--iam-text-3);box-shadow:inset 0 0 0 1px var(--iam-line)}
+  .iam-rights-r.iam-is-scope .iam-rights-ico{background:var(--iam-warn-soft);color:var(--iam-warn)}
+  .iam-rights-r.iam-is-role .iam-rights-l{color:var(--iam-text-2)}
+  .iam-rights-l{overflow-wrap:anywhere;line-height:1.35}
+  .iam-rights-st{font-size:12px;white-space:nowrap;color:var(--iam-text-3)}
+  .iam-rights-r.iam-is-allowed .iam-rights-st{color:var(--iam-ok)}
+  .iam-rights-r.iam-is-scope .iam-rights-st{color:var(--iam-warn)}
+  .iam-rights-wb{background:none;border:0;padding:2px 4px;border-radius:4px;font-size:12px;color:var(--iam-text-3);text-decoration:underline dotted;text-underline-offset:3px}
+  .iam-rights-wb:hover,.iam-rights-wb[aria-expanded="true"]{color:var(--iam-text)}
+  .iam-rights-wb:focus-visible{outline:2px solid var(--iam-focus);outline-offset:1px}
+  .iam-rights-why{grid-column:2 / -1;margin-top:6px}
+  .iam-rights-why-l{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;font-size:12.5px;line-height:1.45;padding:8px 10px;border-radius:7px;background:var(--iam-surface-2)}
+  .iam-rights-why-l > div{display:contents}
+  .iam-rights-why-l dt{color:var(--iam-text-3);font-weight:500}
+  .iam-rights-why-l dd{margin:0;overflow-wrap:anywhere}
+  .iam-rights-why-l .iam-rights-why-key dt,.iam-rights-why-l .iam-rights-why-key dd{color:var(--iam-text-3);font:400 11.5px var(--iam-font-mono)}
+  .iam-rights-why-l .iam-rights-why-key dt{font-family:var(--iam-font)}
+  .iam-rights-why-all{margin:0}
+  .iam-rights-empty{margin:0;padding:12px}
+  .iam-rights-delta{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;font-size:13px;line-height:1.45}
+  .iam-rights-delta .iam-linkbtn{color:var(--iam-accent);font-size:12.5px;font-weight:500;margin-left:auto}
+  .iam-rights-add{color:var(--iam-ok);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .iam-rights-del{color:var(--iam-bad);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .iam-rights-chg{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:2px 16px}
+  .iam-rights-chg li{display:flex;align-items:baseline;gap:7px;min-width:0;font-size:12.5px;line-height:1.5}
+  .iam-rights-chg-l{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
+  .iam-rights-chg li .iam-muted{flex:0 1 auto;min-width:0;max-width:45%;margin-left:auto;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .iam-rights-chg-ico{flex:none;width:14px;text-align:center;font-weight:700}
+  .iam-rights-chg .iam-is-add .iam-rights-chg-ico{color:var(--iam-ok)}
+  .iam-rights-chg .iam-is-del .iam-rights-chg-ico{color:var(--iam-bad)}
+  .iam-rights-tag{display:inline-block;margin-left:7px;padding:0 6px;border-radius:8px;font-size:11px;line-height:16px;font-weight:600;vertical-align:1px;white-space:nowrap}
+  .iam-rights-r.iam-is-add .iam-rights-tag{background:var(--iam-ok-soft);color:var(--iam-ok)}
+  .iam-rights-r.iam-is-del .iam-rights-tag{background:var(--iam-bad-soft);color:var(--iam-bad)}
+  .iam-rights-r.iam-is-add{box-shadow:inset 3px 0 0 var(--iam-ok)}
+  .iam-rights-r.iam-is-del{box-shadow:inset 3px 0 0 var(--iam-bad)}
+  @media (forced-colors: active){
+    .iam-rights-ico,.iam-rights-tag{border:1px solid CanvasText}
+  }
+  @media (max-width:520px){
+    .iam-rights-r{grid-template-columns:18px minmax(0,1fr) auto;row-gap:1px}
+    .iam-rights-st{grid-column:2;grid-row:2}
+    .iam-rights-wb{grid-column:3;grid-row:1 / span 2}
+    .iam-rights-why{grid-column:1 / -1}
+  }
+
+  /* Seitengerüst der Verwalten-Seiten (Assets .body, .int, .pb) */
+  .iam-pb{padding-bottom:16px}
+  .iam-body{flex:1;min-height:0;overflow:auto;position:relative}
+  .iam-int{padding:22px;display:flex;flex-direction:column;gap:28px}
+  .iam-b{font-weight:600}
 }

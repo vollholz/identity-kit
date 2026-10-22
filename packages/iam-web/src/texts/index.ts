@@ -57,3 +57,13 @@ export function tn(key: IamPluralKey, count: number, vars?: TextVars): string {
 
 /** Eingebaute Texte je Sprache (für Tests und Werkzeuge). */
 export const builtinTexts: Readonly<Record<string, IamTexts>> = BUILTIN;
+
+/** Aufzählung nach Sprache: «A», «B» und «C» (de) bzw. A, B, and C (en). */
+export function listAnd(items: readonly string[]): string {
+  return new Intl.ListFormat(intlLocale(), { type: 'conjunction' }).format(items);
+}
+
+/** Aufzählung mit «oder». */
+export function listOr(items: readonly string[]): string {
+  return new Intl.ListFormat(intlLocale(), { type: 'disjunction' }).format(items);
+}

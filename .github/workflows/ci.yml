@@ -18,7 +18,7 @@ jobs:
   check:
     name: Typprüfung, Build und Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -42,5 +42,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - name: Browser-Tests iam-web (Chromium, axe)
+        run: |
+          npx --workspace @vollholz/iam-web playwright install --with-deps chromium
+          npm run e2e --workspace @vollholz/iam-web
       - name: Pakete lassen sich packen
         run: npm pack --workspaces --dry-run

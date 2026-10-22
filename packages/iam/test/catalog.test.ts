@@ -154,3 +154,10 @@ test('Assets ohne Stichwörter wäre nicht geprüft; mit falscher Beschreibung b
   (i.roles.viewer as { description: string }).description = 'Liest alles.';
   assert.ok(errorsOf(i).some(e => /Rolle «viewer»: Beschreibung nennt die Rechtegruppe «schemas» nicht/.test(e)));
 });
+
+test('Stichwörter als RegExp mit g oder y: jede Rollenbeschreibung wird von vorn geprüft', () => {
+  for (const flags of ['g', 'y', 'gi']) {
+    const i = notesInput();
+    assert.deepEqual(errorsOf({ ...i, groups: [{ key: 'notes', label: 'Notizen', match: new RegExp('notiz|.*notiz', flags) }] }), [], flags);
+  }
+});

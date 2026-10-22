@@ -84,6 +84,7 @@ describe('Token-Prüfung', () => {
       ['ohne jti', await k.proof('GET', URL, tok, { jti: undefined }), /jti fehlt/],
       ['ohne Proof', undefined, /DPoP-Nachweis fehlt/],
       ['kein JWS', 'abc', /kein JWS/],
+      ['htu keine URL', await k.proof('GET', 'keine url', tok), /htu/],
     ];
     for (const [label, dpop, re] of cases) await rejects(verify(tok, { dpop }), 401, re, label);
     const proof = await k.proof('GET', `${URL}?x=1#f`, tok);
@@ -114,6 +115,11 @@ describe('Token-Prüfung', () => {
     await rejects(wrong.verify(await idp.token(claims.user({ org: 'acme' })), { audience: 'notes-api', method: 'GET', url: URL }), 503, /falsch konfiguriert/, 'Issuer');
     const down = new OidcProvider(idp.issuer, async () => new Response('', { status: 500 }));
     await rejects(down.discovery(), 503, /nicht erreichbar/, 'Discovery');
+    // Netzwerkfehler (DNS, Verbindung, Zeitüberschreitung): 503 statt 401, sonst gelten alle als nicht angemeldet
+    const offline = new TokenVerifier(new OidcProvider(idp.issuer, async () => { throw new TypeError('fetch failed'); }), testConfig(idp.issuer));
+    await rejects(offline.verify(await idp.token(claims.user({ org: 'acme' })), { audience: 'notes-api', method: 'GET', url: URL }), 503, /nicht erreichbar/, 'Netzwerk');
+    const garbled = new OidcProvider(idp.issuer, async () => new Response('<html>'));
+    await rejects(garbled.discovery(), 503, /nicht erreichbar/, 'kein JSON');
   });
 });
 

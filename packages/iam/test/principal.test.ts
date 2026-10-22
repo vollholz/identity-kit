@@ -153,7 +153,7 @@ describe('Resolver gegen PostgreSQL', { skip }, () => {
     await grant('acme', 'exporter');
     resolver.forgetClient((await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'acme'")).rows[0].id, 'exporter');
     const p = await resolver.resolve(exchanged);
-    assert.equal(p.kind, 'client');
+    assert.deepEqual([p.kind, p.clientId, p.grantId], ['client', 'notes-mcp', 'exporter']);
     assert.equal((await t.inspect.query('SELECT client_id FROM notes.principal WHERE id = $1', [p.principalId])).rows[0].client_id, 'exporter');
   });
 

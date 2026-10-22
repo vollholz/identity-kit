@@ -21,6 +21,11 @@ export interface Principal {
   name: string;
   email: string | null;
   clientId: string | null;
+  /**
+   * Client-ID der Freigabe bei Maschinen-Clients: bei Token-Austausch über den MCP-Dienst der ursprüngliche Client
+   * (`client_id`), nicht `azp`; sonst gleich `clientId`. Bei Personen null.
+   */
+  grantId?: string | null;
   roles: string[];
   groups: string[];
   scopes: string[];
@@ -184,7 +189,7 @@ export class PrincipalResolver {
       kind === 'client' ? { roles, scopes } : null);
     return {
       tenantId, tenantAlias: alias, principalId, kind, subject: String(c.sub), name, email: (c.email as string) ?? null,
-      clientId, roles, groups: tenantGroups(c, alias, t), identityProvider: typeof c.identity_provider === 'string' ? c.identity_provider : null,
+      clientId, grantId, roles, groups: tenantGroups(c, alias, t), identityProvider: typeof c.identity_provider === 'string' ? c.identity_provider : null,
       scopes, platformAdmin, binding: v.binding, token: v.token,
       scopeBound: kind === 'client' || (clientId !== null && clientId === this.cfg.mcp.clientId),
     };

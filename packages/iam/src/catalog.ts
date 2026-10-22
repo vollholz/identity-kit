@@ -100,7 +100,8 @@ export interface AuthzCatalogJson {
 /** Stichwort einer Gruppe als regulärer Ausdruck (Gross/klein egal); Texte werden wörtlich gesucht. */
 function matcher(m: GroupDef['match']): RegExp | null {
   if (m === undefined) return null;
-  if (m instanceof RegExp) return new RegExp(m.source, m.flags.includes('i') ? m.flags : `${m.flags}i`);
+  // Ohne g und y: sonst hinge das Ergebnis vom lastIndex der vorigen Rolle ab
+  if (m instanceof RegExp) return new RegExp(m.source, `${m.flags.replace(/[gyi]/g, '')}i`);
   const words = (typeof m === 'string' ? [m] : [...m]).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return new RegExp(typeof m === 'string' && m === '.' ? '.' : words.join('|'), 'i');
 }

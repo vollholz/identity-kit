@@ -108,7 +108,8 @@ export class AccessService<P extends string = string, S = unknown> {
   private matches(p: Principal, e: AclRow): boolean {
     switch (e.principal_type) {
       case 'user': return e.principal_ref === p.principalId || e.principal_ref === p.subject;
-      case 'client': return e.principal_ref === p.clientId;
+      // Getauschte Tokens eines Maschinen-Clients: Regeln für den ursprünglichen Client und für den MCP-Dienst gelten
+      case 'client': return e.principal_ref === p.clientId || (!!p.grantId && e.principal_ref === p.grantId);
       case 'role': return p.roles.includes(e.principal_ref);
       case 'group': return p.groups.includes(e.principal_ref);
       default: return false;
@@ -185,7 +186,7 @@ export class AccessService<P extends string = string, S = unknown> {
   async accessTag(p: Principal): Promise<string> {
     const acl = await this.load(p.tenantId);
     // Mit Identität: Einträge für Personen und Clients machen `can` je Principal verschieden
-    const parts = [acl.version, p.kind, p.principalId, p.subject, p.clientId ?? '', p.scopeBound ? 's' : '', [...p.roles].sort().join(','), [...p.groups].sort().join(','), [...p.scopes].sort().join(',')];
+    const parts = [acl.version, p.kind, p.principalId, p.subject, p.clientId ?? '', p.grantId ?? '', p.scopeBound ? 's' : '', [...p.roles].sort().join(','), [...p.groups].sort().join(','), [...p.scopes].sort().join(',')];
     return createHash('sha256').update(parts.join('|')).digest('base64url').slice(0, 10);
   }
 

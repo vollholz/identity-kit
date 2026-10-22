@@ -29,9 +29,13 @@ export class OidcProvider {
 
   async discovery(): Promise<Discovery> {
     if (this.disc && Date.now() - this.fetchedAt < 3_600_000) return this.disc;
-    const res = await this.fetchImpl(`${this.issuer}/.well-known/openid-configuration`);
-    if (!res.ok) throw new HttpError(503, 'Anmeldedienst nicht erreichbar', `Discovery ${res.status}`);
-    const d = await res.json() as Discovery;
+    // Netzwerkfehler und unlesbare Antworten → 503, nicht 401 (sonst gälten bei einem Ausfall alle als abgemeldet)
+    const down = (why: string) => new HttpError(503, 'Anmeldedienst nicht erreichbar', `Discovery ${why}`);
+    let res: Response, d: Discovery;
+    try { res = await this.fetchImpl(`${this.issuer}/.well-known/openid-configuration`); } catch (e) { throw down((e as Error).message); }
+    if (!res.ok) throw down(String(res.status));
+    try { d = await res.json() as Discovery; } catch { throw down('ohne JSON'); }
+    if (typeof d?.issuer !== 'string') throw down('ohne issuer');
     if (d.issuer.replace(/\/$/, '') !== this.issuer) throw new HttpError(503, 'Anmeldedienst falsch konfiguriert', 'Issuer stimmt nicht mit OIDC_ISSUER_URL überein');
     this.disc = d; this.fetchedAt = Date.now();
     this.jwks = createRemoteJWKSet(new URL(d.jwks_uri), { cooldownDuration: 30_000, cacheMaxAge: 600_000 });
@@ -128,7 +132,8 @@ export class TokenVerifier {
     try { payload = (await jwtVerify(proof, await importJWK(header.jwk!, header.alg), { typ: 'dpop+jwt', algorithms: ALGS })).payload; }
     catch (e) { return fail(`Signatur: ${(e as Error).message}`); }
     if (payload.htm !== o.method.toUpperCase()) fail('htm passt nicht zur Methode');
-    if (!payload.htu || normalizeHtu(payload.htu) !== normalizeHtu(o.url)) fail('htu passt nicht zur URL');
+    // Keine gültige URL (signiert, aber unbrauchbar) → 401 statt 500
+    if (typeof payload.htu !== 'string' || !URL.canParse(payload.htu) || normalizeHtu(payload.htu) !== normalizeHtu(o.url)) fail('htu passt nicht zur URL');
     const now = Math.floor(Date.now() / 1000);
     if (typeof payload.iat !== 'number' || Math.abs(now - payload.iat) > this.cfg.m2m.dpopMaxAgeSec) fail('Proof zu alt oder aus der Zukunft');
     if (!payload.jti) fail('jti fehlt');

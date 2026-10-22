@@ -476,7 +476,9 @@ Auflagen der Hauptsession zur Freigabe (2026-10-22). Was hier steht, gilt vor de
   `members:admin` ist immer `scope: false`. Im Katalog (`GET /v1/authz/catalog`) erscheint es als `personOnly: true`.
 - **Ergänzte Felder** der Antwort: `groups[].match` (Quelle des regulären Ausdrucks, Gross/klein egal; Texte werden
   maskiert) und `permissions[].personOnly` (nur wo wahr). Beide sind zusätzlich zu den Feldern von Assets; Clients,
-  die sie nicht kennen, ignorieren sie. Das Test-Kit prüft sie ab 0.2.0, wenn vorhanden.
+  die sie nicht kennen, ignorieren sie. Das Test-Kit prüft sie ab 0.2.0, wenn vorhanden. Entschieden: die Felder sind
+  zulässig und stehen in Spez. 7.2/8.2 (Assets = bisherige Antwort plus diese Felder); das OpenAPI-Schema der Route
+  (Teil 4, Modul `account`) führt sie als optionale Felder.
 
 ### 13.2 Entscheidung: öffentliche API des `AccessService` (Auflage 2)
 

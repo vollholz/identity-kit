@@ -95,7 +95,7 @@ expect_only_moves() { # <name> <verzeichnis> <log> <anzahl>
     echo "FEHLER: $3 zeigt mehr als die $4 Verschiebungen (Exit $rc, $moved verschoben)" >&2
     return 1
   fi
-  grep -E '^  # .* has moved to ' "$log" | head -3
+  grep -m 3 -E '^  # .* has moved to ' "$log"
   echo "  … $moved Verschiebungen; $(grep -E '^Plan:' "$log")"
   printf '%s\t%s\n' "$3" "nur $moved Verschiebungen: $(grep -E '^Plan:' "$log")" >>"$work/summary.tsv"
 }
@@ -106,7 +106,7 @@ docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
   -v "$theme:/opt/keycloak/themes/identity:ro" \
   "$image" start-dev >/dev/null
 node lib/kc.ts wait
-docker logs "$container" 2>&1 | grep -o 'Keycloak [0-9.]* on JVM' | head -1
+grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || true
 
 step "Testschlüssel"
 clients=()

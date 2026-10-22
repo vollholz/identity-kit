@@ -288,10 +288,14 @@ Menüs, Dialoge, Tabellen) und färbt nur über `--iam-*`; alle Klassen tragen d
 kollidiert. Die Werte sind neutral vorbelegt (hell und dunkel nach `prefers-color-scheme`), die App setzt sie aus
 ihren Tokens.
 
-**Die App gewinnt immer:** Das ganze Stylesheet steht in `@layer iam`, die Vorgaben der Variablen zusätzlich unter
-`:where(:root)` (Spezifität 0), auch die dunklen Vorgaben in `@media (prefers-color-scheme: dark)`. Jede Regel der App
-ausserhalb einer Ebene geht damit vor, gleich welche Reihenfolge, Spezifität oder Systemfarbe gilt. Ein Test im
-Browser prüft das (App setzt `--iam-accent` auf `:root`, System dunkel → Wert der App). Beispiel Assets:
+**Die Variablen der App gewinnen immer:** Die Vorgaben der Variablen stehen in `@layer iam` und unter `:where(:root)`
+(Spezifität 0), auch die dunklen in `@media (prefers-color-scheme: dark)`; ebenso die Grundregeln (`box-sizing`, Schrift
+und Farbe der Bedienelemente, Fokus). Jede Regel der App ausserhalb einer Ebene geht damit vor, gleich welche
+Reihenfolge, Spezifität oder Systemfarbe gilt. Die **Regeln der Bausteine** (Klassen `iam-*`) stehen dagegen ohne Ebene:
+Sonst überdeckten Element-Regeln der App wie `a { color: inherit }` oder `h1 { margin: 0 }` die Klassen der Bausteine
+(gefunden bei der Probe in Assets: weisse Schrift auf dem Knopf «Erneut anmelden» wurde dunkel). Die App überschreibt
+Klassen der Bausteine mit gleicher Spezifität nach dem Stylesheet des Pakets. Tests im Browser prüfen beides. Beispiel
+Assets:
 
 ```css
 :root { --iam-accent: var(--accent); --iam-surface: var(--surface); --iam-text: var(--fg); … }

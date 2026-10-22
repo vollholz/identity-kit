@@ -1,6 +1,6 @@
 /** Testhilfen für Apps: feste Sitzung, Nachbildung des Vertrags, Beispielkatalog nach Spezifikation 8.1. */
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { iamKeys, useIam } from '../src/index.ts';
 import { CATALOG, json, ME, mockIamApi, StaticIam } from '../src/testing/index.tsx';
 
@@ -11,6 +11,14 @@ describe('Testhilfen', () => {
     expect(screen.getByText('Anna Admin in Muster GmbH, lesen:false')).toBeInTheDocument();
     const { tenantHeaders } = await import('../src/index.ts');
     expect(tenantHeaders('GET')).toEqual({ 'X-Tenant': 'muster' });
+  });
+
+  it('StaticIam: Sprache und Texte wie bei IamProvider', async () => {
+    const { MissingRight } = await import('../src/index.ts');
+    vi.stubGlobal('fetch', mockIamApi().fetch);
+    render(<StaticIam locale="en" texts={{ en: { 'iam.missing.lead': 'To do this' } }}><MissingRight perm="note:write" /></StaticIam>);
+    expect(await screen.findByText(/^To do this you lack the permission «Notizen ändern»/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it('mockIamApi: Standardantworten, eigene Routen, 404 sonst, Aufrufe gesammelt', async () => {

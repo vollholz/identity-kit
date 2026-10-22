@@ -1,5 +1,5 @@
 {
- "source": "vollholz/assets 3a148ae (migrations bis 049_tenant_roles.sql)",
+ "source": "vollholz/assets 63b9cf9 (migrations bis 052_resolve_tenant_strict.sql)",
  "snapshot": {
   "schemas": {
    "app": [
@@ -1283,7 +1283,6 @@
      "secdef": false,
      "config": null,
      "acl": [
-      "=X/assets_owner",
       "assets_app=X/assets_owner",
       "assets_owner=X/assets_owner",
       "assets_sched=X/assets_owner"
@@ -1299,7 +1298,6 @@
      "secdef": false,
      "config": null,
      "acl": [
-      "=X/assets_owner",
       "assets_app=X/assets_owner",
       "assets_owner=X/assets_owner",
       "assets_sched=X/assets_owner"
@@ -1314,7 +1312,9 @@
      "def": "CREATE OR REPLACE FUNCTION app.secure_tenant_tables()\n RETURNS integer\n LANGUAGE plpgsql\nAS $function$\nDECLARE t text; n int := 0;\nBEGIN\n  FOR t IN SELECT c.table_name FROM information_schema.columns c\n           JOIN information_schema.tables x ON x.table_schema = c.table_schema AND x.table_name = c.table_name AND x.table_type = 'BASE TABLE'\n           WHERE c.table_schema = 'assets' AND c.column_name = 'tenant_id' AND c.table_name <> 'tenant'\n  LOOP\n    EXECUTE format('ALTER TABLE assets.%I ENABLE ROW LEVEL SECURITY', t);\n    EXECUTE format('ALTER TABLE assets.%I FORCE ROW LEVEL SECURITY', t);\n    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'assets' AND tablename = t AND policyname = 'tenant_isolation') THEN\n      EXECUTE format('CREATE POLICY tenant_isolation ON assets.%I TO assets_app USING (tenant_id = app.tenant_id()) WITH CHECK (tenant_id = app.tenant_id())', t);\n      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON assets.%I TO assets_app', t);\n      n := n + 1;\n    END IF;\n  END LOOP;\n  EXECUTE 'GRANT USAGE ON ALL SEQUENCES IN SCHEMA assets TO assets_app, assets_sched';\n  RETURN n;\nEND $function$\n",
      "secdef": false,
      "config": null,
-     "acl": null,
+     "acl": [
+      "assets_owner=X/assets_owner"
+     ],
      "volatile": "v"
     }
    ],
@@ -1322,7 +1322,7 @@
     {
      "args": "p_alias text, p_kc_org_id text, p_name text, p_create boolean",
      "owner": "assets_owner",
-     "def": "CREATE OR REPLACE FUNCTION app.resolve_tenant(p_alias text, p_kc_org_id text, p_name text, p_create boolean)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE v_id uuid; v_status text; v_kc text;\nBEGIN\n  SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM assets.tenant WHERE alias = lower(p_alias);\n  IF v_id IS NULL AND p_create THEN\n    INSERT INTO assets.tenant (alias, kc_org_id, name) VALUES (lower(p_alias), p_kc_org_id, coalesce(p_name, p_alias))\n      ON CONFLICT (alias) DO UPDATE SET alias = excluded.alias RETURNING id, status, kc_org_id INTO v_id, v_status, v_kc;\n  END IF;\n  IF v_status = 'suspended' THEN RETURN NULL; END IF;\n  IF v_id IS NOT NULL AND p_kc_org_id IS NOT NULL THEN\n    IF v_kc IS NULL THEN\n      UPDATE assets.tenant SET kc_org_id = p_kc_org_id WHERE id = v_id AND kc_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM assets.tenant WHERE kc_org_id = p_kc_org_id);\n    ELSIF v_kc <> p_kc_org_id THEN RETURN NULL;\n    END IF;\n  END IF;\n  RETURN v_id;\nEND $function$\n",
+     "def": "CREATE OR REPLACE FUNCTION app.resolve_tenant(p_alias text, p_kc_org_id text, p_name text, p_create boolean)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE v_id uuid; v_status text; v_kc text; v_alias text;\nBEGIN\n  IF p_alias IS NULL OR p_alias !~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$' THEN RETURN NULL; END IF;\n  v_alias := translate(p_alias, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');\n  SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM assets.tenant WHERE alias = v_alias;\n  IF v_id IS NULL AND p_create THEN\n    -- Ohne Ziel: auch eine Organisations-ID, die schon einem anderen Mandanten gehört, ist kein Fehler (sonst 500)\n    INSERT INTO assets.tenant (alias, kc_org_id, name) VALUES (v_alias, p_kc_org_id, coalesce(p_name, p_alias))\n      ON CONFLICT DO NOTHING RETURNING id, status, kc_org_id INTO v_id, v_status, v_kc;\n    IF v_id IS NULL THEN\n      -- Gleichzeitig angelegt (gleicher Alias) oder ID vergeben; im zweiten Fall findet die Suche nichts → NULL\n      SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM assets.tenant WHERE alias = v_alias;\n      IF v_id IS NULL THEN RETURN NULL; END IF;\n    END IF;\n  END IF;\n  IF v_status = 'suspended' THEN RETURN NULL; END IF;\n  IF v_id IS NOT NULL AND p_kc_org_id IS NOT NULL THEN\n    IF v_kc IS NULL THEN\n      UPDATE assets.tenant SET kc_org_id = p_kc_org_id WHERE id = v_id AND kc_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM assets.tenant WHERE kc_org_id = p_kc_org_id);\n      SELECT kc_org_id INTO v_kc FROM assets.tenant WHERE id = v_id;\n    END IF;\n    IF v_kc IS DISTINCT FROM p_kc_org_id THEN RETURN NULL; END IF;\n  END IF;\n  RETURN v_id;\nEND $function$\n",
      "secdef": true,
      "config": [
       "search_path=assets, pg_temp"
@@ -1356,7 +1356,11 @@
      "def": "CREATE OR REPLACE FUNCTION app.audit_hash(prev bytea, r assets.audit_log)\n RETURNS bytea\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT sha256(convert_to(\n    coalesce(encode(prev, 'hex'), '') || '|' ||\n    jsonb_build_array(\n      2, r.tenant_id, r.seq,\n      to_char(r.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n      r.actor_kind, r.actor_id, r.actor_name, r.client_id, r.source,\n      r.action, r.resource_type, r.resource_id, r.correlation_id, r.data\n    )::text, 'UTF8'))\n$function$\n",
      "secdef": false,
      "config": null,
-     "acl": null,
+     "acl": [
+      "assets_app=X/assets_owner",
+      "assets_owner=X/assets_owner",
+      "assets_sched=X/assets_owner"
+     ],
      "volatile": "i"
     }
    ],
@@ -1367,7 +1371,9 @@
      "def": "CREATE OR REPLACE FUNCTION app.audit_chain()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE last record;\nBEGIN\n  -- Sperre bis Transaktionsende: Einträge eines Mandanten werden strikt nacheinander verkettet.\n  PERFORM pg_advisory_xact_lock(hashtextextended('audit:' || NEW.tenant_id::text, 0));\n  SELECT seq, hash INTO last FROM assets.audit_log WHERE tenant_id = NEW.tenant_id ORDER BY seq DESC LIMIT 1;\n  NEW.ts := date_trunc('microseconds', NEW.ts);\n  NEW.seq := coalesce(last.seq, 0) + 1;\n  NEW.prev_hash := last.hash;\n  NEW.hash := app.audit_hash(NEW.prev_hash, NEW);\n  RETURN NEW;\nEND $function$\n",
      "secdef": false,
      "config": null,
-     "acl": null,
+     "acl": [
+      "assets_owner=X/assets_owner"
+     ],
      "volatile": "v"
     }
    ],

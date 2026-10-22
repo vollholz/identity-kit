@@ -1,6 +1,6 @@
 -- Einmalige Einrichtung der Datenbank-Rollen einer App (Spezifikation Kap. 10.1; aus Assets db/bootstrap.sql).
 -- Als Superuser bzw. Datenbank-Admin ausführen. Idempotent. Name und Passwörter über psql-Variablen:
---   psql "$SUPERUSER_URL" -v p=<produkt> -v db=<produkt> -v owner_pw=... -v runtime_pw=... -v worker_pw=... \
+--   psql "$SUPERUSER_URL" -v p=<produkt> -v db=<datenbank> -v owner_pw=... -v runtime_pw=... -v worker_pw=... \
 --     -f node_modules/@vollholz/iam/db/bootstrap.sql
 --
 -- Rollenmodell:
@@ -12,7 +12,9 @@
 
 \set ON_ERROR_STOP on
 
-SELECT 1 / (:'p' ~ '^[a-z][a-z0-9_]{0,40}$')::int AS produkt_gueltig \gset
+-- Name wie in der Konfiguration (`my-app`); Bezeichner in der Datenbank mit «_» (`my_app_owner`), wie productIdent()
+SELECT 1 / (:'p' ~ '^[a-z][a-z0-9]*(-[a-z0-9]+)*$' AND length(:'p') <= 41)::int AS produkt_gueltig \gset
+SELECT replace(:'p', '-', '_') AS p \gset
 
 SELECT format('CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEROLE NOBYPASSRLS', :'p' || '_owner', :'owner_pw')
   WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'p' || '_owner') \gexec

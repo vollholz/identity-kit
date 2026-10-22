@@ -11,12 +11,12 @@ import { productDb, skipDb } from './support/db.ts';
 const skip = await skipDb();
 
 describe('IAM-Migrationen: Parameter', () => {
-  test('Dateien iam_001 … iam_010 in Reihenfolge, Stand der Übernahme dabei', () => {
+  test('Dateien iam_001 … iam_011 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
-    assert.equal(names.at(-1), 'iam_010_revoke_public_execute.sql');
+    assert.equal(names.at(-1), 'iam_011_resolve_tenant_strict.sql');
     for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
   });
 
@@ -41,6 +41,15 @@ describe('IAM-Migrationen: Parameter', () => {
     const none = iamMigrations({ product: 'notes' }).migrations.find(m => m.name === 'iam_004_access.sql')!.sql;
     assert.doesNotMatch(none, /grant_resource_check/);
     assert.match(none, /CHECK \(resource_type IN \('tenant'\)\)/);
+  });
+
+  test('Produkt mit Bindestrich: Schema und Rollen mit Unterstrich (gleiche Regel wie die Konfiguration)', () => {
+    const m = iamMigrations({ product: 'my-app' }).migrations;
+    const core = m.find(x => x.name === 'iam_001_core.sql')!.sql;
+    assert.match(core, /CREATE SCHEMA IF NOT EXISTS my_app;/);
+    assert.match(core, /TO my_app_app, my_app_sched;/);
+    assert.match(m.find(x => x.name === 'iam_007_audit.sql')!.sql, /FOR ROLE my_app_owner/);
+    assert.throws(() => iamMigrations({ product: 'my_app' }), /product/);
   });
 
   test('ungültige Parameter brechen ab (nie roh ins SQL)', () => {
@@ -72,7 +81,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     const note = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.note'::regclass")).rows[0];
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(again, { applied: [], adopted: [], skipped: 11 });
+    assert.deepEqual(again, { applied: [], adopted: [], skipped: 12 });
   });
 
   test('iam_009: eigene Rollen mit Primärschlüssel (tenant_id, id)', async () => {
@@ -114,7 +123,7 @@ describe('Übernahme (adopted)', { skip }, () => {
   test('Objekte vorhanden, Marke angewendet: bis zur Grundlage eingetragen, Späteres ausgeführt', async () => {
     const r = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual(r.adopted, iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name));
-    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql']);
+    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql']);
     const again = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual([again.applied, again.adopted], [[], []]);
   });
@@ -137,5 +146,18 @@ describe('Übernahme (adopted)', { skip }, () => {
       await c.query("DELETE FROM public.schema_migrations WHERE name LIKE 'iam_%' OR name = '049_tenant_roles.sql'");
     } finally { await c.end(); }
     await assert.rejects(migrate(t.adminUrl, [iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /Migration 049_tenant_roles.sql ist nicht angewendet/);
+  });
+});
+
+describe('Produkt mit Bindestrich gegen PostgreSQL', { skip }, () => {
+  const db = productDb({ product: 'iam-kit' });
+  let t: Awaited<ReturnType<typeof db.create>>;
+  before(async () => { t = await db.create(); });
+  after(async () => { await t?.drop(); });
+
+  test('Migrationen laufen, Schema und Rollen mit Unterstrich', async () => {
+    const id = (await t.runtime.query<{ id: string }>("SELECT app.resolve_tenant('alpha', null, 'alpha', true) AS id")).rows[0]!.id;
+    assert.ok(id);
+    assert.equal((await t.inspect.query("SELECT pg_get_userbyid(nspowner) AS o FROM pg_namespace WHERE nspname = 'iam_kit'")).rows[0].o, 'iam_kit_owner');
   });
 });

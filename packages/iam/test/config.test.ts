@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ConfigError, IAM_VARS, iamConfig, iamWarnings, loadIamConfig, parseDuration, readVars } from '../src/config.ts';
+import { checkProduct, ConfigError, IAM_VARS, iamConfig, iamWarnings, loadIamConfig, parseDuration, productIdent, readVars } from '../src/config.ts';
 
 const base = { OIDC_ISSUER_URL: 'https://identity.example.ch/realms/notes', DATABASE_URL: 'postgres://notes_runtime:x@localhost/notes' };
 const key = (id: string) => `${id}:${Buffer.alloc(32, 7).toString('base64')}`;
@@ -97,4 +97,15 @@ test('Warnungen: Client-Geheimnis statt privatem Schlüssel, Client-Rollen als R
   assert.deepEqual(iamWarnings(c, 'worker').map(w => w.split(':')[0]), ['KEYCLOAK_SYNC_CLIENT_SECRET', 'ROLE_SOURCE=both']);
   const withKey = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', OIDC_BFF_PRIVATE_KEY: 'pem' }, { product: 'notes', service: 'api' });
   assert.deepEqual(iamWarnings(withKey, 'api'), []);
+});
+
+test('eine Namensregel für das Produkt: Bindestrich im Namen, Unterstrich in der Datenbank', () => {
+  assert.equal(productIdent('my-app'), 'my_app');
+  assert.equal(productIdent('notes'), 'notes');
+  for (const ok of ['a', 'notes', 'my-app', 'app2-x9']) assert.equal(checkProduct(ok), ok);
+  for (const bad of ['', 'my_app', 'My', '-a', 'a-', 'a--b', '9a', 'a'.repeat(42)]) assert.throws(() => checkProduct(bad), ConfigError, JSON.stringify(bad));
+  const c = loadIamConfig(base, { product: 'my-app', service: 'api' });
+  assert.deepEqual([c.oidc.apiAudience, c.oidc.bffClientId, c.mcp.hostClients], ['my-app-api', 'my-app-platform', ['my-app-mcp-cli']]);
+  assert.throws(() => loadIamConfig(base, { product: 'my_app', service: 'api' }), ConfigError);
+  assert.match(IAM_VARS('my-app').find(v => v.name === 'DATABASE_URL')!.example!, /my_app_runtime@|my_app_runtime:/);
 });

@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
+import { productIdent } from './config.ts';
 import { LOCKS } from './locks.ts';
 
 export interface Migration { name: string; sql: string; checksum: string }
@@ -52,9 +53,12 @@ const IDENT = /^[a-z][a-z0-9_]{0,62}$/;
 const TYPE = /^[a-z][a-z0-9-]{0,62}$/;
 
 export interface IamMigrationOptions {
-  /** Technischer Name des Produkts; ergibt die Datenbankrollen `<product>_owner`, `<product>_app`, `<product>_sched`. */
+  /**
+   * Technischer Name des Produkts (wie in der Konfiguration, z. B. `my-app`); ergibt mit «_» statt «-» die
+   * Datenbankrollen `<ident>_owner`, `<ident>_app`, `<ident>_sched` und das Standardschema (`productIdent`).
+   */
   product: string;
-  /** Schema der Tabellen (Standard: `product`). */
+  /** Schema der Tabellen (Standard: `productIdent(product)`). */
   schema?: string;
   /** Ressourcentypen der Zugriffsregeln (mit `tenant`, Reihenfolge wie im Katalog); Standard nur `tenant`. */
   resourceTypes?: readonly string[];
@@ -85,8 +89,9 @@ export function render(sql: string, vars: Record<string, string>): string {
 
 /** Die SQL-Migrationen des IAM mit eingesetzten Parametern. */
 export function iamMigrations(o: IamMigrationOptions): MigrationSource {
-  const schema = o.schema ?? o.product;
-  for (const [k, v] of [['product', o.product], ['schema', schema]] as const) if (!IDENT.test(v)) throw new Error(`${k}: ungültiger Bezeichner «${v}»`);
+  const ident = productIdent(o.product);
+  const schema = o.schema ?? ident;
+  if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
   const types = [...(o.resourceTypes ?? ['tenant'])];
   const leaves = [...(o.leafTypes ?? [])];
   if (!types.includes('tenant')) throw new Error('resourceTypes: «tenant» fehlt (Wurzel der Kette)');
@@ -97,7 +102,7 @@ export function iamMigrations(o: IamMigrationOptions): MigrationSource {
   const grantCheck = !leaves.length ? ''
     : `,\n  CONSTRAINT acl_entry_grant_resource_check CHECK (effect <> 'grant' OR ${leaves.length === 1 ? `resource_type <> ${lit(leaves[0]!)}` : `resource_type NOT IN (${leaves.map(lit).join(', ')})`})`;
   const vars = {
-    schema, owner: `${o.product}_owner`, app: `${o.product}_app`, sched: `${o.product}_sched`,
+    schema, owner: `${ident}_owner`, app: `${ident}_app`, sched: `${ident}_sched`,
     resource_types: types.map(lit).join(', '), grant_check: grantCheck,
   };
   const files = readdirSync(IAM_MIGRATIONS_DIR).filter(f => /^iam_\d{3}_[\w-]+\.sql$/.test(f)).sort();

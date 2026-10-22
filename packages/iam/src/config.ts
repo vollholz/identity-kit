@@ -48,18 +48,32 @@ export function parseDuration(v: string): number {
   return Number(m[1]) * ({ ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const)[m[2] as 'ms' | 's' | 'm' | 'h' | 'd'];
 }
 
-const PRODUCT = /^[a-z][a-z0-9-]{0,40}$/;
+/**
+ * Technischer Name des Produkts (Spezifikation Kap. 2, `<produkt>`): Kleinbuchstaben und Ziffern, Teile mit «-»
+ * getrennt, höchstens 41 Zeichen. So heissen Realm und Clients (`<produkt>-api`); Bezeichner in der Datenbank leiten
+ * sich mit «_» statt «-» ab (`productIdent`). Eine Regel für Konfiguration, Migrationen und `db/bootstrap.sql`.
+ */
+export const PRODUCT_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+/** Prüft den Namen des Produkts (ConfigError sonst). */
+export function checkProduct(product: string): string {
+  if (!PRODUCT_PATTERN.test(product) || product.length > 41) throw new ConfigError(`product: ungültiger Name «${product}» (Kleinbuchstaben, Ziffern, Teile mit «-», höchstens 41 Zeichen)`);
+  return product;
+}
+
+/** Bezeichner in der Datenbank zum Produkt: Schema und Präfix der Rollen (`my-app` → `my_app`). */
+export const productIdent = (product: string) => checkProduct(product).replaceAll('-', '_');
 
 /** Variablen des IAM mit den Standardwerten für `product`. */
 export function IAM_VARS(product: string): VarSpec[] {
-  if (!PRODUCT.test(product)) throw new ConfigError(`product: ungültiger Name «${product}»`);
+  checkProduct(product);
   const p = product;
   return [
     { name: 'NODE_ENV', kind: 'enum', group: 'Allgemein', values: ['development', 'test', 'production'], default: 'development', description: 'Betriebsmodus. In `production` gelten strengere Prüfungen (HTTPS, Geheimnisse, DPoP).' },
     { name: 'PUBLIC_BASE_URL', kind: 'url', group: 'Allgemein', default: 'http://localhost:8080', requiredIn: ['production'], description: 'Öffentliche Adresse der API und der Oberfläche, ohne abschliessenden Schrägstrich. Grundlage für Weiterleitungen und DPoP (`htu`).', example: `https://${p}.example.ch` },
 
-    { name: 'DATABASE_URL', kind: 'url', group: 'Datenbank', required: true, services: ['api'], secret: true, fileAllowed: true, description: 'Verbindung der Laufzeit (Rolle ohne BYPASSRLS, nicht Besitzerin der Tabellen).', example: `postgres://${p}_runtime:***@localhost:5433/${p}` },
-    { name: 'DATABASE_ADMIN_URL', kind: 'url', group: 'Datenbank', secret: true, fileAllowed: true, description: 'Verbindung für Migrationen (Besitzer-Rolle).', example: `postgres://${p}_owner:***@localhost:5433/${p}` },
+    { name: 'DATABASE_URL', kind: 'url', group: 'Datenbank', required: true, services: ['api'], secret: true, fileAllowed: true, description: 'Verbindung der Laufzeit (Rolle ohne BYPASSRLS, nicht Besitzerin der Tabellen).', example: `postgres://${productIdent(p)}_runtime:***@localhost:5433/${productIdent(p)}` },
+    { name: 'DATABASE_ADMIN_URL', kind: 'url', group: 'Datenbank', secret: true, fileAllowed: true, description: 'Verbindung für Migrationen (Besitzer-Rolle).', example: `postgres://${productIdent(p)}_owner:***@localhost:5433/${productIdent(p)}` },
     { name: 'DATABASE_WORKER_URL', kind: 'url', group: 'Datenbank', secret: true, fileAllowed: true, description: 'Verbindung des Workers. Ohne Angabe gilt `DATABASE_URL`; der Worker braucht nur eine der beiden.' },
     { name: 'DATABASE_POOL_MAX', kind: 'int', group: 'Datenbank', default: '20', description: 'Maximale Verbindungen pro Prozess.' },
     { name: 'DATABASE_STATEMENT_TIMEOUT', kind: 'duration', group: 'Datenbank', default: '30s', description: 'Abbruch langer SQL-Anweisungen.' },

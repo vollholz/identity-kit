@@ -189,8 +189,8 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     assert.equal(await resolve('delta', 'kc-1'), d);
     assert.equal(await resolve('delta', null), d);
     assert.equal(await resolve('delta', 'kc-2'), null);
-    // Eine ID, die schon ein anderer Mandant trägt, wird nicht ein zweites Mal gebunden
-    assert.equal(await resolve('alpha', 'kc-1'), A);
+    // Eine ID, die schon ein anderer Mandant trägt, wird nicht ein zweites Mal gebunden und löst nicht auf (iam_011)
+    assert.equal(await resolve('alpha', 'kc-1'), null);
     assert.equal((await t.inspect.query('SELECT kc_org_id FROM notes.tenant WHERE id = $1', [A])).rows[0].kc_org_id, null);
     // Grossbuchstaben im Alias (ASCII) treffen denselben Mandanten
     assert.equal(await resolve('ALPHA', null), A);
@@ -202,6 +202,32 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     await worker.connect();
     try { assert.deepEqual((await worker.query('SELECT app.suspended_tenants() AS s')).rows[0].s, [B]); } finally { await worker.end(); }
     await t.inspect.query("UPDATE notes.tenant SET status = 'active' WHERE alias = 'beta'");
+  });
+
+  test('Mandanten-Auflösung: nur ASCII-Aliasse, nie Unicode-Faltung (Kelvin-Zeichen); nur A–Z wird klein', async () => {
+    const resolve = async (alias: string, create = true) => (await t.runtime.query<{ id: string | null }>('SELECT app.resolve_tenant($1, null, $1, $2) AS id', [alias, create])).rows[0]!.id;
+    const k = await resolve('kilo');
+    assert.ok(k);
+    // U+212A KELVIN SIGN: lower() einer Unicode-Locale macht daraus «k»
+    assert.equal(await resolve('\u212Ailo'), null);
+    assert.equal(await resolve('\u212Ailo', false), null);
+    assert.equal(await resolve('KILO'), k);
+    for (const bad of ['', '-kilo', 'ki lo', 'kilo/x', 'ü', 'a'.repeat(64)]) assert.equal(await resolve(bad), null, JSON.stringify(bad));
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.tenant WHERE alias LIKE '%ilo'")).rows[0].n, 1);
+  });
+
+  test('Mandanten-Auflösung: Binden der Organisations-ID scheitert (ID gehört einem anderen Mandanten) → kein Mandant', async () => {
+    const resolve = async (alias: string, kc: string | null) => (await t.runtime.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $1, true) AS id', [alias, kc])).rows[0]!.id;
+    const owner = await resolve('lima', 'kc-lima');
+    assert.ok(owner);
+    const legacy = await resolve('mike', null);
+    assert.ok(legacy);
+    // «mike» hat noch keine ID; das Token nennt die ID von «lima» → nicht binden und nicht auflösen
+    assert.equal(await resolve('mike', 'kc-lima'), null);
+    assert.equal((await t.inspect.query("SELECT kc_org_id FROM notes.tenant WHERE alias = 'mike'")).rows[0].kc_org_id, null);
+    // Eigene neue ID bindet weiterhin
+    assert.equal(await resolve('mike', 'kc-mike'), legacy);
+    assert.equal(await resolve('mike', 'kc-mike'), legacy);
   });
 
   test('Plattform-Funktionen: Status nur gültig, unbekannter Mandant ist ein Fehler', async () => {

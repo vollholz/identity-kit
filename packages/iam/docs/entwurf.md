@@ -253,6 +253,7 @@ entfallen):
 | `iam_008_entra.sql` | `entra_connection`, `entra_consent`, `app.entra_login_alias`, `app.entra_free_slot`, `app.entra_domains_taken` | 046 |
 | `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
 | `iam_010_revoke_public_execute.sql` | kein EXECUTE für PUBLIC auf Funktionen in `app` und `<schema>`; `app.audit_hash` ausdrücklich für `_app` und `_sched` | 051 (vollholz/assets#24) |
+| `iam_011_resolve_tenant_strict.sql` | `app.resolve_tenant`: Alias roh gegen das ASCII-Muster prüfen, nur A–Z falten (kein `lower()`, Kelvin-Zeichen); scheitert das Binden der Organisations-ID, kein Mandant | 052 (folgt; Befunde aus dem Review von #10) |
 
 Bis `iam_008` entsprechen die Rechte der Funktionen genau Assets 049, auch wo PUBLIC noch ausführen darf
 (`app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()`);
@@ -267,7 +268,9 @@ Die Entra-Tabellen kommen immer mit (leer, ohne Wirkung ohne `ENTRA_CLIENT_ID`),
 Datenbankrollen `<product>_owner`, `<product>_app` und `<product>_sched`, die Ressourcentypen für die CHECK-Bedingung
 von `acl_entry.resource_type` und die Blätter für die von `grant` (Assets: `object`). Alle Werte werden gegen
 Bezeichner-Muster geprüft (nur `[a-z0-9_-]`), unbekannte Platzhalter sind ein Fehler; nichts wird roh eingesetzt.
-Eine Vorlage für die Datenbankrollen nach Kap. 10.1 liefert das Paket als `db/bootstrap.sql` (psql-Variablen `p`,
+Eine Regel für den Namen des Produkts (`PRODUCT_PATTERN`): Kleinbuchstaben, Ziffern, Teile mit «-» (Realm, Clients);
+Schema und Rollen leiten sich mit «_» ab (`productIdent('my-app')` = `my_app`), in Konfiguration, Migrationen und
+`db/bootstrap.sql` gleich. Eine Vorlage für die Datenbankrollen nach Kap. 10.1 liefert das Paket als `db/bootstrap.sql` (psql-Variablen `p`,
 `db`, Passwörter; aus Assets `db/bootstrap.sql`). Die Prüfsumme gilt für den
 eingesetzten Text; dieselben Parameter ergeben dieselbe Prüfsumme.
 
@@ -425,8 +428,9 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 
 ## 12. Offene Punkte
 
-- **Gleichheitstest auf Assets 001–051** umstellen, sobald vollholz/assets#24 gemergt ist (Abzug neu erzeugen;
-  Grundlage dann `iam_001`–`iam_008` + `iam_010` bzw. Übernahme bis `iam_010`).
+- **Gleichheitstest auf Assets 001–052** umstellen, sobald vollholz/assets#24 (051) und die Migration 052
+  (`resolve_tenant` wie `iam_011`) gemergt sind: Abzug neu erzeugen, Grundlage dann `iam_001`–`iam_008`, `iam_010`,
+  `iam_011`; `iam_009` läuft in Assets normal.
 - **`person_api`, `system_clients`** (B4): nicht Teil von 0.1.0; der Resolver bleibt dafür offen (`OIDC_PERSON_CLIENT_IDS`).
 - **Lesen des Audit-Protokolls** als Modul (A3).
 - **Abhängigkeiten** (exakt, wie Assets): `jose` 6.2.12, `openid-client` 6.8.8, `@sinclair/typebox` 0.34.52;

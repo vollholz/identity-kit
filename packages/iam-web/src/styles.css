@@ -37,7 +37,8 @@
     }
   }
 
-  /* Grundlage: Bedienelemente der Bausteine übernehmen Schrift und Farbe, Fokus sichtbar */
+  /* Grundlage wie in Assets: Rahmen in der Breite enthalten; Bedienelemente übernehmen Schrift und Farbe; Fokus sichtbar */
+  :where([class^="iam-"], [class*=" iam-"]), :where([class^="iam-"], [class*=" iam-"]) :where(*, *::before, *::after) { box-sizing: border-box }
   :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button) { font: inherit; cursor: pointer }
   :where(.iam-pop input) { font: inherit; color: inherit }
   :where([class*="iam-"]):focus-visible { outline: 2px solid var(--iam-focus); outline-offset: 2px }

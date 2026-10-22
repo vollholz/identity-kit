@@ -10,7 +10,7 @@ Inhalt (Ziel 0.1.0): `IamProvider`, Sitzung und `/auth/me`, Organisation je Tab,
 Herkunft: vollholz/assets `web/src/auth`, `web/src/shell/{UserMenu,MyRights}.tsx`, `web/src/ui/{MissingRight,
 RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}`, `web/src/features/{admin,acl}`.
 
-## Stand (Teil-PR 2b)
+## Stand (Teil-PR 2c)
 
 | Baustein | Inhalt |
 |---|---|
@@ -26,6 +26,11 @@ RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}
 | `Button`, `Modal`, `Confirm`, `Sheet`, `MenuButton`, `MenuItem`, `Table`, `Picker`, `Icon` | Grundkomponenten aus Assets `ui/` (Fokusfalle, Tastatur, gesperrt mit Grund) |
 | `Loading`, `SkeletonRows`, `Empty`, `ErrorBox`, `ErrorState`, `NotFound` | Zustände, 404 überall gleich |
 | `styles.css` | Regeln aus Assets mit Klassen `iam-*`, Variablen `--iam-*`, alles in `@layer iam` |
+| `IamProvider`, `useIam`, `Can` | Sitzung über `/auth/me`: Anmeldung, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`, Wechsel, Abmelden; Cache der App beim Wechsel geleert |
+| `useAuthz`, `useRoles`, `roleGroupProblems` | Katalog (mit `Accept-Language`) und eigene Rollen; Gruppen der Rollen nach `roleGroups` |
+| `useResourceCan`, `useIamFetch`, `iamKeys` | Fähigkeiten je Ressource, Aufrufe an den Vertrag, Abfrageschlüssel |
+| `historyRouter`, `IamRouter` | Router-Adapter; ohne Router der App die History-API |
+| `@vollholz/iam-web/testing` | `StaticIam`, `mockIamApi`, `CATALOG`, `ME` für Tests der App |
 
 Noch `private`; veröffentlicht wird mit dem letzten Teil-PR.
 

@@ -30,6 +30,7 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 | Teil | Stand |
 |---|---|
 | `packages/iam-testkit` | **0.1.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Assets läuft lokal geprüft darauf (757/757 Tests) |
+| `packages/iam-web` | in Arbeit (privat): Vertragstypen, Client, Organisation je Tab, Texte; Entwurf und Plan in `packages/iam-web/docs/entwurf.md` |
 | übrige Pakete, Module, Vorlage | leer |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank

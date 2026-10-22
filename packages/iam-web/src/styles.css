@@ -1,0 +1,6 @@
+/*
+ * @vollholz/iam-web – Stylesheet der Bausteine (docs/entwurf.md › Theming). Alles in der Ebene «iam»: Regeln der App
+ * ausserhalb einer Ebene gehen immer vor. Vorgaben der Variablen `--iam-*` und Klassen `iam-*` folgen mit den
+ * Grundkomponenten.
+ */
+@layer iam;

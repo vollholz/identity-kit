@@ -10,9 +10,9 @@ name: Module
 on:
   push:
     branches: [main]
-    paths: ["modules/**", ".github/workflows/modules.yml"]
+    paths: ["modules/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
   pull_request:
-    paths: ["modules/**", ".github/workflows/modules.yml"]
+    paths: ["modules/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
   workflow_dispatch:
 
 permissions:

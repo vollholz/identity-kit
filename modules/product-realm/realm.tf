@@ -84,8 +84,12 @@ resource "keycloak_realm" "this" {
     }
   }
 
-  # Ohne Passwort würde ein Apply die Anmeldung am Mailserver leeren: dann lieber gar nicht planen
   lifecycle {
+    # Der Realm trägt Konten und Organisationen: nie über diesen State löschen oder ersetzen (der Schutz im
+    # Bootstrap-State gilt hier nicht, der Aufrufer importiert den Realm)
+    prevent_destroy = true
+
+    # Ohne Passwort würde ein Apply die Anmeldung am Mailserver leeren: dann lieber gar nicht planen
     precondition {
       condition     = local.smtp == null || var.smtp_password != ""
       error_message = "SMTP ist eingerichtet, aber das Passwort fehlt: .env SMTP_PASSWORD (kc.sh) bzw. GitHub-Secret SMTP_PASSWORD."

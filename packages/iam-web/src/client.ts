@@ -27,7 +27,11 @@ export function tenantHeaders(method = 'POST'): Record<string, string> {
 
 /** Link ohne eigene Header (Download, Bild) mit der Organisation dieses Tabs (`?x-tenant=`, nur GET/HEAD, 5.2). */
 export function withTenant(url: string): string {
-  return tenant ? `${url}${url.includes('?') ? '&' : '?'}x-tenant=${encodeURIComponent(tenant)}` : url;
+  if (!tenant) return url;
+  // vor dem Fragment einfügen: alles nach «#» erreicht den Server nie
+  const hash = url.indexOf('#');
+  const [base, frag] = hash < 0 ? [url, ''] : [url.slice(0, hash), url.slice(hash)];
+  return `${base}${base.includes('?') ? '&' : '?'}x-tenant=${encodeURIComponent(tenant)}${frag}`;
 }
 
 /** 401 einer Anfrage: Sitzung abgelaufen. Gibt die Abmeldung des Empfängers zurück. */

@@ -40,7 +40,11 @@ export function networkError(e: unknown): ApiError {
 /** Fehler aus einer Antwort lesen (problem+json, sonst nur der Status). */
 export async function errorFrom(response: Response): Promise<ApiError> {
   let body: ProblemDetails = {};
-  try { body = (await response.clone().json()) as ProblemDetails; } catch { /* kein JSON */ }
+  try {
+    const parsed: unknown = await response.clone().json();
+    // nur ein Objekt ist ein Problem; `null`, Zahl, Liste (z. B. von einem Proxy) zählen wie kein Körper
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as ProblemDetails;
+  } catch { /* kein JSON */ }
   return new ApiError(response.status, body, response.headers.get('x-request-id'));
 }
 

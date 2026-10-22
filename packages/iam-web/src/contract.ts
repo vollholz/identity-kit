@@ -31,11 +31,11 @@ export interface ProblemDetails {
 export interface Me {
   person: { subject: string; name: string | null; email: string | null };
   /** Organisation dieses Tabs; `null` bei mehreren Organisationen ohne Wahl oder wenn sie nicht verfügbar ist. */
-  tenant: { id: string; alias: string; name?: string } | null;
+  tenant: { id: string; alias: string; name: string } | null;
   /** Aliasse der Organisationen der Person (aus dem Token). */
   organizations: string[];
-  /** Name je Alias. */
-  organizationNames?: Record<string, string>;
+  /** Name je Alias (für jede Organisation in `organizations`). */
+  organizationNames: Record<string, string>;
   selectedOrganization: string | null;
   /** Grund, warum `tenant` fehlt (Text für die Person). */
   tenantError: string | null;

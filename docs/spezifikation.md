@@ -97,7 +97,7 @@ Backend, für Personen, Service-Clients, M2M, API und MCP.
 ## 2. Anbindung an die Identity-Plattform
 
 Ablauf über zwei Repositories. Referenz: identity `infra/keycloak/products.tf`, `docs/betrieb.md` › Neues Produkt;
-assets `infra/keycloak/bootstrap`, `docs/produktion.md` › Keycloak-Anbindung.
+Modul `modules/product-realm-bootstrap`; assets `docs/produktion.md` › Keycloak-Anbindung.
 
 | # | Wo | Schritt | Ergebnis |
 |---|---|---|---|
@@ -132,7 +132,7 @@ keine Änderung an Outputs). Der `import`-Block für den Realm bleibt beim Aufru
 
 ## 3. Realm des Produkts
 
-Referenz: assets `infra/keycloak/*.tf`. Alle Werte gelten als Soll; Abweichungen nur mit Begründung in der Doku des
+Umsetzung: Modul `modules/product-realm` (`*.tf`). Alle Werte gelten als Soll; Abweichungen nur mit Begründung in der Doku des
 Produkts.
 
 ### 3.1 Realm-Einstellungen
@@ -155,7 +155,7 @@ Produkts.
 - Realm-Lokalisierung je Sprache mit den Theme-Schlüsseln aus identity `docs/betrieb.md` › Anmeldeseiten:
   `themeAccent`, `themeAccentDark`, `themeAccentText`, `themeAccentTextDark` (nur `#RRGGBB`), `themeClaim`,
   `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`. Referenz: assets
-  `infra/keycloak/localization-theme.json`, `localization.tf`.
+  `infra/keycloak/localization-theme.json`; Modul `product-realm`, `localization.tf`.
 - SOLL: Texte in Du-Form und Schweizer Rechtschreibung. Referenz: `localization-de.json` (nur Schlüssel des Standards
   mit Sie-Form oder ß) mit `localization-de.source.json` (Originaltexte der Keycloak-Version) und Test
   `test/infra-keycloak.test.ts` (gleiche Schlüssel, Platzhalter und HTML-Tags, keine Sie-Form); ebenso für die
@@ -163,7 +163,7 @@ Produkts.
 
 ### 3.3 Client-Richtlinien
 
-Realmweit, gelten auch für Clients, die später jemand in der Konsole anlegt. Referenz: assets `infra/keycloak/policies.tf`.
+Realmweit, gelten auch für Clients, die später jemand in der Konsole anlegt. Umsetzung: Modul `product-realm`, `policies.tf`.
 
 | Richtlinie | Bedingung | Executors |
 |---|---|---|
@@ -183,8 +183,8 @@ Realmweit, gelten auch für Clients, die später jemand in der Konsole anlegt. R
 Alle vertraulichen Clients: `client_authenticator_type = "client-jwt"`, öffentlicher Schlüssel als JWKS in
 `infra/keycloak/keys/<client>.json` (`use.jwks.string`, `token.endpoint.auth.signing.alg = ES256`), privater nur
 verschlüsselt (sops) beim Dienst, der ihn braucht. Kein Client-Geheimnis im State. Alle Clients des Produkts tragen das
-Attribut `<produkt>.platform = true` (Erkennung fremder Clients, [3.8](#38-fremde-clients)). Referenz: assets
-`infra/keycloak/clients.tf`, `admin.tf`.
+Attribut `<produkt>.platform = true` (Erkennung fremder Clients, [3.8](#38-fremde-clients)). Umsetzung: Modul
+`product-realm`, `clients.tf`, `admin.tf`.
 
 | Client | Art | Wofür | Wichtigste Einstellungen |
 |---|---|---|---|

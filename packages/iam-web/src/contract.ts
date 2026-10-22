@@ -37,8 +37,8 @@ export interface Me {
   roles: string[];
   /** Rechte auf Ebene der Organisation (effektiv). */
   permissions: string[];
-  /** Rechte nur über Freigaben auf einzelnen Ressourcen. */
-  grantedPermissions?: string[];
+  /** Rechte nur über Freigaben auf einzelnen Ressourcen; immer vorhanden, leer ohne Freigaben (5.1, 7.1). */
+  grantedPermissions: string[];
   csrfToken: string;
   session: { expiresAt: string; idleTimeoutSeconds: number };
 }

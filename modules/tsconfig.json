@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["product-realm/scripts", "product-realm/test", "test/lib"]
+}

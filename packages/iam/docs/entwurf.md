@@ -1,6 +1,6 @@
 # @vollholz/iam – Entwurf
 
-Stand 2026-10-22 · Status: **Entwurf zur Freigabe** · Vertrag: `docs/spezifikation.md` (Kap. 1.1, 4–10, 12–15) ·
+Stand 2026-10-22 · Status: **freigegeben mit Auflagen** (Hauptsession, 2026-10-22; Festlegungen in [Kapitel 13](#13-festlegungen-nach-der-freigabe)) · Vertrag: `docs/spezifikation.md` (Kap. 1.1, 4–10, 12–15) ·
 Referenz: vollholz/assets `main` (`3a148ae`)
 
 Dieser Entwurf legt fest, wie das Backend-Paket aussieht, bevor Code entsteht: öffentliche API, Katalog, Schnittstellen
@@ -251,15 +251,24 @@ entfallen):
 | `iam_006_session.sql` | `session` (Hash, verschlüsselt, `subject`, `idp_sid`), `replay_guard`, `rate_limit` (UNLOGGED) | 001, 006, 007 |
 | `iam_007_audit.sql` | `audit_log` mit Hash-Kette v2 und Folgenummer, `audit_anchor`, nur lesen und anhängen | 001, 009 |
 | `iam_008_entra.sql` | `entra_connection`, `entra_consent`, `app.entra_login_alias`, `app.entra_free_slot`, `app.entra_domains_taken` | 046 |
+| `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
+
+Die Rechte der Funktionen entsprechen genau Assets, auch wo PUBLIC noch ausführen darf (`app.tenant_id()`,
+`app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()` – vor der Änderung der
+Standardrechte in Assets 044 angelegt, keine SECURITY DEFINER, Schemas ohne USAGE für PUBLIC). Entziehen wäre eine
+spätere Migration (Kapitel 12).
 
 Die Entra-Tabellen kommen immer mit (leer, ohne Wirkung ohne `ENTRA_CLIENT_ID`), weil der Resolver
 `app.entra_login_alias` immer fragt; so braucht es keine bedingten Migrationen.
 
 ### 6.2 Parameter
 
-`iamMigrations({ schema, product, leafTypes })` setzt in die Platzhalter ein: Schema der Tabellen, Datenbankrollen
-`<product>_app` und `<product>_sched`, Blatt-Typen für die CHECK-Bedingung von `grant` (Assets: `object`). Alle Werte
-werden gegen Bezeichner-Muster geprüft und als `%I`/Literal eingesetzt, nie roh. Die Prüfsumme gilt für den
+`iamMigrations({ product, schema, resourceTypes, leafTypes })` setzt in die Platzhalter ein: Schema der Tabellen,
+Datenbankrollen `<product>_owner`, `<product>_app` und `<product>_sched`, die Ressourcentypen für die CHECK-Bedingung
+von `acl_entry.resource_type` und die Blätter für die von `grant` (Assets: `object`). Alle Werte werden gegen
+Bezeichner-Muster geprüft (nur `[a-z0-9_-]`), unbekannte Platzhalter sind ein Fehler; nichts wird roh eingesetzt.
+Eine Vorlage für die Datenbankrollen nach Kap. 10.1 liefert das Paket als `db/bootstrap.sql` (psql-Variablen `p`,
+`db`, Passwörter; aus Assets `db/bootstrap.sql`). Die Prüfsumme gilt für den
 eingesetzten Text; dieselben Parameter ergeben dieselbe Prüfsumme.
 
 ### 6.3 Runner
@@ -273,13 +282,19 @@ App, Kap. 15.3), Namen eindeutig über alle Quellen (`iam_…` kollidiert nicht 
 
 Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ändern (Prüfsummen). Deshalb:
 
-- `iamMigrations({ …, adopted: true })`: Der Runner trägt `iam_001`–`iam_008` mit ihrer Prüfsumme als angewendet ein,
-  **ohne** sie auszuführen – erst, nachdem die Quelle der App gelaufen ist (frische Datenbank) bzw. sofort (bestehende
-  Datenbank, 049 schon angewendet). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
-- **Gleichheitstest** (in Assets, Phase 2): eine frische Datenbank aus den Migrationen von Assets und eine aus
-  `iam_001`–`iam_008` mit `schema: 'assets'` haben für alle IAM-Tabellen und -Funktionen dieselben Spalten, Typen,
-  Standardwerte, CHECK-, UNIQUE- und Fremdschlüssel, Indizes, Policies, Trigger, Rechte und Funktionsrümpfe (Vergleich
-  über `pg_catalog`). Erst wenn er grün ist, gilt die Übernahme. Abweichungen werden im Paket behoben, nicht in Assets.
+- `iamMigrations({ …, adopted: { after: '049_tenant_roles.sql' } })`: Der Runner trägt `iam_001`–`iam_008`
+  (`IAM_BASELINE`) mit ihrer Prüfsumme als angewendet ein, **ohne** sie auszuführen – nach der Quelle der App
+  (Reihenfolge `[dirMigrations(…), iamMigrations(…)]`). Vorher prüft er die Vorbedingungen (`adoptionProblems`): die
+  Migration `after` ist angewendet, alle IAM-Tabellen, die Spalten der späteren Schritte (`principal.last_roles`,
+  `member_invitation.entra`, `audit_log.seq` …) und alle IAM-Funktionen bestehen. Sonst bricht er ab und trägt nichts
+  ein (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
+- **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
+  001–049 liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
+  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008` mit den Parametern von Assets muss für alle
+  IAM-Tabellen und -Funktionen genau diesen Abzug ergeben: Spalten, Typen, Standardwerte, Bedingungen mit Namen,
+  Indizes, Policies, Trigger, RLS, Rechte von Tabellen, Spalten, Schemas und Funktionen, Funktionsrümpfe, Standardrechte.
+  Ausgenommen sind nur die Trigramm-Indizes des Personenverzeichnisses auf `principal` (gehören zur App, Assets 014).
+  Ändert Assets eine IAM-Tabelle, wird der Abzug neu erzeugt; Abweichungen werden im Paket behoben, nicht in Assets.
 
 ## 7. Module
 
@@ -311,15 +326,20 @@ Paket eine interne Verbindung zwischen `admin` und `acl`.
   `/healthz`, `/readyz` (das Paket liefert die Prüfung `readinessChecks` für Datenbank und Anmeldedienst).
 - Oberfläche (`/`, `/abgemeldet`): Auslieferung bleibt in der App (Assets `modules/auth/ui.ts`); Bausteine liefert
   `@vollholz/iam-web`.
-- Audit-Protokoll lesen und prüfen (`GET /v1/audit`, Anker), Outbox und Warteschlange.
+- Audit-Protokoll lesen und prüfen (`GET /v1/audit`, Anker) bis zum Modul `audit` in 0.2 (A3); Outbox und Warteschlange.
+- `GET/PATCH /v1/tenant` (Name und Einstellungen, `tenant:read`/`tenant:admin`): bleibt in 0.1.0 in der App, weil die
+  Einstellungen fachlich sind (Assets: Assistent); Kandidat für 0.2 zusammen mit `audit` (Auflage 5). Schutz bleibt
+  die Richtlinie `tenant_self` und die Spaltenrechte aus `iam_002` (Test `rls`).
 - Mandantendaten löschen (`purgeTenantData` kennt die Fachtabellen).
-- Entwicklungsumgebung: `scripts/keycloak-setup.ts` (Demo-Organisationen, Testpersonen) und Prüfung fremder Clients
-  (Kap. 3.8) bleiben vorerst in Assets ([Kapitel 12](#12-offene-punkte)).
+- Entwicklungsumgebung (`scripts/keycloak-setup.ts`, Demo-Organisationen, Testpersonen) und die Prüfung fremder
+  Clients (Kap. 3.8, `scripts/lib/system-clients.ts`) gehören nicht ins Backend-Paket, sondern ins Test-Kit bzw. ins
+  Realm-Modul (Entscheid der Hauptsession; Kapitel 11, A8).
 
 ## 8. Mandantentrennung: was mitkommt
 
-Jede Prüfung aus Assets `docs/mandantentrennung.md` › Inventar (Abschnitte Verwaltung; Anmeldung, Tokens, Sitzungen,
-MCP; Keycloak; Personen in mehreren Organisationen) bleibt im Code und kommt mit dem Test in das Paket. Die Tests
+Jede Prüfung aus Assets `docs/mandantentrennung.md` › Inventar (Abschnitte Katalog, soweit IAM: `/v1/acl…`,
+`/v1/acl/effective`, `/v1/tenant`, Audit; Verwaltung; Anmeldung, Tokens, Sitzungen, MCP; Keycloak; Personen in
+mehreren Organisationen) bleibt im Code und kommt mit dem Test in das Paket. Die Tests
 werden produktneutral (Katalog eines Beispielprodukts `notes`, Schema `notes`), Aussagen und Fälle bleiben gleich:
 
 | Test im Paket | aus Assets `test/platform/` | prüft u. a. |
@@ -336,7 +356,16 @@ werden produktneutral (Katalog eines Beispielprodukts `notes`, Schema `notes`), 
 | `rls` | `rls.test.ts` (IAM-Teil), `iam-kit.test.ts` | FORCE RLS, Policies, SECURITY DEFINER, PUBLIC, mit den Prüfungen des Test-Kits |
 | `tenant-isolation` | `tenant-isolation.test.ts` (IAM-Routen) | jede Route des Pakets mit IDs von A als B; keine Route ohne Eintrag (Werkzeuge des Test-Kits) |
 | `sync`, `mcp` | `admin.test.ts` (Abgleich), `mcp-dpop.test.ts`, `mcp.test.ts` (Austausch) | Alias **und** `kc_org_id`, `removed_at`, Fehler je Organisation; DPoP-gebundener Tausch |
-| `migrations` | – (neu) | Platzhalter, Prüfsummen, Übernahme (`adopted`), Reihenfolge der Quellen |
+| `migrations`, `assets-schema`, `locks` | – (neu) | Platzhalter, Prüfsummen, Übernahme mit Vorbedingungen, Reihenfolge der Quellen; Gleichheit mit Assets 001–049; Sperren als Vertrag |
+
+Inventar «Katalog» von Assets, soweit IAM:
+
+| Weg | Was A preisgeben könnte | Schutz | Test im Paket |
+|---|---|---|---|
+| `GET/POST /v1/acl`, `DELETE /v1/acl/{id}` | Einträge, `principalRef` | RLS; Gruppen fremder Organisationen 422 | `acl`, `tenant-isolation`, `multi-org` |
+| `GET /v1/acl/effective` | Gruppen und Rollen der Person, echte Rollen anderer Personen aus Keycloak | Gruppen je Mandant gefiltert (`tenantGroups`, `rolesFromClaims`); Keycloak nur für Mitglieder der eigenen Organisation | `acl`, `multi-org` |
+| Audit (`audit_log`, `audit_anchor`) | Einträge, Folgenummern | RLS; `seq` lückenlos je Mandant; nur lesen und anhängen | `rls` (Routen bleiben bis 0.2 in der App) |
+| `GET/PATCH /v1/tenant` | Name, Einstellungen | Richtlinie `tenant_self`, Spaltenrechte | `rls` (Route bleibt in der App) |
 
 Die Fachrouten von Assets bleiben in deren Isolationstest; der Test der App deckt nach Phase 2 weiterhin **alle**
 `/v1`-Routen ab, auch die des Pakets.
@@ -348,13 +377,15 @@ Jeder Teil-PR ist für sich grün (typecheck, build, Tests mit PostgreSQL) und b
 | # | Inhalt | Tests |
 |---|---|---|
 | 1 | **Dieser Entwurf** | – |
-| 2 | Paketgerüst (`package.json` 0.1.0 `private`, tsconfig, Workspace), `config`, `errors`, `crypto`, `state`, `db`, `migrations` (iam_001–008, Runner, Übernahme) | `config`, `migrations`, `rls` (Test-Kit-Prüfungen gegen eine Wegwerf-Datenbank) |
-| 3 | `catalog` (`defineCatalog`, Register-Typen), `tokens`, `principal`, `access`, Fähigkeiten | `catalog`, `tokens`, `principal`, `access`, `capabilities`, `multi-org` (ohne Verwaltung) |
-| 4 | Fastify-Plugin (Anmeldung je Anfrage, Dekorationen, Fehler), Module `account`, `acl` | `acl`, `tenant-isolation` (Gerüst), Beispiel-App `notes` im Test |
+| 2 | Paketgerüst (`package.json` 0.1.0 `private`, tsconfig, Workspace), `config`, `errors`, `crypto`, `state`, `db`, `audit` (`pgAudit`), `locks`, `migrations` (iam_001–009, Runner, Übernahme), `db/bootstrap.sql`; Nachführung dieses Entwurfs | `config`, `core`, `locks`, `migrations`, `assets-schema`, `rls` |
+| 3 | `catalog` (`defineCatalog`, Register-Typen), `tokens`, `principal`, `access` (API nach 13.2), Fähigkeiten, Zwischenspeicher (13.6); Test-Kit 0.2.0 (`groups[].match`) | `catalog` (mit Katalog von Assets), `tokens`, `principal`, `access`, `capabilities`, `cache`, `multi-org` (ohne Verwaltung) |
+| 4 | Fastify-Plugin (Anmeldung je Anfrage, Dekorationen, `need` als preHandler, Fehler, OpenAPI nach 13.4), `readinessChecks`, Module `account`, `acl` | `acl`, `tenant-isolation` (Gerüst), `openapi`, Beispiel-App `notes` im Test |
 | 5 | Modul `bff` | `bff` |
-| 6 | `keycloak`, `tenants`, `sync`, Module `admin`, `roles`, `clients`, Worker-Job | `admin`, `roles`, `sync`, `multi-org` vollständig, `tenant-isolation` für alle Routen |
+| 6a | `keycloak`, `tenants`, Modul `clients` | `clients`, `tenants`, `tenant-isolation` |
+| 6b | Modul `admin`, `sync` mit Worker-Job `MemberSync` | `admin`, `sync`, `multi-org` vollständig, `tenant-isolation` |
+| 6c | Modul `roles` | `roles`, `tenant-isolation` für alle Routen |
 | 7 | Modul `entra` | `entra` |
-| 8 | MCP (`TokenExchanger`, `DpopSigner`), `org-bootstrap`, Doku `docs/backend.md`; `private` entfernt → Release veröffentlicht 0.1.0 | `mcp`, `org-bootstrap` |
+| 8 | MCP (`McpAuth`, `TokenExchanger`, `DpopSigner`), `org-bootstrap`, Doku `docs/backend.md`; `private` entfernt → Release veröffentlicht 0.1.0 | `mcp`, `org-bootstrap` |
 
 Zwischen den Teil-PRs lässt sich der Zwischenstand gegen Assets prüfen (lokale Registry, `docs/ausrollen.md`), bevor
 der letzte Teil veröffentlicht.
@@ -373,31 +404,128 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 4. `http/app.ts`: Anmeldung, Dekorationen und `/v1/me` aus dem Plugin; Rate-Limit, Idempotenz, OpenAPI bleiben.
 5. Module `auth` (ohne `ui.ts`), `admin`, ACL-Teil von `catalog/governance.ts` entfallen zugunsten der Module des
    Pakets; Worker und MCP-Dienst nutzen `MemberSync` bzw. `TokenExchanger`.
-6. Migrationen: `migrate(…, [dirMigrations('db/migrations'), iamMigrations({ schema: 'assets', product: 'assets',
-   leafTypes: ['object'], adopted: true })])`; Gleichheitstest nach [6.4](#64-übernahme-in-assets).
+6. Migrationen: `migrate(…, [dirMigrations('db/migrations'), iamMigrations({ product: 'assets', resourceTypes: […],
+   leafTypes: ['object'], adopted: { after: '049_tenant_roles.sql' } })])`; `iam_009` läuft normal. Gleichheit nach
+   [6.4](#64-übernahme-in-assets) prüft schon die CI des Pakets.
 7. Tests von Assets, die in das Paket gewandert sind, bleiben in Assets **zusätzlich** bestehen, bis die Umstellung
    gemerged ist; danach entfernt Assets nur Duplikate, nie Prüfungen der Fachrouten oder des eigenen Katalogs.
 
 ## 11. Abweichungen und Fragen zum Vertrag
 
-| # | Stelle | Abweichung bzw. Frage | Vorschlag |
+| # | Stelle | Abweichung bzw. Frage | Entscheid (Hauptsession, 2026-10-22) |
 |---|---|---|---|
-| A1 | 15.2 `resolveChain: async (tx, ref)` | Kette synchron über einen mit der ACL geladenen Zustand (`ResourceModel`), damit `can` über Listen ohne Abfrage je Zeile bleibt (so arbeitet Assets) | Spezifikation an `ResourceModel` anpassen |
-| A2 | 15.2 `iam({ catalog, resolveChain, db, audit })` | Zwei Schritte: `createIam(…)` (ohne Fastify, auch für Worker, MCP, Tests) und `app.register(iamPlugin, { iam })` | Beispiel anpassen |
-| A3 | 10.2 `audit_log` | Tabelle und Hash-Kette im IAM, Lesen/Prüfen (`GET /v1/audit`) vorerst in der App | später eigenes Modul `audit` |
-| A4 | 15.3 Migrationen «vor den eigenen» | Für Assets gelten die IAM-Migrationen als übernommen und laufen nach den eigenen (frische Datenbank) | Übernahme als Sonderfall nennen |
-| A5 | 8.1 Reservierte Rechte | `defineCatalog` ergänzt sie je nach `features`; nennt die App sie selbst, darf sie die **Beschreibung** anpassen (Assets `tenant:admin`) | Spezifikation: Beschreibung frei, Label und Gruppe fest |
-| A6 | 10.2 `tenant_role` | In Assets ist der Primärschlüssel `(id)`, nicht `(tenant_id, id)` wie bei den übrigen Tabellen | für die Übernahme unverändert lassen; Angleichung als spätere Migration `iam_009` (Frage an die Hauptsession) |
-| A7 | 13 Variablen | Das Paket liest zusätzlich `MCP_*`, `ENTRA_*`, `KEYCLOAK_*_CLIENT_SECRET` (Übergang) und `DATABASE_*` wie Assets; Kap. 13 nennt sie nicht | Kap. 13 ergänzen |
+| A1 | 15.2 `resolveChain: async (tx, ref)` | Kette synchron über einen mit der ACL geladenen Zustand (`ResourceModel`), damit `can` über Listen ohne Abfrage je Zeile bleibt (so arbeitet Assets) | angenommen; Spezifikation 15.2 wird umgestellt |
+| A2 | 15.2 `iam({ catalog, resolveChain, db, audit })` | Zwei Schritte: `createIam(…)` (ohne Fastify, auch für Worker, MCP, Tests) und `app.register(iamPlugin, { iam })` | angenommen; zusätzlich `need(perm, ref?)` als preHandler-Fabrik (13.4) |
+| A3 | 10.2 `audit_log` | Tabelle und Hash-Kette im IAM, Lesen/Prüfen (`GET /v1/audit`) vorerst in der App | angenommen; Modul `audit` mit `GET /v1/audit` in 0.2 |
+| A4 | 15.3 Migrationen «vor den eigenen» | Für Assets gelten die IAM-Migrationen als übernommen und laufen nach den eigenen (frische Datenbank) | angenommen mit Prüfung der Vorbedingungen (6.4) |
+| A5 | 8.1 Reservierte Rechte | `defineCatalog` ergänzt sie je nach `features`; nennt die App sie selbst, darf sie die **Beschreibung** anpassen (Assets `tenant:admin`) | angenommen; ebenso Reihenfolge von Rollen (`org-admin` zuerst wie Assets), Gruppen und Ressourcentypen (13.1) |
+| A6 | 10.2 `tenant_role` | In Assets ist der Primärschlüssel `(id)`, nicht `(tenant_id, id)` wie bei den übrigen Tabellen | `iam_009` mit `(tenant_id, id)` schon in 0.1.0; Assets wendet sie in Phase 2 normal an |
+| A7 | 13 Variablen | Das Paket liest zusätzlich `MCP_*`, `ENTRA_*`, `KEYCLOAK_*_CLIENT_SECRET` (Übergang) und `DATABASE_*` wie Assets; Kap. 13 nennt sie nicht | angenommen; Client-Geheimnisse nur mit Warnung beim Start (`iamWarnings`, P3); Kap. 13 wird ergänzt |
+| A8 | 3.8 Prüfung fremder Clients | Nicht im Backend-Paket, obwohl Kap. 15.4 `scripts/lib/system-clients.ts` und `keycloak-setup.ts` dem Backend zuordnet | Test-Kit bzw. Realm-Modul (Entscheid der Hauptsession) |
 
 ## 12. Offene Punkte
 
-- **Prüfung fremder Clients** und Einrichtung für Entwicklung (Kap. 3.8, `keycloak-setup.ts`,
-  `scripts/lib/system-clients.ts`): gehören eher zum Realm-Modul bzw. Test-Kit als ins Backend-Paket; vorerst in Assets.
+- **Rechte von PUBLIC** auf `app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`,
+  `app.audit_chain()` (wie Assets, siehe 6.1): entziehen mit einer späteren Migration, wenn Assets einverstanden ist.
 - **`person_api`, `system_clients`** (B4): nicht Teil von 0.1.0; der Resolver bleibt dafür offen (`OIDC_PERSON_CLIENT_IDS`).
 - **Lesen des Audit-Protokolls** als Modul (A3).
-- **Advisory-Locks**: Schlüssel bleiben die Texte von Assets (`admin:<alias>`, `people-sync:<tenant>`,
-  `entra:platform`), damit alte und neue Instanzen während des Deploys dieselben Sperren nehmen.
 - **Abhängigkeiten** (exakt, wie Assets): `jose` 6.2.12, `openid-client` 6.8.8, `@sinclair/typebox` 0.34.52;
   `fastify` ^5, `@fastify/cookie` ^11 und `pg` ^8 als Peer. Das Plugin registriert `@fastify/cookie`
   nur, wenn die App es nicht schon getan hat.
+
+## 13. Festlegungen nach der Freigabe
+
+Auflagen der Hauptsession zur Freigabe (2026-10-22). Was hier steht, gilt vor den Kapiteln 3–10, wo sie abweichen.
+
+### 13.1 Katalog (Auflagen 1, 8; A5)
+
+- **Rollenbeschreibungen** prüft `defineCatalog` über Stichwörter je Rechtegruppe statt über Labels: Jede Gruppe kann
+  `match` tragen (regulärer Ausdruck, Text oder Liste), und die Beschreibung jeder Rolle muss für jede ihrer Gruppen
+  passen (wie Assets `test/platform/authz.test.ts`, A7). Ohne `match` keine Prüfung dieser Gruppe. Die reservierten
+  Gruppen bringen Stichwörter mit (`tenant`: beliebig, `members`: «mitglieder», `access`: «zugriff», `audit`:
+  «protokoll»). `checkCatalog` im Test-Kit prüft dasselbe, wenn der Katalog `match` liefert (Test-Kit 0.2.0,
+  abwärtskompatibel). Pflichttest: Der Katalog von Assets besteht `defineCatalog` und `checkCatalog`.
+- **Reihenfolge**: Die App bestimmt die Reihenfolge von Rechten, Rollen, Gruppen und Ressourcentypen; `org-admin` steht
+  zuerst unter den Rollen (wie Assets). Fehlt etwas Reserviertes, hängt `defineCatalog` es an der Stelle an, die Kap. 8.1
+  vorgibt (Rechte: `tenant:*` vorne, die übrigen hinten; Gruppen ebenso).
+- **Nur für Personen** (Auflage 8): Ein Recht trägt `scope: false`, wenn es in keinem Scope stehen darf (Assets:
+  `members:admin`, `assistant:use`, `connector:activate`). `defineCatalog` bricht ab, wenn ein Scope es enthält;
+  `members:admin` ist immer `scope: false`. Im Katalog (`GET /v1/authz/catalog`) erscheint es als `personOnly: true`.
+
+### 13.2 Entscheidung: öffentliche API des `AccessService` (Auflage 2)
+
+```ts
+class AccessService<P extends string = string> {
+  load(tenantId): Promise<TenantAccess>;             // ACL, eigene Rollen, Zustand der Kette, Version; zwischengespeichert
+  invalidate(tenantId): void;
+  decide(p, acl, perm, ref?, hint?): boolean;        // (Rolle ∨ Freigabe) ∧ Scope ∧ kein Verbot/keine Beschränkung
+  somewhere(p, acl, perm): boolean;                  // Recht irgendwo (canSomewhere)
+  isExempt(p): boolean;                              // Person mit org-admin: von deny/restrict ausgenommen
+  stepAllows(p, acl, perm, ref): boolean;            // nur eine Stufe (Assets: objectStepAllows, Objekte in Listen)
+  basePermissions(p, acl): Set<P>;                   // Rechte aus Rollen, bei Scope-Grenze geschnitten mit den Scopes
+  can / require / canSomewhere / requireSomewhere / effective / granted / accessTag;
+}
+interface TenantAccess<S> { version: string; entries: readonly AclRow[]; roles: ReadonlyMap<string, readonly string[]>; state: S }
+```
+
+`entries` und `state` sind lesbar (Assets: Lesesicht `readTypes` aus Einträgen und Zustand). `GET /v1/acl/effective`
+nimmt über `resources.effectiveExtra(target, acl, access)` zusätzliche Felder der App auf, mit Schema-Erweiterung
+(`resources.effectiveExtraSchema`, Assets: `readTypes`).
+
+### 13.3 Kontext von `load`, `exists`, `hints` (Auflage 3)
+
+`ResourceModel.load`, `exists` und `hints` laufen in einer Transaktion im Mandantenkontext **mit voller Lesesicht der
+App**: `resources.fullContext` (Einstellungen wie `dbContext`, Assets: `{ 'app.read_all': 'on' }`). Sonst sähe
+`POST /v1/acl` auf ein Objekt, das der Person verborgen ist, 404. Was darin gelesen wird, geht nie als Name oder Wert
+an die Person zurück (nur `exists` = 404 bzw. Zustand der Kette).
+
+### 13.4 Fastify und OpenAPI (A2, Auflage 7)
+
+- `need(perm, ref?)` gibt es zusätzlich als preHandler-Fabrik: `{ preHandler: need('note:read', r => ({ type: 'note',
+  id: r.params.id })) }`.
+- Tags, Zusammenfassungen und Beschreibungen der Routen sind überschreibbar (`openapi: { tags, routes: { '<METHOD>
+  <url>': { summary, description, tags } }, fields }`); die Standardtexte des Pakets sind produktneutral. Ziel und Test
+  in Phase 2: `openapi.json` von Assets bleibt gleich.
+- `readinessChecks` (Datenbank, Anmeldedienst) kommt mit dem Plugin (Teil-PR 4).
+- Span-Attribut der Organisation heisst `iam.tenant` (Assets kann umbenennen lassen: Option `spanAttribute`).
+- Ist `@fastify/cookie` schon registriert, prüft das Plugin, dass es mit `SESSION_SECRET` signiert (sonst Abbruch beim
+  Start); ohne registriertes Rate-Limit warnt das Modul `entra` beim Start (die Suche ist sonst nicht begrenzt).
+
+### 13.5 MCP-Anmeldung (Auflage 9)
+
+`McpAuth` kommt ins Paket (Teil-PR 8): nur Tokens der Hosts aus `MCP_HOST_CLIENT_IDS` (sonst 403), `exchangeScopes`
+mit `organization:<alias>` (eine Organisation bleibt im API-Token festgelegt), Protected Resource Metadata (RFC 9728)
+mit den Scopes des Katalogs, Fehler `-32602` mit der eigenen Liste der Organisationen bei fehlender Wahl,
+Zwischenspeicher der getauschten Tokens mit Schlüssel Token + Mandant. Katalog bzw. `SCOPES` sind Parameter.
+
+### 13.6 Zwischenspeicher und Wirkungszeiten (Auflage 10)
+
+| Zwischenspeicher | Schlüssel | Dauer | Vergessen | Wirkung (Kap. 7.1) | Test |
+|---|---|---|---|---|---|
+| Mandant | Alias + Keycloak-ID | 60 s | `forgetTenant(alias)` nach Sperren/Entsperren | Sperre ≤ 60 s auf anderen Instanzen | `cache` |
+| Freigabe eines Clients | Mandant + Client-ID | 60 s | `forgetClient(tenant, client)` | Entzug ≤ 60 s | `cache`, `clients` |
+| Principal | Mandant + Art + Subject (+ Rollen/Scopes bei Clients) | 5 min | `forgetPrincipal(tenant, subject)` | Entfernen ≤ 5 min, Tokens von davor nie mehr | `cache`, `admin` |
+| «Nur Entra» je Domäne | Domäne | 60 s | `forgetEntra()` | ≤ 60 s | `cache`, `entra` |
+| ACL und eigene Rollen | Mandant, gültig solange `acl_version` (+ `ResourceModel.version`) gleich | bis zur Änderung | `invalidate(tenant)` | sofort auf allen Instanzen | `access` |
+| Getauschte MCP-Tokens | Hash des Tokens + Mandant | bis kurz vor Ablauf | – | – | `mcp` |
+
+Die Tests setzen die Uhr (`Date.now`) und prüfen Treffer vor und Neuladen nach Ablauf.
+
+### 13.7 ETag mit Zugriffsstand (Auflage 12)
+
+`accessTag(p)` = die ersten 10 Zeichen (base64url) von SHA-256 über `version | kind | principalId | subject | clientId
+| s (bei Scope-Grenze) | Rollen | Gruppen | Scopes` (Listen sortiert, kommagetrennt), wobei `version` =
+`<acl_version>:<ResourceModel.version>` (Assets: `<acl_version>:<max(object_type.updated_at)>`). ETag einer Ressource:
+`W/"<version der Ressource>-<accessTag>"`; `If-Match` vergleicht nur die Version der Ressource (wie Assets).
+
+### 13.8 Sperren als Vertrag (Auflage 6)
+
+`src/locks.ts` mit Test: `LOCKS.migrate` = 727001 (Runner), `LOCKS.memberSync` = 727016 (Abgleich im Worker);
+Texte `audit:<tenant>` (Audit-Kette, geteilt mit `outbox_sequence` in Assets 044 – sonst Verklemmung),
+`admin:<alias>`, `people-sync:<tenant>`, `entra:platform`. Der Test hält jede Sperre und zeigt, dass Runner bzw.
+Audit-Trigger darauf warten.
+
+### 13.9 Datenbankrollen (Auflage 12)
+
+`db/bootstrap.sql` im Paket ist die Vorlage für Kap. 10.1 (psql-Variablen `p`, `db`, `owner_pw`, `runtime_pw`,
+`worker_pw`; idempotent, ungültiger Name bricht ab). `create-iam-app` ruft sie auf, statt eine Kopie anzulegen.

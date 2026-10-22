@@ -24,21 +24,29 @@ export class OidcProvider {
   private jwks: JWTVerifyGetKey | null = null;
   readonly issuer: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
+  private pending: Promise<Discovery> | null = null;
 
-  constructor(issuer: string, fetchImpl: typeof fetch = fetch) { this.issuer = issuer.replace(/\/$/, ''); this.fetchImpl = fetchImpl; }
+  constructor(issuer: string, fetchImpl: typeof fetch = fetch, timeoutMs = 5_000) { this.issuer = issuer.replace(/\/$/, ''); this.fetchImpl = fetchImpl; this.timeoutMs = timeoutMs; }
 
+  /** Gleichzeitige Abfragen teilen sich einen Abruf; schlägt die Erneuerung fehl, gilt die bisherige Discovery weiter. */
   async discovery(): Promise<Discovery> {
     if (this.disc && Date.now() - this.fetchedAt < 3_600_000) return this.disc;
-    // Netzwerkfehler und unlesbare Antworten → 503, nicht 401 (sonst gälten bei einem Ausfall alle als abgemeldet)
+    this.pending ??= this.fetchDiscovery().finally(() => { this.pending = null; });
+    try { return await this.pending; } catch (e) { if (this.disc) return this.disc; throw e; }
+  }
+
+  private async fetchDiscovery(): Promise<Discovery> {
+    // Netzwerkfehler, Zeitlimit und unlesbare Antworten → 503, nicht 401 (sonst gälten bei einem Ausfall alle als abgemeldet)
     const down = (why: string) => new HttpError(503, 'Anmeldedienst nicht erreichbar', `Discovery ${why}`);
     let res: Response, d: Discovery;
-    try { res = await this.fetchImpl(`${this.issuer}/.well-known/openid-configuration`); } catch (e) { throw down((e as Error).message); }
+    try { res = await this.fetchImpl(`${this.issuer}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(this.timeoutMs) }); } catch (e) { throw down((e as Error).message); }
     if (!res.ok) throw down(String(res.status));
     try { d = await res.json() as Discovery; } catch { throw down('ohne JSON'); }
     if (typeof d?.issuer !== 'string') throw down('ohne issuer');
     if (d.issuer.replace(/\/$/, '') !== this.issuer) throw new HttpError(503, 'Anmeldedienst falsch konfiguriert', 'Issuer stimmt nicht mit OIDC_ISSUER_URL überein');
     this.disc = d; this.fetchedAt = Date.now();
-    this.jwks = createRemoteJWKSet(new URL(d.jwks_uri), { cooldownDuration: 30_000, cacheMaxAge: 600_000 });
+    this.jwks = createRemoteJWKSet(new URL(d.jwks_uri), { cooldownDuration: 30_000, cacheMaxAge: 600_000, timeoutDuration: this.timeoutMs });
     return d;
   }
 
@@ -139,7 +147,7 @@ export class TokenVerifier {
     if (!payload.jti) fail('jti fehlt');
     if (payload.ath !== createHash('sha256').update(accessToken).digest('base64url')) fail('ath passt nicht zum Access Token');
     if (await calculateJwkThumbprint(header.jwk!, 'sha256') !== jkt) fail('Schlüssel passt nicht zum Token (cnf.jkt)');
-    if (!(await this.replay.claim(`dpop:${jkt}:${payload.jti}`, this.cfg.m2m.dpopMaxAgeSec * 2000))) fail('Proof wurde bereits verwendet');
+    if (!(await this.replay.claim(`dpop:${jkt}:${payload.jti}`, (this.cfg.m2m.dpopMaxAgeSec * 2 + 1) * 1000))) fail('Proof wurde bereits verwendet');
   }
 }
 

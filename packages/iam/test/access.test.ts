@@ -32,6 +32,15 @@ describe('Entscheidung wie Assets (ohne Datenbank)', () => {
     assert.equal(acc.decide(p(['c-pflege']), acl([{ resource_type: 'type', resource_id: 'laptop', principal_type: 'role', principal_ref: 'c-pflege', permission: 'object:write', effect: 'deny' }], [['c-pflege', ['object:write']]]), 'object:write', { type: 'type', id: 'laptop' }), false, 'ACL für die eigene Rolle');
   });
 
+  test('Freigaben nie für Rechte, die nur org-admin hat (auch wenn die Datenbank solche Einträge enthält)', () => {
+    const perm = [...assetsCatalog.adminOnly][0]!;
+    assert.ok(perm, 'Assets hat Rechte nur für org-admin');
+    const a = acl([{ resource_type: 'tenant', resource_id: null, principal_type: 'role', principal_ref: 'viewer', permission: perm, effect: 'grant' }]);
+    assert.equal(acc.decide(p(['viewer']), a, perm), false, perm);
+    assert.equal(acc.somewhere(p(['viewer']), a, perm), false, `${perm} irgendwo`);
+    assert.equal(acc.decide(p(['org-admin']), a, perm), true, 'org-admin behält es');
+  });
+
   test('ohne Einträge gilt das Rollenrecht', () => {
     assert.ok(acc.decide(p(['viewer']), acl([]), 'object:read', { type: 'object', id: 'o' }, 'notebook'));
     assert.ok(!acc.decide(p(['viewer']), acl([]), 'object:write', { type: 'object', id: 'o' }, 'notebook'));
@@ -60,14 +69,17 @@ describe('Entscheidung wie Assets (ohne Datenbank)', () => {
     assert.ok(acc.decide(mcp, a, 'object:delete', { type: 'type', id: 'laptop' }));
   });
 
-  test('getauschtes Token eines Maschinen-Clients über MCP: Regeln für den ursprünglichen Client gelten', () => {
+  test('getauschtes Token eines Maschinen-Clients über MCP: Regeln für den ursprünglichen Client gelten, die für den MCP-Dienst nicht pauschal', () => {
     const at = { type: 'type', id: 'laptop' };
     const c = p(['editor'], { kind: 'client', clientId: 'assets-mcp', grantId: 'import', scopes: ['assets:read', 'objects:write'] });
     const deny = (ref: string) => acl([{ resource_type: 'schema', resource_id: 's1', principal_type: 'client', principal_ref: ref, permission: 'object:write', effect: 'deny' }]);
     const only = (ref: string) => acl([{ resource_type: 'schema', resource_id: 's1', principal_type: 'client', principal_ref: ref, permission: 'object:write', effect: 'restrict' }]);
     assert.ok(!acc.decide(c, deny('import'), 'object:write', at), 'Verbot für den Client wirkt auch über MCP');
-    assert.ok(!acc.decide(c, deny('assets-mcp'), 'object:write', at), 'Verbot für den MCP-Dienst wirkt');
+    assert.ok(acc.decide(c, deny('assets-mcp'), 'object:write', at), 'Verbot für den MCP-Dienst trifft nicht jeden getauschten Client');
     assert.ok(acc.decide(c, only('import'), 'object:write', at), 'Beschränkung auf den Client lässt ihn durch');
+    assert.ok(!acc.decide(c, only('assets-mcp'), 'object:write', at), 'Beschränkung auf den MCP-Dienst lässt nicht jeden getauschten Client durch');
+    // Person über den MCP-Dienst: dort zählt der MCP-Dienst (keine Freigabe eines Maschinen-Clients)
+    assert.ok(!acc.decide(p(['editor'], { clientId: 'assets-mcp', scopeBound: true, scopes: ['assets:read', 'objects:write'] }), deny('assets-mcp'), 'object:write', at));
     assert.ok(!acc.decide(p(['editor'], { kind: 'client', clientId: 'assets-mcp', grantId: 'export', scopes: ['assets:read', 'objects:write'] }), only('import'), 'object:write', at), 'anderer Client nicht');
   });
 

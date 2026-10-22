@@ -161,3 +161,16 @@ test('Stichwörter als RegExp mit g oder y: jede Rollenbeschreibung wird von vor
     assert.deepEqual(errorsOf({ ...i, groups: [{ key: 'notes', label: 'Notizen', match: new RegExp('notiz|.*notiz', flags) }] }), [], flags);
   }
 });
+
+test('Stichwörter als RegExp nur mit i (g, y ignoriert); andere Flags gingen in der Antwort verloren', () => {
+  const i = notesInput();
+  assert.ok(errorsOf({ ...i, groups: [{ key: 'notes', label: 'Notizen', match: /^notiz/m }] }).some(e => /Gruppe «notes»: Stichwörter mit Flags «m»; erlaubt ist nur i/.test(e)));
+});
+
+test('erzeugte Beschreibung von org-admin ohne Stichwort einer Gruppe: klare Meldung', () => {
+  const i = notesInput();
+  const errors = errorsOf({ ...i, groups: [{ key: 'notes', label: 'Texte', match: 'notiz' }] });
+  assert.ok(errors.some(e => /Rolle «org-admin»: die erzeugte Beschreibung nennt die Rechtegruppe «notes» nicht .*eigene Beschreibung für org-admin angeben/.test(e)), errors.join(' | '));
+  const own = { ...i, groups: [{ key: 'notes', label: 'Texte', match: 'notiz' }], roles: { ...i.roles, 'org-admin': { label: 'Organisations-Admin', description: 'Verwaltet Notizen, Mitglieder und den Zugriff der Organisation.', permissions: [] } } };
+  assert.deepEqual(errorsOf(own), []);
+});

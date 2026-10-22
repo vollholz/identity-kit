@@ -108,8 +108,8 @@ export class AccessService<P extends string = string, S = unknown> {
   private matches(p: Principal, e: AclRow): boolean {
     switch (e.principal_type) {
       case 'user': return e.principal_ref === p.principalId || e.principal_ref === p.subject;
-      // Getauschte Tokens eines Maschinen-Clients: Regeln für den ursprünglichen Client und für den MCP-Dienst gelten
-      case 'client': return e.principal_ref === p.clientId || (!!p.grantId && e.principal_ref === p.grantId);
+      // Maschinen-Clients: der Client der Freigabe (bei Token-Austausch über MCP der ursprüngliche, nicht der MCP-Dienst)
+      case 'client': return e.principal_ref === (p.grantId ?? p.clientId);
       case 'role': return p.roles.includes(e.principal_ref);
       case 'group': return p.groups.includes(e.principal_ref);
       default: return false;
@@ -134,7 +134,8 @@ export class AccessService<P extends string = string, S = unknown> {
 
   decide(p: Principal, acl: TenantAccess<S>, perm: P, r: ResourceRef = { type: 'tenant' }, hint?: string | null): boolean {
     const chain = this.chain(acl, r, hint);
-    const granted = () => this.scopeAllows(p, perm) && chain.some(step => this.at(acl, perm, step).some(e => e.effect === 'grant' && this.matches(p, e)));
+    // Freigaben nie für Rechte, die nur org-admin hat (Spez. 7.1; auch wenn die Datenbank solche Einträge enthält)
+    const granted = () => !this.catalog.adminOnly.has(perm) && this.scopeAllows(p, perm) && chain.some(step => this.at(acl, perm, step).some(e => e.effect === 'grant' && this.matches(p, e)));
     if (!this.basePermissions(p, acl).has(perm) && !granted()) return false;
     if (this.isExempt(p)) return true;
     return chain.every(step => this.passes(p, this.at(acl, perm, step)));

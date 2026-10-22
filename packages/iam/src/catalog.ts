@@ -197,6 +197,8 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
   const groupKeys = new Set<string>();
   for (const g of groups) {
     if (groupKeys.has(g.key)) errors.push(`Gruppe «${g.key}» mehrfach`);
+    // Die Antwort enthält nur die Quelle (Gross/klein egal); andere Flags gingen dort verloren
+    if (g.source instanceof RegExp && /[^giy]/.test(g.source.flags)) errors.push(`Gruppe «${g.key}»: Stichwörter mit Flags «${g.source.flags}»; erlaubt ist nur i (g und y werden ignoriert)`);
     groupKeys.add(g.key);
     if (!NAME_KEY.test(g.key)) errors.push(`Gruppe «${g.key}»: Schlüssel nicht ${NAME_KEY}`);
     if (!g.label?.trim()) errors.push(`Gruppe «${g.key}»: Label fehlt`);
@@ -246,7 +248,11 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
   for (const [key, r] of roles) {
     for (const g of new Set(r.permissions.map(p => info.get(p)!.group))) {
       const m = groups.find(x => x.key === g)?.match;
-      if (m && !m.test(r.description)) errors.push(`Rolle «${key}»: Beschreibung nennt die Rechtegruppe «${g}» nicht (Stichwort ${m})`);
+      if (!m || m.test(r.description)) continue;
+      // Die erzeugte Beschreibung nennt nur die Labels der Gruppen
+      errors.push(key === ADMIN_ROLE && !adminIn?.description
+        ? `Rolle «${key}»: die erzeugte Beschreibung nennt die Rechtegruppe «${g}» nicht (Stichwort ${m}, Label «${groups.find(x => x.key === g)?.label}»); eigene Beschreibung für ${ADMIN_ROLE} angeben`
+        : `Rolle «${key}»: Beschreibung nennt die Rechtegruppe «${g}» nicht (Stichwort ${m})`);
     }
   }
   const adminOnly = new Set(permissions.filter(p => ![...roles].some(([k, r]) => k !== ADMIN_ROLE && r.permissions.includes(p))));

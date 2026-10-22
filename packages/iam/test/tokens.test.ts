@@ -120,6 +120,21 @@ describe('Token-Prüfung', () => {
     await rejects(offline.verify(await idp.token(claims.user({ org: 'acme' })), { audience: 'notes-api', method: 'GET', url: URL }), 503, /nicht erreichbar/, 'Netzwerk');
     const garbled = new OidcProvider(idp.issuer, async () => new Response('<html>'));
     await rejects(garbled.discovery(), 503, /nicht erreichbar/, 'kein JSON');
+    const hanging = new OidcProvider(idp.issuer, (_u, init) => new Promise((_r, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))), 50);
+    await rejects(hanging.discovery(), 503, /nicht erreichbar/, 'Zeitlimit');
+  });
+
+  test('Discovery: gleichzeitige Abfragen teilen sich einen Abruf; bei Ausfall gilt die bisherige weiter', async () => {
+    let calls = 0, fail = false;
+    const prov = new OidcProvider(idp.issuer, async (u, init) => { calls++; if (fail) throw new TypeError('fetch failed'); return fetch(u, init); });
+    const [a, b] = await Promise.all([prov.discovery(), prov.discovery()]);
+    assert.equal(calls, 1);
+    assert.equal(a, b);
+    fail = true;
+    (prov as unknown as { fetchedAt: number }).fetchedAt = 0;
+    assert.equal(await prov.discovery(), a, 'alte Discovery bei Fehler');
+    assert.equal(calls, 2);
+    await rejects(new OidcProvider(idp.issuer, async () => { throw new TypeError('fetch failed'); }).discovery(), 503, /nicht erreichbar/, 'ohne bisherige');
   });
 });
 

@@ -5,7 +5,7 @@
 export type * from './contract.ts';
 export { ApiError, describeError, errorFrom, fieldErrorText, networkError, statusText, type ErrorText } from './problem.ts';
 export {
-  authFetch, currentTenant, iamFetch, iamMiddleware, ifMatch, loginUrl, onForbidden, onSessionExpired, origin, reportStatus,
+  authFetch, currentTenant, iamFetch, iamMiddleware, ifMatch, isLocalPath, loginUrl, onForbidden, onSessionExpired, origin, reportStatus,
   setCsrfToken, setTenant, tenantHeaders, withQuery, withTenant, type IamRequest, type QueryValue,
 } from './client.ts';
 export { adoptLegacyTabOrg, readTabOrg, TAB_ORG_KEY, tabOrgFor, writeTabOrg, type TabOrg } from './tabOrg.ts';

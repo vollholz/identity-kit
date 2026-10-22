@@ -1,7 +1,8 @@
 /**
- * Abzug der Datenbankobjekte des IAM für den Gleichheitstest (Entwurf Kap. 6.4): Tabellen mit Spalten, Bedingungen,
- * Indizes, Policies, Triggern, RLS und Rechten; Funktionen mit Rumpf, SECURITY DEFINER, Einstellungen und Rechten;
- * Rechte der Schemas und Standardrechte. Spalten nach Namen (nicht nach Position), Rechte sortiert.
+ * Abzug der Datenbankobjekte des IAM (Entwurf Kap. 6.4): Tabellen mit Besitzer, Spalten, Bedingungen, Indizes,
+ * Policies, Triggern, RLS und Rechten; Sequenzen mit Besitzer und Rechten; Funktionen mit Besitzer, Rumpf,
+ * SECURITY DEFINER, Einstellungen und Rechten; Rechte der Schemas und Standardrechte. Spalten nach Namen (nicht nach
+ * Position), Rechte sortiert. Für den Gleichheitstest mit Assets und für Apps, die ihre Übernahme selbst prüfen.
  */
 import type pg from 'pg';
 
@@ -16,19 +17,20 @@ export interface SchemaSnapshot {
   schemas: Record<string, string[] | null>;
   defaultAcl: string[];
   tables: Record<string, unknown>;
+  sequences: Record<string, unknown>;
   functions: Record<string, unknown>;
 }
 
 /** @param c Superuser-Verbindung auf die Datenbank */
 export async function schemaSnapshot(c: pg.ClientBase, schema: string, tables = IAM_TABLES, functions = IAM_FUNCTIONS): Promise<SchemaSnapshot> {
-  const out: SchemaSnapshot = { schemas: {}, defaultAcl: [], tables: {}, functions: {} };
+  const out: SchemaSnapshot = { schemas: {}, defaultAcl: [], tables: {}, sequences: {}, functions: {} };
   for (const r of (await c.query<{ n: string; acl: string[] | null }>('SELECT nspname AS n, nspacl::text[] AS acl FROM pg_namespace WHERE nspname = ANY($1) ORDER BY 1', [['app', schema]])).rows) out.schemas[r.n] = sortAcl(r.acl);
   out.defaultAcl = (await c.query<{ d: string }>(
     `SELECT pg_get_userbyid(d.defaclrole) || ' ' || coalesce(n.nspname, '*') || ' ' || d.defaclobjtype::text || ' ' || array_to_string(ARRAY(SELECT x FROM unnest(d.defaclacl::text[]) x ORDER BY x), ',') AS d
        FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace ORDER BY 1`)).rows.map(r => r.d);
   for (const t of tables) {
-    const rel = (await c.query<{ oid: number; persistence: string; rls: boolean; force: boolean; acl: string[] | null }>(
-      `SELECT c.oid, c.relpersistence::text AS persistence, c.relrowsecurity AS rls, c.relforcerowsecurity AS force, c.relacl::text[] AS acl
+    const rel = (await c.query<{ oid: number; owner: string; persistence: string; rls: boolean; force: boolean; acl: string[] | null }>(
+      `SELECT c.oid, pg_get_userbyid(c.relowner) AS owner, c.relpersistence::text AS persistence, c.relrowsecurity AS rls, c.relforcerowsecurity AS force, c.relacl::text[] AS acl
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`, [schema, t])).rows[0];
     if (!rel) { out.tables[t] = null; continue; }
     const columns = Object.fromEntries((await c.query<{ name: string; type: string; notnull: boolean; def: string | null; identity: string; acl: string[] | null }>(
@@ -46,11 +48,18 @@ export async function schemaSnapshot(c: pg.ClientBase, schema: string, tables = 
       .map(r => [r.name, { cmd: r.cmd, permissive: r.permissive, roles: [...r.roles].sort(), using: r.qual, check: r.check }]));
     const triggers = Object.fromEntries((await c.query<{ name: string; def: string }>(
       'SELECT tgname AS name, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE tgrelid = $1 AND NOT tgisinternal ORDER BY tgname', [rel.oid])).rows.map(r => [r.name, r.def]));
-    out.tables[t] = { persistence: rel.persistence, rls: rel.rls, force: rel.force, acl: sortAcl(rel.acl), columns, constraints, indexes, policies, triggers };
+    out.tables[t] = { owner: rel.owner, persistence: rel.persistence, rls: rel.rls, force: rel.force, acl: sortAcl(rel.acl), columns, constraints, indexes, policies, triggers };
   }
+  // Sequenzen der Tabellen (Identitätsspalten): Name nach Tabelle und Spalte, nicht nach dem erzeugten Namen
+  for (const r of (await c.query<{ k: string; owner: string; acl: string[] | null }>(
+    `SELECT t.relname || '.' || a.attname AS k, pg_get_userbyid(s.relowner) AS owner, s.relacl::text[] AS acl
+       FROM pg_depend d JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+       JOIN pg_class t ON t.oid = d.refobjid JOIN pg_namespace n ON n.oid = t.relnamespace
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+      WHERE n.nspname = $1 AND t.relname = ANY ($2) ORDER BY 1`, [schema, tables])).rows) out.sequences[r.k] = { owner: r.owner, acl: sortAcl(r.acl) };
   for (const f of functions) {
-    const rows = (await c.query<{ args: string; def: string; secdef: boolean; config: string[] | null; acl: string[] | null; volatile: string }>(
-      `SELECT pg_get_function_identity_arguments(p.oid) AS args, pg_get_functiondef(p.oid) AS def, p.prosecdef AS secdef, p.proconfig AS config,
+    const rows = (await c.query<{ args: string; owner: string; def: string; secdef: boolean; config: string[] | null; acl: string[] | null; volatile: string }>(
+      `SELECT pg_get_function_identity_arguments(p.oid) AS args, pg_get_userbyid(p.proowner) AS owner, pg_get_functiondef(p.oid) AS def, p.prosecdef AS secdef, p.proconfig AS config,
               p.proacl::text[] AS acl, p.provolatile::text AS volatile
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app' AND p.proname = $1 ORDER BY 1`, [f])).rows;
     out.functions[f] = rows.map(r => ({ ...r, acl: sortAcl(r.acl) }));

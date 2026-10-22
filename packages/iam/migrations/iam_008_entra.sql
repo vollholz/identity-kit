@@ -49,7 +49,7 @@ SELECT app.secure_tenant_tables();
 -- entra_connection unterliegt FORCE RLS auch für die Besitzer-Rolle: Die Funktionen lesen über eine eigene Policy der
 -- Besitzer-Rolle, die nur greift, solange app.entra_scan gesetzt ist – das tun nur diese Funktionen, und sie setzen den
 -- vorherigen Wert danach zurück. Andere Rollen betrifft die Policy nicht.
-CREATE POLICY entra_scan ON {{schema}}.entra_connection FOR SELECT TO CURRENT_USER USING (current_setting('app.entra_scan', true) = 'on');
+CREATE POLICY entra_scan ON {{schema}}.entra_connection FOR SELECT TO {{owner}} USING (current_setting('app.entra_scan', true) = 'on');
 
 CREATE FUNCTION app.entra_login_alias(p_domain text) RETURNS text
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = {{schema}}, pg_temp AS $$

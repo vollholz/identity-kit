@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { aclChecks, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
 import { productDb, skipDb } from './support/db.ts';
 
 const skip = await skipDb();
@@ -20,27 +20,28 @@ describe('IAM-Migrationen: Parameter', () => {
     for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
   });
 
-  test('Schema, Rollen und Ressourcentypen werden eingesetzt; gleiche Parameter, gleiche Prüfsumme', () => {
+  test('Schema und Rollen werden eingesetzt; Prüfsummen hängen nicht an den Ressourcentypen', () => {
     const a = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }).migrations;
     const core = a.find(m => m.name === 'iam_001_core.sql')!.sql;
     assert.match(core, /CREATE SCHEMA IF NOT EXISTS notes;/);
     assert.match(core, /TO notes_app, notes_sched;/);
-    const access = a.find(m => m.name === 'iam_004_access.sql')!.sql;
-    assert.match(access, /CHECK \(resource_type IN \('tenant', 'folder', 'note'\)\)/);
-    assert.match(access, /CONSTRAINT acl_entry_grant_resource_check CHECK \(effect <> 'grant' OR resource_type <> 'note'\)/);
     assert.match(a.find(m => m.name === 'iam_007_audit.sql')!.sql, /FOR ROLE notes_owner/);
-    const b = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }).migrations;
+    assert.match(a.find(m => m.name === 'iam_008_entra.sql')!.sql, /FOR SELECT TO notes_owner USING/);
+    // Ein neuer Ressourcentyp ist ein normaler Fall: keine Migration ändert sich
+    const b = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'] }).migrations;
     assert.deepEqual(a.map(m => m.checksum), b.map(m => m.checksum));
-    const c = iamMigrations({ product: 'notes', schema: 'other', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }).migrations;
+    const c = iamMigrations({ product: 'notes', schema: 'other' }).migrations;
     assert.notEqual(a[0]!.checksum, c[0]!.checksum);
   });
 
-  test('mehrere Blätter; ohne Blätter keine Bedingung; ohne Zugriffsregeln nur «tenant»', () => {
-    const multi = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'a', 'b'], leafTypes: ['a', 'b'] }).migrations.find(m => m.name === 'iam_004_access.sql')!.sql;
-    assert.match(multi, /resource_type NOT IN \('a', 'b'\)/);
-    const none = iamMigrations({ product: 'notes' }).migrations.find(m => m.name === 'iam_004_access.sql')!.sql;
-    assert.doesNotMatch(none, /grant_resource_check/);
-    assert.match(none, /CHECK \(resource_type IN \('tenant'\)\)/);
+  test('Bedingungen zu Ressourcentypen und Blättern (Form wie PostgreSQL sie ausgibt)', () => {
+    assert.deepEqual(aclChecks({ resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }), {
+      acl_entry_resource_type_check: { sql: "CHECK (resource_type IN ('tenant', 'folder', 'note'))", def: "CHECK ((resource_type = ANY (ARRAY['tenant'::text, 'folder'::text, 'note'::text])))" },
+      acl_entry_grant_resource_check: { sql: "CHECK (effect <> 'grant' OR resource_type <> 'note')", def: "CHECK (((effect <> 'grant'::text) OR (resource_type <> 'note'::text)))" },
+    });
+    assert.match(aclChecks({ resourceTypes: ['tenant', 'a', 'b'], leafTypes: ['a', 'b'] }).acl_entry_grant_resource_check!.sql, /NOT IN \('a', 'b'\)/);
+    assert.equal(aclChecks({}).acl_entry_grant_resource_check, null);
+    assert.deepEqual(aclChecks({}).acl_entry_resource_type_check, { sql: "CHECK (resource_type IN ('tenant'))", def: "CHECK ((resource_type = 'tenant'::text))" });
   });
 
   test('Produkt mit Bindestrich: Schema und Rollen mit Unterstrich (gleiche Regel wie die Konfiguration)', () => {
@@ -56,6 +57,7 @@ describe('IAM-Migrationen: Parameter', () => {
     assert.throws(() => iamMigrations({ product: 'Notes' }), /product/);
     assert.throws(() => iamMigrations({ product: 'notes', schema: 'notes; DROP' }), /schema/);
     assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['note'] }), /tenant/);
+    assert.throws(() => aclChecks({ resourceTypes: ['tenant', "x')"] }), /ungültig/);
     assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', "x')"] }), /ungültig/);
     assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['tenant'] }), /leafTypes/);
     assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['folder'] }), /leafTypes/);
@@ -82,6 +84,38 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
     assert.deepEqual(again, { applied: [], adopted: [], skipped: 12 });
+    const log: string[] = [];
+    await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra], m => log.push(m));
+    assert.deepEqual(log, [], 'Abgleich ohne Änderung meldet nichts');
+  });
+
+  test('nur als Besitzer-Rolle des Produkts', async () => {
+    await assert.rejects(migrate(t.runtimeUrl, [iamMigrations({ product: 'notes' })]), /laufen als notes_owner, nicht als notes_runtime/);
+  });
+
+  test('Ressourcentypen ändern sich mit dem Katalog: Abgleich ohne neue Migration, zweiter Lauf ohne Änderung', async () => {
+    const def = async () => Object.fromEntries((await t.inspect.query<{ n: string; d: string }>(
+      "SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = 'notes.acl_entry'::regclass AND conname LIKE 'acl_entry_%_check' AND conname <> 'acl_entry_principal_type_check' AND conname <> 'acl_entry_effect_check'")).rows.map(r => [r.n, r.d]));
+    assert.deepEqual(await def(), { acl_entry_resource_type_check: "CHECK ((resource_type = 'tenant'::text))" });
+    const log: string[] = [];
+    const wider = { product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['folder', 'note'] };
+    const r = await migrate(t.adminUrl, [iamMigrations(wider), extra], m => log.push(m));
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(log, ['Bedingung acl_entry_resource_type_check an den Katalog angepasst', 'Bedingung acl_entry_grant_resource_check an den Katalog angepasst']);
+    const want = aclChecks(wider);
+    assert.deepEqual(await def(), { acl_entry_resource_type_check: want.acl_entry_resource_type_check!.def, acl_entry_grant_resource_check: want.acl_entry_grant_resource_check!.def });
+    const again: string[] = [];
+    await migrate(t.adminUrl, [iamMigrations(wider), extra], m => again.push(m));
+    assert.deepEqual(again, []);
+    // Typ entfernen, der noch verwendet wird: Abbruch mit Hinweis, Bedingung bleibt
+    const id = (await t.runtime.query<{ id: string }>("SELECT app.resolve_tenant('alpha', null, 'alpha', true) AS id")).rows[0]!.id;
+    await t.inspect.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', gen_random_uuid(), 'role', 'r', 'note:read', 'deny')", [id]);
+    await assert.rejects(migrate(t.adminUrl, [iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['note'] }), extra]), /acl_entry_resource_type_check lässt sich nicht an den Katalog anpassen/);
+    assert.equal((await def()).acl_entry_resource_type_check, want.acl_entry_resource_type_check!.def);
+    await t.inspect.query("DELETE FROM notes.acl_entry WHERE resource_type = 'folder'");
+    // Ohne Blätter verschwindet die Bedingung zu Freigaben
+    await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
+    assert.deepEqual(await def(), { acl_entry_resource_type_check: "CHECK ((resource_type = 'tenant'::text))" });
   });
 
   test('iam_009: eigene Rollen mit Primärschlüssel (tenant_id, id)', async () => {
@@ -136,6 +170,35 @@ describe('Übernahme (adopted)', { skip }, () => {
       return true;
     });
     assert.equal((await e.inspect.query("SELECT count(*)::int AS n FROM public.schema_migrations WHERE name LIKE 'iam_%'")).rows[0].n, 0);
+  });
+
+  test('Objekte ohne Schutz (Stub-Tabellen und -Funktionen ohne RLS, Policies, SECURITY DEFINER): Abbruch, nichts eingetragen', async () => {
+    const tables = ['tenant', 'principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'session', 'replay_guard', 'rate_limit', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent'];
+    const cols: Record<string, string> = { principal: 'last_roles text[], removed_at timestamptz', member_invitation: 'id uuid, entra boolean', audit_log: 'seq bigint', session: 'idp_sid text', tenant_role: 'deleted_at timestamptz' };
+    const fns = ['tenant_id', 'principal_id', 'secure_tenant_tables', 'resolve_tenant', 'bump_acl_version', 'audit_hash', 'audit_chain', 'suspended_tenants', 'platform_tenants', 'set_tenant_status', 'entra_login_alias', 'entra_free_slot', 'entra_domains_taken'];
+    const stubSql = ['CREATE SCHEMA app; CREATE SCHEMA notes;',
+      ...tables.map(t => `CREATE TABLE notes.${t} (${t === 'tenant' ? 'id uuid' : 'tenant_id uuid'}${cols[t] ? `, ${cols[t]}` : ''}); GRANT SELECT ON notes.${t} TO PUBLIC;`),
+      ...fns.map(f => `CREATE FUNCTION app.${f}() RETURNS int LANGUAGE sql AS 'SELECT 0';`)].join('\n');
+    const stub = productDb({ iam: false, sources: [{ name: 'app', migrations: [migration('049_tenant_roles.sql', stubSql)] }] });
+    const s1 = await stub.create();
+    try {
+      await assert.rejects(migrate(s1.adminUrl, [iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), (err: Error) => {
+        for (const m of [/Tabelle notes\.principal: RLS mit FORCE fehlt/, /notes\.audit_log: Policy tenant_isolation für notes_app/, /notes\.tenant: RLS mit Policy tenant_self fehlt/, /notes\.session: PUBLIC hat Rechte/, /app\.resolve_tenant: SECURITY DEFINER mit search_path=notes, pg_temp fehlt/]) assert.match(err.message, m);
+        return true;
+      });
+      assert.equal((await s1.inspect.query("SELECT count(*)::int AS n FROM public.schema_migrations WHERE name LIKE 'iam_%'")).rows[0].n, 0);
+    } finally { await s1.drop(); }
+  });
+
+  test('frische Datenbank: IAM direkt nach der Marke, spätere Migrationen der App dürfen spätere IAM-Migrationen voraussetzen', async () => {
+    const needs = migration('050_needs_iam_009.sql', "SELECT 1 / (SELECT count(*)::int FROM pg_constraint WHERE conname = 'tenant_role_pkey' AND pg_get_constraintdef(oid) = 'PRIMARY KEY (tenant_id, id)');");
+    const app = own('notes');
+    const fresh = productDb({ iam: false, sources: [{ ...app, migrations: [...app.migrations, needs] }, iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })] });
+    const f = await fresh.create();
+    try {
+      const order = (await f.inspect.query<{ name: string }>('SELECT name FROM public.schema_migrations ORDER BY applied_at, name')).rows.map(r => r.name);
+      assert.deepEqual(order.slice(-4), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', '050_needs_iam_009.sql']);
+    } finally { await f.drop(); }
   });
 
   test('Marke nicht angewendet: Abbruch', async () => {

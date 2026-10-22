@@ -18,6 +18,7 @@
   ],
   "tables": {
    "tenant": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": false,
@@ -113,6 +114,7 @@
     "triggers": {}
    },
    "principal": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -226,6 +228,7 @@
     "triggers": {}
    },
    "acl_entry": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -335,6 +338,7 @@
     }
    },
    "tenant_role": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -458,6 +462,7 @@
     }
    },
    "member_invitation": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -562,6 +567,7 @@
     "triggers": {}
    },
    "client_grant": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -629,6 +635,7 @@
     "triggers": {}
    },
    "session": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": false,
     "force": false,
@@ -707,6 +714,7 @@
     "triggers": {}
    },
    "replay_guard": {
+    "owner": "assets_owner",
     "persistence": "u",
     "rls": false,
     "force": false,
@@ -741,6 +749,7 @@
     "triggers": {}
    },
    "rate_limit": {
+    "owner": "assets_owner",
     "persistence": "u",
     "rls": false,
     "force": false,
@@ -782,6 +791,7 @@
     "triggers": {}
    },
    "audit_log": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -932,6 +942,7 @@
     }
    },
    "audit_anchor": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -997,6 +1008,7 @@
     "triggers": {}
    },
    "entra_connection": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -1164,6 +1176,7 @@
     "triggers": {}
    },
    "entra_consent": {
+    "owner": "assets_owner",
     "persistence": "p",
     "rls": true,
     "force": true,
@@ -1251,10 +1264,21 @@
     "triggers": {}
    }
   },
+  "sequences": {
+   "audit_log.id": {
+    "owner": "assets_owner",
+    "acl": [
+     "assets_app=U/assets_owner",
+     "assets_owner=rwU/assets_owner",
+     "assets_sched=U/assets_owner"
+    ]
+   }
+  },
   "functions": {
    "tenant_id": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.tenant_id()\n RETURNS uuid\n LANGUAGE sql\n STABLE\nAS $function$ SELECT nullif(current_setting('app.tenant_id', true), '')::uuid $function$\n",
      "secdef": false,
      "config": null,
@@ -1270,6 +1294,7 @@
    "principal_id": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.principal_id()\n RETURNS uuid\n LANGUAGE sql\n STABLE\nAS $function$ SELECT nullif(current_setting('app.principal_id', true), '')::uuid $function$\n",
      "secdef": false,
      "config": null,
@@ -1285,6 +1310,7 @@
    "secure_tenant_tables": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.secure_tenant_tables()\n RETURNS integer\n LANGUAGE plpgsql\nAS $function$\nDECLARE t text; n int := 0;\nBEGIN\n  FOR t IN SELECT c.table_name FROM information_schema.columns c\n           JOIN information_schema.tables x ON x.table_schema = c.table_schema AND x.table_name = c.table_name AND x.table_type = 'BASE TABLE'\n           WHERE c.table_schema = 'assets' AND c.column_name = 'tenant_id' AND c.table_name <> 'tenant'\n  LOOP\n    EXECUTE format('ALTER TABLE assets.%I ENABLE ROW LEVEL SECURITY', t);\n    EXECUTE format('ALTER TABLE assets.%I FORCE ROW LEVEL SECURITY', t);\n    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'assets' AND tablename = t AND policyname = 'tenant_isolation') THEN\n      EXECUTE format('CREATE POLICY tenant_isolation ON assets.%I TO assets_app USING (tenant_id = app.tenant_id()) WITH CHECK (tenant_id = app.tenant_id())', t);\n      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON assets.%I TO assets_app', t);\n      n := n + 1;\n    END IF;\n  END LOOP;\n  EXECUTE 'GRANT USAGE ON ALL SEQUENCES IN SCHEMA assets TO assets_app, assets_sched';\n  RETURN n;\nEND $function$\n",
      "secdef": false,
      "config": null,
@@ -1295,6 +1321,7 @@
    "resolve_tenant": [
     {
      "args": "p_alias text, p_kc_org_id text, p_name text, p_create boolean",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.resolve_tenant(p_alias text, p_kc_org_id text, p_name text, p_create boolean)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE v_id uuid; v_status text; v_kc text;\nBEGIN\n  SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM assets.tenant WHERE alias = lower(p_alias);\n  IF v_id IS NULL AND p_create THEN\n    INSERT INTO assets.tenant (alias, kc_org_id, name) VALUES (lower(p_alias), p_kc_org_id, coalesce(p_name, p_alias))\n      ON CONFLICT (alias) DO UPDATE SET alias = excluded.alias RETURNING id, status, kc_org_id INTO v_id, v_status, v_kc;\n  END IF;\n  IF v_status = 'suspended' THEN RETURN NULL; END IF;\n  IF v_id IS NOT NULL AND p_kc_org_id IS NOT NULL THEN\n    IF v_kc IS NULL THEN\n      UPDATE assets.tenant SET kc_org_id = p_kc_org_id WHERE id = v_id AND kc_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM assets.tenant WHERE kc_org_id = p_kc_org_id);\n    ELSIF v_kc <> p_kc_org_id THEN RETURN NULL;\n    END IF;\n  END IF;\n  RETURN v_id;\nEND $function$\n",
      "secdef": true,
      "config": [
@@ -1310,6 +1337,7 @@
    "bump_acl_version": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.bump_acl_version()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nBEGIN\n  UPDATE assets.tenant SET acl_version = acl_version + 1 WHERE id = coalesce(NEW.tenant_id, OLD.tenant_id);\n  RETURN NULL;\nEND $function$\n",
      "secdef": true,
      "config": [
@@ -1324,6 +1352,7 @@
    "audit_hash": [
     {
      "args": "prev bytea, r assets.audit_log",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.audit_hash(prev bytea, r assets.audit_log)\n RETURNS bytea\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT sha256(convert_to(\n    coalesce(encode(prev, 'hex'), '') || '|' ||\n    jsonb_build_array(\n      2, r.tenant_id, r.seq,\n      to_char(r.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n      r.actor_kind, r.actor_id, r.actor_name, r.client_id, r.source,\n      r.action, r.resource_type, r.resource_id, r.correlation_id, r.data\n    )::text, 'UTF8'))\n$function$\n",
      "secdef": false,
      "config": null,
@@ -1334,6 +1363,7 @@
    "audit_chain": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.audit_chain()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE last record;\nBEGIN\n  -- Sperre bis Transaktionsende: Einträge eines Mandanten werden strikt nacheinander verkettet.\n  PERFORM pg_advisory_xact_lock(hashtextextended('audit:' || NEW.tenant_id::text, 0));\n  SELECT seq, hash INTO last FROM assets.audit_log WHERE tenant_id = NEW.tenant_id ORDER BY seq DESC LIMIT 1;\n  NEW.ts := date_trunc('microseconds', NEW.ts);\n  NEW.seq := coalesce(last.seq, 0) + 1;\n  NEW.prev_hash := last.hash;\n  NEW.hash := app.audit_hash(NEW.prev_hash, NEW);\n  RETURN NEW;\nEND $function$\n",
      "secdef": false,
      "config": null,
@@ -1344,6 +1374,7 @@
    "suspended_tenants": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.suspended_tenants()\n RETURNS uuid[]\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$ SELECT coalesce(array_agg(id), '{}') FROM assets.tenant WHERE status = 'suspended' $function$\n",
      "secdef": true,
      "config": [
@@ -1359,6 +1390,7 @@
    "platform_tenants": [
     {
      "args": "",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.platform_tenants()\n RETURNS TABLE(id uuid, alias text, name text, status text, kc_org_id text, created_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$ SELECT id, alias, name, status, kc_org_id, created_at FROM assets.tenant ORDER BY alias $function$\n",
      "secdef": true,
      "config": [
@@ -1374,6 +1406,7 @@
    "set_tenant_status": [
     {
      "args": "p_id uuid, p_status text",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.set_tenant_status(p_id uuid, p_status text)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nBEGIN\n  IF p_status NOT IN ('active', 'suspended') THEN RAISE EXCEPTION 'Status % ungültig', p_status USING ERRCODE = '22023'; END IF;\n  UPDATE assets.tenant SET status = p_status WHERE id = p_id;\n  IF NOT FOUND THEN RAISE EXCEPTION 'Mandant % nicht gefunden', p_id USING ERRCODE = 'P0002'; END IF;\nEND $function$\n",
      "secdef": true,
      "config": [
@@ -1389,6 +1422,7 @@
    "entra_login_alias": [
     {
      "args": "p_domain text",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.entra_login_alias(p_domain text)\n RETURNS text\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE prev text := coalesce(current_setting('app.entra_scan', true), ''); v text;\nBEGIN\n  PERFORM set_config('app.entra_scan', 'on', true);\n  SELECT c.idp_alias INTO v FROM assets.entra_connection c JOIN assets.tenant t ON t.id = c.tenant_id\n   WHERE lower(p_domain) = ANY (c.domains) AND c.stage = 'enforced' AND t.status = 'active' LIMIT 1;\n  PERFORM set_config('app.entra_scan', prev, true);\n  RETURN v;\nEND $function$\n",
      "secdef": true,
      "config": [
@@ -1404,6 +1438,7 @@
    "entra_free_slot": [
     {
      "args": "p_max integer",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.entra_free_slot(p_max integer)\n RETURNS text\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE prev text := coalesce(current_setting('app.entra_scan', true), ''); v text;\nBEGIN\n  PERFORM set_config('app.entra_scan', 'on', true);\n  SELECT format('entra-%s', lpad(n::text, 3, '0')) INTO v FROM generate_series(1, least(greatest(p_max, 0), 999)) n\n   WHERE NOT EXISTS (SELECT 1 FROM assets.entra_connection c WHERE c.idp_alias = format('entra-%s', lpad(n::text, 3, '0')))\n   ORDER BY n LIMIT 1;\n  PERFORM set_config('app.entra_scan', prev, true);\n  RETURN v;\nEND $function$\n",
      "secdef": true,
      "config": [
@@ -1419,6 +1454,7 @@
    "entra_domains_taken": [
     {
      "args": "p_domains text[]",
+     "owner": "assets_owner",
      "def": "CREATE OR REPLACE FUNCTION app.entra_domains_taken(p_domains text[])\n RETURNS text[]\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'assets', 'pg_temp'\nAS $function$\nDECLARE prev text := coalesce(current_setting('app.entra_scan', true), ''); v text[];\nBEGIN\n  IF app.tenant_id() IS NULL THEN RETURN NULL; END IF;\n  PERFORM set_config('app.entra_scan', 'on', true);\n  SELECT coalesce(array_agg(DISTINCT d ORDER BY d), '{}') INTO v FROM assets.entra_connection c, unnest(c.domains) d\n   WHERE c.tenant_id <> app.tenant_id() AND d = ANY (p_domains);\n  PERFORM set_config('app.entra_scan', prev, true);\n  RETURN v;\nEND $function$\n",
      "secdef": true,
      "config": [

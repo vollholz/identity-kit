@@ -33,6 +33,8 @@ export function keyById(keys: Keyring, id: string): MasterKey {
 }
 
 export function validateKeyring(keys: Keyring) {
+  // Doppelte IDs: entschlüsselt würde nur mit dem ersten passenden Schlüssel
+  if (new Set(keys.map(k => k.id)).size !== keys.length) throw new Error('Schlüssel-IDs doppelt');
   for (const k of keys) {
     if (k.key.length !== 32) throw new Error(`Schlüssel ${k.id} muss 32 Bytes haben`);
     if (!k.id || Buffer.byteLength(k.id) > 255 || k.id.includes('.')) throw new Error('Schlüssel-ID: 1–255 Bytes, ohne Punkt');

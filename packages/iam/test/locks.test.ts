@@ -15,6 +15,8 @@ const skip = await skipDb();
 test('Werte der Sperren (gleich wie Assets, nie ändern)', () => {
   assert.deepEqual(LOCKS, { migrate: 727001, memberSync: 727016 });
   assert.equal(lockKey.audit('t1'), 'audit:t1');
+  // wie NEW.tenant_id::text im Trigger: UUID immer klein
+  assert.equal(lockKey.audit('0F0E-AB'), 'audit:0f0e-ab');
   assert.equal(lockKey.admin('acme'), 'admin:acme');
   assert.equal(lockKey.peopleSync('t1'), 'people-sync:t1');
   assert.equal(lockKey.entraPlatform(), 'entra:platform');

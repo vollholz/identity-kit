@@ -10,7 +10,7 @@ import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
 import { IAM_BASELINE, iamMigrations } from '../src/migrations.ts';
 import { productDb, skipDb } from './support/db.ts';
-import { diffSnapshots, schemaSnapshot, type SchemaSnapshot } from './support/schema.ts';
+import { diffSnapshots, schemaSnapshot, type SchemaSnapshot } from '../src/schema.ts';
 
 /** Parameter von Assets (Katalog: Ressourcentypen und Blatt der Kette). */
 export const ASSETS = { product: 'assets', resourceTypes: ['tenant', 'schema', 'type', 'object', 'connection', 'credential'], leafTypes: ['object'] };
@@ -22,8 +22,9 @@ const fixture = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'a
 const skip = await skipDb();
 
 describe(`Gleichheit mit Assets (${fixture.source})`, { skip }, () => {
-  const baseline = iamMigrations(ASSETS).migrations.filter(m => m.name <= IAM_BASELINE);
-  const db = productDb({ product: 'assets', iam: false, sources: [{ name: 'iam', migrations: baseline }] });
+  // Grundlage mit dem Abgleich der Ressourcentypen (wie der Runner ihn nach den IAM-Migrationen ausführt)
+  const iam = iamMigrations(ASSETS);
+  const db = productDb({ product: 'assets', iam: false, sources: [{ ...iam, migrations: iam.migrations.filter(m => m.name <= IAM_BASELINE) }] });
   let t: Awaited<ReturnType<typeof db.create>>;
   before(async () => { t = await db.create(); });
   after(async () => { await t?.drop(); });

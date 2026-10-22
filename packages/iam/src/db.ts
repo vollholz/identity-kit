@@ -43,15 +43,17 @@ const OWN = new Set(['app.tenant_id', 'app.principal_id']);
 
 export async function withTx<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
   const tx = await db.connect();
+  // Scheitert ROLLBACK, ist der Zustand der Verbindung unklar: verwerfen statt in den Pool zurückgeben
+  let broken: Error | undefined;
   try {
     await tx.query('BEGIN');
     const r = await fn(tx);
     await tx.query('COMMIT');
     return r;
   } catch (e) {
-    await tx.query('ROLLBACK').catch(() => undefined);
+    await tx.query('ROLLBACK').catch((err: Error) => { broken = err; });
     throw e;
-  } finally { tx.release(); }
+  } finally { tx.release(broken); }
 }
 
 /** Transaktion im Kontext eines Mandanten (`set_config(…, true)` – gilt nur bis COMMIT/ROLLBACK, sicher mit Poolern). */

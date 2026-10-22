@@ -22,7 +22,8 @@ export const lockKey = {
    * (app.outbox_sequence, Migration 044): Ereignis und Audit-Eintrag entstehen meist in derselben Transaktion; zwei
    * verschiedene Sperren in wechselnder Reihenfolge könnten sich verklemmen.
    */
-  audit: (tenantId: string) => `audit:${tenantId}`,
+  // Klein wie `NEW.tenant_id::text` im Trigger; sonst ergäbe eine UUID in Grossbuchstaben eine andere Sperre
+  audit: (tenantId: string) => `audit:${tenantId.toLowerCase()}`,
   /** Änderungen der Verwaltung an einer Organisation laufen nacheinander (Kap. 9.1 Nr. 7). */
   admin: (alias: string) => `admin:${alias}`,
   /** Abgleich der Mitglieder eines Mandanten. */

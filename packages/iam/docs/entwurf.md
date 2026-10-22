@@ -264,10 +264,16 @@ Die Entra-Tabellen kommen immer mit (leer, ohne Wirkung ohne `ENTRA_CLIENT_ID`),
 
 ### 6.2 Parameter
 
-`iamMigrations({ product, schema, resourceTypes, leafTypes })` setzt in die Platzhalter ein: Schema der Tabellen,
-Datenbankrollen `<product>_owner`, `<product>_app` und `<product>_sched`, die Ressourcentypen für die CHECK-Bedingung
-von `acl_entry.resource_type` und die Blätter für die von `grant` (Assets: `object`). Alle Werte werden gegen
-Bezeichner-Muster geprüft (nur `[a-z0-9_-]`), unbekannte Platzhalter sind ein Fehler; nichts wird roh eingesetzt.
+`iamMigrations({ product, schema, resourceTypes, leafTypes })` setzt in die Platzhalter ein: Schema der Tabellen und
+Datenbankrollen `<ident>_owner`, `<ident>_app` und `<ident>_sched`. Alle Werte werden gegen Bezeichner-Muster geprüft
+(nur `[a-z0-9_-]`), unbekannte Platzhalter sind ein Fehler; nichts wird roh eingesetzt.
+
+**Ressourcentypen und Blätter** stehen in keiner Migration: Sie hängen am Katalog der App, und ein neuer Ressourcentyp
+ist ein normaler Fall. Nach den IAM-Migrationen gleicht der Runner bei jedem Lauf die Bedingungen
+`acl_entry_resource_type_check` und `acl_entry_grant_resource_check` mit `resourceTypes` und `leafTypes` ab
+(`syncAclChecks`, in einer Transaktion): unverändert → nichts; sonst neu anlegen, mit Meldung. Widersprechen bestehende
+Zugriffsregeln (Typ entfernt, Freigabe auf neuem Blatt), bricht er mit Hinweis ab. Die Prüfsummen hängen so nie an
+den Typen.
 Eine Regel für den Namen des Produkts (`PRODUCT_PATTERN`): Kleinbuchstaben, Ziffern, Teile mit «-» (Realm, Clients);
 Schema und Rollen leiten sich mit «_» ab (`productIdent('my-app')` = `my_app`), in Konfiguration, Migrationen und
 `db/bootstrap.sql` gleich. Eine Vorlage für die Datenbankrollen nach Kap. 10.1 liefert das Paket als `db/bootstrap.sql` (psql-Variablen `p`,
@@ -278,8 +284,15 @@ eingesetzten Text; dieselben Parameter ergeben dieselbe Prüfsumme.
 
 `migrate(adminUrl, sources, log?)` ist der Runner von Assets (`db/migrate.ts`): Advisory-Lock, Tabelle
 `public.schema_migrations (name, checksum, applied_at)`, jede Migration in einer Transaktion, danach
-`app.secure_tenant_tables()`, Abbruch bei geänderter Prüfsumme. Neu: mehrere Quellen in fester Reihenfolge (IAM vor
-App, Kap. 15.3), Namen eindeutig über alle Quellen (`iam_…` kollidiert nicht mit `NNN_…`).
+`app.secure_tenant_tables()`, Abbruch bei geänderter Prüfsumme. Neu: mehrere Quellen in fester Reihenfolge, Namen
+eindeutig über alle Quellen (`iam_…` kollidiert nicht mit `NNN_…`); er läuft nur als `<ident>_owner` (sonst Abbruch),
+weil Rechte, Standardrechte und die Policy `entra_scan` an dieser Rolle hängen.
+
+**Reihenfolge** (Auflage 10): Neue Apps geben `[iamMigrations(…), dirMigrations(…)]` – alle IAM-Migrationen laufen vor
+denen der App, jede Migration der App darf jede IAM-Migration voraussetzen. Bei der Übernahme (Assets) laufen die
+IAM-Migrationen direkt nach der Marke der App (`after`, z. B. `049_tenant_roles.sql`), spätere Migrationen der App
+danach – auch auf einer frischen Datenbank. Eine Migration der App, die eine IAM-Migration voraussetzt, die neuer ist
+als die installierte Version des Pakets, gibt es nicht: Die App hebt zuerst die Version des Pakets.
 
 ### 6.4 Übernahme in Assets
 
@@ -287,14 +300,18 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
 
 - `iamMigrations({ …, adopted: { after: '049_tenant_roles.sql' } })`: Der Runner trägt `iam_001`–`iam_008`
   (`IAM_BASELINE`) mit ihrer Prüfsumme als angewendet ein, **ohne** sie auszuführen – nach der Quelle der App
-  (Reihenfolge `[dirMigrations(…), iamMigrations(…)]`). Vorher prüft er die Vorbedingungen (`adoptionProblems`): die
-  Migration `after` ist angewendet, alle IAM-Tabellen, die Spalten der späteren Schritte (`principal.last_roles`,
-  `member_invitation.entra`, `audit_log.seq` …) und alle IAM-Funktionen bestehen. Sonst bricht er ab und trägt nichts
-  ein (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
+  (direkt nach der Marke, 6.3). Vorher prüft er in derselben Transaktion die Vorbedingungen (`adoptionProblems`): die
+  Marke `after` ist angewendet; alle IAM-Tabellen, die Spalten der späteren Schritte (`principal.last_roles`,
+  `member_invitation.entra`, `audit_log.seq` …) und alle IAM-Funktionen bestehen; jede Mandantentabelle hat RLS mit
+  FORCE und die Policy `tenant_isolation` für `<ident>_app` mit `app.tenant_id()`; `tenant` hat `tenant_self`; keine
+  IAM-Tabelle gibt PUBLIC Rechte; die SECURITY-DEFINER-Funktionen haben `search_path=<schema>, pg_temp`. Die
+  Bedingungen zu Ressourcentypen stellt danach der Abgleich her (6.2). Sonst bricht er ab und trägt nichts ein
+  (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
   001–049 liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
   Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008` mit den Parametern von Assets muss für alle
-  IAM-Tabellen und -Funktionen genau diesen Abzug ergeben: Spalten, Typen, Standardwerte, Bedingungen mit Namen,
+  IAM-Tabellen und -Funktionen genau diesen Abzug ergeben (`schemaSnapshot`, exportiert): Besitzer, Spalten, Typen,
+  Standardwerte, Sequenzen, Bedingungen mit Namen,
   Indizes, Policies, Trigger, RLS, Rechte von Tabellen, Spalten, Schemas und Funktionen, Funktionsrümpfe, Standardrechte.
   Ausgenommen sind nur die Trigramm-Indizes des Personenverzeichnisses auf `principal` (gehören zur App, Assets 014).
   Ändert Assets eine IAM-Tabelle, wird der Abzug neu erzeugt; Abweichungen werden im Paket behoben, nicht in Assets.

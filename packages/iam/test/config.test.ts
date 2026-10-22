@@ -109,3 +109,15 @@ test('eine Namensregel für das Produkt: Bindestrich im Namen, Unterstrich in de
   assert.throws(() => loadIamConfig(base, { product: 'my_app', service: 'api' }), ConfigError);
   assert.match(IAM_VARS('my-app').find(v => v.name === 'DATABASE_URL')!.example!, /my_app_runtime@|my_app_runtime:/);
 });
+
+test('NODE_ENV: leer = development, ungültig = Fehler und Prüfungen wie in Produktion', () => {
+  assert.equal(loadIamConfig({ ...base, NODE_ENV: '' }, { product: 'notes', service: 'api' }).mode, 'development');
+  const e = errorsOf({ ...base, NODE_ENV: 'prod', DPOP_MODE: 'off' }, 'api').join('\n');
+  assert.match(e, /NODE_ENV: erlaubt/);
+  assert.match(e, /DPOP_MODE=off ist in Produktion nicht erlaubt/);
+  assert.match(e, /SESSION_SECRET fehlt/);
+});
+
+test('ENCRYPTION_KEYS: doppelte Schlüssel-IDs abgewiesen', () => {
+  assert.match(errorsOf({ ...base, ENCRYPTION_KEYS: `${key('k1')},${key('k1')}` }).join('\n'), /Schlüssel-ID «k1» doppelt/);
+});

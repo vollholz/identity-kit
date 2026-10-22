@@ -1,7 +1,9 @@
 -- iam_004 Zugriffsregeln und eigene Rollen (Spezifikation Kap. 7.1, 8.3; aus Assets 001, 003, 036, 048, 049).
 --
 -- acl_entry: Wirkung `restrict` (nur passende Principals behalten das Recht), `deny` (verbietet), `grant` (gibt das
--- Recht ohne Rolle, nie auf einem Blatt der Kette). Ressourcentypen und Blätter kommen aus dem Katalog der App.
+-- Recht ohne Rolle, nie auf einem Blatt der Kette). Ressourcentypen und Blätter kommen aus dem Katalog der App und
+-- ändern sich mit ihm: ihre Bedingungen (acl_entry_resource_type_check, acl_entry_grant_resource_check) setzt der
+-- Runner nach den Migrationen (syncAclChecks), nicht diese Migration.
 -- tenant_role: eigene Rollen der Organisation; `key` (`c-…`) ist zugleich Name der Keycloak-Gruppe
 -- `<prefix>/<alias>/<key>` und ändert sich nie. Gelöschte Rollen bleiben als Grabstein (`deleted_at`), ihr Schlüssel
 -- wird nie wieder vergeben. Änderungen an beiden Tabellen erhöhen tenant.acl_version.
@@ -9,7 +11,7 @@
 CREATE TABLE {{schema}}.acl_entry (
   tenant_id uuid NOT NULL REFERENCES {{schema}}.tenant(id),
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  resource_type text NOT NULL CHECK (resource_type IN ({{resource_types}})),
+  resource_type text NOT NULL,
   resource_id uuid,
   principal_type text NOT NULL CHECK (principal_type IN ('user', 'group', 'role', 'client')),
   principal_ref text NOT NULL,
@@ -18,7 +20,7 @@ CREATE TABLE {{schema}}.acl_entry (
   created_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid,
   PRIMARY KEY (tenant_id, id),
-  CHECK ((resource_type = 'tenant') = (resource_id IS NULL)){{grant_check}}
+  CONSTRAINT acl_entry_check CHECK ((resource_type = 'tenant') = (resource_id IS NULL))
 );
 CREATE INDEX acl_entry_resource ON {{schema}}.acl_entry (tenant_id, resource_type, resource_id);
 CREATE INDEX acl_entry_principal ON {{schema}}.acl_entry (tenant_id, principal_type, principal_ref);

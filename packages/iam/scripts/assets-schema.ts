@@ -13,7 +13,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import pg from 'pg';
 import { dirMigrations, migrate } from '../src/migrations.ts';
-import { schemaSnapshot } from '../test/support/schema.ts';
+import { schemaSnapshot } from '../src/schema.ts';
 
 const [dir, commit] = process.argv.slice(2);
 if (!dir || !commit) throw new Error('Aufruf: node scripts/assets-schema.ts <assets>/db/migrations <commit>');

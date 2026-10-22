@@ -37,6 +37,7 @@ describe('Verschlüsselung', () => {
     assert.throws(() => s.open(Buffer.from([9, 0]), 'sid'), /unbekanntes Format/);
     assert.throws(() => new Sealer([]), /mindestens ein Schlüssel/);
     assert.throws(() => validateKeyring([{ id: 'a.b', key: randomBytes(32) }]), /ohne Punkt/);
+    assert.throws(() => new Sealer([k1, { id: 'k1', key: randomBytes(32) }]), /doppelt/);
     assert.throws(() => primaryKey([]), NoEncryptionKeyError);
   });
 });
@@ -56,6 +57,15 @@ test('Replay-Schutz im Speicher', async () => {
   assert.equal(await r.claim('b', 0), true);
   await new Promise(res => setTimeout(res, 5));
   assert.equal(await r.claim('b', 1000), true);
+});
+
+test('Transaktion: scheitert ROLLBACK, wird die Verbindung verworfen statt zurückgegeben', async () => {
+  let released: unknown = 'nicht freigegeben';
+  const client = { query: async (q: string) => { if (q === 'ROLLBACK') throw new Error('Verbindung weg'); return { rows: [] }; }, release: (e?: unknown) => { released = e; } };
+  await assert.rejects(withTx({ connect: async () => client } as never, async () => { throw new Error('Abbruch'); }), /Abbruch/);
+  assert.match(String(released), /Verbindung weg/);
+  await withTx({ connect: async () => client } as never, async () => 1);
+  assert.equal(released, undefined);
 });
 
 test('Schema nur als einfacher Bezeichner', () => {

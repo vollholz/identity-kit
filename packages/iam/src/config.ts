@@ -163,7 +163,11 @@ export type RawVars = Record<string, string | undefined>;
  */
 export function readVars(env: NodeJS.ProcessEnv, vars: VarSpec[], service: Service | null): { raw: RawVars; mode: Mode; errors: string[] } {
   const errors: string[] = [];
-  const mode = (env.NODE_ENV ?? 'development') as Mode;
+  // Leer = Standard; ein ungültiger Wert ist ein Fehler (Prüfung von NODE_ENV) und gilt bis dahin als Produktion,
+  // damit keine Prüfung still wegfällt
+  const given = env.NODE_ENV || 'development';
+  const mode: Mode = (['development', 'test', 'production'] as const).find(m => m === given) ?? 'production';
+  if (mode !== given) errors.push(`NODE_ENV: erlaubt: development, test, production (nicht «${given}»)`);
   const needs = (...s: Service[]) => service === null || s.includes(service);
   const raw: RawVars = {};
   for (const v of vars) {
@@ -191,12 +195,16 @@ export function readVars(env: NodeJS.ProcessEnv, vars: VarSpec[], service: Servi
 
 /** ENCRYPTION_KEYS lesen: `id:base64(32 Bytes)`, kommagetrennt. */
 export function parseEncryptionKeys(v: string): { id: string; key: Buffer }[] {
-  return v.split(',').map(x => x.trim()).filter(Boolean).map(part => {
+  const keys = v.split(',').map(x => x.trim()).filter(Boolean).map(part => {
     const i = part.indexOf(':'); if (i < 1) throw new Error('Format id:base64');
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(part.slice(0, i))) throw new Error(`Schlüssel-ID «${part.slice(0, i)}»: nur Buchstaben, Ziffern, - und _ (höchstens 64)`);
     const key = Buffer.from(part.slice(i + 1), 'base64'); if (key.length !== 32) throw new Error(`Schlüssel ${part.slice(0, i)} muss 32 Bytes haben`);
     return { id: part.slice(0, i), key };
   });
+  const ids = keys.map(k => k.id);
+  const dup = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (dup) throw new Error(`Schlüssel-ID «${dup}» doppelt`);
+  return keys;
 }
 
 /** Prüfungen über mehrere Variablen (nach `readVars`); Meldungen wie in Assets. */

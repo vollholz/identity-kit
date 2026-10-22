@@ -48,6 +48,27 @@ run "realm_master" {
   expect_failures = [var.realm]
 }
 
+# Ohne realm ist product der Realm-Name
+run "product_master" {
+  command = plan
+
+  variables {
+    product = "master"
+  }
+
+  expect_failures = [var.product]
+}
+
+run "product_project_suite" {
+  command = plan
+
+  variables {
+    product = "project-suite"
+  }
+
+  expect_failures = [var.product]
+}
+
 run "jwks_ohne_kid" {
   command = plan
 

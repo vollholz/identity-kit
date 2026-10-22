@@ -2,6 +2,10 @@
  * Anmeldung an der Admin-API des Realms als IaC-Client (<produkt>-iac, realm-admin) mit private_key_jwt (ES256, RFC 7523),
  * ohne Bibliothek. Gemeinsam für lookup.ts, org-mapper.ts und smtp-test.ts. Der private Schlüssel kommt nur aus der
  * Umgebung (KEYCLOAK_IAC_PRIVATE_KEY, PEM; kc.sh setzt ihn), nie aus der Konfiguration von OpenTofu.
+ *
+ * Gleiche Angaben in allen Skripten: KEYCLOAK_URL (Instanz mit Basispfad), KEYCLOAK_REALM, KEYCLOAK_IAC_CLIENT_ID,
+ * KEYCLOAK_IAC_PRIVATE_KEY. org-mapper.ts erhält die ersten drei vom Modul, smtp-test.ts von kc.sh; lookup.ts dieselben
+ * Werte als Abfrage von data "external" (url, realm, iac_client_id), weil OpenTofu dort keine Umgebung setzen kann.
  */
 import { createPrivateKey, randomUUID, sign } from 'node:crypto';
 
@@ -39,7 +43,12 @@ export async function adminApi(url: string, realm: string, clientId: string): Pr
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await r.text();
-    return { status: r.status, data: (text ? JSON.parse(text) : undefined) as T };
+    let data: unknown;
+    try { data = text ? JSON.parse(text) : undefined; } catch {
+      // z. B. HTML-Fehlerseite eines Proxys: Status nennen statt SyntaxError
+      throw new Error(`${method} ${path}: HTTP ${r.status}, keine JSON-Antwort: ${text.slice(0, 200)}`);
+    }
+    return { status: r.status, data: data as T };
   }
   async function kc<T>(method: string, path: string, body?: unknown): Promise<T> {
     const r = await raw<T>(method, path, body);

@@ -14,8 +14,8 @@
  * vorherige Stand wiederhergestellt. Getestet wird die gespeicherte Konfiguration des Realms; das Passwort bleibt
  * maskiert und Keycloak setzt das gespeicherte ein.
  *
- * Umgebung wie kc.sh: KEYCLOAK_TF_URL (mit Basispfad), KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID (IaC-Client),
- * KEYCLOAK_IAC_PRIVATE_KEY.
+ * Umgebung wie die übrigen Skripte (admin-api.ts): KEYCLOAK_URL (mit Basispfad), KEYCLOAK_REALM, KEYCLOAK_IAC_CLIENT_ID,
+ * KEYCLOAK_IAC_PRIVATE_KEY; Aufruf aus kc.sh: README.md › Aufruf.
  */
 import { adminApi, need } from './admin-api.ts';
 
@@ -24,7 +24,7 @@ const envPassword = process.argv.includes('--env-password');
 const userOverride = process.argv.find((a) => a.startsWith('--user='))?.slice('--user='.length);
 if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(to)) throw new Error('Aufruf: smtp-test.ts <empfänger>');
 
-const { realm, clientId, raw } = await adminApi(need('KEYCLOAK_TF_URL'), need('KEYCLOAK_REALM'), need('KEYCLOAK_CLIENT_ID'));
+const { realm, clientId, raw } = await adminApi(need('KEYCLOAK_URL'), need('KEYCLOAK_REALM'), need('KEYCLOAK_IAC_CLIENT_ID'));
 
 const stored = (await raw<{ smtpServer?: Record<string, string> }>('GET', '')).data.smtpServer ?? {};
 const smtp = userOverride ? { ...stored, user: userOverride } : stored;

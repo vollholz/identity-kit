@@ -81,6 +81,10 @@ run "ohne_schalter" {
     error_message = "Ohne smtp kein SMTP"
   }
   assert {
+    condition     = keycloak_realm.this.offline_session_idle_timeout == "720h" && keycloak_realm.this.offline_session_max_lifespan_enabled && keycloak_realm.this.offline_session_max_lifespan == "2160h"
+    error_message = "Offline-Sitzungen auch ohne MCP begrenzt (30/90 Tage)"
+  }
+  assert {
     condition     = keys(keycloak_realm_localization.this) == ["de", "en"]
     error_message = "Eine Lokalisierung je Sprache"
   }
@@ -104,7 +108,7 @@ run "alle_schalter" {
     mcp                     = true
     entra                   = true
     mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]
-    smtp                    = {}
+    smtp                    = { host = "smtp.example.ch", from = "noreply@example.ch", user = "noreply@example.ch" }
     smtp_password           = "nur-fuer-den-test"
     jwks = {
       platform = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"platform\"}]}"
@@ -135,12 +139,8 @@ run "alle_schalter" {
     error_message = "Entra: Weiterleitung und Ablauf"
   }
   assert {
-    condition     = keycloak_realm.this.smtp_server[0].from_display_name == "Beispiel" && keycloak_realm.this.smtp_server[0].host == "mail.infomaniak.com"
-    error_message = "SMTP mit Vorgaben, Absendername = display_name"
-  }
-  assert {
-    condition     = keycloak_realm.this.offline_session_max_lifespan == "2160h"
-    error_message = "Offline-Sitzungen nur mit MCP"
+    condition     = keycloak_realm.this.smtp_server[0].from_display_name == "Beispiel" && keycloak_realm.this.smtp_server[0].host == "smtp.example.ch" && keycloak_realm.this.smtp_server[0].port == "587"
+    error_message = "SMTP des Produkts, Absendername = display_name, Port und STARTTLS als Vorgabe"
   }
 }
 
@@ -163,10 +163,22 @@ run "smtp_ohne_passwort" {
   command = plan
 
   variables {
-    smtp = {}
+    smtp = { host = "smtp.example.ch", from = "noreply@example.ch", user = "noreply@example.ch" }
   }
 
   expect_failures = [keycloak_realm.this]
+}
+
+# Keine Vorgaben für Server und Konto: nie stillschweigend das Postfach einer anderen App
+run "smtp_ohne_konto" {
+  command = plan
+
+  variables {
+    smtp          = { from = "noreply@example.ch" }
+    smtp_password = "nur-fuer-den-test"
+  }
+
+  expect_failures = [var.smtp]
 }
 
 run "mcp_ohne_schluessel" {
@@ -187,6 +199,27 @@ run "realm_master" {
   }
 
   expect_failures = [var.realm]
+}
+
+# Ohne realm ist product der Realm-Name
+run "product_master" {
+  command = plan
+
+  variables {
+    product = "master"
+  }
+
+  expect_failures = [var.product]
+}
+
+run "product_project_suite" {
+  command = plan
+
+  variables {
+    product = "project-suite"
+  }
+
+  expect_failures = [var.product]
 }
 
 run "katalog_ohne_org_admin" {

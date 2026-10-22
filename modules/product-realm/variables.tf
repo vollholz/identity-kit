@@ -7,6 +7,11 @@ variable "product" {
     condition     = can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", var.product))
     error_message = "product: Kleinbuchstaben, Ziffern und Bindestrich, 3–32 Zeichen, beginnt mit einem Buchstaben."
   }
+  # product ist ohne var.realm zugleich der Realm-Name
+  validation {
+    condition     = !contains(["master", "project-suite"], var.product)
+    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master, nicht project-suite)."
+  }
 }
 
 variable "realm" {
@@ -134,19 +139,24 @@ variable "supported_locales" {
 # ---------- SMTP
 
 variable "smtp" {
-  description = "Ausgehende Mails des Realms (Einladungen, Passwort festlegen/vergessen). null oder host leer: kein SMTP. from_display_name leer: display_name."
+  description = "Ausgehende Mails des Realms (Einladungen, Passwort festlegen/vergessen) über das eigene Konto des Produkts. null: kein SMTP. Gesetzt: host, from und user Pflicht; from_display_name leer: display_name."
   type = object({
-    host              = optional(string, "mail.infomaniak.com")
+    host              = optional(string)
     port              = optional(number, 587)
-    from              = optional(string, "noreply@project-suite.ch")
+    from              = optional(string)
     from_display_name = optional(string)
     reply_to          = optional(string, "")
     starttls          = optional(bool, true)
     ssl               = optional(bool, false)
-    # Anmeldung mit der Postfachadresse; mit dem Login des Infomaniak-Kontos lehnt der Server ab (535)
-    user = optional(string, "noreply@project-suite.ch")
+    # Bei Infomaniak die Postfachadresse; mit dem Login des Kontos lehnt der Server ab (535)
+    user = optional(string)
   })
   default = null
+  # Keine Vorgaben für Server und Konto: eine App soll nie stillschweigend das Postfach einer anderen nutzen
+  validation {
+    condition     = var.smtp == null || alltrue([for v in [try(var.smtp.host, null), try(var.smtp.from, null), try(var.smtp.user, null)] : v != null && trimspace(coalesce(v, " ")) != ""])
+    error_message = "smtp: host, from und user angeben (eigenes Konto des Produkts) oder smtp = null."
+  }
 }
 
 variable "smtp_password" {
@@ -165,7 +175,7 @@ variable "m2m" {
 }
 
 variable "mcp" {
-  description = "MCP-Dienst (Kap. 12.2): Clients <produkt>-mcp (Token Exchange) und <produkt>-mcp-cli (öffentlich), Scope <produkt>-mcp, Offline-Sitzungen."
+  description = "MCP-Dienst (Kap. 12.2): Clients <produkt>-mcp (Token Exchange) und <produkt>-mcp-cli (öffentlich, mit offline_access), Scope <produkt>-mcp."
   type        = bool
   default     = false
 }

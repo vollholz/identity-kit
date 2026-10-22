@@ -8,7 +8,7 @@ Herausgelöst aus vollholz/assets `infra/keycloak` (`3a148ae`); für Assets ergi
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version 0.1.0** (Git-Quelle mit Tag `product-realm-v0.1.0`, Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (0.1.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -35,10 +35,10 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `localization` | map(map(string)) | `{}` | weitere Realm-Texte der App je Sprache; überschreiben die Standardtexte |
 | `standard_texts` | bool | `true` | Texte des Baukastens ([texts/](texts/README.md)): Login, E-Mails und Kontoverwaltung in Du-Form (de), Einladungs-E-Mail (de, en) |
 | `supported_locales` | list(string) | `["de", "en"]` | Sprachen; die erste ist die Standardsprache. Je Sprache eine Lokalisierung |
-| `smtp` | object | `null` | ausgehende Mails; `{}` = Infomaniak-Vorgaben (`mail.infomaniak.com:587`, STARTTLS, Absender und Anmeldung `noreply@project-suite.ch`, Anzeigename `display_name`); einzelne Felder überschreibbar (`host`, `port`, `from`, `from_display_name`, `reply_to`, `starttls`, `ssl`, `user`). `null` oder `host = ""`: kein SMTP |
+| `smtp` | object | `null` | ausgehende Mails über das **eigene Konto des Produkts**: `host`, `from`, `user` Pflicht (keine Vorgaben, damit keine App stillschweigend das Postfach einer anderen nutzt); `port` 587, `starttls` an, `ssl` aus, `reply_to` leer, `from_display_name` = `display_name` als Vorgaben. `null`: kein SMTP |
 | `smtp_password` | string, sensitiv | `""` | nur aus der Umgebung (`TF_VAR_smtp_password`); ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab |
 | `m2m` | bool | `false` | Maschinen-Clients der Organisationen (Kap. 12.1): Richtlinie `<produkt>-m2m-dpop` |
-| `mcp` | bool | `false` | MCP-Dienst (Kap. 12.2): `<produkt>-mcp`, `<produkt>-mcp-cli`, Scope `<produkt>-mcp`, Offline-Sitzungen 30/90 Tage |
+| `mcp` | bool | `false` | MCP-Dienst (Kap. 12.2): `<produkt>-mcp`, `<produkt>-mcp-cli`, Scope `<produkt>-mcp`, `offline_access` für `<produkt>-mcp-cli` |
 | `mcp_cli_callback_port` | number | `8765` | fester Loopback-Port von `<produkt>-mcp-cli` |
 | `mcp_extra_redirect_uris` | list(string) | `[]` | weitere Weiterleitungen von `<produkt>-mcp-cli`, z. B. `https://claude.ai/api/mcp/auth_callback` |
 | `entra` | bool | `false` | Anmeldung über Entra ID (Kap. 9.4): `manage-identity-providers` für `<produkt>-admin`, Ablauf `<produkt>-entra-first-login`, Claim `identity_provider`, Weiterleitung `/auth/entra/*` |
@@ -64,7 +64,7 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 
 | Bereich | Inhalt |
 |---|---|
-| Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
+| Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
 | Richtlinien | `<produkt>-code-flow` ✓, `<produkt>-confidential` ✓, `<produkt>-m2m-dpop` (`m2m`; Bedingung Attribut `<produkt>.m2m = true`) |
 | Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
 | Mapper | `aud-api` und `groups` an den Personen-Clients, `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
@@ -121,7 +121,11 @@ module "realm" {
   theme_texts = jsondecode(file("${path.module}/localization-theme.json"))
   jwks        = { for c in ["platform", "admin", "sync"] : c => file("${path.module}/keys/notes-${c}.json") }
 
-  smtp          = {}
+  smtp = {
+    host = "mail.infomaniak.com"
+    from = "noreply@notes.project-suite.ch"
+    user = "noreply@notes.project-suite.ch"
+  }
   smtp_password = var.smtp_password
 
   m2m = true
@@ -132,9 +136,18 @@ output "issuer" {
 }
 ```
 
-Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes». `kc.sh` wie in Assets; der
-SMTP-Test liegt nach `tofu init` unter `.terraform/modules/realm/modules/product-realm/scripts/smtp-test.ts`
-(Umgebung wie für den Provider, dazu `KEYCLOAK_TF_URL` und `KEYCLOAK_IAC_PRIVATE_KEY`).
+Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes».
+
+`kc.sh` wie in Assets, mit einer Änderung: Der SMTP-Test liegt nach `tofu init` im Modul. Alle Hilfsskripte lesen
+dieselben Angaben (`KEYCLOAK_URL` mit Basispfad, `KEYCLOAK_REALM`, `KEYCLOAK_IAC_CLIENT_ID`,
+`KEYCLOAK_IAC_PRIVATE_KEY`); `lookup.ts` und `org-mapper.ts` erhalten die ersten drei vom Modul, den SMTP-Test ruft
+`kc.sh` so auf:
+
+```bash
+smtp-test) login_iac
+  KEYCLOAK_URL="$KEYCLOAK_TF_URL" KEYCLOAK_IAC_CLIENT_ID="$KEYCLOAK_CLIENT_ID" \
+    exec node .terraform/modules/realm/modules/product-realm/scripts/smtp-test.ts "$@" ;;
+```
 
 Neue Version des Moduls: `ref` erhöhen, `kc.sh init -upgrade`, Plan prüfen und freigeben.
 
@@ -149,7 +162,8 @@ Eine App, deren Realm schon mit eigener IaC nach Assets-Muster läuft, stellt oh
    `keycloak_realm_localization.<sprache>` → `keycloak_realm_localization.this["<sprache>"]`.
 3. Entfällt in der App: `lookup.ts`, `org-mapper.ts`, `localization-de*.json`, `localization-account-de*.json`,
    `localization-invite.json` (im Modul), die Tests dieser Texte. Es bleiben `platform.json`, `platform.ts`,
-   `localization-theme.json`, `keys/`, `kc.sh` (SMTP-Test auf den Pfad im Modul), Test für `platform.json` und Schlüssel.
+   `localization-theme.json`, `keys/`, `kc.sh` (SMTP-Test aus dem Modul, [Aufruf](#aufruf)), Test für `platform.json` und
+   Schlüssel.
 4. `kc.sh init` (Modul holen), `kc.sh plan`: nur Verschiebungen (`# … has moved to module.realm…`) und
    «Plan: 0 to add, 0 to change, 0 to destroy.» – OpenTofu meldet Verschiebungen nicht als «No changes» (Exit 2). Jede
    andere Zeile (`will be updated`, `must be replaced`, `will be created`) ist ein Unterschied und vor dem Apply zu klären.
@@ -161,7 +175,8 @@ Die Liste prüft `modules/test/keycloak.sh` gegen Keycloak 26.8.1 (`modules/test
 sie hier gleich.
 
 `infra/keycloak/moved.tf` (Aufruf als `module "realm"` mit `m2m`, `mcp`, `entra` = `true`,
-`mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]`, `smtp = {}`):
+`mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]`, `smtp = { host = "mail.infomaniak.com",
+from = "noreply@project-suite.ch", user = "noreply@project-suite.ch" }`):
 
 ```hcl
 moved {
@@ -360,11 +375,13 @@ lokalem Backend). In Assets heissen die Werte `catalog = jsondecode(file("${path
 
 Ergebnis in Keycloak gleich (Nachweis unten); anders ist nur der Aufbau:
 
-- Teile hinter Schaltern: `m2m` (DPoP-Richtlinie), `mcp` (MCP-Clients, -Scope, Offline-Sitzungen; ohne `mcp` bleiben
-  die Offline-Werte des Realms unverwaltet), `entra` (inkl. Weiterleitung `/auth/entra/*` am BFF-Client).
-- SMTP ist ohne Angabe aus (`smtp = null`); `smtp = {}` ergibt die Werte von Assets mit `display_name` als Absendername.
+- Teile hinter Schaltern: `m2m` (DPoP-Richtlinie), `mcp` (MCP-Clients, -Scope), `entra` (inkl. Weiterleitung
+  `/auth/entra/*` am BFF-Client). Offline-Sitzungen (30/90 Tage) setzt das Modul immer.
+- SMTP ist ohne Angabe aus (`smtp = null`); Assets nennt Server, Absender und Konto im Aufruf (oben), Anzeigename ist
+  `display_name`.
 - `lookup.ts` und `org-mapper.ts` erhalten Instanz, Realm und IaC-Client aus dem Modul; aus der Umgebung kommt nur der
-  private Schlüssel (`KEYCLOAK_IAC_PRIVATE_KEY`). Das `kc.sh` von Assets passt unverändert.
+  private Schlüssel (`KEYCLOAK_IAC_PRIVATE_KEY`). Am `kc.sh` von Assets ändert sich nur der Aufruf des SMTP-Tests
+  ([Aufruf](#aufruf)).
 - Der Betreff der Einladungs-E-Mail nennt `display_name` statt fest «Assets».
 
 ## Hilfsskripte

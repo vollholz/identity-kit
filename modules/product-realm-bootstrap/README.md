@@ -7,7 +7,7 @@ Danach weist vollholz/identity `<produkt>-iac` `realm-management/realm-admin` zu
 verwaltet [product-realm](../product-realm/README.md). Herausgelöst aus vollholz/assets `infra/keycloak/bootstrap`
 (`3a148ae`).
 
-**Version 0.1.0** (Git-Quelle mit Tag `product-realm-bootstrap-v0.1.0`).
+**Version** in [`VERSION`](VERSION) (0.1.0); Git-Quelle mit Tag `product-realm-bootstrap-v<version>`.
 
 | Ressource | Inhalt |
 |---|---|

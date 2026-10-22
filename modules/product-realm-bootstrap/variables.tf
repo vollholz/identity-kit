@@ -5,6 +5,11 @@ variable "product" {
     condition     = can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", var.product))
     error_message = "product: Kleinbuchstaben, Ziffern und Bindestrich, 3–32 Zeichen, beginnt mit einem Buchstaben."
   }
+  # product ist ohne var.realm zugleich der Realm-Name
+  validation {
+    condition     = !contains(["master", "project-suite"], var.product)
+    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master, nicht project-suite)."
+  }
 }
 
 variable "realm" {

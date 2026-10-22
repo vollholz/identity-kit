@@ -11,8 +11,11 @@
 import { readFileSync } from 'node:fs';
 import { adminApi } from './admin-api.ts';
 
-const q = JSON.parse(readFileSync(0, 'utf8')) as { client_id: string; url: string; realm: string; iac_client_id: string };
-const api = await adminApi(q.url, q.realm, q.iac_client_id);
-const list = await api.kc<{ id: string }[]>('GET', `/clients?clientId=${encodeURIComponent(q.client_id)}`);
-if (list.length !== 1) throw new Error(`Client ${q.client_id} im Realm ${q.realm} nicht gefunden`);
+const q = JSON.parse(readFileSync(0, 'utf8')) as Record<string, unknown>;
+const missing = ['client_id', 'url', 'realm', 'iac_client_id'].filter(k => typeof q[k] !== 'string' || q[k] === '');
+if (missing.length) throw new Error(`lookup.ts: Abfrage ohne ${missing.join(', ')}`);
+const query = q as { client_id: string; url: string; realm: string; iac_client_id: string };
+const api = await adminApi(query.url, query.realm, query.iac_client_id);
+const list = await api.kc<{ id: string }[]>('GET', `/clients?clientId=${encodeURIComponent(query.client_id)}`);
+if (list.length !== 1) throw new Error(`Client ${query.client_id} im Realm ${query.realm} nicht gefunden`);
 process.stdout.write(JSON.stringify({ id: list[0]!.id }));

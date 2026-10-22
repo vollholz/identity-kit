@@ -22,7 +22,11 @@ module "realm" {
   theme_texts = jsondecode(file("${local.assets}/localization-theme.json"))
   jwks        = { for c in ["platform", "admin", "sync", "mcp"] : c => file("${var.keys_dir}/assets-${c}.json") }
 
-  smtp          = {}
+  smtp = {
+    host = "mail.infomaniak.com"
+    from = "noreply@project-suite.ch"
+    user = "noreply@project-suite.ch"
+  }
   smtp_password = var.smtp_password
 
   m2m                     = true

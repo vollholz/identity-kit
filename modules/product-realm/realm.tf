@@ -5,7 +5,7 @@
 locals {
   realm_name    = coalesce(var.realm, var.product)
   iac_client_id = coalesce(var.iac_client_id, "${var.product}-iac")
-  smtp          = var.smtp == null ? null : (var.smtp.host == "" ? null : var.smtp)
+  smtp          = var.smtp
 }
 
 resource "keycloak_realm" "this" {
@@ -33,10 +33,11 @@ resource "keycloak_realm" "this" {
   sso_session_max_lifespan_remember_me = "720h"
 
   # Offline-Tokens (offline_access, nur <produkt>-mcp-cli, z. B. Claude): 30 Tage ohne Nutzung, höchstens 90 Tage,
-  # danach meldet sich die Person im MCP-Client neu an. Ohne MCP bleiben die Werte von Keycloak unverwaltet.
-  offline_session_idle_timeout         = var.mcp ? "720h" : null
-  offline_session_max_lifespan_enabled = var.mcp ? true : null
-  offline_session_max_lifespan         = var.mcp ? "2160h" : null
+  # danach meldet sich die Person im MCP-Client neu an. Auch ohne MCP gesetzt (sonst gälte der schwächere Standard
+  # von Keycloak ohne Höchstdauer, falls jemand offline_access anderweitig freigibt).
+  offline_session_idle_timeout         = "720h"
+  offline_session_max_lifespan_enabled = true
+  offline_session_max_lifespan         = "2160h"
   revoke_refresh_token                 = true
   refresh_token_max_reuse              = 0
 

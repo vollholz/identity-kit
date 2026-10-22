@@ -31,6 +31,9 @@ async function fakeKeycloak(realm: string, clientId: string) {
       return send(200, { access_token: 'tok' });
     }
     if (req.headers.authorization !== 'Bearer tok') return send(401, {});
+    if (url.pathname === `/admin/realms/${realm}/clients` && url.searchParams.get('clientId') === 'hinter-proxy') {
+      res.writeHead(502, { 'content-type': 'text/html' }); return res.end('<html>Bad Gateway</html>');
+    }
     if (url.pathname === `/admin/realms/${realm}/clients`) return send(200, url.searchParams.get('clientId') === 'realm-management' ? [{ id: 'rm-id' }] : []);
     if (url.pathname === `/admin/realms/${realm}/client-scopes`) return send(200, [{ id: 'sc', name: 'organization' }]);
     if (req.method === 'GET' && url.pathname === `/admin/realms/${realm}/client-scopes/sc/protocol-mappers/models`) return send(200, [mapper]);
@@ -66,6 +69,11 @@ test('lookup.ts: meldet sich als IaC-Client an und liefert die interne ID', asyn
     assert.match(missing.stderr, /admin-permissions im Realm beispiel nicht gefunden/);
     const wrongClient = await run('lookup.ts', { KEYCLOAK_IAC_PRIVATE_KEY: pem }, JSON.stringify({ ...JSON.parse(query), iac_client_id: 'andere-iac' }));
     assert.match(wrongClient.stderr, /Anmeldung an Keycloak als andere-iac fehlgeschlagen: HTTP 401/);
+    const html = await run('lookup.ts', { KEYCLOAK_IAC_PRIVATE_KEY: pem }, JSON.stringify({ ...JSON.parse(query), client_id: 'hinter-proxy' }));
+    assert.match(html.stderr, /HTTP 502, keine JSON-Antwort: <html>Bad Gateway/);
+    const incomplete = await run('lookup.ts', { KEYCLOAK_IAC_PRIVATE_KEY: pem }, JSON.stringify({ client_id: 'realm-management', url: kc.url }));
+    assert.notEqual(incomplete.code, 0);
+    assert.match(incomplete.stderr, /lookup\.ts: Abfrage ohne realm, iac_client_id/);
   } finally { kc.close(); }
 });
 

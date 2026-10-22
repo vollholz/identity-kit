@@ -13,15 +13,15 @@
 #
 #   modules/test/keycloak.sh
 #
-# Umgebung (optional): KEYCLOAK_IMAGE (Standard quay.io/keycloak/keycloak:26.8.1; Docker Hub keycloak/keycloak:26.8.1
-# ist dasselbe Image), IDENTITY_THEME (Verzeichnis des Themes «identity»; Standard: Platzhalter theme/identity, der
+# Umgebung (optional): KEYCLOAK_IMAGE (Standard quay.io/keycloak/keycloak:26.8.1, per Digest gepinnt; Docker Hub
+# keycloak/keycloak:26.8.1@<gleicher Digest> ist dasselbe Image), IDENTITY_THEME (Verzeichnis des Themes «identity»; Standard: Platzhalter theme/identity, der
 # echte liegt in vollholz/identity deploy/stack/keycloak/themes/identity), KEYCLOAK_PORT (18080), KEEP=1 (Container und Arbeitsverzeichnis behalten), WORK_DIR.
 # Braucht docker, tofu 1.13.1, node 24.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 cd "$here"
 
-image="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1}"
+image="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244}"
 port="${KEYCLOAK_PORT:-18080}"
 theme="$(cd "${IDENTITY_THEME:-$here/theme/identity}" && pwd)"
 work="${WORK_DIR:-$(mktemp -d)}"

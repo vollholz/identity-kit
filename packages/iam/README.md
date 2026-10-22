@@ -10,4 +10,4 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-Stand: leer.
+Stand: Entwurf in [`docs/entwurf.md`](docs/entwurf.md), Umsetzung in Teil-PRs nach Freigabe.

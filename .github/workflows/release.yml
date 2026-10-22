@@ -54,6 +54,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for p in packages/*/; do
+            [ -f "${p}package.json" ] || continue   # Gerüst ohne Paket (nur README)
             name="$(node -p "require('./${p}package.json').name")"
             version="$(node -p "require('./${p}package.json').version")"
             private="$(node -p "!!require('./${p}package.json').private")"

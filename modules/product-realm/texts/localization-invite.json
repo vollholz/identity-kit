@@ -1,0 +1,20 @@
+{
+  "de": {
+    "executeActionsSubject": "Einladung zu __PRODUKT__",
+    "executeActionsBody": "Du wurdest zu {2} eingeladen. Klicke auf den folgenden Link, um die Einladung anzunehmen ({3}).\n\n{0}\n\nDer Link ist {4} gültig.\n\nFalls du keine Einladung erwartet hast, ignoriere diese Nachricht. Es wird nichts geändert.",
+    "executeActionsBodyHtml": "<p>Du wurdest zu {2} eingeladen. Klicke auf den folgenden Link, um die Einladung anzunehmen ({3}).</p><p><a href=\"{0}\">Einladung annehmen</a></p><p>Der Link ist {4} gültig.</p><p>Falls du keine Einladung erwartet hast, ignoriere diese Nachricht. Es wird nichts geändert.</p>",
+    "requiredAction.VERIFY_EMAIL": "E-Mail-Adresse bestätigen",
+    "confirmExecutionOfActions": "Zum Annehmen der Einladung",
+    "accountUpdatedTitle": "Einladung angenommen",
+    "accountUpdatedMessage": "Dein Konto ist bereit. Weiter geht es mit der Anmeldung."
+  },
+  "en": {
+    "executeActionsSubject": "Invitation to __PRODUKT__",
+    "executeActionsBody": "You have been invited to {2}. Click the link below to accept the invitation ({3}).\n\n{0}\n\nThis link will expire within {4}.\n\nIf you did not expect an invitation, just ignore this message and nothing will be changed.",
+    "executeActionsBodyHtml": "<p>You have been invited to {2}. Click the link below to accept the invitation ({3}).</p><p><a href=\"{0}\">Accept invitation</a></p><p>This link will expire within {4}.</p><p>If you did not expect an invitation, just ignore this message and nothing will be changed.</p>",
+    "requiredAction.VERIFY_EMAIL": "Confirm email address",
+    "confirmExecutionOfActions": "To accept the invitation",
+    "accountUpdatedTitle": "Invitation accepted",
+    "accountUpdatedMessage": "Your account is ready. Continue to sign in."
+  }
+}

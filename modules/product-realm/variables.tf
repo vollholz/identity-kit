@@ -1,0 +1,195 @@
+# ---------- Produkt und Adressen
+
+variable "product" {
+  description = "Technischer Name des Produkts (<produkt>, z. B. assets). Daraus folgen alle Namen: Clients <produkt>-platform, -api, -admin, -sync, -mcp, -mcp-cli, Richtlinien <produkt>-code-flow …, Attribute <produkt>.platform und <produkt>.m2m."
+  type        = string
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", var.product))
+    error_message = "product: Kleinbuchstaben, Ziffern und Bindestrich, 3–32 Zeichen, beginnt mit einem Buchstaben."
+  }
+}
+
+variable "realm" {
+  description = "Realm des Produkts (eigener Realm, Spezifikation Kap. 2; nie master oder der Realm eines anderen Produkts). Leer: wie product."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.realm == null || !contains(["master", "project-suite"], coalesce(var.realm, "-"))
+    error_message = "Das Produkt braucht einen eigenen Realm (nicht master, nicht project-suite)."
+  }
+}
+
+variable "display_name" {
+  description = "Anzeigename des Produkts (<Produkt>, z. B. «Assets»): Realm, Theme, Texte, Namen der Clients, SMTP-Absender."
+  type        = string
+  validation {
+    condition     = trimspace(var.display_name) != ""
+    error_message = "display_name darf nicht leer sein."
+  }
+}
+
+variable "public_base_url" {
+  description = "Adresse der Oberfläche (PUBLIC_BASE_URL der App), z. B. https://assets.project-suite.ch."
+  type        = string
+  validation {
+    condition     = can(regex("^https?://[^/]+(/.*)?$", var.public_base_url))
+    error_message = "public_base_url muss eine http(s)-Adresse sein."
+  }
+}
+
+variable "keycloak_url" {
+  description = "Adresse der Keycloak-Instanz ohne Basispfad (für Issuer und die Admin-API der Hilfsskripte)."
+  type        = string
+  default     = "https://identity.project-suite.ch"
+}
+
+variable "keycloak_base_path" {
+  description = "Basispfad der Instanz (leer: identity.project-suite.ch hat keinen relativen Pfad)."
+  type        = string
+  default     = ""
+}
+
+variable "iac_client_id" {
+  description = "IaC-Client des Produkts (Service Account mit realm-admin, angelegt von product-realm-bootstrap). Leer: <produkt>-iac."
+  type        = string
+  default     = null
+}
+
+# ---------- Rechtekatalog, Schlüssel, Texte
+
+variable "catalog" {
+  description = "Rollen und Scopes aus dem Rechtekatalog der App (Inhalt von infra/keycloak/platform.json): roles = { <rolle> = <Beschreibung> }, scopes = [<scope>, …]."
+  type = object({
+    roles  = map(string)
+    scopes = list(string)
+  })
+  validation {
+    condition     = contains(keys(var.catalog.roles), "org-admin")
+    error_message = "catalog.roles muss die reservierte Rolle org-admin enthalten (Spezifikation 8.1)."
+  }
+  validation {
+    condition     = alltrue([for r in keys(var.catalog.roles) : can(regex("^[a-z][a-z0-9-]*$", r)) && !startswith(r, "c-")])
+    error_message = "Rollen: ^[a-z][a-z0-9-]*$ und nicht mit c- (eigene Rollen der Organisation, Spezifikation 8.2/8.3)."
+  }
+  validation {
+    condition     = alltrue([for s in var.catalog.scopes : can(regex("^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$", s))])
+    error_message = "Scopes: <bereich>:<verb> (Spezifikation 8.2)."
+  }
+}
+
+variable "jwks" {
+  description = "Öffentliche Schlüssel (JWKS, Inhalt von infra/keycloak/keys/<produkt>-<client>.json) je Client: platform, admin, sync und mit mcp = true auch mcp."
+  type        = map(string)
+  validation {
+    condition     = length(setsubtract(["platform", "admin", "sync"], keys(var.jwks))) == 0 && length(setsubtract(keys(var.jwks), ["platform", "admin", "sync", "mcp"])) == 0
+    error_message = "jwks braucht genau die Schlüssel platform, admin, sync und optional mcp."
+  }
+  # Genau ein EC-P-256-Schlüssel mit kid, ohne privaten Teil (wie test/infra-keycloak.test.ts in Assets)
+  validation {
+    condition = alltrue([for v in values(var.jwks) : try(
+      length(jsondecode(v).keys) == 1 &&
+      jsondecode(v).keys[0].kty == "EC" &&
+      jsondecode(v).keys[0].crv == "P-256" &&
+      jsondecode(v).keys[0].kid != "" &&
+      !can(jsondecode(v).keys[0].d),
+      false,
+    )])
+    error_message = "Jeder Eintrag in jwks muss ein JWKS mit genau einem öffentlichen EC-P-256-Schlüssel (mit kid, ohne d) sein."
+  }
+}
+
+variable "theme_texts" {
+  description = "Werte für das Theme «identity» je Sprache (themeAccent, themeAccentDark, themeAccentText, themeAccentTextDark, themeClaim, themeClaimSub, themeChips, themeSub.<Seite>, themeMailFooter, kurze Login-Titel; vollholz/identity docs/betrieb.md › Anmeldeseiten). Überschreiben alle anderen Texte."
+  type        = map(map(string))
+  default     = {}
+  validation {
+    # Das Theme übernimmt nur #RRGGBB; anderes fiele still auf Blau zurück
+    condition     = alltrue(flatten([for texts in values(var.theme_texts) : [for k, v in texts : can(regex("^#[0-9A-Fa-f]{6}$", v)) if startswith(k, "themeAccent")]]))
+    error_message = "theme_texts: themeAccent* nur als #RRGGBB."
+  }
+}
+
+variable "localization" {
+  description = "Weitere Realm-Texte je Sprache (Schlüssel der Keycloak-Messages); überschreiben die Standardtexte des Baukastens, nicht theme_texts."
+  type        = map(map(string))
+  default     = {}
+}
+
+variable "standard_texts" {
+  description = "Texte des Baukastens: Login, E-Mails und Kontoverwaltung in Du-Form (de) und die Einladungs-E-Mail (de, en). texts/README.md."
+  type        = bool
+  default     = true
+}
+
+variable "supported_locales" {
+  description = "Sprachen des Realms; die erste ist die Standardsprache."
+  type        = list(string)
+  default     = ["de", "en"]
+  validation {
+    condition     = length(var.supported_locales) > 0
+    error_message = "Mindestens eine Sprache."
+  }
+}
+
+# ---------- SMTP
+
+variable "smtp" {
+  description = "Ausgehende Mails des Realms (Einladungen, Passwort festlegen/vergessen). null oder host leer: kein SMTP. from_display_name leer: display_name."
+  type = object({
+    host              = optional(string, "mail.infomaniak.com")
+    port              = optional(number, 587)
+    from              = optional(string, "noreply@project-suite.ch")
+    from_display_name = optional(string)
+    reply_to          = optional(string, "")
+    starttls          = optional(bool, true)
+    ssl               = optional(bool, false)
+    # Anmeldung mit der Postfachadresse; mit dem Login des Infomaniak-Kontos lehnt der Server ab (535)
+    user = optional(string, "noreply@project-suite.ch")
+  })
+  default = null
+}
+
+variable "smtp_password" {
+  description = "Passwort des SMTP-Kontos, nur aus der Umgebung (TF_VAR_smtp_password; kc.sh liest SMTP_PASSWORD aus der .env)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# ---------- Zugänge (Spezifikation Kap. 12)
+
+variable "m2m" {
+  description = "Maschinen-Clients der Organisationen (Kap. 12.1): Richtlinie <produkt>-m2m-dpop (DPoP-Pflicht für Clients mit Attribut <produkt>.m2m = true)."
+  type        = bool
+  default     = false
+}
+
+variable "mcp" {
+  description = "MCP-Dienst (Kap. 12.2): Clients <produkt>-mcp (Token Exchange) und <produkt>-mcp-cli (öffentlich), Scope <produkt>-mcp, Offline-Sitzungen."
+  type        = bool
+  default     = false
+}
+
+variable "mcp_cli_callback_port" {
+  description = "Fester Loopback-Port für MCP-Hosts mit exaktem Abgleich der Weiterleitung."
+  type        = number
+  default     = 8765
+}
+
+variable "mcp_extra_redirect_uris" {
+  description = "Weitere Weiterleitungen des öffentlichen MCP-Clients, z. B. https://claude.ai/api/mcp/auth_callback."
+  type        = list(string)
+  default     = []
+}
+
+variable "entra" {
+  description = "Anmeldung über Microsoft Entra ID je Organisation (Kap. 9.4): manage-identity-providers für <produkt>-admin, Ablauf «Erstanmeldung verweigern», Claim identity_provider, Weiterleitung /auth/entra/*."
+  type        = bool
+  default     = false
+}
+
+variable "entra_deny_message" {
+  description = "Meldung, wenn sich ein nicht vorab verknüpftes Microsoft-Konto anmelden will."
+  type        = string
+  default     = "Dein Microsoft-Konto ist für diese Organisation nicht freigeschaltet. Bitte wende dich an die Administration deiner Organisation."
+}

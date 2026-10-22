@@ -1,0 +1,91 @@
+# OpenTofu-Module des Baukastens (modules/product-realm, modules/product-realm-bootstrap):
+#   Prüfen    fmt, validate, tflint, tofu test (Provider nachgebildet), Node-Tests (Texte, Hilfsskripte, moved-Liste),
+#             Typprüfung der Hilfsskripte – ohne Keycloak
+#   Keycloak  modules/test/keycloak.sh gegen Keycloak 26.8.1 im Docker: Assets (3a148ae) anlegen, mit dem Modul und den
+#             moved-Blöcken planen (nur Verschiebungen) und anwenden, dann «No changes»; frische Anlage mit allen und
+#             ohne Schalter, zweiter Plan «No changes». Wegwerf-Instanz, Testschlüssel, keine Geheimnisse.
+# Versionen wie Assets (.github/workflows/keycloak.yml).
+name: Module
+
+on:
+  push:
+    branches: [main]
+    paths: ["modules/**", ".github/workflows/modules.yml"]
+  pull_request:
+    paths: ["modules/**", ".github/workflows/modules.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modules-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TOFU_VERSION: 1.13.1
+  TFLINT_VERSION: v0.64.0
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  check:
+    name: Prüfen (fmt, validate, tflint, Tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: terraform-linters/setup-tflint@v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: tofu fmt -check -recursive -diff modules
+      - name: tofu validate, tflint, tofu test
+        run: |
+          for m in modules/product-realm modules/product-realm-bootstrap; do
+            echo "::group::$m"
+            tofu -chdir="$m" init -backend=false -input=false -lockfile=readonly >/dev/null
+            tofu -chdir="$m" validate
+            (cd "$m" && tflint --config "$GITHUB_WORKSPACE/modules/.tflint.hcl" --init >/dev/null && tflint --config "$GITHUB_WORKSPACE/modules/.tflint.hcl" --format compact)
+            tofu -chdir="$m" test -no-color
+            echo "::endgroup::"
+          done
+      - run: npm ci --no-audit --no-fund
+      - name: Typprüfung der Hilfsskripte
+        run: npx tsc -p modules/tsconfig.json
+      - name: Node-Tests (Texte, Hilfsskripte, moved-Liste)
+        run: node --test --test-reporter=spec modules/product-realm/test/*.test.ts modules/test/*.test.ts
+
+  keycloak:
+    name: Keycloak 26.8.1 (gleiches Ergebnis wie Assets, frische Anlage)
+    needs: [check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: modules/test/keycloak.sh
+        run: |
+          set -o pipefail
+          modules/test/keycloak.sh 2>&1 | tee keycloak.txt
+      - name: Zusammenfassung
+        if: always()
+        run: |
+          [ -f keycloak.txt ] || exit 0
+          { echo '### Module gegen Keycloak 26.8.1'; echo '```'; sed -n '/^=== Ergebnis/,$p' keycloak.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

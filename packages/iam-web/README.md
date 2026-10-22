@@ -10,7 +10,7 @@ Inhalt (Ziel 0.1.0): `IamProvider`, Sitzung und `/auth/me`, Organisation je Tab,
 Herkunft: vollholz/assets `web/src/auth`, `web/src/shell/{UserMenu,MyRights}.tsx`, `web/src/ui/{MissingRight,
 RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}`, `web/src/features/{admin,acl}`.
 
-## Stand (Teil-PR 2a)
+## Stand (Teil-PR 2b)
 
 | Baustein | Inhalt |
 |---|---|
@@ -22,6 +22,10 @@ RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org,format}
 | `t`, `tn`, `configureTexts` | Texte `iam.*` de/en, überschreibbar |
 | `fmtDate`, `fmtDateTime`, `relTime`, `fmtNum`, `plural` | Formatierung nach Sprache (`de-CH`) |
 | `Register`, `Permission`, `ADMIN_ROLE`, `PLATFORM_ADMIN` | Typ der Rechte der App, reservierte Namen |
+| `IamUiProvider`, `useIamUi` | austauschbare Grundkomponenten (`components`: Button, Dialog, Menu, Table, Icon, toast) |
+| `Button`, `Modal`, `Confirm`, `Sheet`, `MenuButton`, `MenuItem`, `Table`, `Picker`, `Icon` | Grundkomponenten aus Assets `ui/` (Fokusfalle, Tastatur, gesperrt mit Grund) |
+| `Loading`, `SkeletonRows`, `Empty`, `ErrorBox`, `ErrorState`, `NotFound` | Zustände, 404 überall gleich |
+| `styles.css` | Regeln aus Assets mit Klassen `iam-*`, Variablen `--iam-*`, alles in `@layer iam` |
 
 Noch `private`; veröffentlicht wird mit dem letzten Teil-PR.
 
@@ -32,7 +36,12 @@ npm run build -w @vollholz/iam-web       # tsc nach dist, styles.css kopiert
 npm run typecheck -w @vollholz/iam-web   # inkl. Vertragsprüfung test/contract.check.ts
 npm test -w @vollholz/iam-web            # Vitest (jsdom); package.test.ts braucht den Build
 npm run contract:types -w @vollholz/iam-web  # Typen aus test/fixtures/openapi-iam.json neu erzeugen
+npm run e2e -w @vollholz/iam-web         # Playwright + axe gegen die Testseite (test/e2e/app)
+npm run e2e:dev -w @vollholz/iam-web     # Testseite ansehen: http://localhost:4179
 ```
+
+In Sessions ohne passenden Playwright-Browser: `IAM_E2E_CHROMIUM=/opt/pw-browsers/chromium npm run e2e -w @vollholz/iam-web`
+(nie `playwright install` in der Session).
 
 Den Auszug `test/fixtures/openapi-iam.json` bei Vertragsänderungen aus der OpenAPI von Assets erneuern (Pfade
 `/auth/*`, `/v1/authz/catalog`, `/v1/acl*`, `/v1/roles*`, `/v1/admin/*`, `/v1/platform/*`, `/v1/people*` mit den

@@ -300,14 +300,21 @@ Browser prüft das (App setzt `--iam-accent` auf `:root`, System dunkel → Wert
 
 | Variable | Zweck |
 |---|---|
-| `--iam-font`, `--iam-font-mono`, `--iam-font-size` | Schrift |
+| `--iam-font`, `--iam-font-display`, `--iam-font-mono` | Schrift (Text, Überschriften, Schlüssel) |
 | `--iam-bg`, `--iam-surface`, `--iam-surface-2`, `--iam-hover` | Flächen |
 | `--iam-text`, `--iam-text-2`, `--iam-text-3` | Text (stark, normal, leise; `--iam-text-3` muss 4.5:1 auf `--iam-surface` erreichen) |
 | `--iam-line`, `--iam-line-2` | Linien |
-| `--iam-accent`, `--iam-accent-text`, `--iam-accent-soft` | Akzent, Text darauf, Hintergrund gewählter Zeilen |
-| `--iam-ok`, `--iam-warn`, `--iam-bad`, `--iam-info` und je `…-soft` | Status (erlaubt, fehlt, verboten, Hinweis) |
-| `--iam-focus` | Fokusring |
-| `--iam-radius`, `--iam-radius-s`, `--iam-shadow`, `--iam-space` | Form, Schatten, Grundabstand |
+| `--iam-accent`, `--iam-accent-hover`, `--iam-accent-text`, `--iam-accent-soft` | Akzent, beim Überfahren, Text darauf, Hintergrund gewählter Zeilen |
+| `--iam-ok`, `--iam-warn`, `--iam-bad`, `--iam-info`, `--iam-off` und je `…-soft` | Status (erlaubt, fehlt, verboten, Hinweis, aus) |
+| `--iam-bad-text` | Text auf `--iam-bad` (Knopf «Löschen», Fehlermeldung); dunkel nicht weiss, sonst zu wenig Kontrast |
+| `--iam-focus` | Fokusring (Standard: `--iam-accent`) |
+| `--iam-shadow` | Schatten von Dialog, Menü, Meldung |
+
+Abstände und Rundungen sind fest wie in Assets (keine Variablen), damit eine App mit gleichen Tokens gleich aussieht.
+Abbildung für Assets: `--iam-text` ← `--fg`, `--iam-text-2` ← `--fg-2`, `--iam-text-3` ← `--fg-3`, `--iam-accent-text` ←
+`--accent-fg`, `--iam-font` ← `--f-body`, `--iam-font-display` ← `--f-display`, `--iam-font-mono` ← `--f-mono`, übrige
+gleichnamig (`--iam-bad` ← `--bad` …); `--iam-bad-text` setzt Assets hell `#fff`, dunkel dunkel (heute weiss, zu wenig
+Kontrast – sichtbare Verbesserung, im Screenshot-Vergleich begründet).
 
 Hell/dunkel steuert die App: sie setzt die Variablen in ihrem dunklen Thema (Assets: `[data-theme=dark]`). In
 `forced-colors` nutzen die Bausteine Systemfarben.
@@ -320,12 +327,12 @@ Komponenten müssen es erfüllen, die Tests des Pakets prüfen das mit den Stand
 
 | Schlüssel | Vertrag (Props) | Standard aus |
 |---|---|---|
-| `Button` | `variant: 'primary' \| 'ghost' \| 'danger' \| 'link'`, `size?: 'sm'`, `icon?`, `busy?` (→ `aria-disabled`, bleibt fokussierbar), übrige Button-Props, `ref` | `.btn` |
+| `Button` | `variant?: 'default' \| 'primary' \| 'ghost' \| 'danger' \| 'danger-solid'`, `size?: 'sm'`, `icon?: IamIconName`, `busy?` (→ `aria-disabled`, bleibt fokussierbar, Klick wirkt nicht), mit `href` ein Link, übrige Props von `<button>`/`<a>` **einschliesslich `data-*`** (Dialoge setzen den Startfokus über `[data-cancel]`/`[data-confirm]`), `ref` | `.btn` |
 | `Dialog` | `title`, `onClose`, `footer`, `width`, `role: 'dialog' \| 'alertdialog'`, `initialFocus`, `onSubmit`, `dismissable`; Fokusfalle, Esc, Fokus zurück | `ui/Overlay.tsx` (`Modal`, `Confirm` darauf aufgebaut) |
 | `Menu` | `label`, `button`, `buttonLabel`, `fixed`, `children(close)`; Einträge `MenuItem` mit `why` (gesperrt mit Grund) | `ui/MenuButton.tsx` |
 | `Table` | Props von `<table>` plus `stack?: boolean` (unter 760 px gestapelt); Inhalt (`thead`, `tbody`, Zellen) schreibt die Seite selbst wie heute, Zellen mit `iam-hide-narrow` bzw. `iam-label-narrow` | `.tbl`, `.stack-tbl` |
 | `Icon` | `name`, `className` | eigener Satz |
-| `toast` | `{ ok(text), error(err, title) }` | eigene `aria-live`-Meldung |
+| `toast` | `{ show(text, { tone?, action?, ms? }), error(err, prefix?) }` (gleich wie Assets `useToast()`) | eigene `aria-live`-Meldung |
 
 `Confirm`, `Sheet`, `Picker`, Tabs und Rollenauswahl bleiben Teil des Pakets (sie bauen auf `Dialog`, `Button` auf); die
 Liste der austauschbaren Teile bleibt bewusst kurz. `Table` ist bewusst keine Datentabelle mit Spaltenmodell: Die

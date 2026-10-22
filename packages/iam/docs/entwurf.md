@@ -554,3 +554,29 @@ Audit-Trigger darauf warten.
 
 `db/bootstrap.sql` im Paket ist die Vorlage für Kap. 10.1 (psql-Variablen `p`, `db`, `owner_pw`, `runtime_pw`,
 `worker_pw`; idempotent, ungültiger Name bricht ab). `create-iam-app` ruft sie auf, statt eine Kopie anzulegen.
+
+### 13.10 Plugin und Module `account`, `acl` (Teil-PR 4)
+
+- **`createIam`** liefert zusätzlich `tx(p, fn)` (Mandantenkontext mit `resources.dbContext`), `fullTx(p, fn)` (mit
+  `resources.fullContext`) und `memberAccess` (echte Rollen und Gruppen anderer Personen; setzt das Modul `admin` in
+  Teil 6b, bis dahin Simulation).
+- **Optionen des Plugins** zusätzlich zu 3.2: `publicPaths` (`*` am Ende = Präfix), `sessions` (`SessionBridge` des Moduls
+  `bff`), `openapi`, `spanAttribute`, `problemSchemas` (Standard `true`: Fehlerschemas als Komponenten und übliche
+  Fehlerantworten je Route unter `apiPrefix`, wie Assets). Standard für `problemTypeBase`: `<PUBLIC_BASE_URL>/probleme/`;
+  `WWW-Authenticate` nennt `realm="<product>"`.
+- **`openapi.fields`**: Schlüssel `'<Titel des Schemas>.<pfad>'` oder `'<METHOD> <url> <Status|body|querystring>.<pfad>'`,
+  Listen mit `[]`. Standard-Tags des Pakets: `Konto`, `Verwaltung: Zugriff` (Assets ersetzt durch `Verwaltung: ACL`).
+- **Dekorationen**: `req.can(perm, ref?, hint?)` lädt die Zugriffsregeln einmal je Anfrage; `req.capabilities()` liefert
+  eine Funktion `(kind, id, hint?) => Fähigkeiten` für Listen. `/readyz` bleibt in der App (`readinessChecks(iam)`).
+- **Cookies**: Ohne `@fastify/cookie` registriert es das Plugin mit `SESSION_SECRET`; ist es schon registriert, muss es
+  mit denselben Geheimnissen signieren (sonst Abbruch beim Start). Das Plugin lädt `@fastify/cookie` erst beim
+  Registrieren; Worker und Skripte nutzen das Paket ohne Fastify. Telemetrie (`@opentelemetry/api`) ist ein optionaler
+  Peer: ohne fehlt nur das Span-Attribut.
+- **Modul `acl`**: Existenz der Ressource über `ResourceModel.exists` mit voller Lesesicht (13.3), Hinweise für viele
+  Ressourcen über `hints` (Schlüssel `<type>:<id>`), Zusatzfelder über `effectiveExtra`/`effectiveExtraSchema` (13.2).
+  Die Meldung zu Freigaben auf Blättern lautet produktneutral «Freigaben gelten für Bereiche (…), nicht für einzelne
+  Ressourcen vom Typ «…».» (Assets: «… nicht für einzelne Objekte.»; der Pfad `/effect` bleibt gleich). Ereignis
+  `acl.changed` über `events`.
+- **Getauschte Tokens** (Entscheid der Hauptsession zu Teil 3): Regeln vom Typ `client` – `deny` wirkt für `clientId`
+  (MCP-Dienst) oder `grantId` (ursprünglicher Client), `grant` und `restrict` nur für `grantId`; die Simulation in
+  `/v1/acl/effective?client=` setzt beide auf die angefragte Client-ID.

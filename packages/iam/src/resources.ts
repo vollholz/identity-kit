@@ -8,7 +8,7 @@
  * gelesen wird, geht nie als Name oder Wert an die Person zurück.
  */
 import type pg from 'pg';
-import type { AccessService } from './access.ts';
+import type { AccessService, TenantAccess } from './access.ts';
 import type { Principal } from './principal.ts';
 
 export interface ResourceRef { type: string; id?: string | null }
@@ -28,6 +28,10 @@ export interface ResourceModel<S = unknown> {
   hints?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, string>>;
   /** Zusätzlicher Datenbank-Kontext je Anfrage (Assets: Lesesicht nach Zugriffsregeln). */
   dbContext?(p: Principal, access: AccessService): Promise<Record<string, string>>;
+  /** Zusätzliche Felder von `GET /v1/acl/effective` für den geprüften Principal (Assets: `readTypes`, Entwurf 13.2). */
+  effectiveExtra?(target: Principal, acl: TenantAccess<S>, access: AccessService): Promise<Record<string, unknown>>;
+  /** JSON-Schemas dieser Felder (Name → Schema) für die Antwort und die OpenAPI-Beschreibung. */
+  effectiveExtraSchema?: Record<string, unknown>;
 }
 
 /** Kette ohne Zustand: jede Ressource direkt unter dem Mandanten. */

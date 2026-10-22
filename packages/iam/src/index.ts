@@ -22,3 +22,9 @@ export {
 } from './principal.ts';
 export { AccessService, capabilities, capabilitiesFor, canSchema, indexAcl, ACL_EFFECTS, type AclEffect, type AclRow, type TenantAccess } from './access.ts';
 export { flatResources, flatChain, type ResourceModel, type ResourceRef } from './resources.ts';
+export { createIam, readinessChecks, type Iam, type IamOptions, type IamEvents, type MemberAccess } from './iam.ts';
+export { iamPlugin, need, needsToken, requestPath, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
+export { problem, problemResponses, registerProblemSchemas, registerErrorHandler, PROBLEM_SCHEMAS } from './http/problems.ts';
+export { IAM_API_TAGS, routeSchema, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
+export { authzCatalogSchema } from './http/account.ts';
+export { pointlessAcl } from './http/acl.ts';

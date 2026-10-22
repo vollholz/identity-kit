@@ -1,0 +1,100 @@
+/**
+ * OpenAPI-Beschreibung der Routen des Pakets (Entwurf 13.4): Tags aus `IAM_API_TAGS`, Zusammenfassungen, übliche
+ * Fehlerantworten (problem+json), Ersetzungen der App (Tags, Texte, Felder), Antwort von `GET /v1/authz/catalog` ohne
+ * Verlust durch die Serialisierung (auch mit den ergänzten Feldern `match` und `personOnly`).
+ */
+import assert from 'node:assert/strict';
+import { after, before, describe, test } from 'node:test';
+import Fastify from 'fastify';
+import { routesOf } from '@vollholz/iam-testkit';
+import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
+import { authzCatalogSchema } from '../src/http/account.ts';
+import { IAM_API_TAGS } from '../src/http/routes.ts';
+import { assetsCatalog, notesCatalog } from './support/catalogs.ts';
+import { skipDb } from './support/db.ts';
+import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+
+const skip = await skipDb();
+const IAM_ROUTES = ['GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/acl', 'POST /v1/acl', 'DELETE /v1/acl/{id}', 'GET /v1/acl/effective'];
+
+describe('OpenAPI der Routen des Pakets', { skip }, () => {
+  const db = notesDb();
+  let t: Awaited<ReturnType<typeof db.create>>, idp: MockIdp, n: NotesApp;
+  let doc: { paths: Record<string, Record<string, any>>; components: { schemas: Record<string, unknown> } };
+  const op = (route: string) => { const [m, p] = route.split(' '); return doc.paths[p!]![m!.toLowerCase()]; };
+
+  before(async () => {
+    t = await db.create();
+    idp = await startMockIdp({ realm: 'notes', audience: 'notes-api' });
+    n = await notesApp({ db: t.runtime, issuer: idp.issuer });
+    doc = (await n.app.inject({ method: 'GET', url: '/v1/openapi.json' })).json();
+  });
+  after(async () => { await n?.app.close(); await idp?.close(); await t?.drop(); });
+
+  test('alle Routen des Pakets mit Tag aus IAM_API_TAGS und Zusammenfassung; versteckte fehlen', () => {
+    const iam = routesOf(doc, r => !r.includes('/folders') && !r.includes('/notes'));
+    assert.deepEqual(iam.sort(), [...IAM_ROUTES].sort());
+    const tags = new Set(IAM_API_TAGS.map(x => x.name));
+    for (const r of IAM_ROUTES) {
+      assert.equal(op(r).tags.length, 1, r);
+      assert.ok(tags.has(op(r).tags[0]), `${r}: ${op(r).tags}`);
+      assert.ok(op(r).summary, r);
+    }
+    assert.ok(!doc.paths['/v1/openapi.json'], 'versteckt');
+  });
+
+  test('übliche Fehlerantworten als problem+json, auch für Routen der App', () => {
+    for (const s of ['Problem', 'ValidationProblem', 'VersionConflict', 'OrganizationChoice', 'BatchProblem']) assert.ok(doc.components.schemas[s], s);
+    const codes = (r: string) => Object.keys(op(r).responses).sort();
+    assert.deepEqual(codes('GET /v1/me'), ['200', '400', '401', '403', '429', '500']);
+    assert.deepEqual(codes('POST /v1/acl'), ['201', '400', '401', '403', '409', '422', '429', '500']);
+    assert.deepEqual(codes('DELETE /v1/acl/{id}'), ['204', '400', '401', '403', '404', '409', '422', '429', '500']);
+    assert.deepEqual(op('GET /v1/me').responses['401'].content['application/problem+json'].schema, { $ref: '#/components/schemas/Problem' });
+    assert.ok(op('GET /v1/folders/{id}').responses['404'], 'Route der App');
+  });
+
+  test('Katalog: Aufzählungen aus dem Katalog der App, ergänzte Felder optional', () => {
+    const s = op('GET /v1/authz/catalog').responses['200'].content['application/json'].schema;
+    const perm = s.properties.permissions.items;
+    assert.deepEqual(perm.properties.key.enum, [...notesCatalog.permissions]);
+    assert.ok(!perm.required.includes('personOnly') && perm.properties.personOnly);
+    assert.ok(!s.properties.groups.items.required.includes('match') && s.properties.groups.items.properties.match);
+    assert.match(s.properties.mcpTools.items.properties.scope.anyOf[0].description, /Standard-Scope `notes:read`/);
+  });
+
+  test('GET /v1/authz/catalog liefert genau toJSON() (Serialisierung entfernt nichts)', async () => {
+    const r = await n.app.inject({ method: 'GET', url: '/v1/authz/catalog', headers: { authorization: `Bearer ${await idp.token(claims.user({ org: 'acme' }))}` } });
+    assert.deepEqual(r.json(), notesCatalog.toJSON());
+    assert.ok(r.json().permissions.some((p: { personOnly?: boolean }) => p.personOnly) && r.json().groups.some((g: { match?: string }) => g.match));
+  });
+
+  test('Ersetzungen der App: Tags, Zusammenfassung, Beschreibung, Felder (Titel oder Route)', async () => {
+    const x = await notesApp({
+      db: t.runtime, issuer: idp.issuer, plugin: { openapi: {
+        tags: { 'Verwaltung: Zugriff': 'Verwaltung: ACL' },
+        routes: { 'GET /v1/me': { summary: 'Wer bin ich', description: 'Eigene Beschreibung', tags: ['Konto'] } },
+        fields: { 'AuthzCatalog.permissions[].resources': 'Eigene Feldbeschreibung', 'GET /v1/me 200.grantedPermissions': 'Freigaben der App', 'AclEntry.principalRef': 'Wer' },
+      } },
+    });
+    try {
+      const d = (await x.app.inject({ method: 'GET', url: '/v1/openapi.json' })).json();
+      assert.deepEqual(d.paths['/v1/acl'].get.tags, ['Verwaltung: ACL']);
+      assert.deepEqual([d.paths['/v1/me'].get.summary, d.paths['/v1/me'].get.description], ['Wer bin ich', 'Eigene Beschreibung']);
+      const cat = d.paths['/v1/authz/catalog'].get.responses['200'].content['application/json'].schema;
+      assert.equal(cat.properties.permissions.items.properties.resources.description, 'Eigene Feldbeschreibung');
+      assert.equal(d.paths['/v1/me'].get.responses['200'].content['application/json'].schema.properties.grantedPermissions.description, 'Freigaben der App');
+      assert.equal(d.paths['/v1/acl'].post.responses['201'].content['application/json'].schema.properties.principalRef.description, 'Wer');
+      // Die Antwort bleibt dieselbe
+      const r = await x.app.inject({ method: 'GET', url: '/v1/authz/catalog', headers: { authorization: `Bearer ${await idp.token(claims.user({ org: 'acme' }))}` } });
+      assert.deepEqual(r.json(), notesCatalog.toJSON());
+    } finally { await x.app.close(); }
+  });
+});
+
+test('Schema des Katalogs von Assets serialisiert toJSON() verlustfrei', async () => {
+  const app = Fastify();
+  app.get('/c', { schema: { response: { 200: authzCatalogSchema(assetsCatalog) } } }, async () => assetsCatalog.toJSON());
+  try {
+    assert.deepEqual((await app.inject({ method: 'GET', url: '/c' })).json(), assetsCatalog.toJSON());
+  } finally { await app.close(); }
+});

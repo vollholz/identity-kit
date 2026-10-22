@@ -1,0 +1,57 @@
+# Veröffentlichung: ein Tag vX.Y.Z veröffentlicht alle Pakete in dieser Version auf GitHub Packages (@vollholz/*).
+# Die Version im Tag muss der Version in jedem packages/*/package.json entsprechen.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Pakete veröffentlichen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-superuser
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      POSTGRES_SUPERUSER_PASSWORD: ci-superuser
+      POSTGRES_PORT: "5433"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://npm.pkg.github.com
+          scope: "@vollholz"
+      - run: npm ci --no-audit --no-fund
+      - name: Version im Tag = Version der Pakete
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for p in packages/*/package.json; do
+            pv="$(node -p "require('./$p').version")"
+            [ "$pv" = "$v" ] || { echo "$p hat Version $pv, Tag $GITHUB_REF_NAME"; exit 1; }
+          done
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Veröffentlichen
+        run: npm publish --workspaces
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

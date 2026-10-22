@@ -1,0 +1,46 @@
+# CI des Baukastens: Typprüfung, Build und Tests aller Pakete (Datenbank-Tests gegen PostgreSQL im Service-Container).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Typprüfung, Build und Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-superuser
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # Nur Wegwerf-Werte für die Test-Datenbank im Service-Container
+      POSTGRES_SUPERUSER_PASSWORD: ci-superuser
+      POSTGRES_PORT: "5433"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Pakete lassen sich packen
+        run: npm pack --workspaces --dry-run

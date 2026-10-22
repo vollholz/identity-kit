@@ -1,0 +1,26 @@
+{
+  "name": "@vollholz/iam-testkit",
+  "version": "0.1.0",
+  "description": "Tests für Apps mit dem IAM-Baukasten: Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, RLS-, Katalog- und Isolationsprüfungen",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": { "type": "git", "url": "https://github.com/vollholz/identity-kit.git", "directory": "packages/iam-testkit" },
+  "engines": { "node": ">=24" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "jose": "6.2.12"
+  },
+  "peerDependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "pg": "8.23.1"
+  }
+}

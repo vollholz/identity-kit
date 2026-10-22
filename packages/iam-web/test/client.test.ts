@@ -5,13 +5,14 @@ import {
   reportStatus, setCsrfToken, setTenant, tenantHeaders, withQuery, withTenant,
 } from '../src/index.ts';
 import type { paths } from './fixtures/openapi-iam.d.ts';
+import { ME_FIXTURE } from './fixtures/me.ts';
 import { json, mockFetch } from './utils.ts';
 
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken(null); setTenant(null); });
 
 /** Eigener Client einer App (wie Assets: openapi-fetch) mit der Middleware des Pakets. */
 function appClient() {
-  const api = createClient<paths>({ baseUrl: 'http://localhost', fetch: (req: Request) => globalThis.fetch(req) });
+  const api = createClient<paths>({ baseUrl: window.location.origin, fetch: (req: Request) => globalThis.fetch(req) });
   api.use(iamMiddleware);
   return api;
 }
@@ -115,6 +116,23 @@ describe('Client', () => {
     }
   });
 
+  it('übernimmt Feldfehler nur, wenn jedes Element path und message als Text hat', async () => {
+    const bodies: [unknown, number][] = [
+      [{ title: 'Ungültig', errors: [{ path: '/a', message: 'fehlt' }] }, 1],
+      [{ title: 'Ungültig', errors: [{ path: '/a', message: 'fehlt' }, { path: 3, message: 'x' }] }, 0],
+      [{ title: 'Ungültig', errors: [null] }, 0],
+      [{ title: 'Ungültig', errors: 'kaputt' }, 0],
+      [{ title: 'Ungültig', errors: { path: '/a', message: 'x' } }, 0],
+    ];
+    for (const [body, n] of bodies) {
+      mockFetch({ 'POST /v1/roles': () => json(body, 422) });
+      const e = await iamFetch('/v1/roles', { method: 'POST', body: {} }).catch((x: unknown) => x) as ApiError;
+      expect(e.fieldErrors, JSON.stringify(body)).toHaveLength(n);
+      expect(e.title).toBe('Ungültig');
+      expect(describeError(e).fields).toHaveLength(n);
+    }
+  });
+
   it('nutzt Standardtexte, wenn der Server keinen Titel liefert', () => {
     expect(new ApiError(403, {}).title).toBe('Dafür fehlt dir das Recht.');
     expect(new ApiError(412, {}).title).toBe('Inzwischen von jemand anderem geändert.');
@@ -131,6 +149,32 @@ describe('Client', () => {
     expect(withTenant('/v1/x?a=1#page=2?b')).toBe('/v1/x?a=1&x-tenant=mu%20ster#page=2?b');
     expect(loginUrl('/verwalten?a=1#b')).toBe('/auth/login?returnTo=%2Fverwalten%3Fa%3D1%23b');
     expect(loginUrl('/', 'muster')).toBe('/auth/login?returnTo=%2F&org=muster');
+  });
+
+  it('Rücksprung nur innerhalb der App: absolute und «//»-Adressen werden zu «/»', () => {
+    for (const bad of ['//evil.example/x', 'https://evil.example/x', '/\\evil.example', '/@evil.example', 'javascript:alert(1)', 'relativ']) {
+      expect(loginUrl(bad), bad).toBe('/auth/login?returnTo=%2F');
+    }
+    expect(loginUrl('/notizen?x=//y')).toBe('/auth/login?returnTo=%2Fnotizen%3Fx%3D%2F%2Fy');
+  });
+
+  it('iamFetch und authFetch nehmen nur Pfade dieser App an', async () => {
+    const { fn } = mockFetch({});
+    for (const bad of ['//evil.example/x', 'https://evil.example/x', 'v1/roles', '/@evil.example']) {
+      await expect(iamFetch(bad), bad).rejects.toThrow(TypeError);
+      await expect(authFetch(bad), bad).rejects.toThrow(TypeError);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('If-Match aus der Version oder unverändert aus dem ETag einer GET-Antwort', () => {
+    expect(ifMatch(7)).toEqual({ 'If-Match': 'W/"7"' });
+    expect(ifMatch('W/"7-a1b2"')).toEqual({ 'If-Match': 'W/"7-a1b2"' });
+  });
+
+  it('Me-Fixture nach 5.1 (Typ in contract.check.ts)', () => {
+    expect(ME_FIXTURE.tenant.name).toBe('Demo AG');
+    expect(Object.keys(ME_FIXTURE.organizationNames)).toEqual(ME_FIXTURE.organizations);
   });
 });
 
@@ -167,6 +211,33 @@ describe('Rückkanal für eigene Clients der App', () => {
     const e = await appClient().GET('/v1/roles').catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ApiError);
     expect(e).toMatchObject({ status: 0 });
+  });
+
+  it('iamMiddleware sendet CSRF-Token und Organisation nie an eine fremde Herkunft', async () => {
+    setTenant('demo');
+    setCsrfToken('tok-1');
+    const { calls } = mockFetch({ 'POST /x': () => json({}, 200) });
+    const foreign = createClient<{ '/x': { post: { responses: { 200: { content: { 'application/json': object } } } } } }>({ baseUrl: 'https://evil.example', fetch: (req: Request) => globalThis.fetch(req) });
+    foreign.use(iamMiddleware);
+    await foreign.POST('/x', {});
+    expect(new URL(calls[0]!.url).origin).toBe('https://evil.example');
+    expect(calls[0]!.headers.get('x-csrf-token')).toBeNull();
+    expect(calls[0]!.headers.get('x-tenant')).toBeNull();
+    await appClient().POST('/v1/roles', { body: { label: 'X', permissions: [] } }).catch(() => undefined);
+    expect(calls[1]!.headers.get('x-csrf-token')).toBe('tok-1');
+    expect(calls[1]!.headers.get('x-tenant')).toBe('demo');
+  });
+
+  it('iamMiddleware lässt Abbrüche als AbortError durch (openapi-fetch)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (req: Request) => {
+      if (req.signal.aborted) throw new DOMException('abgebrochen', 'AbortError');
+      return json({ items: [] });
+    }));
+    const ctl = new AbortController();
+    ctl.abort();
+    const e = await appClient().GET('/v1/roles', { signal: ctl.signal }).catch((x: unknown) => x);
+    expect(e).not.toBeInstanceOf(ApiError);
+    expect(e).toMatchObject({ name: 'AbortError' });
   });
 
   it('reportStatus meldet nur 401 und 403', () => {

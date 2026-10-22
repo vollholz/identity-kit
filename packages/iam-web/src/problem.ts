@@ -45,6 +45,11 @@ export async function errorFrom(response: Response): Promise<ApiError> {
     // nur ein Objekt ist ein Problem; `null`, Zahl, Liste (z. B. von einem Proxy) zählen wie kein Körper
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as ProblemDetails;
   } catch { /* kein JSON */ }
+  // Feldfehler nur, wenn jedes Element `path` und `message` als Text hat; sonst ohne Feldfehler
+  if ('errors' in body) {
+    const ok = Array.isArray(body.errors) && body.errors.every(e => e !== null && typeof e === 'object' && typeof e.path === 'string' && typeof e.message === 'string');
+    if (!ok) { const { errors: _, ...rest } = body; body = rest; }
+  }
   return new ApiError(response.status, body, response.headers.get('x-request-id'));
 }
 

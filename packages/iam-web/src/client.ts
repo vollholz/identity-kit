@@ -14,6 +14,8 @@ const expiredListeners = new Set<() => void>();
 const forbiddenListeners = new Set<() => void>();
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
+/** Abbruch über `AbortSignal`; `DOMException` ist nicht überall eine Unterklasse von `Error`, daher nur der Name. */
+const isAbort = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'AbortError';
 
 export function setCsrfToken(token: string | null) { csrfToken = token; }
 /** Organisation dieses Tabs (Alias), gesendet als `X-Tenant`; gesetzt von der Sitzung. */
@@ -50,14 +52,32 @@ export function reportStatus(status: number) {
 
 export const origin: string = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? window.location.origin : 'http://localhost';
 
-/** Version (ETag `W/"n"`) als If-Match-Header. */
-export const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `W/"${version}"` });
+/**
+ * `If-Match` aus der Version (`W/"<version>"`) oder unverändert aus einem ETag einer GET-Antwort
+ * (`W/"<version>-<zugriff>"`, Spezifikation 7.1). Der Server vergleicht nur die Version (Assets: `ifMatchVersion`).
+ */
+export const ifMatch = (versionOrEtag: number | string): Record<string, string> =>
+  ({ 'If-Match': typeof versionOrEtag === 'number' ? `W/"${versionOrEtag}"` : versionOrEtag });
 
 const here = () => (typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}${window.location.hash}`);
 
-/** Anmeldung beim BFF mit Rücksprung; `org` wählt die Organisation vor (5.1). */
+/** Pfad innerhalb dieser App: beginnt mit «/», nicht mit «//», «/\» oder «/@» (keine andere Herkunft, 5.2). */
+export const isLocalPath = (p: string): boolean => p.startsWith('/') && !/^\/[/\\@]/.test(p);
+
+/**
+ * Anmeldung beim BFF mit Rücksprung; `org` wählt die Organisation vor (5.1). Ein `returnTo` ausserhalb der App (absolut,
+ * «//…») wird zu «/»; der BFF prüft zusätzlich (5.2).
+ */
 export function loginUrl(returnTo: string = here(), org?: string): string {
-  return `/auth/login?returnTo=${encodeURIComponent(returnTo)}${org ? `&org=${encodeURIComponent(org)}` : ''}`;
+  const target = isLocalPath(returnTo) ? returnTo : '/';
+  return `/auth/login?returnTo=${encodeURIComponent(target)}${org ? `&org=${encodeURIComponent(org)}` : ''}`;
+}
+
+/** Adresse an der eigenen Herkunft; andere Pfade sind ein Programmierfehler (CSRF-Token und Organisation nie fremd). */
+function sameOrigin(path: string): string {
+  const url = `${origin}${path}`;
+  if (!isLocalPath(path) || new URL(url).origin !== origin) throw new TypeError(`Nur Pfade dieser App: ${path}`);
+  return url;
 }
 
 function prepare(headers: Headers, method: string) {
@@ -72,8 +92,9 @@ function prepare(headers: Headers, method: string) {
  */
 export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
+  const url = sameOrigin(path);
   prepare(headers, (init.method ?? 'GET').toUpperCase());
-  try { return await globalThis.fetch(`${origin}${path}`, { ...init, headers, credentials: 'same-origin' }); }
+  try { return await globalThis.fetch(url, { ...init, headers, credentials: 'same-origin' }); }
   catch (e) { throw networkError(e); }
 }
 
@@ -106,17 +127,18 @@ export function withQuery(path: string, query?: Record<string, QueryValue>): str
  */
 export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T> {
   const method = req.method ?? 'GET';
+  const url = sameOrigin(withQuery(path, req.query));
   const headers = new Headers(req.headers);
   prepare(headers, method);
   if (req.body !== undefined) headers.set('Content-Type', 'application/json');
   let res: Response;
   try {
-    res = await globalThis.fetch(`${origin}${withQuery(path, req.query)}`, {
+    res = await globalThis.fetch(url, {
       method, headers, credentials: 'same-origin', signal: req.signal,
       body: req.body === undefined ? undefined : JSON.stringify(req.body),
     });
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw e;
+    if (isAbort(e)) throw e;
     throw networkError(e);
   }
   if (!res.ok) {
@@ -130,12 +152,12 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
 
 /**
  * Middleware für eigene Clients der App nach der Schnittstelle von `openapi-fetch` (ohne es zu importieren): setzt
- * `X-Tenant`, `X-CSRF-Token` und `Accept`, wirft Fehler als ApiError und meldet 401/403 an die Sitzung.
- * Verwendung: `api.use(iamMiddleware)`.
+ * `X-Tenant`, `X-CSRF-Token` und `Accept` – nur für Anfragen an die eigene Herkunft, nie an fremde Hosts –, wirft Fehler
+ * als ApiError und meldet 401/403 an die Sitzung. Abbrüche bleiben Abbrüche. Verwendung: `api.use(iamMiddleware)`.
  */
 export const iamMiddleware = {
   onRequest({ request }: { request: Request }): Request {
-    prepare(request.headers, request.method.toUpperCase());
+    if (new URL(request.url).origin === origin) prepare(request.headers, request.method.toUpperCase());
     return request;
   },
   async onResponse({ response }: { response: Response }): Promise<Response> {
@@ -143,7 +165,9 @@ export const iamMiddleware = {
     reportStatus(response.status);
     throw await errorFrom(response);
   },
-  onError({ error }: { error: unknown }): Error {
-    return error instanceof ApiError ? error : networkError(error);
+  /** `undefined`: openapi-fetch wirft den ursprünglichen Fehler weiter (Abbrüche; `DOMException` ist kein `Error`). */
+  onError({ error }: { error: unknown }): Error | undefined {
+    if (error instanceof ApiError || isAbort(error)) return undefined;
+    return networkError(error);
   },
 };

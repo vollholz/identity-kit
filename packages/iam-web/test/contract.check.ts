@@ -7,6 +7,7 @@
  */
 import type * as C from '../src/contract.ts';
 import type { components, paths } from './fixtures/openapi-iam.d.ts';
+import type { ME_FIXTURE } from './fixtures/me.ts';
 
 type Json<R> = R extends { content: { 'application/json': infer B } } ? B : never;
 type Res<P extends keyof paths, M extends keyof paths[P], S extends number = 200> =
@@ -64,6 +65,11 @@ ok<Fits<Res<'/v1/acl/effective', 'get'>, C.Effective>>();
 ok<Fits<Res<'/v1/people', 'get'>, C.PersonList>>();
 ok<Fits<Res<'/v1/people/{id}', 'get'>, C.PersonEntry>>();
 ok<Fits<S['ValidationProblem'] & S['VersionConflict'] & S['OrganizationChoice'], C.ProblemDetails>>();
+
+// /auth/me (5.1, nicht in der OpenAPI): gleiche Felder und Pflichtfelder wie die Fixture; Pflicht u. a. tenant.name,
+// organizationNames, grantedPermissions
+ok<SameKeys<C.Me, typeof ME_FIXTURE>>();
+ok<SameKeys<NonNullable<C.Me['tenant']>, NonNullable<(typeof ME_FIXTURE)['tenant']>>>();
 
 // Anfragekörper: gleiche Felder wie im Vertrag
 ok<SameKeys<C.SwitchInput, Omit<Body<'/auth/switch', 'post'>, 'csrf'>>>();

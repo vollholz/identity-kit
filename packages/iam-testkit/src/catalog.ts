@@ -6,13 +6,16 @@
  * auch für Apps, die nicht mit dem Backend-Paket gebaut sind.
  */
 
-export interface CatalogPermission { key: string; label: string; group: string; description: string; resources: string[]; adminOnly?: boolean }
+/** `personOnly`: nur für Personen, in keinem Scope (ab 0.2.0 geprüft, wenn vorhanden). */
+export interface CatalogPermission { key: string; label: string; group: string; description: string; resources: string[]; adminOnly?: boolean; personOnly?: boolean }
+/** `match`: Stichwort(e) als regulärer Ausdruck (Gross/klein egal), das die Beschreibung jeder Rolle mit Rechten der Gruppe enthält (ab 0.2.0). */
+export interface CatalogGroup { key: string; label: string; match?: string }
 export interface CatalogRole { key: string; label: string; description: string; permissions: string[]; adminOnly?: boolean }
 export interface CatalogScope { key: string; text: string; permissions: string[] }
 /** Antwort von `GET /v1/authz/catalog` (weitere Felder wie `mcpTools` werden nicht geprüft). */
 export interface AuthzCatalog {
   permissions: CatalogPermission[];
-  groups: { key: string; label: string }[];
+  groups: CatalogGroup[];
   roles: CatalogRole[];
   scopes: CatalogScope[];
   resourceTypes?: { key: string; label: string }[];
@@ -82,12 +85,21 @@ export function checkCatalog(c: AuthzCatalog, o: { product?: string; acl?: boole
     if (!r.description?.trim()) errors.push(`Rolle «${r.key}»: Beschreibung fehlt`);
     if (!r.permissions.length) errors.push(`Rolle «${r.key}»: ohne Rechte`);
     for (const p of r.permissions) if (!perms.has(p)) errors.push(`Rolle «${r.key}»: Recht «${p}» nicht im Katalog`);
+    // Beschreibung nennt jede Rechtegruppe der Rolle (Stichwort `match` der Gruppe; ohne `match` keine Prüfung)
+    for (const g of new Set(r.permissions.map(p => perms.get(p)?.group))) {
+      const m = g ? groups.get(g)?.match : undefined;
+      if (m === undefined) continue;
+      let re: RegExp;
+      try { re = new RegExp(m, 'i'); } catch { errors.push(`Gruppe «${g}»: Stichwort «${m}» ist kein regulärer Ausdruck`); continue; }
+      if (!re.test(r.description ?? '')) errors.push(`Rolle «${r.key}»: Beschreibung nennt die Rechtegruppe «${g}» nicht (Stichwort ${m})`);
+    }
   }
   for (const s of c.scopes) {
     if (!PERMISSION_KEY.test(s.key)) errors.push(`Scope «${s.key}»: Schlüssel nicht <bereich>:<verb> (${PERMISSION_KEY})`);
     if (!s.text?.trim()) errors.push(`Scope «${s.key}»: Text fehlt`);
     if (!s.permissions.length) errors.push(`Scope «${s.key}»: ohne Rechte`);
     for (const p of s.permissions) if (!perms.has(p)) errors.push(`Scope «${s.key}»: Recht «${p}» nicht im Katalog`);
+    for (const p of s.permissions) if (perms.get(p)?.personOnly) errors.push(`Scope «${s.key}» enthält «${p}» (nur für Personen, in keinem Scope)`);
   }
   for (const t of c.resourceTypes ?? []) {
     if (!NAME_KEY.test(t.key)) errors.push(`Ressourcentyp «${t.key}»: Schlüssel nicht ${NAME_KEY}`);

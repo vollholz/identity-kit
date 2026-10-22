@@ -5,6 +5,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { iamFetch, IamProvider, useIam, type IamProviderProps } from '../src/index.ts';
 import { json, ME, mockIamApi, type MockHandler } from '../src/testing/index.tsx';
@@ -86,6 +87,32 @@ describe('Anmeldung und Abmeldung', () => {
     expect(api.calls.find(c => c.method === 'POST')!.headers.get('x-csrf-token')).toBe('csrf-123');
     expect(sessionStorage.getItem('iam.tab.org')).toBeNull();
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('Abmelden mit Serverfehler: Meldung, Sitzung und Organisation des Tabs bleiben; 401 gilt als abgemeldet', async () => {
+    const onLogout = vi.fn();
+    let status = 500;
+    function Out() { const { logout } = useIam(); return <button type="button" onClick={() => void logout()}>Abmelden</button>; }
+    setup({ 'POST /auth/logout': () => json({ title: 'Interner Fehler', status }, status) }, { onLogout }, <Out />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Abmelden' }));
+    expect(await screen.findByText(/^Abmelden fehlgeschlagen: Interner Fehler/)).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('iam.tab.org')).not.toBeNull();
+    status = 401;
+    await userEvent.click(screen.getByRole('button', { name: 'Abmelden' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/abgemeldet'));
+    expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('CSRF-Token steht bereit, bevor Kinder zeichnen (auch für Layout-Effekte)', async () => {
+    function Write() {
+      useLayoutEffect(() => { void iamFetch('/v1/notes', { method: 'POST', body: {} }).catch(() => undefined); }, []);
+      return <p>Schreibt beim Einhängen</p>;
+    }
+    const { api } = setup({ 'POST /v1/notes': () => json({ id: 'n1' }, 201) }, {}, <Write />);
+    expect(await screen.findByText('Schreibt beim Einhängen')).toBeInTheDocument();
+    await waitFor(() => expect(api.calls.find(c => c.method === 'POST')?.headers.get('x-csrf-token')).toBe('csrf-123'));
   });
 
   it('401 einer späteren Anfrage öffnet «Sitzung abgelaufen»; Eingaben bleiben, «Erneut anmelden» mit Rücksprung', async () => {

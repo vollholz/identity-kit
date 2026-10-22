@@ -2,12 +2,14 @@
 # dessen Version noch nicht auf GitHub Packages liegt (@vollholz/*). Je veröffentlichtem Paket entsteht ein Tag
 # `<paket>-v<version>` (z. B. iam-testkit-v0.1.1). Eine neue Version = Version in packages/<paket>/package.json erhöhen
 # und per PR mergen; ohne erhöhte Version veröffentlicht der Workflow nichts.
+# OpenTofu-Module (modules/<modul>/VERSION) bekommen nur ein Tag `<modul>-v<version>` (z. B. product-realm-v0.1.0); Apps
+# beziehen sie über `?ref=<modul>-v<version>`.
 name: Release
 
 on:
   push:
     branches: [main]
-    paths: ["packages/**", "package-lock.json", ".github/workflows/release.yml"]
+    paths: ["packages/**", "modules/*/VERSION", "package-lock.json", ".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
@@ -68,4 +70,19 @@ jobs:
             git tag -a "$tag" -m "$name@$version"
             git push origin "$tag"
             echo "veröffentlicht: $name@$version ($tag)"
+          done
+      - name: Neue Modulversionen taggen
+        run: |
+          for v in modules/*/VERSION; do
+            [ -f "$v" ] || continue
+            mod="$(basename "$(dirname "$v")")"
+            version="$(tr -d '[:space:]' < "$v")"
+            tag="$mod-v$version"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "$tag liegt schon vor"
+              continue
+            fi
+            git tag -a "$tag" -m "$mod $version"
+            git push origin "$tag"
+            echo "getaggt: $tag"
           done

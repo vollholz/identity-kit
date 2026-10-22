@@ -59,3 +59,7 @@ die Integrität trägt das nächste `npm install` mit echtem Zugang nach.
 Version in `packages/<paket>/package.json` erhöhen und per PR mergen. Der Workflow «Release» veröffentlicht nach dem
 Merge jedes Paket, dessen Version noch nicht in der Registry liegt, und setzt das Tag `<paket>-v<version>`.
 Versionen je Paket (semantisch); brechende Änderungen mit Migrationshinweis in `docs/`.
+
+OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen; «Release» setzt dann das Tag
+`<modul>-v<version>`. Die App bezieht das Modul über
+`source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.

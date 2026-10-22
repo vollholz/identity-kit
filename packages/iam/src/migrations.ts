@@ -1,0 +1,304 @@
+/**
+ * Migrationen: Runner (wie Assets `db/migrate.ts`) und die SQL-Migrationen des IAM (Spezifikation Kap. 10, 15.3).
+ *
+ * - Jede Migration läuft in einer Transaktion, danach `app.secure_tenant_tables()`; geschützt durch eine Advisory-Lock
+ *   (LOCKS.migrate), mehrere Instanzen gleichzeitig sind unkritisch. Ausgeführte Migrationen stehen mit Prüfsumme in
+ *   `public.schema_migrations`; eine nachträglich geänderte Datei bricht ab.
+ * - Mehrere Quellen in fester Reihenfolge (IAM vor App); Namen eindeutig über alle Quellen (`iam_…` neben `NNN_…`).
+ *   Der Runner läuft nur als Besitzer-Rolle des Produkts (`<ident>_owner`), sonst Abbruch.
+ * - Die IAM-Migrationen liegen als SQL mit Platzhaltern im Paket (`migrations/iam_NNN_*.sql`); `iamMigrations` setzt
+ *   Schema und Datenbankrollen ein. Die Prüfsumme gilt für den eingesetzten Text.
+ * - Ressourcentypen der Zugriffsregeln und Blätter der Kette (CHECK-Bedingungen von `acl_entry`) hängen am Katalog der
+ *   App und ändern sich mit ihm. Sie stehen deshalb nicht in einer Migration, sondern werden nach den IAM-Migrationen
+ *   abgeglichen (`syncAclChecks`): ein neuer Ressourcentyp braucht keine eigene Migration und bricht keine Prüfsumme.
+ * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat (Assets bis 049), trägt die
+ *   IAM-Migrationen bis IAM_BASELINE als angewendet ein, ohne sie auszuführen – nur wenn ihre Vorbedingungen erfüllt
+ *   sind (in derselben Transaktion), sonst bricht der Runner ab und trägt nichts ein. Die IAM-Migrationen laufen dann
+ *   direkt nach der Marke der App (`after`), spätere Migrationen der App danach; so dürfen auch diese spätere
+ *   IAM-Migrationen voraussetzen.
+ */
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import pg from 'pg';
+import { productIdent } from './config.ts';
+import { LOCKS } from './locks.ts';
+
+export interface Migration { name: string; sql: string; checksum: string }
+
+/** Übernahme bestehender Objekte statt Ausführung (siehe oben). */
+export interface Adoption {
+  /** Letzte übernommene Migration der Quelle (einschliesslich). */
+  upTo: string;
+  /** Marke in einer anderen Quelle: Diese Quelle läuft direkt nach ihr. */
+  after: string;
+  /** Befunde, warum nicht übernommen werden darf (leer = erfüllt); läuft als Besitzer-Rolle vor dem Eintragen. */
+  check(client: pg.ClientBase): Promise<string[]>;
+}
+
+export interface MigrationSource {
+  /** Name für Meldungen, z. B. `iam` oder der Ordner der App. */
+  name: string;
+  migrations: Migration[];
+  adopt?: Adoption;
+  /** Rolle, als die der Runner laufen muss (Besitzerin aller Objekte). */
+  owner?: string;
+  /** Abgleich nach den Migrationen der Quelle (in einer Transaktion); liefert Meldungen. */
+  sync?(client: pg.ClientBase): Promise<string[]>;
+}
+
+export interface MigrationResult { applied: string[]; adopted: string[]; skipped: number }
+
+/** Zeilenenden normalisieren (gleiche Prüfsumme unter Windows und Linux) und Prüfsumme bilden. */
+export function migration(name: string, sql: string): Migration {
+  const text = sql.replace(/\r\n/g, '\n');
+  return { name, sql: text, checksum: createHash('sha256').update(text).digest('hex') };
+}
+
+/** Migrationen `NNN_*.sql` eines Ordners (die der App), sortiert. */
+export function dirMigrations(dir: string): MigrationSource {
+  const files = readdirSync(dir).filter(f => /^\d{3}_[\w-]+\.sql$/.test(f)).sort();
+  return { name: dir, migrations: files.map(f => migration(f, readFileSync(join(dir, f), 'utf8'))) };
+}
+
+const IDENT = /^[a-z][a-z0-9_]{0,62}$/;
+const TYPE = /^[a-z][a-z0-9-]{0,62}$/;
+
+export interface IamMigrationOptions {
+  /**
+   * Technischer Name des Produkts (wie in der Konfiguration, z. B. `my-app`); ergibt mit «_» statt «-» die
+   * Datenbankrollen `<ident>_owner`, `<ident>_app`, `<ident>_sched` und das Standardschema (`productIdent`).
+   */
+  product: string;
+  /** Schema der Tabellen (Standard: `productIdent(product)`). */
+  schema?: string;
+  /** Ressourcentypen der Zugriffsregeln (mit `tenant`, Reihenfolge wie im Katalog); Standard nur `tenant`. */
+  resourceTypes?: readonly string[];
+  /** Blätter der Kette: dort nie `grant` (Kap. 7.1; Assets: `object`). */
+  leafTypes?: readonly string[];
+  /**
+   * Objekte bestehen schon aus Migrationen der App (Assets: bis `049_tenant_roles.sql`): IAM-Migrationen bis
+   * `IAM_BASELINE` nur eintragen, wenn `after` angewendet ist und die Objekte geschützt vorhanden sind.
+   */
+  adopted?: { after: string };
+}
+
+/** Letzte IAM-Migration, die dem Stand von Assets nach Migration 049 entspricht (Übernahme). */
+export const IAM_BASELINE = 'iam_008_entra.sql';
+
+/** Ordner der SQL-Vorlagen (im Paket neben `src` bzw. `dist`). */
+export const IAM_MIGRATIONS_DIR = join(import.meta.dirname, '..', 'migrations');
+
+/** Platzhalter `{{name}}` einsetzen; unbekannte Platzhalter sind ein Fehler. */
+export function render(sql: string, vars: Record<string, string>): string {
+  return sql.replace(/\{\{(\w+)\}\}/g, (_, k: string) => {
+    if (!Object.hasOwn(vars, k)) throw new Error(`Unbekannter Platzhalter {{${k}}}`);
+    return vars[k]!;
+  });
+}
+
+/** Geprüfte Ressourcentypen und Blätter. */
+function aclTypes(o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): { types: string[]; leaves: string[] } {
+  const types = [...(o.resourceTypes ?? ['tenant'])];
+  const leaves = [...(o.leafTypes ?? [])];
+  if (!types.includes('tenant')) throw new Error('resourceTypes: «tenant» fehlt (Wurzel der Kette)');
+  for (const t of [...types, ...leaves]) if (!TYPE.test(t)) throw new Error(`Ressourcentyp «${t}» ungültig`);
+  for (const t of leaves) if (!types.includes(t) || t === 'tenant') throw new Error(`leafTypes: «${t}» ist kein Ressourcentyp unter dem Mandanten`);
+  if (new Set(types).size !== types.length) throw new Error('resourceTypes: doppelte Einträge');
+  return { types, leaves };
+}
+
+/** Die SQL-Migrationen des IAM mit eingesetzten Parametern, dazu Abgleich der Ressourcentypen und ggf. Übernahme. */
+export function iamMigrations(o: IamMigrationOptions): MigrationSource {
+  const ident = productIdent(o.product);
+  const schema = o.schema ?? ident;
+  if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
+  const acl = aclTypes(o);
+  const roles = { owner: `${ident}_owner`, app: `${ident}_app`, sched: `${ident}_sched` };
+  const files = readdirSync(IAM_MIGRATIONS_DIR).filter(f => /^iam_\d{3}_[\w-]+\.sql$/.test(f)).sort();
+  const migrations = files.map(f => migration(f, render(readFileSync(join(IAM_MIGRATIONS_DIR, f), 'utf8'), { schema, ...roles })));
+  return {
+    name: 'iam', migrations, owner: roles.owner,
+    sync: c => syncAclChecks(c, schema, { resourceTypes: acl.types, leafTypes: acl.leaves }),
+    ...(o.adopted ? { adopt: { upTo: IAM_BASELINE, after: o.adopted.after, check: c => adoptionProblems(c, { schema, app: roles.app, after: o.adopted!.after }) } } : {}),
+  };
+}
+
+const lit = (v: string) => `'${v}'`;
+const arr = (v: string[]) => `ARRAY[${v.map(x => `'${x}'::text`).join(', ')}]`;
+
+/** Bedingungen von `acl_entry` zu Ressourcentypen und Blättern: SQL zum Anlegen und die Form, die PostgreSQL ausgibt. */
+export function aclChecks(o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): Record<string, { sql: string; def: string } | null> {
+  const { types, leaves } = aclTypes(o);
+  return {
+    // IN mit einem Wert gibt PostgreSQL als Vergleich aus
+    acl_entry_resource_type_check: { sql: `CHECK (resource_type IN (${types.map(lit).join(', ')}))`, def: types.length === 1 ? `CHECK ((resource_type = ${lit(types[0]!)}::text))` : `CHECK ((resource_type = ANY (${arr(types)})))` },
+    // Freigaben nie auf Blättern; mit genau einem Blatt in derselben Form wie Assets 048
+    acl_entry_grant_resource_check: !leaves.length ? null : leaves.length === 1
+      ? { sql: `CHECK (effect <> 'grant' OR resource_type <> ${lit(leaves[0]!)})`, def: `CHECK (((effect <> 'grant'::text) OR (resource_type <> ${lit(leaves[0]!)}::text)))` }
+      : { sql: `CHECK (effect <> 'grant' OR resource_type NOT IN (${leaves.map(lit).join(', ')}))`, def: `CHECK (((effect <> 'grant'::text) OR (resource_type <> ALL (${arr(leaves)}))))` },
+  };
+}
+
+/**
+ * Gleicht die Bedingungen von `acl_entry` mit Ressourcentypen und Blättern des Katalogs ab (nach den IAM-Migrationen,
+ * bei jedem Lauf). Unverändert → nichts. Bestehende Zugriffsregeln, die der neuen Bedingung widersprechen (Typ entfernt,
+ * Freigabe auf neuem Blatt), brechen mit Meldung ab; dann zuerst diese Einträge bereinigen.
+ */
+export async function syncAclChecks(c: pg.ClientBase, schema: string, o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): Promise<string[]> {
+  if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
+  const want = aclChecks(o);
+  if (!(await c.query('SELECT to_regclass($1) AS t', [`${schema}.acl_entry`])).rows[0].t) return [];
+  const have = new Map((await c.query<{ n: string; d: string }>(
+    `SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = '${schema}.acl_entry'::regclass AND conname = ANY ($1)`,
+    [Object.keys(want)])).rows.map(r => [r.n, r.d]));
+  const out: string[] = [];
+  for (const [name, w] of Object.entries(want)) {
+    if ((have.get(name) ?? null) === (w?.def ?? null)) continue;
+    try {
+      await c.query('SAVEPOINT acl_check');
+      await c.query(`ALTER TABLE ${schema}.acl_entry DROP CONSTRAINT IF EXISTS ${name}`);
+      if (w) await c.query(`ALTER TABLE ${schema}.acl_entry ADD CONSTRAINT ${name} ${w.sql}`);
+      await c.query('RELEASE SAVEPOINT acl_check');
+    } catch (e) {
+      await c.query('ROLLBACK TO SAVEPOINT acl_check');
+      throw new Error(`Bedingung ${name} lässt sich nicht an den Katalog anpassen (${(e as Error).message}): bestehende Zugriffsregeln mit entfernten Ressourcentypen oder Freigaben auf Blättern zuerst löschen.`);
+    }
+    out.push(`Bedingung ${name} ${w ? 'an den Katalog angepasst' : 'entfernt (keine Blätter)'}`);
+  }
+  return out;
+}
+
+/** Tabellen und Funktionen, die die Übernahme voraussetzt (Stand Assets 049). */
+const BASELINE_TABLES = ['tenant', 'principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'session', 'replay_guard', 'rate_limit', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent'];
+/** Mandantentabellen darunter: RLS mit FORCE und Policy tenant_isolation. */
+const BASELINE_TENANT_TABLES = ['principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent'];
+const BASELINE_COLUMNS: [string, string][] = [['principal', 'last_roles'], ['principal', 'removed_at'], ['member_invitation', 'id'], ['member_invitation', 'entra'], ['audit_log', 'seq'], ['session', 'idp_sid'], ['tenant_role', 'deleted_at']];
+const BASELINE_FUNCTIONS = ['tenant_id', 'principal_id', 'secure_tenant_tables', 'resolve_tenant', 'bump_acl_version', 'audit_hash', 'audit_chain', 'suspended_tenants', 'platform_tenants', 'set_tenant_status', 'entra_login_alias', 'entra_free_slot', 'entra_domains_taken'];
+const BASELINE_DEFINER = ['resolve_tenant', 'bump_acl_version', 'suspended_tenants', 'platform_tenants', 'set_tenant_status', 'entra_login_alias', 'entra_free_slot', 'entra_domains_taken'];
+const TENANT_EXPR = '(tenant_id = app.tenant_id())';
+const SELF_EXPR = '(id = app.tenant_id())';
+
+/**
+ * Vorbedingungen der Übernahme: Marke `after` angewendet; Tabellen, Spalten und Funktionen vorhanden und geschützt
+ * (RLS mit FORCE und tenant_isolation je Mandantentabelle, tenant_self, kein Recht für PUBLIC, SECURITY DEFINER mit
+ * festem search_path). Die Bedingungen zu Ressourcentypen gleicht danach `syncAclChecks` ab.
+ */
+export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; app: string; after: string }): Promise<string[]> {
+  const { schema, app } = o;
+  const out: string[] = [];
+  if (!(await c.query('SELECT 1 FROM public.schema_migrations WHERE name = $1', [o.after])).rowCount) out.push(`Migration ${o.after} ist nicht angewendet`);
+  const tables = new Map((await c.query<{ t: string; rls: boolean; force: boolean; pub: boolean }>(
+    `SELECT c.relname AS t, c.relrowsecurity AS rls, c.relforcerowsecurity AS force,
+            EXISTS (SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) x WHERE x.grantee = 0) AS pub
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind = 'r'`, [schema])).rows.map(r => [r.t, r]));
+  for (const t of BASELINE_TABLES) {
+    const r = tables.get(t);
+    if (!r) { out.push(`Tabelle ${schema}.${t} fehlt`); continue; }
+    if (r.pub) out.push(`Tabelle ${schema}.${t}: PUBLIC hat Rechte`);
+  }
+  const policies = new Map((await c.query<{ k: string; roles: string[]; cmd: string; q: string | null; w: string | null }>(
+    "SELECT tablename || '.' || policyname AS k, roles::text[] AS roles, cmd, qual AS q, with_check AS w FROM pg_policies WHERE schemaname = $1", [schema])).rows.map(r => [r.k, r]));
+  const policyOk = (k: string, expr: string) => {
+    const p = policies.get(k);
+    return !!p && p.cmd === 'ALL' && p.roles.length === 1 && p.roles[0] === app && p.q === expr && p.w === expr;
+  };
+  for (const t of BASELINE_TENANT_TABLES) {
+    const r = tables.get(t);
+    if (!r) continue;
+    if (!r.rls || !r.force) out.push(`Tabelle ${schema}.${t}: RLS mit FORCE fehlt`);
+    if (!policyOk(`${t}.tenant_isolation`, TENANT_EXPR)) out.push(`Tabelle ${schema}.${t}: Policy tenant_isolation für ${app} mit app.tenant_id() fehlt`);
+  }
+  if (tables.get('tenant') && (!tables.get('tenant')!.rls || !policyOk('tenant.tenant_self', SELF_EXPR))) out.push(`Tabelle ${schema}.tenant: RLS mit Policy tenant_self fehlt`);
+  const cols = new Set((await c.query<{ k: string }>("SELECT table_name || '.' || column_name AS k FROM information_schema.columns WHERE table_schema = $1", [schema])).rows.map(r => r.k));
+  for (const [t, col] of BASELINE_COLUMNS) if (tables.has(t) && !cols.has(`${t}.${col}`)) out.push(`Spalte ${schema}.${t}.${col} fehlt`);
+  const fns = new Map((await c.query<{ f: string; secdef: boolean; config: string[] | null }>(
+    "SELECT p.proname AS f, p.prosecdef AS secdef, p.proconfig AS config FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app'")).rows.map(r => [r.f, r]));
+  for (const f of BASELINE_FUNCTIONS) if (!fns.has(f)) out.push(`Funktion app.${f} fehlt`);
+  for (const f of BASELINE_DEFINER) {
+    const r = fns.get(f);
+    if (r && !(r.secdef && (r.config ?? []).includes(`search_path=${schema}, pg_temp`))) out.push(`Funktion app.${f}: SECURITY DEFINER mit search_path=${schema}, pg_temp fehlt`);
+  }
+  return out;
+}
+
+/** Reihenfolge der Ausführung: Quellen wie gegeben, eine übernommene Quelle direkt nach ihrer Marke. */
+function plan(sources: MigrationSource[]): MigrationSource[] {
+  const order: { s: MigrationSource; from: number; to: number }[] = [];
+  const deferred = sources.filter(s => s.adopt);
+  for (const s of sources.filter(x => !x.adopt)) {
+    const cut = deferred.map(d => ({ d, i: s.migrations.findIndex(m => m.name === d.adopt!.after) })).filter(x => x.i >= 0).sort((a, b) => a.i - b.i);
+    let from = 0;
+    for (const { d, i } of cut) { order.push({ s, from, to: i + 1 }, { s: d, from: 0, to: d.migrations.length }); from = i + 1; }
+    order.push({ s, from, to: s.migrations.length });
+  }
+  // Übernommene Quelle ohne Marke in einer anderen Quelle (bestehende Datenbank, Marke nur in schema_migrations): am Ende
+  for (const d of deferred) if (!order.some(o => o.s === d)) order.push({ s: d, from: 0, to: d.migrations.length });
+  return order.filter(o => o.to > o.from || o.s.adopt || o.s.sync).map(o => ({ ...o.s, migrations: o.s.migrations.slice(o.from, o.to) }));
+}
+
+/**
+ * Führt die Migrationen aller Quellen aus (als Besitzer-Rolle, `adminUrl`).
+ * @param log Meldung je ausgeführter oder übernommener Migration und je Abgleich
+ */
+export async function migrate(adminUrl: string, sources: MigrationSource[], log: (m: string) => void = () => undefined): Promise<MigrationResult> {
+  const names = new Map<string, string>();
+  for (const s of sources) for (const m of s.migrations) {
+    if (names.has(m.name)) throw new Error(`Migration ${m.name} kommt in ${names.get(m.name)} und ${s.name} vor`);
+    names.set(m.name, s.name);
+  }
+  for (const s of sources) if (s.adopt && !s.migrations.some(m => m.name === s.adopt!.upTo)) throw new Error(`Übernahme bis ${s.adopt.upTo}: Migration fehlt in ${s.name}`);
+  const client = new pg.Client({ connectionString: adminUrl, application_name: 'iam-migrate' });
+  await client.connect();
+  try {
+    // Alle Objekte gehören der Besitzer-Rolle (Rechte, Standardrechte, Policies für die Besitzer-Rolle)
+    const user = (await client.query<{ u: string }>('SELECT current_user AS u')).rows[0]!.u;
+    for (const s of sources) if (s.owner && s.owner !== user) throw new Error(`Migrationen von ${s.name} laufen als ${s.owner}, nicht als ${user}`);
+    await client.query('SELECT pg_advisory_lock($1)', [LOCKS.migrate]);
+    await client.query('CREATE TABLE IF NOT EXISTS public.schema_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
+    const done = new Map((await client.query<{ name: string; checksum: string }>('SELECT name, checksum FROM public.schema_migrations')).rows.map(r => [r.name, r.checksum]));
+    const applied: string[] = [], adopted: string[] = [];
+    let total = 0;
+    for (const s of sources) total += s.migrations.length;
+    for (const s of plan(sources)) {
+      for (const m of s.migrations) {
+        if (done.has(m.name) && done.get(m.name) !== m.checksum) throw new Error(`Migration ${m.name} wurde nach dem Ausführen geändert (Prüfsumme). Änderungen gehören in eine neue Migration.`);
+      }
+      // Übernahme: Vorbedingungen und Einträge in einer Transaktion
+      const upTo = s.adopt ? s.migrations.findIndex(m => m.name === s.adopt!.upTo) : -1;
+      const toAdopt = s.migrations.slice(0, upTo + 1).filter(m => !done.has(m.name));
+      if (s.adopt && toAdopt.length) {
+        await client.query('BEGIN');
+        try {
+          const problems = await s.adopt.check(client);
+          if (problems.length) throw new Error(`Übernahme der Migrationen von ${s.name} nicht möglich:\n  - ${problems.join('\n  - ')}`);
+          for (const m of toAdopt) await client.query('INSERT INTO public.schema_migrations (name, checksum) VALUES ($1, $2)', [m.name, m.checksum]);
+          await client.query('COMMIT');
+        } catch (e) { await client.query('ROLLBACK'); throw e; }
+        for (const m of toAdopt) { done.set(m.name, m.checksum); adopted.push(m.name); log(`Migration ${m.name} übernommen (Objekte bestehen)`); }
+      }
+      for (const m of s.migrations) {
+        if (done.has(m.name)) continue;
+        await client.query('BEGIN');
+        try {
+          await client.query(m.sql);
+          await client.query('SELECT app.secure_tenant_tables()');
+          await client.query('INSERT INTO public.schema_migrations (name, checksum) VALUES ($1, $2)', [m.name, m.checksum]);
+          await client.query('COMMIT');
+          done.set(m.name, m.checksum); applied.push(m.name); log(`Migration ${m.name} ausgeführt`);
+        } catch (e) {
+          await client.query('ROLLBACK');
+          throw new Error(`Migration ${m.name} fehlgeschlagen: ${(e as Error).message}`);
+        }
+      }
+      if (s.sync) {
+        await client.query('BEGIN');
+        try { for (const line of await s.sync(client)) log(line); await client.query('COMMIT'); } catch (e) { await client.query('ROLLBACK'); throw e; }
+      }
+    }
+    return { applied, adopted, skipped: total - applied.length - adopted.length };
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1)', [LOCKS.migrate]).catch(() => undefined);
+    await client.end();
+  }
+}

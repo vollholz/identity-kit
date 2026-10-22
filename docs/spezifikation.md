@@ -583,8 +583,9 @@ Referenz: assets `db/bootstrap.sql`, `db/migrations/001_core.sql`, `016_org_admi
 | `<produkt>_runtime` | Login ∈ `_app` | API (und MCP) |
 | `<produkt>_worker` | Login ∈ `_app`, `_sched` | Worker |
 
-`REVOKE ALL ON DATABASE … FROM PUBLIC`, Schemas `app` (Funktionen) und `<produkt>` (Tabellen) ohne PUBLIC, kein
-PUBLIC-EXECUTE auf Funktionen.
+`REVOKE ALL ON DATABASE … FROM PUBLIC`, Schemas `app` (Funktionen) und `<produkt>` (Tabellen) ohne USAGE für PUBLIC,
+keine SECURITY-DEFINER-Funktion für PUBLIC; neue Funktionen ohne EXECUTE für PUBLIC (`ALTER DEFAULT PRIVILEGES`).
+Geprüft mit `publicSchemaProblems`, `publicExecuteProblems` und `securityDefinerProblems` des Test-Kits.
 
 ### 10.2 Tabellen des IAM
 

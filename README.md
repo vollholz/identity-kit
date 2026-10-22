@@ -22,12 +22,20 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 | `modules/product-realm-bootstrap` | OpenTofu-Modul: Anlage von Realm und `<produkt>-iac` mit `<produkt>-tofu` | Kap. 2 |
 | `packages/iam` | `@vollholz/iam` – Backend (Node 24, TypeScript, Fastify): Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP-Austausch, SQL-Migrationen | Kap. 4–10, 12 |
 | `packages/iam-web` | `@vollholz/iam-web` – Frontend (React): Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten | Kap. 11 |
-| `packages/iam-testkit` | `@vollholz/iam-testkit` – Keycloak-Nachbildung, Isolations-Durchlauf, RLS- und Katalogprüfung, Konformitätstests | Kap. 14 |
+| `packages/iam-testkit` | `@vollholz/iam-testkit` – Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, Isolations-Durchlauf, RLS- und Katalogprüfung; später Konformitätstests | Kap. 14 |
 | `templates/create-iam-app` | Gerüst für eine neue App | Kap. 15.3 |
 
 ## Stand
 
-Gerüst, noch ohne Code. Reihenfolge (Spezifikation Kap. 15.4): Vertrag festschreiben → Test-Kit (gegen Assets grün) →
+| Teil | Stand |
+|---|---|
+| `packages/iam-testkit` | **0.1.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Assets läuft lokal geprüft darauf (757/757 Tests) |
+| übrige Pakete, Module, Vorlage | leer |
+
+Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
+übersprungen). Veröffentlichen: Tag `vX.Y.Z` (Workflow «Release», GitHub Packages).
+
+Reihenfolge (Spezifikation Kap. 15.4): Vertrag festschreiben → Test-Kit (gegen Assets grün) →
 Backend-Paket → Realm-Modul → Frontend-Paket → Vorlage → erste neue App. Nach jedem Schritt läuft Assets auf dem
 Baukasten, und alle Tests von Assets bleiben grün.
 

@@ -91,7 +91,7 @@ Backend, für Personen, Service-Clients, M2M, API und MCP.
 | Anmeldung über den IdP der Organisation (Microsoft Entra ID, KANN) | ob angeboten; Registrierung der App bei Microsoft |
 | Datenbank: Rollen, IAM-Tabellen, RLS-Mechanik, Kontext je Transaktion | Fachtabellen (erhalten RLS automatisch) |
 | Oberflächen-Bausteine (Sitzung, Rechte-Hinweise, Rechte-Übersicht, Rollenmatrix, Verwalten-Seiten) | **Design**: Design-Tokens (Farben, Schrift, Abstände), Komponenten-Hülle; Theme-Werte der Anmeldeseiten ([3.2](#32-theme-und-texte)) |
-| Texte des Baukastens (de/en, Du-Form) | **Texte** der App, Labels und Beschreibungen des Katalogs, Übersetzungen weiterer Sprachen |
+| Texte des Baukastens (de/en, Du-Form): Oberfläche `iam.*`, Anmeldeseiten, Konto und Einladung (`standard_texts` des Realm-Moduls) | **Texte** der App, Labels und Beschreibungen des Katalogs, Theme-Texte der Anmeldeseiten, Übersetzungen weiterer Sprachen |
 | Tests: Isolation über alle Routen, RLS, Multi-Org, BFF, Verwaltung, Katalogregeln | Fachtests; Eintrag der Fachrouten in den Isolationstest (automatisch über die Routenliste) |
 
 ## 2. Anbindung an die Identity-Plattform
@@ -106,7 +106,7 @@ assets `infra/keycloak/bootstrap`, `docs/produktion.md` › Keycloak-Anbindung.
 | 3 | Produkt | Schlüsselpaar für `<produkt>-iac` erzeugen, `infra/keycloak/keys/<produkt>-iac.json` | öffentlicher Schlüssel versioniert; privater in `.env` (`KEYCLOAK_IAC_PRIVATE_KEY_B64`) und GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY` |
 | 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
 | 5 | identity | `grant_realm_admin = true`, Workflow «Keycloak» | identity-iac weist `<produkt>-iac` `realm-management/realm-admin` zu (mit FGAP v2 darf das nur ein Server-Admin) |
-| 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
+| 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
 | 7 | Produkt | `scripts/org-bootstrap.ts --alias <alias> --name … --email … --roles org-admin --platform-admin` | erste Organisation, Rollengruppen, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen») |
 
 Regeln:
@@ -123,6 +123,12 @@ Regeln:
   Anmeldung des Providers kommt nur aus der Umgebung (`kc.sh`), nie aus dem gespeicherten Plan.
 - Variable `realm` mit Validierung: nicht `master` und nicht der Realm eines anderen Produkts.
 - Das Produkt braucht **keinen** Deploy in vollholz/identity (auch nicht für das Theme, [3.2](#32-theme-und-texte)).
+
+**Umstellung einer bestehenden App auf das Modul** (z. B. Assets): Der Aufruf mit `moved`-Blöcken ergibt im ersten
+Plan **nur Verschiebungen** (`Plan: 0 to add, 0 to change, 0 to destroy`, Exit 2) – das ist kein «No changes». Der
+Apply nach Freigabe schreibt nur den State; erst der Kontrollplan danach zeigt «No changes». Freigegeben wird nur ein
+Plan, der ausschliesslich Verschiebungen enthält (Anzahl = Ressourcen im State, keine Zeile `will be …`/`must be …`,
+keine Änderung an Outputs). Der `import`-Block für den Realm bleibt beim Aufrufer (in Modulen nicht erlaubt).
 
 ## 3. Realm des Produkts
 
@@ -437,6 +443,9 @@ Zuordnung. Die Namen stammen aus Assets, damit Assets unverändert bleibt.
 Ausserdem reserviert: der Präfix `c-` für Schlüssel eigener Rollen ([8.3](#83-eigene-rollen-der-organisation)); keine
 Rolle des Katalogs beginnt damit.
 
+Label und Gruppe der reservierten Namen sind fest; die **Beschreibung** darf die App an ihren Fachbereich anpassen
+(z. B. was «Organisation verwalten» umfasst). Reihenfolge: `org-admin` steht als erste Rolle im Katalog.
+
 Ein Test prüft: jede reservierte Rolle und jedes reservierte Recht, das die App nutzt, hat Schlüssel, Label und Gruppe
 wie oben; `org-admin` enthält alle Rechte; `members:admin` steht in keinem Scope; eigene Schlüssel der App folgen
 [8.2](#82-regeln-für-den-katalog) und kollidieren nicht mit reservierten.
@@ -452,7 +461,10 @@ wie oben; `org-admin` enthält alle Rechte; `members:admin` steht in keinem Scop
   (Test).
 - Rollen werden als Client-Rollen von `<produkt>-platform` und als Gruppen `/orgs/<alias>/<rolle>` angelegt; ihre
   Schlüssel enthalten deshalb nie `/`.
-- Scopes nur für Maschinen-Clients und MCP; Rechte, die Personen vorbehalten sind (`members:admin`, In-App-Assistent
+- Rollenbeschreibungen nennen alle Rechtegruppen der Rolle; geprüft über Stichwörter je Gruppe (`groups[].match`, ein
+  regulärer Ausdruck), nicht über das Label.
+- Rechte mit `scope: false` sind Personen vorbehalten und stehen in keinem Scope (geprüft). Scopes nur für
+  Maschinen-Clients und MCP; Rechte, die Personen vorbehalten sind (`members:admin`, In-App-Assistent
   u. Ä.) oder Tokens an fremde Hosts schicken, in keinem Scope.
 - SOLL: Rollenset minimal; Rechte, die zusammen gebraucht werden, in denselben Rollen (Assets E4). Als Vorlage für den
   Schnitt dient der Katalog von Assets (`src/platform/authz/permissions.ts`: 32 Rechte, 7 Rollen, 15 Scopes).
@@ -530,6 +542,7 @@ Organisationen und Mitgliedern, `docs/mandantentrennung.md` › Verwaltung.
 | `POST /v1/roles`, `PATCH /v1/roles/{key}`, `DELETE /v1/roles/{key}` | `members:admin`, nur Personen |
 | `GET/POST/PUT/DELETE /v1/admin/entra…` ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) | `members:admin` |
 | `GET /v1/admin/clients`, `PUT/DELETE /v1/admin/clients/{clientId}` (Freigabe von Maschinen-Clients, ohne Verwaltungs-Client nutzbar) | `members:admin` |
+| `GET /v1/people` (Suche `q`, `ids` bis 100 je Aufruf), `GET /v1/people/{id}`: Personenverzeichnis der Organisation (Mitglieder ohne `removed_at`, für Auswahlen und Zugriffsregeln) | Recht irgendwo (`canSomewhere`) eines lesenden Fachrechts bzw. `acl:read`; Vertrag für die Oberflächen-Bausteine |
 | `GET/POST /v1/platform/organizations`, `GET/PATCH /v1/platform/organizations/{alias}`, `POST …/{alias}/suspend`, `POST …/{alias}/resume` (Body optional `reason`) | `platform-admin` |
 | `…/v1/platform/organizations/{alias}/members…`, `…/{alias}/clients…` (wie oben) | `platform-admin` |
 
@@ -594,7 +607,7 @@ Geprüft mit `publicSchemaProblems`, `publicExecuteProblems` und `securityDefine
 | `tenant` | `id`, `kc_org_id` UNIQUE, `alias` UNIQUE CHECK Muster, `name`, `status`, `acl_version`, `settings`, `created_at` | RLS ohne FORCE (Besitzer-Funktionen), Richtlinie `tenant_self` (nur eigener Mandant) |
 | `principal` | `tenant_id`, `id`, `kind`, `subject`, `display_name`, `email`, `client_id`, `last_seen_at` (leer = nie angemeldet), `removed_at`, `last_roles`, `last_scopes`; PK `(tenant_id, id)`, UNIQUE `(tenant_id, kind, subject)` | FORCE RLS |
 | `acl_entry` | `tenant_id`, `id`, `resource_type`, `resource_id` (leer genau bei `tenant`), `principal_type`, `principal_ref`, `permission`, `effect` (`grant` \| `restrict` \| `deny`; `grant` nicht auf dem Blatt), `created_at`, `created_by` | FORCE RLS; Trigger erhöht `acl_version` |
-| `tenant_role` | `tenant_id`, `id`, `key` (`^c-[a-z0-9][a-z0-9-]{0,40}$`, UNIQUE je Mandant), `label`, `description`, `permissions` (1–100), `version`, `created_*`, `updated_*`, `deleted_at` (Grabstein); Name eindeutig unter aktiven | FORCE RLS; Trigger erhöht `acl_version` |
+| `tenant_role` | `tenant_id`, `id` (PK `(tenant_id, id)`), `key` (`^c-[a-z0-9][a-z0-9-]{0,40}$`, UNIQUE je Mandant), `label`, `description`, `permissions` (1–100), `version`, `created_*`, `updated_*`, `deleted_at` (Grabstein); Name eindeutig unter aktiven | FORCE RLS; Trigger erhöht `acl_version` |
 | `entra_connection` u. a. (KANN) | Verbindung je Organisation, Zustand, Domänen, `state` als Hash | FORCE RLS |
 | `member_invitation` | `tenant_id`, `id` (eigene ID), `user_id` (Keycloak), `email`, `display_name`, `created_at`, `created_by_name`, `accepted_at`, `created_account`; UNIQUE offene Einladung je E-Mail | FORCE RLS |
 | `client_grant` | `tenant_id`, `client_id` (Muster), `description`, `created_at`, `created_by_name`; PK `(tenant_id, client_id)` | FORCE RLS |
@@ -653,7 +666,7 @@ MenuButton,org}.tsx`, `web/src/features/{admin,acl}/*`, `docs/oberflaeche.md`, K
 | Mitglieder | `members:admin` | Liste mit Status, Rollen, zuletzt aktiv; einladen, Rollen setzen (Dialog mit Rollenmatrix), über «⋯» entfernen, Einladung erneut senden oder zurückziehen |
 | Maschinen-Clients | `members:admin` | Freigaben mit Rollen und Scopes aus dem letzten Token, freigeben, entziehen |
 | Zugriff (falls genutzt) | `acl:read` / `acl:admin` | Zugriffsregeln gruppiert nach Ressource, Filter in der URL, Dialog nur mit passenden Rechten, Personen- und Client-Auswahl, Vorschau der Folgen, «wirkungslos», Simulation; Hinweis «Zugriff eingeschränkt (n)» an den Ressourcen |
-| Rollen | lesen `tenant:read`, ändern `members:admin` | vordefinierte (nur lesbar) und eigene Rollen; anlegen, bearbeiten, löschen mit Rechte-Auswahl nach Gruppen, Zahl der Personen |
+| Rollen | Seite und Navigation `members:admin`; die API liest mit `tenant:read` | vordefinierte (nur lesbar) und eigene Rollen; anlegen, bearbeiten, löschen mit Rechte-Auswahl nach Gruppen, Zahl der Personen |
 | Anmeldung (KANN) | `members:admin` | Entra ID verbinden, Testanmeldung, Vorschau, «Nur Entra», Domänen, trennen |
 | Organisationen | `platform-admin` | anlegen, umbenennen, Domänen, sperren/entsperren, Mitglieder, Clients und Anmeldung der Organisation |
 
@@ -744,6 +757,12 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `SESSION_TTL`, `SESSION_IDLE_TIMEOUT` | `8h`, `60m` | |
 | `ENCRYPTION_KEYS` (geheim) | — | `id:base64(32 Bytes)`, kommagetrennt, erster verschlüsselt; Pflicht in Produktion |
 | `SHARED_STATE` | — | `postgres` bei mehreren Instanzen (Replay-Schutz, Ratenbegrenzung) |
+| `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` (geheim) | — | Laufzeit, Besitzer (Migrationen), Worker ([10.1](#101-rollen)) |
+| `MCP_CLIENT_ID`, `MCP_PRIVATE_KEY` (geheim), `MCP_HOST_CLIENT_IDS`, `OIDC_MCP_AUDIENCE` | `<produkt>-mcp`, —, —, `<produkt>-mcp` | MCP-Dienst ([12.2](#122-mcp-dienst-kann)) |
+| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS` | —, —, `100` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) |
+
+Zu jedem `…_PRIVATE_KEY` gibt es übergangsweise `…_CLIENT_SECRET`; dann warnt der Dienst beim Start (P3). Alle
+Geheimnisse auch als `…_FILE`.
 
 **Geheimnisse je Dienst** (jeder Dienst erhält nur seine, und nur er verlangt sie):
 
@@ -806,10 +825,10 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Teil | Inhalt | Kapitel |
 |---|---|---|
 | **Vertrag** (sprachneutral) | Claims, Header (`X-Tenant`, `X-CSRF-Token`, `DPoP`), Endpunkte `/auth/*`, `/v1/authz/catalog`, `/v1/acl…`, `/v1/admin/*`, `/v1/platform/*`, Fehlerformat (RFC 9457) und Texte, JSON-Schema des Katalogs, Datenbankschema des IAM | 4–11 |
-| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`), `theme_texts`, `smtp`, Schalter `person_api`, `mcp`, `m2m`, `system_clients`; dazu das Bootstrap-Modul `product-realm-bootstrap` und `kc.sh` | 2, 3 |
+| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`), `theme_texts`, `smtp`, Schalter `mcp`, `m2m`, `entra` (später `person_api`, `system_clients`, B4), `standard_texts` des Baukastens; dazu das Bootstrap-Modul `product-realm-bootstrap`. `kc.sh` und der `import`-Block gehören in die Vorlage | 2, 3 |
 | **Backend-Paket** `@vollholz/iam` (Node 24, TypeScript, Fastify-Adapter) | Konfiguration, Token-Prüfung, Principal, BFF, Entscheidung mit App-Katalog, Zugriffsregeln, Verwaltung, Abgleich (Worker-Job), Freigaben, MCP-Token-Austausch, Audit-Schnittstelle, SQL-Migrationen des IAM | 5–7, 9, 10, 12 |
 | **Frontend-Paket** `@vollholz/iam-web` (React) | Sitzung und `/auth/me`, Organisation je Tab, `useAuthz()`, `useResourceCan()`, `MissingRight`, Routen-Guard, Rechte-Übersicht, Rollenmatrix, «Meine Rollen und Rechte», Verwalten › Zugang (Mitglieder, Rollen, Anmeldung, Maschinen-Clients), Zugriff, Organisationen | 11 |
-| **Test-Kit** `@vollholz/iam-testkit` | Keycloak-Nachbildung, Testpersonen, Isolations-Durchlauf über die Routenliste, RLS-Prüfung, Katalogregeln, Konformitätstests des Vertrags (auch für Apps in anderen Sprachen) | 14 |
+| **Test-Kit** `@vollholz/iam-testkit` | Wegwerf-Datenbank, Keycloak-Nachbildung, Testpersonen, Prüfung fremder Clients im Realm, Isolations-Durchlauf über die Routenliste, RLS-Prüfung, Katalogregeln, Konformitätstests des Vertrags (auch für Apps in anderen Sprachen) | 14 |
 | **Vorlage** `create-iam-app` | legt in einer App `infra/keycloak` (Modulaufruf), Katalog-Gerüst, Migration, Konfiguration, Workflow `keycloak.yml`, Doku-Gerüst (Inventar der Mandantentrennung) an | 2, 15.3 |
 
 ### 15.2 Schnittstelle zur App
@@ -858,15 +877,17 @@ export const catalog = defineCatalog({
   resources: { note: { label: 'Notiz', parent: 'tenant' } },  // Kette der Zugriffsregeln
 });
 
-// Auflösung einer Ressource zu ihrer Kette (nur mit Zugriffsregeln)
-export const resolveChain: ChainResolver = async (tx, ref) => …;
+// Ressourcen der Zugriffsregeln: Zustand wird mit der ACL geladen, die Kette danach synchron berechnet
+// (so prüft `can` ganze Listen ohne Abfrage je Zeile)
+export const resources: ResourceModel = { load: async tx => …, chain: (state, ref) => …, version: async tx => … };
 
-// Backend
-await app.register(iam({ catalog, resolveChain, db, audit }));   // /auth/*, /v1/authz/*, /v1/acl*, /v1/admin/*, /v1/platform/*
-app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', id: r.params.id })) }, …);
+// Backend: Kern ohne Fastify (Worker, MCP-Dienst, Tests), dann das Plugin
+const iam = createIam({ catalog, resources, db, audit, config: process.env });
+await app.register(iamPlugin, { iam });   // /auth/*, /v1/authz/*, /v1/acl*, /v1/roles, /v1/people, /v1/admin/*, /v1/platform/*
+app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note', id: r.params.id })) }, …);
 
-// Frontend
-<IamProvider texts={texts} theme={tokens}><App /></IamProvider>
+// Frontend (Aussehen über CSS-Variablen --iam-* aus den Design-Tokens der App)
+<IamProvider texts={texts} features={{ entra: true }}><App /></IamProvider>
 <Route path="/verwalten/mitglieder" element={<Requires perm="members:admin"><MembersPage /></Requires>} />
 ```
 
@@ -874,9 +895,11 @@ app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', i
   die reservierten Namen; `org-admin` erhält automatisch alle Rechte.
 - Design: Die Frontend-Bausteine bringen kein eigenes Aussehen mit, nur Struktur und Verhalten; sie nutzen
   CSS-Variablen (`--iam-accent`, `--iam-surface`, `--iam-text`, `--iam-radius`, …), die die App aus ihren Design-Tokens
-  setzt, und optional eigene Komponenten für Knopf, Dialog, Tabelle, Menü (`components`-Prop).
+  setzt (Vorgaben des Pakets in `@layer iam`, damit die Werte der App immer gewinnen), und optional eigene Komponenten für Knopf, Dialog, Tabelle, Menü (`components`-Prop).
 - Texte: Baukasten-Texte de/en mit Schlüsseln (`iam.*`); die App überschreibt einzelne Schlüssel und liefert weitere
-  Sprachen. Labels des Katalogs kommen aus dem Katalog (je Sprache).
+  Sprachen. Labels des Katalogs kommen aus dem Katalog je Sprache: `GET /v1/authz/catalog` richtet sich nach
+  `Accept-Language` (`Vary: Accept-Language`), die Oberfläche nimmt die Sprache in den Cache-Schlüssel.
+- `/auth/me` liefert `grantedPermissions` immer (leer ohne Freigaben), weil «Recht irgendwo» davon abhängt.
 - Apps in anderen Sprachen (nicht Node): Vertrag und Realm-Modul gelten unverändert; Backend nach Kapitel 5–10 selbst
   umsetzen und mit den Konformitätstests des Test-Kits gegen die laufende App abnehmen. KANN später: BFF und
   Token-Prüfung als eigener Dienst (Sidecar) vor der App.
@@ -922,7 +945,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 
 | # | Prüfpunkt | Kriterium |
 |---|---|---|
-| P1 | Anbindung | `<produkt>-tofu` nur mit `create-realm`, Schlüssel nicht in GitHub; `<produkt>-iac` mit `realm-admin`; zweiter Plan «No changes»; Workflow mit zwei Freigaben |
+| P1 | Anbindung | `<produkt>-tofu` nur mit `create-realm`, Schlüssel nicht in GitHub; `<produkt>-iac` mit `realm-admin`; zweiter Plan «No changes» (Umstellung: erster Plan nur Verschiebungen); Workflow mit zwei Freigaben |
 | P2 | Realm | Einstellungen, Richtlinien, Clients, Mapper, Scopes, Rollen nach Kapitel 3; Login, Konto und E-Mails im Theme `identity` mit Name, Claim und Akzent des Produkts |
 | P3 | Keine Geheimnisse | alle vertraulichen Clients `private_key_jwt`; kein Client-Geheimnis im State; jeder Dienst nur seine Schlüssel |
 | P4 | Anmeldung | Code-Flow mit PKCE, keine Tokens im Browser, CSRF, Fixation, Erneuerung, RP- und Backchannel-Logout, `/abgemeldet` |

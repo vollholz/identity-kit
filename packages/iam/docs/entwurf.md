@@ -308,8 +308,8 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
   Bedingungen zu Ressourcentypen stellt danach der Abgleich her (6.2). Sonst bricht er ab und trägt nichts ein
   (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
-  001–049 liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
-  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008` mit den Parametern von Assets muss für alle
+  001–052 (`63b9cf9`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
+  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010` und `iam_011` (= Assets 051, 052) mit den Parametern von Assets muss für alle
   IAM-Tabellen und -Funktionen genau diesen Abzug ergeben (`schemaSnapshot`, exportiert): Besitzer, Spalten, Typen,
   Standardwerte, Sequenzen, Bedingungen mit Namen,
   Indizes, Policies, Trigger, RLS, Rechte von Tabellen, Spalten, Schemas und Funktionen, Funktionsrümpfe, Standardrechte.
@@ -445,9 +445,6 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 
 ## 12. Offene Punkte
 
-- **Gleichheitstest auf Assets 001–052** umstellen, sobald vollholz/assets#24 (051) und die Migration 052
-  (`resolve_tenant` wie `iam_011`) gemergt sind: Abzug neu erzeugen, Grundlage dann `iam_001`–`iam_008`, `iam_010`,
-  `iam_011`; `iam_009` läuft in Assets normal.
 - **`person_api`, `system_clients`** (B4): nicht Teil von 0.1.0; der Resolver bleibt dafür offen (`OIDC_PERSON_CLIENT_IDS`).
 - **Lesen des Audit-Protokolls** als Modul (A3).
 - **Abhängigkeiten** (exakt, wie Assets): `jose` 6.2.12, `openid-client` 6.8.8, `@sinclair/typebox` 0.34.52;

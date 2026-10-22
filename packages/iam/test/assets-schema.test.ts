@@ -1,7 +1,8 @@
 /**
- * Gleichheitstest (Entwurf Kap. 6.4): `iam_001` bis IAM_BASELINE ergeben mit den Parametern von Assets genau die
- * IAM-Objekte, die Assets aus seinen Migrationen 001–049 hat (Abzug test/fixtures/assets-schema.json, erzeugt mit
- * scripts/assets-schema.ts). Nur dann darf Assets die Migrationen übernehmen (`adopted`), ohne sie auszuführen.
+ * Gleichheitstest (Entwurf Kap. 6.4): Die IAM-Migrationen ergeben mit den Parametern von Assets genau die IAM-Objekte,
+ * die Assets aus seinen Migrationen 001–052 hat (Abzug test/fixtures/assets-schema.json, erzeugt mit
+ * scripts/assets-schema.ts). Entsprechungen: iam_001 … IAM_BASELINE = Assets 001–049 (übernommen, `adopted`),
+ * iam_010 = Assets 051, iam_011 = Assets 052. iam_009 gibt es in Assets nicht; sie läuft dort in Phase 2 normal.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -15,6 +16,9 @@ import { diffSnapshots, schemaSnapshot, type SchemaSnapshot } from '../src/schem
 /** Parameter von Assets (Katalog: Ressourcentypen und Blatt der Kette). */
 export const ASSETS = { product: 'assets', resourceTypes: ['tenant', 'schema', 'type', 'object', 'connection', 'credential'], leafTypes: ['object'] };
 
+/** IAM-Migrationen mit Entsprechung in Assets (bis 052). */
+const IN_ASSETS = (name: string) => name <= IAM_BASELINE || name.startsWith('iam_010_') || name.startsWith('iam_011_');
+
 /** Objekte von Assets auf IAM-Tabellen, die zur App gehören: Suche im Personenverzeichnis (pg_trgm, Assets 014). */
 const APP_OWNED: [string, string][] = [['principal', 'principal_email_trgm'], ['principal', 'principal_name_trgm']];
 
@@ -24,7 +28,7 @@ const skip = await skipDb();
 describe(`Gleichheit mit Assets (${fixture.source})`, { skip }, () => {
   // Grundlage mit dem Abgleich der Ressourcentypen (wie der Runner ihn nach den IAM-Migrationen ausführt)
   const iam = iamMigrations(ASSETS);
-  const db = productDb({ product: 'assets', iam: false, sources: [{ ...iam, migrations: iam.migrations.filter(m => m.name <= IAM_BASELINE) }] });
+  const db = productDb({ product: 'assets', iam: false, sources: [{ ...iam, migrations: iam.migrations.filter(m => IN_ASSETS(m.name)) }] });
   let t: Awaited<ReturnType<typeof db.create>>;
   before(async () => { t = await db.create(); });
   after(async () => { await t?.drop(); });
@@ -34,7 +38,11 @@ describe(`Gleichheit mit Assets (${fixture.source})`, { skip }, () => {
     for (const [k, v] of Object.entries(fixture.snapshot.functions)) assert.equal((v as unknown[]).length, 1, `Funktion app.${k} im Abzug von Assets`);
   });
 
-  test(`iam_001 … ${IAM_BASELINE} = Assets 001–049`, async () => {
+  test('Entsprechungen: genau iam_001 … IAM_BASELINE, iam_010, iam_011', () => {
+    assert.deepEqual(iam.migrations.filter(m => IN_ASSETS(m.name)).map(m => m.name.slice(0, 7)), ['iam_001', 'iam_002', 'iam_003', 'iam_004', 'iam_005', 'iam_006', 'iam_007', 'iam_008', 'iam_010', 'iam_011']);
+  });
+
+  test(`iam_001 … ${IAM_BASELINE}, iam_010, iam_011 = Assets 001–052`, async () => {
     const expected = structuredClone(fixture.snapshot) as SchemaSnapshot & { tables: Record<string, { indexes: Record<string, string> }> };
     for (const [table, index] of APP_OWNED) delete expected.tables[table]!.indexes[index];
     const actual = await schemaSnapshot(t.inspect as pg.ClientBase, 'assets');

@@ -225,6 +225,9 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     // «mike» hat noch keine ID; das Token nennt die ID von «lima» → nicht binden und nicht auflösen
     assert.equal(await resolve('mike', 'kc-lima'), null);
     assert.equal((await t.inspect.query("SELECT kc_org_id FROM notes.tenant WHERE alias = 'mike'")).rows[0].kc_org_id, null);
+    // Neuer Alias mit einer ID, die schon einem anderen Mandanten gehört: NULL statt Fehler, nichts angelegt
+    assert.equal(await resolve('november', 'kc-lima'), null);
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.tenant WHERE alias = 'november'")).rows[0].n, 0);
     // Eigene neue ID bindet weiterhin
     assert.equal(await resolve('mike', 'kc-mike'), legacy);
     assert.equal(await resolve('mike', 'kc-mike'), legacy);

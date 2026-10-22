@@ -7,6 +7,9 @@
 -- 2. Binden der Organisations-ID: Gehört die ID aus dem Token schon einem anderen Mandanten, bleibt das Binden
 --    wirkungslos – dann gilt der Mandant nicht als aufgelöst (NULL), statt trotzdem seine ID zu liefern. Massgeblich
 --    ist die ID nach dem Versuch (auch bei gleichzeitigem ersten Kontakt derselben Organisation).
+-- 3. Neuer Alias mit einer Organisations-ID, die schon einem anderen Mandanten gehört: NULL statt Fehler aus dem
+--    eindeutigen Index auf kc_org_id (Auto-Provisionierung, sonst 500).
+-- CREATE OR REPLACE behält Besitzer und Rechte (kein PUBLIC, EXECUTE für {{app}}). Rumpf gleich Assets 052.
 
 CREATE OR REPLACE FUNCTION app.resolve_tenant(p_alias text, p_kc_org_id text, p_name text, p_create boolean)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = {{schema}}, pg_temp AS $$
@@ -16,8 +19,14 @@ BEGIN
   v_alias := translate(p_alias, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
   SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM {{schema}}.tenant WHERE alias = v_alias;
   IF v_id IS NULL AND p_create THEN
+    -- Ohne Ziel: auch eine Organisations-ID, die schon einem anderen Mandanten gehört, ist kein Fehler (sonst 500)
     INSERT INTO {{schema}}.tenant (alias, kc_org_id, name) VALUES (v_alias, p_kc_org_id, coalesce(p_name, p_alias))
-      ON CONFLICT (alias) DO UPDATE SET alias = excluded.alias RETURNING id, status, kc_org_id INTO v_id, v_status, v_kc;
+      ON CONFLICT DO NOTHING RETURNING id, status, kc_org_id INTO v_id, v_status, v_kc;
+    IF v_id IS NULL THEN
+      -- Gleichzeitig angelegt (gleicher Alias) oder ID vergeben; im zweiten Fall findet die Suche nichts → NULL
+      SELECT id, status, kc_org_id INTO v_id, v_status, v_kc FROM {{schema}}.tenant WHERE alias = v_alias;
+      IF v_id IS NULL THEN RETURN NULL; END IF;
+    END IF;
   END IF;
   IF v_status = 'suspended' THEN RETURN NULL; END IF;
   IF v_id IS NOT NULL AND p_kc_org_id IS NOT NULL THEN

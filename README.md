@@ -33,11 +33,13 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 | übrige Pakete, Module, Vorlage | leer |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
-übersprungen). Veröffentlichen: Tag `vX.Y.Z` (Workflow «Release», GitHub Packages).
+übersprungen). Veröffentlichen: Version des Pakets erhöhen und mergen – der Workflow «Release» veröffentlicht neue
+Versionen auf GitHub Packages und setzt das Tag `<paket>-v<version>`. Einbinden in eine App, auch ohne Zugang zur
+Registry: [docs/ausrollen.md](docs/ausrollen.md).
 
 Reihenfolge (Spezifikation Kap. 15.4): Vertrag festschreiben → Test-Kit (gegen Assets grün) →
 Backend-Paket → Realm-Modul → Frontend-Paket → Vorlage → erste neue App. Nach jedem Schritt läuft Assets auf dem
 Baukasten, und alle Tests von Assets bleiben grün.
 
-Versionierung: eine gemeinsame semantische Version für Module und Pakete; npm-Pakete über GitHub Packages
-(`@vollholz/*`), Module als Git-Quelle mit Tag (`?ref=vX.Y.Z`).
+Versionierung: je Paket eine semantische Version; npm-Pakete über GitHub Packages (`@vollholz/*`), Module als
+Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`).

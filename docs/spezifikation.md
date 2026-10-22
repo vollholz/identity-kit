@@ -892,8 +892,9 @@ app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', i
 
 Versionierung und Pflege:
 
-- Semantische Versionen; Modul und Pakete gemeinsam versioniert (eine Version des Baukastens). Apps pinnen die
-  Version; Renovate schlägt Updates vor. Brechende Änderungen nur mit Migrationshinweis.
+- Semantische Versionen je Paket und Modul; der Workflow «Release» veröffentlicht nach dem Merge jede neue Version
+  (Tag `<paket>-v<version>`). Apps pinnen die Version; Renovate schlägt Updates vor. Brechende Änderungen nur mit
+  Migrationshinweis. Einbinden und Bezug ohne Zugang: `docs/ausrollen.md`.
 - Datenbank-Migrationen des IAM liefert das Backend-Paket mit eigenem Präfix (`iam_…`); der Migrations-Runner der App
   führt sie vor den eigenen aus; danach `app.secure_tenant_tables()`.
 - Das Realm-Modul ist idempotent; ein Update ergibt einen Plan, der vor dem Apply freigegeben wird.
@@ -959,7 +960,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | # | Frage | Vorschlag |
 |---|---|---|
 | B1 | Wo liegt der Baukasten? | **entschieden 2026-10-22:** eigenes Repository `vollholz/identity-kit` (Vertrag, Modul, Pakete, Test-Kit, Vorlage); vollholz/identity bleibt Betrieb der Instanz und verweist darauf |
-| B2 | Verteilung | npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=vX.Y.Z`) |
+| B2 | Verteilung | **entschieden 2026-10-22:** npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`) |
 | B3 | Frameworks | Backend zuerst nur Fastify, Frontend nur React; weitere Adapter erst bei Bedarf |
 | B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu sind nur `person_api` (Personen direkt an der API, ohne BFF/MCP) und `system_clients` (ein Client für mehrere Organisationen, per IaC); beide erst mit der ersten App, die sie braucht |
 

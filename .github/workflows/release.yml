@@ -1,10 +1,14 @@
-# Veröffentlichung: ein Tag vX.Y.Z veröffentlicht alle Pakete in dieser Version auf GitHub Packages (@vollholz/*).
-# Die Version im Tag muss der Version in jedem packages/*/package.json entsprechen.
+# Veröffentlichung: Nach jedem Merge auf main (und von Hand) prüft der Workflow alle Pakete und veröffentlicht jedes,
+# dessen Version noch nicht auf GitHub Packages liegt (@vollholz/*). Je veröffentlichtem Paket entsteht ein Tag
+# `<paket>-v<version>` (z. B. iam-testkit-v0.1.1). Eine neue Version = Version in packages/<paket>/package.json erhöhen
+# und per PR mergen; ohne erhöhte Version veröffentlicht der Workflow nichts.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["packages/**", "package-lock.json", ".github/workflows/release.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write        # Tags der veröffentlichten Versionen
       packages: write
     services:
       postgres:
@@ -33,6 +37,7 @@ jobs:
     env:
       POSTGRES_SUPERUSER_PASSWORD: ci-superuser
       POSTGRES_PORT: "5433"
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -41,17 +46,25 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@vollholz"
       - run: npm ci --no-audit --no-fund
-      - name: Version im Tag = Version der Pakete
-        run: |
-          v="${GITHUB_REF_NAME#v}"
-          for p in packages/*/package.json; do
-            pv="$(node -p "require('./$p').version")"
-            [ "$pv" = "$v" ] || { echo "$p hat Version $pv, Tag $GITHUB_REF_NAME"; exit 1; }
-          done
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: Veröffentlichen
-        run: npm publish --workspaces
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Neue Versionen veröffentlichen und taggen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for p in packages/*/; do
+            name="$(node -p "require('./${p}package.json').name")"
+            version="$(node -p "require('./${p}package.json').version")"
+            private="$(node -p "!!require('./${p}package.json').private")"
+            [ "$private" = "false" ] || continue
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version liegt schon vor"
+              continue
+            fi
+            npm publish --workspace "$p"
+            tag="${name#@vollholz/}-v$version"
+            git tag -a "$tag" -m "$name@$version"
+            git push origin "$tag"
+            echo "veröffentlicht: $name@$version ($tag)"
+          done

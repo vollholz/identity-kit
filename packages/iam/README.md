@@ -16,7 +16,7 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 | Baustein | Inhalt |
 |---|---|
 | `loadIamConfig(env, { product, service })`, `IAM_VARS(product)`, `readVars`, `iamConfigErrors`, `iamConfig`, `iamWarnings` | Variablen nach Kap. 13 mit Standardwerten je Produkt, Pflicht je Dienst, Warnungen bei Client-Geheimnissen |
-| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, resourceTypes?, leafTypes?, adopted? })`, `dirMigrations(dir)` | Runner (wie Assets) und die Migrationen `iam_001`–`iam_009`; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
+| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, resourceTypes?, leafTypes?, adopted? })`, `dirMigrations(dir)` | Runner (wie Assets) und die Migrationen `iam_001`–`iam_010`; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
 | `db/bootstrap.sql` | Datenbankrollen nach Kap. 10.1 (psql-Variablen `p`, `db`, Passwörter) |
 | `withTx`, `withTenant`, `setContext`, `createPool` | Transaktion im Mandantenkontext (`app.tenant_id`, `app.principal_id`, Einstellungen der App) |
 | `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger) |

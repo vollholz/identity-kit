@@ -11,12 +11,12 @@ import { productDb, skipDb } from './support/db.ts';
 const skip = await skipDb();
 
 describe('IAM-Migrationen: Parameter', () => {
-  test('Dateien iam_001 … iam_009 in Reihenfolge, Stand der Übernahme dabei', () => {
+  test('Dateien iam_001 … iam_010 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
-    assert.equal(names.at(-1), 'iam_009_tenant_role_key.sql');
+    assert.equal(names.at(-1), 'iam_010_revoke_public_execute.sql');
     for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
   });
 
@@ -72,7 +72,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     const note = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.note'::regclass")).rows[0];
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(again, { applied: [], adopted: [], skipped: 10 });
+    assert.deepEqual(again, { applied: [], adopted: [], skipped: 11 });
   });
 
   test('iam_009: eigene Rollen mit Primärschlüssel (tenant_id, id)', async () => {
@@ -114,7 +114,7 @@ describe('Übernahme (adopted)', { skip }, () => {
   test('Objekte vorhanden, Marke angewendet: bis zur Grundlage eingetragen, Späteres ausgeführt', async () => {
     const r = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual(r.adopted, iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name));
-    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql']);
+    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql']);
     const again = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual([again.applied, again.adopted], [[], []]);
   });

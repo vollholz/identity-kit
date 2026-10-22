@@ -66,7 +66,7 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     assert.deepEqual(await grantedTableProblems(t.inspect, { roles: ['notes_app', 'notes_sched'], minTables: 13, withoutTenant: WITHOUT_TENANT }), []);
     assert.deepEqual(await securityDefinerProblems(t.inspect, { allowed: SECURITY_DEFINER }), []);
     assert.deepEqual(await publicSchemaProblems(t.inspect, { schemas: ['app', 'notes'] }), []);
-    assert.deepEqual(await publicExecuteProblems(t.inspect, { schemas: ['app', 'notes'] }), []);
+    assert.deepEqual(await publicExecuteProblems(t.inspect, { schemas: ['app', 'notes'], strict: true }), []);
     assert.deepEqual(await bypassRoleProblems(t.inspect, { rolePrefix: 'notes_' }), []);
   });
 
@@ -85,6 +85,20 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
       const probes = (await t.admin.query<{ f: string; pub: boolean }>(`SELECT p.pronamespace::regnamespace || '.' || p.proname AS f, ${PUBLIC_EXEC} AS pub FROM pg_proc p WHERE p.proname = 'rls_probe' ORDER BY 1`)).rows;
       assert.deepEqual(probes, [{ f: 'app.rls_probe', pub: false }, { f: 'notes.rls_probe', pub: false }]);
     } finally { await t.admin.query('ROLLBACK'); }
+  });
+
+  test('keine Funktion in app und notes für PUBLIC ausführbar (iam_010); Laufzeit-Rollen nur mit ausdrücklichem EXECUTE', async () => {
+    const rows = (await t.inspect.query<{ f: string; pub: boolean; app: boolean; sched: boolean }>(`
+      SELECT p.oid::regprocedure::text AS f, ${PUBLIC_EXEC} AS pub,
+             has_function_privilege('notes_app', p.oid, 'EXECUTE') AS app, has_function_privilege('notes_sched', p.oid, 'EXECUTE') AS sched
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname IN ('app', 'notes') ORDER BY 1`)).rows;
+    assert.ok(rows.length >= 13, `nur ${rows.length} Funktionen gefunden`);
+    assert.deepEqual(rows.filter(r => r.pub).map(r => r.f), []);
+    // Bis iam_010 nur über PUBLIC: Prüfung der Audit-Kette und app.audit_chain() im Trigger
+    assert.deepEqual(rows.filter(r => r.f.startsWith('app.audit_hash(')).map(r => [r.app, r.sched]), [[true, true]]);
+    assert.deepEqual(rows.filter(r => /^app\.(tenant_id|principal_id)\(/.test(r.f)).map(r => [r.app, r.sched]), [[true, true], [true, true]]);
+    assert.deepEqual(rows.filter(r => r.f.startsWith('app.secure_tenant_tables(')).map(r => [r.app, r.sched]), [[false, false]]);
   });
 
   test('auch die Besitzer-Rolle sieht ohne Kontext keine Mandantendaten (FORCE RLS)', async () => {

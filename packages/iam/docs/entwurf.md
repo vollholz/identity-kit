@@ -252,11 +252,11 @@ entfallen):
 | `iam_007_audit.sql` | `audit_log` mit Hash-Kette v2 und Folgenummer, `audit_anchor`, nur lesen und anhängen | 001, 009 |
 | `iam_008_entra.sql` | `entra_connection`, `entra_consent`, `app.entra_login_alias`, `app.entra_free_slot`, `app.entra_domains_taken` | 046 |
 | `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
+| `iam_010_revoke_public_execute.sql` | kein EXECUTE für PUBLIC auf Funktionen in `app` und `<schema>`; `app.audit_hash` ausdrücklich für `_app` und `_sched` | 051 (vollholz/assets#24) |
 
-Die Rechte der Funktionen entsprechen genau Assets, auch wo PUBLIC noch ausführen darf (`app.tenant_id()`,
-`app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()` – vor der Änderung der
-Standardrechte in Assets 044 angelegt, keine SECURITY DEFINER, Schemas ohne USAGE für PUBLIC). Entziehen wäre eine
-spätere Migration (Kapitel 12).
+Bis `iam_008` entsprechen die Rechte der Funktionen genau Assets 049, auch wo PUBLIC noch ausführen darf
+(`app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()`);
+`iam_010` entzieht das wie Assets 051. Danach gilt `publicExecuteProblems(…, { strict: true })` = [] (Test `rls`).
 
 Die Entra-Tabellen kommen immer mit (leer, ohne Wirkung ohne `ENTRA_CLIENT_ID`), weil der Resolver
 `app.entra_login_alias` immer fragt; so braucht es keine bedingten Migrationen.
@@ -377,7 +377,7 @@ Jeder Teil-PR ist für sich grün (typecheck, build, Tests mit PostgreSQL) und b
 | # | Inhalt | Tests |
 |---|---|---|
 | 1 | **Dieser Entwurf** | – |
-| 2 | Paketgerüst (`package.json` 0.1.0 `private`, tsconfig, Workspace), `config`, `errors`, `crypto`, `state`, `db`, `audit` (`pgAudit`), `locks`, `migrations` (iam_001–009, Runner, Übernahme), `db/bootstrap.sql`; Nachführung dieses Entwurfs | `config`, `core`, `locks`, `migrations`, `assets-schema`, `rls` |
+| 2 | Paketgerüst (`package.json` 0.1.0 `private`, tsconfig, Workspace), `config`, `errors`, `crypto`, `state`, `db`, `audit` (`pgAudit`), `locks`, `migrations` (iam_001–010, Runner, Übernahme), `db/bootstrap.sql`; Nachführung dieses Entwurfs | `config`, `core`, `locks`, `migrations`, `assets-schema`, `rls` |
 | 3 | `catalog` (`defineCatalog`, Register-Typen), `tokens`, `principal`, `access` (API nach 13.2), Fähigkeiten, Zwischenspeicher (13.6); Test-Kit 0.2.0 (`groups[].match`) | `catalog` (mit Katalog von Assets), `tokens`, `principal`, `access`, `capabilities`, `cache`, `multi-org` (ohne Verwaltung) |
 | 4 | Fastify-Plugin (Anmeldung je Anfrage, Dekorationen, `need` als preHandler, Fehler, OpenAPI nach 13.4), `readinessChecks`, Module `account`, `acl` | `acl`, `tenant-isolation` (Gerüst), `openapi`, Beispiel-App `notes` im Test |
 | 5 | Modul `bff` | `bff` |
@@ -425,8 +425,8 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 
 ## 12. Offene Punkte
 
-- **Rechte von PUBLIC** auf `app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`,
-  `app.audit_chain()` (wie Assets, siehe 6.1): entziehen mit einer späteren Migration, wenn Assets einverstanden ist.
+- **Gleichheitstest auf Assets 001–051** umstellen, sobald vollholz/assets#24 gemergt ist (Abzug neu erzeugen;
+  Grundlage dann `iam_001`–`iam_008` + `iam_010` bzw. Übernahme bis `iam_010`).
 - **`person_api`, `system_clients`** (B4): nicht Teil von 0.1.0; der Resolver bleibt dafür offen (`OIDC_PERSON_CLIENT_IDS`).
 - **Lesen des Audit-Protokolls** als Modul (A3).
 - **Abhängigkeiten** (exakt, wie Assets): `jose` 6.2.12, `openid-client` 6.8.8, `@sinclair/typebox` 0.34.52;

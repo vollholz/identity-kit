@@ -156,10 +156,10 @@ Produkts.
   `themeAccent`, `themeAccentDark`, `themeAccentText`, `themeAccentTextDark` (nur `#RRGGBB`), `themeClaim`,
   `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`. Referenz: assets
   `infra/keycloak/localization-theme.json`; Modul `product-realm`, `localization.tf`.
-- SOLL: Texte in Du-Form und Schweizer Rechtschreibung. Referenz: `localization-de.json` (nur Schlüssel des Standards
-  mit Sie-Form oder ß) mit `localization-de.source.json` (Originaltexte der Keycloak-Version) und Test
-  `test/infra-keycloak.test.ts` (gleiche Schlüssel, Platzhalter und HTML-Tags, keine Sie-Form); ebenso für die
-  Kontoverwaltung (`localization-account-de*.json`). Bei jedem Keycloak-Update die Quelldateien vergleichen.
+- SOLL: Texte in Du-Form und Schweizer Rechtschreibung. Umsetzung im Modul `product-realm`: `texts/localization-de.json`
+  (nur Schlüssel des Standards mit Sie-Form oder ß) mit `texts/localization-de.source.json` (Originaltexte der
+  Keycloak-Version) und Test `test/texts.test.ts` (gleiche Schlüssel, Platzhalter und HTML-Tags, keine Sie-Form);
+  ebenso für die Kontoverwaltung (`texts/localization-account-de*.json`). Bei jedem Keycloak-Update die Quelldateien vergleichen.
 
 ### 3.3 Client-Richtlinien
 

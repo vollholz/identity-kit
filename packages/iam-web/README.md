@@ -126,6 +126,7 @@ Der Weg steht in [docs/entwurf.md](docs/entwurf.md) Kap. 8 (eigener PR in vollho
 per Screenshot-Vergleich). Seit dem Entwurf dazugekommen:
 
 - `resources.noGrant: ['object']` setzen, solange `GET /v1/authz/catalog` `resourceTypes[].leaf` nicht ausliefert.
+  Ohne beides ist «Freigeben» nur auf der ganzen Organisation möglich, und die Konsole warnt.
 - `groupRolePrefix` entfällt, wenn der Server ihn in `/v1/admin/status` meldet (ab Backend Teil 6b); sonst als Prop.
 - `entraConsentHosts` nur für nationale Clouds; Standard `login.microsoftonline.com`.
 - TanStack Router: `makeIamRoutes(…, { param: tanstackParam })`.

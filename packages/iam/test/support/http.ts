@@ -62,7 +62,8 @@ export async function notesApp(o: {
   const events: NotesApp['events'] = [];
   const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
   const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}) });
-  const app = Fastify({ logger: false, ...o.fastify });
+  // Wie docs/backend.md verlangt: unbekannte Felder ergeben 422 statt still zu verschwinden
+  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });
   await o.before?.(app);
   await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], ...o.plugin });

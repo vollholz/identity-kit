@@ -118,8 +118,11 @@ app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', i
 
 **Einstellungen, die das Paket voraussetzt:**
 
-- **`ajv.customOptions.removeAdditional: false`** (wie Assets). Der Fastify-Standard entfernt unbekannte Felder still; mit
-  dieser Einstellung ergeben sie 422, und Tippfehler der Oberfläche fallen auf.
+- **`ajv.customOptions.removeAdditional: false`** (wie Assets; die Tests des Pakets laufen so). Der Fastify-Standard
+  entfernt unbekannte Felder still; mit dieser Einstellung ergeben sie 422, und Tippfehler der Oberfläche fallen auf.
+  Ohne sie öffnet sich nichts (entfernte Felder geben keine Rechte, die Schemas des Pakets kennen keine Varianten von
+  Objekten, bei denen Entfernen den Sinn änderte), aber falsch geschriebene optionale Felder wirken stumm nicht, etwa
+  bei `PATCH`. Die erste Anfrage prüft die Einstellung und warnt sonst im Log.
 - **`@fastify/rate-limit`** registriert die App, nicht das Paket. Routen des Pakets tragen ihr Limit in `config.rateLimit`
   (Personensuche in Entra ID: 30 je Minute, Schlüssel `<produkt>:entra-search:<mandant>:<person>`). Ohne das Plugin gilt
   kein Limit. Für mehrere Instanzen einen geteilten Speicher verwenden, z. B. `pgRateLimitStore`.

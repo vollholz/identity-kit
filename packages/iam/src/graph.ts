@@ -4,15 +4,23 @@
  *
  * Eine mandantenfähige App der Plattform (ENTRA_CLIENT_ID) meldet sich je Kunden-Tenant mit Client Credentials an
  * (`/{tid}/oauth2/v2.0/token`, Scope `https://graph.microsoft.com/.default`). Das klappt erst, wenn eine Administration
- * des Tenants der App zugestimmt hat (Admin-Zustimmung, `adminConsentUrl`). Gelesen wird nur: die Organisation mit ihren
+ * des Tenants der App zugestimmt hat (Zustimmung mit Anmeldung, `consentUrl` und `verifyConsent`). Gelesen wird nur: die Organisation mit ihren
  * verifizierten Domänen und Personen (`User.Read.All`, für die Verknüpfung bestehender Konten und das Hinzufügen aus Entra ID).
  *
  * Wie keycloak.ts kennt diese Klasse keine Mandantengrenze; welcher Tenant zu welcher Organisation gehört, entscheidet
  * entra.ts. Adressen von Microsoft sind fest (kein SSRF über Eingaben); die Tenant-ID wird vor jeder Verwendung geprüft.
  */
+import { createLocalJWKSet, jwtVerify, type JSONWebKeySet, type JWTPayload } from 'jose';
 import { HttpError } from './errors.ts';
 
 export const ENTRA_LOGIN = 'https://login.microsoftonline.com';
+/** Scopes der Zustimmung: Anmeldung (ID-Token) und die Anwendungsberechtigungen der App in Graph. */
+const CONSENT_SCOPE = 'openid profile https://graph.microsoft.com/.default';
+/** Rollen (`wids`), die einer App Anwendungsberechtigungen in Graph erteilen dürfen: Global bzw. Privileged Role Administrator. */
+export const CONSENT_ADMIN_ROLES = ['62e90394-69f5-4237-9190-012177145e10', 'e8611ab8-c189-46e8-94e1-60213ab1f814'];
+
+/** Wer im Tenant zugestimmt hat (aus dem geprüften ID-Token; fürs Audit). */
+export interface ConsentApprover { oid: string; name: string | null; username: string | null }
 export const GRAPH = 'https://graph.microsoft.com/v1.0';
 
 /** GUID eines Tenants bzw. Objekts in Entra ID. */
@@ -104,11 +112,48 @@ export class EntraGraph {
     return m && GUID_RE.test(m[1]!) && m[1] !== '9188040d-6c67-4c5b-b112-36a304b66dad' ? m[1]! : null;
   }
 
-  /** Adresse der Admin-Zustimmung im Tenant (Navigation im Browser). */
-  adminConsentUrl(tenantId: string, o: { state: string; redirectUri: string }): string {
+  /**
+   * Adresse der Zustimmung im Tenant (Navigation im Browser): Anmeldung mit Code-Flow, PKCE und `nonce`, Zustimmung
+   * erzwungen (`prompt=consent`). Anders als `…/adminconsent` liefert die Rückkehr einen Code, dessen ID-Token belegt,
+   * wer im Tenant zugestimmt hat (`verifyConsent`).
+   */
+  consentUrl(tenantId: string, o: { state: string; redirectUri: string; nonce: string; codeChallenge: string }): string {
     if (!GUID_RE.test(tenantId)) throw new Error('Tenant-ID ungültig');
-    const q = new URLSearchParams({ client_id: this.cfg.clientId, scope: 'https://graph.microsoft.com/.default', redirect_uri: o.redirectUri, state: o.state });
-    return `${ENTRA_LOGIN}/${tenantId}/v2.0/adminconsent?${q}`;
+    const q = new URLSearchParams({
+      client_id: this.cfg.clientId, response_type: 'code', response_mode: 'query', redirect_uri: o.redirectUri, scope: CONSENT_SCOPE,
+      state: o.state, nonce: o.nonce, code_challenge: o.codeChallenge, code_challenge_method: 'S256', prompt: 'consent',
+    });
+    return `${ENTRA_LOGIN}/${tenantId}/oauth2/v2.0/authorize?${q}`;
+  }
+
+  /**
+   * Code der Zustimmung einlösen und das ID-Token prüfen: Signatur mit den Schlüsseln des Tenants, Aussteller und `tid` =
+   * gestarteter Tenant, Zielgruppe = Entra-App, `nonce`; die Person ist Mitglied des Tenants (kein Gast) und hat die Rolle
+   * «Global Administrator» oder «Privileged Role Administrator» (`wids`). Sonst 409 `consent-unproven`.
+   */
+  async verifyConsent(tenantId: string, o: { code: string; redirectUri: string; codeVerifier: string; nonce: string }): Promise<ConsentApprover> {
+    if (!GUID_RE.test(tenantId)) throw new Error('Tenant-ID ungültig');
+    const unproven = (why: string) => new HttpError(409, 'Zustimmung nicht nachgewiesen', `${why} Bitte neu verbinden; zustimmen muss eine globale Administration oder «Privileged Role Administrator» des Tenants.`, {}, { reason: 'consent-unproven' });
+    const body = new URLSearchParams({ grant_type: 'authorization_code', client_id: this.cfg.clientId, client_secret: this.cfg.clientSecret, code: o.code, redirect_uri: o.redirectUri, code_verifier: o.codeVerifier, scope: CONSENT_SCOPE });
+    const r = await this.request(`${ENTRA_LOGIN}/${tenantId}/oauth2/v2.0/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body }, 'Zustimmung einlösen');
+    if (r.status >= 300 || typeof r.data?.id_token !== 'string') {
+      const code = /AADSTS\d+/.exec(String(r.data?.error_description ?? ''))?.[0] ?? String(r.data?.error ?? r.status);
+      throw unproven(`Microsoft löst den Code nicht ein (${code}).`);
+    }
+    const keys = await this.request(`${ENTRA_LOGIN}/${tenantId}/discovery/v2.0/keys`, { method: 'GET' }, 'Schlüssel des Tenants');
+    if (keys.status >= 300 || !Array.isArray(keys.data?.keys)) throw new EntraError(502, 'Microsoft nicht verfügbar', `Schlüssel des Tenants: Microsoft antwortet mit ${keys.status}.`);
+    let c: JWTPayload;
+    try {
+      c = (await jwtVerify(r.data.id_token, createLocalJWKSet(keys.data as JSONWebKeySet), { issuer: `${ENTRA_LOGIN}/${tenantId}/v2.0`, audience: this.cfg.clientId, algorithms: ['RS256'] })).payload;
+    } catch (e) { throw unproven(`ID-Token ungültig (${(e as Error).name}).`); }
+    if (c.tid !== tenantId) throw unproven('ID-Token aus einem anderen Tenant.');
+    if (c.nonce !== o.nonce) throw unproven('ID-Token gehört nicht zu dieser Zustimmung.');
+    // Gast: `acct` 1 bzw. Anmeldung über einen anderen Aussteller (`idp`)
+    if (c.acct === 1 || (typeof c.idp === 'string' && c.idp !== c.iss)) throw unproven('Zugestimmt hat ein Gast des Tenants.');
+    const wids = Array.isArray(c.wids) ? c.wids.map(String) : [];
+    if (!CONSENT_ADMIN_ROLES.some(w => wids.includes(w))) throw unproven('Die zustimmende Person hat im Tenant weder «Global Administrator» noch «Privileged Role Administrator».');
+    if (typeof c.oid !== 'string') throw unproven('ID-Token ohne Objekt-ID.');
+    return { oid: c.oid, name: typeof c.name === 'string' ? c.name.slice(0, 256) : null, username: typeof c.preferred_username === 'string' ? c.preferred_username.slice(0, 256) : null };
   }
 
   /** Token für Graph im Tenant (Client Credentials). `fresh`: nicht aus dem Zwischenspeicher (nach der Zustimmung). */

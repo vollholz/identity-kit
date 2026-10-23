@@ -12,7 +12,7 @@ import { after, before, describe, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { brokerRedirectUris, idpRepresentation } from '../src/entra.ts';
-import { EntraGraph, notLinkable, type EntraUser } from '../src/graph.ts';
+import { CONSENT_ADMIN_ROLES, EntraGraph, notLinkable, type EntraUser } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
@@ -48,9 +48,10 @@ describe('Entra ID: Regeln ohne Datenbank', () => {
     assert.equal(await g.resolveTenant(t.id), t.id);
     assert.equal(await g.resolveTenant('unbekannt.example'), null);
     for (const bad of ['common', 'organizations', '../x', 'a b', 'http://x']) assert.equal(await g.resolveTenant(bad), null, bad);
-    const u = new URL(g.adminConsentUrl(t.id, { state: 's1', redirectUri: 'https://app.test/cb' }));
-    assert.equal(`${u.origin}${u.pathname}`, `https://login.microsoftonline.com/${t.id}/v2.0/adminconsent`);
-    assert.equal(u.searchParams.get('scope'), 'https://graph.microsoft.com/.default');
+    const u = new URL(g.consentUrl(t.id, { state: 's1', redirectUri: 'https://app.test/cb', nonce: 'n1', codeChallenge: 'c1' }));
+    assert.equal(`${u.origin}${u.pathname}`, `https://login.microsoftonline.com/${t.id}/oauth2/v2.0/authorize`);
+    assert.deepEqual(['response_type', 'scope', 'prompt', 'nonce', 'code_challenge', 'code_challenge_method'].map(k => u.searchParams.get(k)),
+      ['code', 'openid profile https://graph.microsoft.com/.default', 'consent', 'n1', 'c1', 'S256']);
     await assert.rejects(g.organization(t.id), (e: any) => e.status === 409, 'ohne Zustimmung kein Token');
     t.consented = true;
     assert.deepEqual((await g.organization(t.id, true)).verifiedDomains, ['demo.example', 'demo.onmicrosoft.com']);
@@ -85,9 +86,9 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
   /** Zustimmung im Tenant simulieren: starten, Zustimmung erteilen, Rückkehr wie die Oberfläche. */
   async function connect(who: Promise<string>, base: string, tenant: FakeTenant, input = tenant.domains[0]!, back: Record<string, string> = {}, o: { app?: NotesApp } = {}): Promise<Res> {
     const s = ok(await call(who, 'POST', `${base}/consent`, { tenant: input }, o));
-    const state = new URL(s.url).searchParams.get('state')!;
-    tenant.consented = true;
-    return call(who, 'POST', `${base}/consent/complete`, { state, tenant: tenant.id, adminConsent: 'True', ...back }, o);
+    // Globale Administration des Tenants meldet sich an und stimmt zu
+    const admin = tenant.users.find(x => x.userPrincipalName.startsWith('ga@')) ?? ms.user(tenant, `ga@${tenant.domains.at(-1)}`, { displayName: 'Globale Administration' });
+    return call(who, 'POST', `${base}/consent/complete`, { ...ms.approve(s.url, admin, { wids: [CONSENT_ADMIN_ROLES[0]!] }), ...back }, o);
   }
 
   before(async () => {
@@ -129,6 +130,8 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.deepEqual([s.enabled, s.connection], [false, null]);
     assert.match(s.reason, /ENTRA_CLIENT_ID/);
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: 'demo.example' }, { app: off })).status, 503);
+    assert.equal((await call(anna(), 'POST', '/v1/platform/entra/refresh', undefined, { app: off })).status, 403, 'erst das Recht, dann 503');
+    assert.equal((await call(paula(), 'POST', '/v1/platform/entra/refresh', undefined, { app: off })).status, 503);
     assert.deepEqual([s.consentPath, s.testPath], ['/verwalten/anmeldung/zustimmung', '/verwalten/anmeldung/test'], 'Rückkehrpfade aus ENTRA_UI_PATH (Standard)');
   });
 
@@ -157,7 +160,8 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     const r = ok(await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: 'demoag.onmicrosoft.com' }));
     assert.equal(r.entraTenantId, contoso.id);
     const url = new URL(r.url);
-    assert.equal(url.pathname, `/${contoso.id}/v2.0/adminconsent`);
+    assert.equal(url.pathname, `/${contoso.id}/oauth2/v2.0/authorize`);
+    assert.ok(url.searchParams.get('nonce') && url.searchParams.get('code_challenge') && !url.searchParams.get('nonce')!.includes(url.searchParams.get('state')!), 'PKCE und nonce, nicht aus state ablesbar');
     assert.equal(url.searchParams.get('client_id'), ENTRA.ENTRA_CLIENT_ID);
     assert.equal(url.searchParams.get('redirect_uri'), 'http://api.test/verwalten/anmeldung/zustimmung');
     const state = url.searchParams.get('state')!;
@@ -166,7 +170,7 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.ok(rows.length >= 1 && rows.every(x => x.state_hash !== state && /^[0-9a-f]{64}$/.test(x.state_hash)), 'nur der Hash');
   });
 
-  test('Rückkehr: state fremder Person, Organisation oder Weg, abgelaufen, doppelt → 404; Ablehnung und falscher Tenant → 409', async () => {
+  test('Rückkehr: state fremder Person, Organisation oder Weg, abgelaufen, doppelt → 404; Ablehnung und Rückkehr ohne Code → 409', async () => {
     const start = async (who = anna(), base = '/v1/admin/entra') => new URL(ok(await call(who, 'POST', `${base}/consent`, { tenant: contoso.id })).url).searchParams.get('state')!;
     const s1 = await start();
     // andere Person derselben Organisation (eigenes Recht vorausgesetzt) – hier die Plattform für demo
@@ -179,11 +183,38 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.doesNotMatch(declined.body.detail, /Interna/);
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s1 })).status, 404, 'einmal gültig');
     const s2 = await start();
-    assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s2, tenant: '99999999-9999-9999-9999-999999999999' })).status, 409);
+    const old = await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s2, tenant: contoso.id, adminConsent: 'True' });
+    assert.deepEqual([old.status, old.body.reason], [409, 'consent-unproven'], 'Rückkehr der alten Admin-Zustimmung (ohne Code) genügt nicht');
     const s3 = await start();
     await t.inspect.query("UPDATE notes.entra_consent SET expires_at = now() - interval '1 minute'");
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s3 })).status, 404, 'abgelaufen');
     assert.equal(kc.idps.size, 0, 'nichts angelegt');
+  });
+
+  test('Zustimmung nur mit Nachweis: Tenant hat schon zugestimmt, Code fehlt, fremd, falscher Tenant, nonce, PKCE, ohne Admin-Rolle, Gast → 409', async () => {
+    // Angriff: Tenant hat früher zugestimmt (Client Credentials gehen), die org-admin ruft complete ohne Anmeldung bei Microsoft
+    contoso.consented = true;
+    const ga = ms.user(contoso, 'ga@demoag.onmicrosoft.com', { displayName: 'Globale Administration' });
+    const begin = async () => ok(await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: contoso.id })).url as string;
+    const complete = (body: Record<string, unknown>) => call(anna(), 'POST', '/v1/admin/entra/consent/complete', body);
+    const unproven = (r: Res, m: RegExp, why: string) => { assert.deepEqual([r.status, r.body.reason], [409, 'consent-unproven'], `${why}: ${JSON.stringify(r.body)}`); assert.match(r.body.detail, m, why); };
+    unproven(await complete({ state: new URL(await begin()).searchParams.get('state') }), /keinen Code/, 'ohne Code');
+    unproven(await complete({ state: new URL(await begin()).searchParams.get('state'), code: 'erfunden' }), /AADSTS70000/, 'erfundener Code');
+    // Code einer anderen Zustimmung (andere Person, eigener state): passt nicht zum PKCE-Verifier dieses state
+    const other = ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!] });
+    unproven(await complete({ state: new URL(await begin()).searchParams.get('state'), code: other.code }), /AADSTS501481/, 'Code einer anderen Zustimmung');
+    const fremd = ms.tenant('Fremd AG', ['fremd.example']);
+    unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { tid: fremd.id } })), /anderen Tenant/, 'tid fremd');
+    unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { nonce: 'alt' } })), /gehört nicht zu dieser Zustimmung/, 'nonce');
+    unproven(await complete(ms.approve(await begin(), ga, { wids: ['b79fbf4d-3ef9-4689-8143-76b194e85509'] })), /weder «Global Administrator»/, 'ohne Admin-Rolle');
+    unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[1]!], guest: true })), /Gast/, 'Gast');
+    unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { aud: 'andere-app' } })), /ID-Token ungültig/, 'Zielgruppe');
+    assert.deepEqual([kc.idps.size, (await t.inspect.query('SELECT count(*)::int AS n FROM notes.entra_connection')).rows[0].n], [0, 0], 'nichts verbunden');
+    const failed = (await auditOf('demo', 'entra.consent_failed')).map(a => a.data.reason);
+    assert.ok(failed.length >= 9 && failed.every(r => r === 'consent-unproven' || r === 'consent-error'), 'Fehlschläge im Protokoll');
+    assert.ok((await auditOf('demo', 'entra.consent_started')).length >= 9, 'Start im Protokoll');
+    contoso.consented = false;
+    contoso.users.splice(contoso.users.indexOf(ga), 1);
   });
 
   test('verbinden (Stufe 1): Anbieter je Tenant, nur freie verifizierte Domänen, Mitglieder über Objekt-ID verknüpft; Passwörter und Anmeldung bleiben', async () => {
@@ -195,6 +226,8 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.deepEqual(r.rejectedDomains, ['muster.example'], 'gehört Muster – ohne die Organisation zu nennen');
     assert.doesNotMatch(JSON.stringify(r), /muster GmbH|Muster GmbH|"muster"/);
     assert.equal(r.connection.entraTenantId, contoso.id);
+    const ga = contoso.users.find(x => x.userPrincipalName.startsWith('ga@'))!;
+    assert.deepEqual((await auditOf('demo', 'entra.connected'))[0]!.data.consentBy, { oid: ga.id, name: 'Globale Administration', username: ga.userPrincipalName }, 'wer im Tenant zugestimmt hat');
     // Keycloak: Anbieter «microsoft» für genau diesen Tenant, ohne automatische Mitgliedschaft mit der Organisation verbunden
     const ip = kc.idps.get('entra-001')!;
     assert.deepEqual([ip.providerId, ip.config.tenantId, ip.config.clientSecret, ip.trustEmail, ip.firstBrokerLoginFlowAlias], ['microsoft', contoso.id, 'entra-geheim', false, 'notes-entra-first-login']);
@@ -237,7 +270,11 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
   });
 
   test('«Nur Entra» aktivieren: Vorschau, Bestätigung der Liste nötig, nicht selbst aussperren; danach Passwörter weg, Weiterleitung an', async () => {
+    // Olga ist auch Plattform-Administration: Ihr Notfallzugang bleibt (F2)
+    kc.realmRoleMappings.set(u.olga.id, new Set(['platform-admin']));
     const pv = ok(await call(anna(), 'GET', '/v1/admin/entra/preview'));
+    assert.match(pv.members.find((m: any) => m.email === 'olga@extra.example').passwordKept, /Plattform-Administration/);
+    assert.ok(pv.members.filter((m: any) => m.passwordKept).length === 1, 'nur Olga');
     assert.deepEqual(pv.members.filter((m: any) => !m.linked).map((m: any) => m.email).sort(), ['carla@demo.example', 'dana@demo.example']);
     const none = await call(anna(), 'POST', '/v1/admin/entra/enforce', {});
     assert.deepEqual([none.status, none.body.reason], [409, 'confirm-not-linked']);
@@ -263,7 +300,8 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.equal(ok(await call(anna(), 'GET', '/v1/admin/entra')).connection.stage, 'pending');
     const r = ok(await call(anna(), 'POST', '/v1/admin/entra/enforce', { notLinked: ['DANA@demo.example', 'carla@demo.example'] }));
     assert.deepEqual([r.connection.stage, r.connection.enforcedBy], ['enforced', 'Anna Admin']);
-    assert.deepEqual([u.anna.password, u.carla.password, u.dana.password, u.olga.password, u.ext.password], [false, false, false, false, true]);
+    assert.deepEqual([u.anna.password, u.carla.password, u.dana.password, u.olga.password, u.ext.password], [false, false, false, true, true], 'Plattform-Administration behält ihr Passwort');
+    kc.realmRoleMappings.delete(u.olga.id);
     assert.deepEqual(u.dana.requiredActions, []);
     assert.equal(demo.domains.find(d => d.name === 'demo.example')!.autoRedirect, true);
     const a = (await auditOf('demo', 'entra.enforced'))[0]!;

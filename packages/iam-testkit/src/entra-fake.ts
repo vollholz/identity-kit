@@ -3,9 +3,11 @@
  * test/platform/entra-fake.ts) als `fetch`-Ersatz: OpenID-Konfiguration je Tenant (Tenant-ID oder verifizierte Domain),
  * Token mit Client Credentials (nur nach Zustimmung, richtiges Geheimnis) und Graph `/organization` und `/users` (Filter
  * nach UPN oder mail, `$search` mit ConsistencyLevel: eventual). Verhalten wie Microsoft, soweit die Plattform es nutzt:
- * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215.
+ * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215. Zustimmung mit
+ * Anmeldung: `approve` spielt den Browser nach, der Token-Endpunkt löst den Code (PKCE) gegen ein signiertes ID-Token ein.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from 'jose';
 
 /** Person in Entra ID, Felder wie `$select` der Entra-Anbindung. */
 export interface FakeEntraUser {
@@ -32,6 +34,33 @@ export class EntraFake {
   /** So viele Token-Anfragen nach der Zustimmung scheitern noch (Rechte gelten erst nach Sekunden). */
   lagging = 0;
   private readonly tokens = new Map<string, string>();
+  private readonly codes = new Map<string, { tid: string; clientId: string; redirectUri: string; challenge: string; nonce: string; claims: Record<string, unknown>; used: boolean }>();
+  private key: Promise<{ privateKey: CryptoKey; jwk: JWK }> | null = null;
+
+  /** Signaturschlüssel der ID-Tokens (wie die Schlüssel eines Tenants unter `/{tid}/discovery/v2.0/keys`). */
+  private signer() {
+    this.key ??= generateKeyPair('RS256').then(async k => ({ privateKey: k.privateKey, jwk: { ...await exportJWK(k.publicKey), kid: 'fake-1', alg: 'RS256', use: 'sig' } }));
+    return this.key;
+  }
+
+  /**
+   * Anmeldung und Zustimmung im Browser nachspielen: `url` ist die Adresse aus `consentUrl` (Code-Flow mit PKCE). Danach
+   * hat der Tenant zugestimmt; zurück kommen die Parameter der Rückkehr (`code`, `state`). Das ID-Token beim Einlösen trägt
+   * die Person, `wids` (Rollen im Tenant), `guest` (acct 1) und `claims` (überschreibt, z. B. `tid` oder `nonce`).
+   */
+  approve(url: string, user: FakeEntraUser, o: { wids?: string[]; guest?: boolean; claims?: Record<string, unknown> } = {}): { code: string; state: string } {
+    const u = new URL(url), q = u.searchParams;
+    const tid = u.pathname.split('/').filter(Boolean)[0]!;
+    const t = this.tenants.get(tid);
+    if (!t || u.pathname !== `/${tid}/oauth2/v2.0/authorize` || q.get('response_type') !== 'code' || q.get('code_challenge_method') !== 'S256') throw new Error(`EntraFake: keine Anmeldung mit Code-Flow (${url})`);
+    t.consented = true;
+    const code = `code-${randomUUID()}`;
+    this.codes.set(code, {
+      tid, clientId: q.get('client_id')!, redirectUri: q.get('redirect_uri')!, challenge: q.get('code_challenge')!, nonce: q.get('nonce') ?? '', used: false,
+      claims: { oid: user.id, name: user.displayName, preferred_username: user.userPrincipalName, wids: o.wids ?? [], acct: o.guest ? 1 : 0, ...o.claims },
+    });
+    return { code, state: q.get('state')! };
+  }
 
   tenant(name: string, domains: string[]): FakeTenant {
     const t: FakeTenant = { id: randomUUID(), name, domains, users: [], consented: false };
@@ -56,10 +85,25 @@ export class EntraFake {
         if (!t) return json(400, { error: 'invalid_tenant', error_description: `AADSTS90002: Tenant '${key}' not found.` });
         return json(200, { issuer: `https://login.microsoftonline.com/${t.id}/v2.0`, token_endpoint: `https://login.microsoftonline.com/${t.id}/oauth2/v2.0/token` });
       }
+      if (rest.join('/') === 'discovery/v2.0/keys' && t) return json(200, { keys: [(await this.signer()).jwk] });
       if (rest.join('/') === 'oauth2/v2.0/token' && method === 'POST') {
         const f = new URLSearchParams(String(init?.body));
         if (!t || t.id !== key) return json(400, { error: 'invalid_request', error_description: 'AADSTS900023: Specified tenant identifier is neither a valid DNS name, nor a valid external domain.' });
         if (f.get('client_secret') !== this.secret) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' });
+        if (f.get('grant_type') === 'authorization_code') {
+          // Code nur einmal, im selben Tenant, mit derselben Redirect-URI und passendem PKCE-Verifier
+          const c = this.codes.get(f.get('code') ?? '');
+          if (!c || c.used || c.tid !== t.id || c.clientId !== f.get('client_id') || c.redirectUri !== f.get('redirect_uri')) return json(400, { error: 'invalid_grant', error_description: 'AADSTS70000: The provided authorization code is invalid or has expired.' });
+          if (createHash('sha256').update(f.get('code_verifier') ?? '').digest('base64url') !== c.challenge) return json(400, { error: 'invalid_grant', error_description: 'AADSTS501481: The Code_Verifier does not match the code_challenge supplied in the authorization request.' });
+          c.used = true;
+          const k = await this.signer();
+          const now = Math.floor(Date.now() / 1000);
+          const idToken = await new SignJWT({
+            iss: `https://login.microsoftonline.com/${t.id}/v2.0`, aud: c.clientId, sub: `sub-${String(c.claims.oid)}`, iat: now, exp: now + 3600,
+            tid: t.id, nonce: c.nonce, ver: '2.0', ...c.claims,
+          }).setProtectedHeader({ alg: 'RS256', kid: 'fake-1', typ: 'JWT' }).sign(k.privateKey);
+          return json(200, { access_token: `delegated-${randomUUID()}`, id_token: idToken, token_type: 'Bearer', expires_in: 3599 });
+        }
         if (!t.consented) return json(400, { error: 'invalid_client', error_description: 'AADSTS7000229: The client application is missing service principal in the tenant.' });
         if (this.lagging > 0) { this.lagging--; return json(400, { error: 'invalid_grant', error_description: 'AADSTS65001: The user or administrator has not consented to use the application.' }); }
         const token = `graph-${randomUUID()}`;

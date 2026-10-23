@@ -81,7 +81,7 @@ resource "keycloak_openid_client_client_policy" "admin_service_account" {
 
 locals {
   admin_permissions = {
-    users = { name = "${var.product}-admin: Benutzer", description = "Konten anlegen, einladen, entfernen; Mitgliedschaft in Organisationen", type = "Users", scopes = ["view", "manage", "manage-group-membership"] }
+    users = { name = "${var.product}-admin: Benutzer", description = "Konten anlegen, einladen, entfernen; Mitgliedschaft in Organisationen", type = "Users", scopes = ["view", "manage"] }
   }
   admin_scope_names = distinct(flatten([for p in local.admin_permissions : p.scopes]))
 }

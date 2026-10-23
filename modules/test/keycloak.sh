@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # Nachweis gegen eine lokale Wegwerf-Instanz von Keycloak 26.8.1 (Docker, start-dev), wiederholbar:
 #
-#   1. Assets: Stand von vollholz/assets infra/keycloak (fixtures/assets-3a148ae) anlegen wie in Produktion –
-#      <produkt>-tofu (nur create-realm) → bootstrap/ → realm-admin für assets-iac → infra/keycloak als assets-iac.
-#      Danach planen roots/assets-bootstrap und roots/assets (Modulaufruf mit moved-Blöcken) auf demselben State:
-#      beide müssen «No changes» zeigen. Dann die Verschiebungen anwenden und erneut planen: wieder «No changes».
-#   2. Neu: frische Anlage mit product-realm-bootstrap und product-realm (roots/neu*), einmal mit allen Schaltern
+#   Frische Anlage mit product-realm-bootstrap und product-realm (roots/neu*), einmal mit allen Schaltern
 #      (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply muss je «No changes» zeigen.
 #
 # Testschlüssel und State entstehen nur im Arbeitsverzeichnis (gelöscht am Ende, ausser KEEP=1). Admin-Passwort und
@@ -82,26 +78,6 @@ expect_no_changes() { # <name> <verzeichnis> <log>
   echo "  $3: $(grep -E '^No changes\.' "$work/logs/$3.txt")"
   printf '%s\t%s\n' "$3" "No changes" >>"$work/summary.tsv"
 }
-# Plan mit moved-Blöcken: OpenTofu meldet reine Verschiebungen als «Plan: 0 to add, 0 to change, 0 to destroy.» (Exit 2).
-# Verlangt: genau <anzahl> Verschiebungen, <loeschungen> Löschungen (ab product-realm 1.0.0: Client-Rollen, Gruppe orgs,
-# Mapper groups, Gruppenrecht «groups»), <neu> neue Ressourcen (Mapper entra-groups) und sonst nichts (nichts ändern oder
-# ersetzen; keine Änderung an Outputs)
-expect_only_moves() { # <name> <verzeichnis> <log> <anzahl> [<loeschungen> [<neu>]]
-  local rc=0 log="$work/logs/$3.txt" moved others destroyed="${5:-0}" added="${6:-0}" removed
-  tf "$1" "$2" plan -no-color -detailed-exitcode >"$log" 2>&1 || rc=$?
-  moved="$(grep -c '^  # .* has moved to ' "$log" || true)"
-  others="$(grep -E '^  # .* (will be|must be)|^Changes to Outputs' "$log" | grep -vE ' will be destroyed$|entra_groups\[0\] will be created$' || true)"
-  removed="$(grep -E '^  # .* will be destroyed$' "$log" | grep -vE 'keycloak_role\.platform\[|keycloak_group\.orgs |group_membership_protocol_mapper\.groups\[|authorization_permission\.admin\["groups"\]' || true)"
-  if [ "$rc" = 1 ] || [ "$moved" != "$4" ] || [ -n "$others" ] || [ -n "$removed" ] || ! grep -q "^Plan: $added to add, 0 to change, $destroyed to destroy\\." "$log"; then
-    cat "$log"
-    echo "FEHLER: $3 zeigt mehr als die $4 Verschiebungen und $destroyed Löschungen (Exit $rc, $moved verschoben)" >&2
-    return 1
-  fi
-  grep -m 3 -E '^  # .* has moved to ' "$log"
-  echo "  … $moved Verschiebungen; $(grep -E '^Plan:' "$log")"
-  printf '%s\t%s\n' "$3" "nur $moved Verschiebungen: $(grep -E '^Plan:' "$log")" >>"$work/summary.tsv"
-}
-
 step "Keycloak starten ($image)"
 docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="$KC_ADMIN_USER" -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
@@ -112,57 +88,13 @@ grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || 
 
 step "Testschlüssel"
 clients=()
-for p in assets neu mini; do
+for p in neu mini; do
   for c in tofu iac platform admin sync mcp; do clients+=("$p-$c"); done
 done
 node lib/kc.ts keys "$work/keys" "${clients[@]}"
 echo "${#clients[@]} Schlüsselpaare in $work/keys"
 
-# ---------- 1. Assets: heutiger Stand, dann Modul mit moved-Blöcken
-
-step "Assets (3a148ae): Bootstrap als assets-tofu"
-cp -r fixtures/assets-3a148ae "$work/assets"
-mkdir -p "$work/assets/keys"
-cp "$work"/keys/assets-*.json "$work/assets/keys/"
-# Backend lokal statt S3 (Override-Dateien ersetzen den Block backend "s3")
-for d in "$work/assets" "$work/assets/bootstrap"; do printf 'terraform {\n  backend "local" {}\n}\n' >"$d/backend_override.tf"; done
-node lib/kc.ts product-tofu assets "$work/keys/assets-tofu.json"
-as_tofu assets
-tf_init assets-fixture-bootstrap "$work/assets/bootstrap" assets-bootstrap.tfstate
-tf_apply assets-fixture-bootstrap "$work/assets/bootstrap"
-node lib/kc.ts grant-realm-admin assets assets-iac
-
-step "Assets (3a148ae): infra/keycloak als assets-iac"
-as_iac assets
-tf_init assets-fixture "$work/assets" assets.tfstate
-tf_apply assets-fixture "$work/assets"
-expect_no_changes assets-fixture "$work/assets" "assets-heute-zweiter-plan"
-
-step "Assets mit Modul: Bootstrap (roots/assets-bootstrap, gleicher State)"
-as_tofu assets
-tf_init assets-module-bootstrap roots/assets-bootstrap assets-bootstrap.tfstate
-expect_only_moves assets-module-bootstrap roots/assets-bootstrap "assets-modul-bootstrap-plan" 2
-
-step "Assets mit Modul: Realm (roots/assets, gleicher State)"
-as_iac assets
-tf_init assets-module roots/assets assets.tfstate
-# Jede Ressource im State (ohne Datenquellen) muss genau einmal verschoben werden, ausser den Client-Rollen und der
-# Gruppe orgs und dem Mapper groups (ohne moved-Block, werden gelöscht); das Gruppenrecht wird verschoben und dann
-# gelöscht (Instanz «groups»); neu entsteht der Mapper entra-groups (Assets: entra = true)
-state="$(tf assets-fixture "$work/assets" state list)"
-roles="$(grep -c '^keycloak_role\.platform\[' <<<"$state" || true)"
-gmap="$(grep -c '^keycloak_openid_group_membership_protocol_mapper\.groups\[' <<<"$state" || true)"
-total="$(grep -vc '^data\.' <<<"$state")"
-expect_only_moves assets-module roots/assets "assets-modul-plan" "$((total - roles - gmap - 1))" "$((roles + gmap + 2))" 1
-
-step "Assets mit Modul: Verschiebungen anwenden, erneut planen"
-tf_apply assets-module roots/assets
-expect_no_changes assets-module roots/assets "assets-modul-plan-nach-apply"
-as_tofu assets
-tf_apply assets-module-bootstrap roots/assets-bootstrap
-expect_no_changes assets-module-bootstrap roots/assets-bootstrap "assets-modul-bootstrap-plan-nach-apply"
-
-# ---------- 2. Frische Anlage mit dem Modul
+# ---------- Frische Anlage mit dem Modul
 
 for variant in "neu true" "mini false"; do
   read -r p switches <<<"$variant"

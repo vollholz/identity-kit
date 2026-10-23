@@ -3,8 +3,7 @@
 OpenTofu-Modul für den Realm einer App auf **https://identity.project-suite.ch** (Keycloak 26.8.1): Realm-Einstellungen,
 Client-Richtlinien, Clients, Mapper, Scopes, Rechte der Service Accounts, Texte. Jede App
 ruft es auf, statt IaC zu kopieren. Spezifikation [Kap. 2, 3, 12, 15](../../docs/spezifikation.md#3-realm-des-produkts).
-Herausgelöst aus vollholz/assets `infra/keycloak` (`3a148ae`); für Assets ergibt der Aufruf denselben Realm
-([Nachweis](#nachweis)).
+Herausgelöst aus vollholz/assets `infra/keycloak`.
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
@@ -151,229 +150,11 @@ smtp-test) login_iac
 
 Neue Version des Moduls: `ref` erhöhen, `kc.sh init -upgrade`, Plan prüfen und freigeben.
 
-## Umstellung einer bestehenden App
+## Aufruf aus Assets
 
-Eine App, deren Realm schon mit eigener IaC nach Assets-Muster läuft, stellt ohne Neuanlage um:
-
-1. `infra/keycloak/*.tf` mit Realm-Inhalt durch den Modulaufruf ersetzen; `versions.tf` (Backend, Verschlüsselung,
-   Provider) und den State-Key behalten. Den `import`-Block auf `module.realm.keycloak_realm.this` umstellen.
-2. `moved`-Blöcke für jede Ressource (Liste für Assets unten). Schlüssel, die sich ändern: Service Accounts
-   `service["<produkt>-admin"]` → `service["admin"]`, Schalter-Ressourcen erhalten `[0]`, Lokalisierungen
-   `keycloak_realm_localization.<sprache>` → `keycloak_realm_localization.this["<sprache>"]`.
-3. Entfällt in der App: `lookup.ts`, `org-mapper.ts`, `localization-de*.json`, `localization-account-de*.json`,
-   `localization-invite.json` (im Modul), die Tests dieser Texte. Es bleiben `platform.json`, `platform.ts`,
-   `localization-theme.json`, `keys/`, `kc.sh` (SMTP-Test aus dem Modul, [Aufruf](#aufruf)), Test für `platform.json` und
-   Schlüssel.
-4. `kc.sh init` (Modul holen), `kc.sh plan`: nur Verschiebungen (`# … has moved to module.realm…`) und
-   «Plan: 0 to add, 0 to change, 0 to destroy.» – OpenTofu meldet Verschiebungen nicht als «No changes» (Exit 2). Jede
-   andere Zeile (`will be updated`, `must be replaced`, `will be created`) ist ein Unterschied und vor dem Apply zu klären.
-   Ab 1.0.0 neu und gewollt: Gelöscht werden die Client-Rollen von `<produkt>-platform`, die Gruppe `/orgs`, der Mapper `groups` und das
-   Gruppenrecht «`<produkt>-admin`: Gruppen» (Rollen liegen in der App-Datenbank); der Plan zeigt dafür `will be destroyed`, und mit `entra` entsteht `entra-groups`.
-5. Apply nach Freigabe (schreibt nur den State), Kontrollplan: «No changes». Ebenso für `bootstrap/`.
-
-### Assets
-
-Die Liste prüft `modules/test/keycloak.sh` gegen Keycloak 26.8.1 (`modules/test/roots/assets/moved.tf`); ein Test hält
-sie hier gleich. Für die Client-Rollen, die Gruppe `/orgs`, den Mapper `groups` und das Gruppenrecht gibt es seit 1.0.0 keinen `moved`-Block;
-sie entfallen mit dem Apply.
-
-`infra/keycloak/moved.tf` (Aufruf als `module "realm"` mit `m2m`, `mcp`, `entra` = `true`,
-`mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]`, `smtp = { host = "mail.infomaniak.com",
-from = "noreply@project-suite.ch", user = "noreply@project-suite.ch" }`):
-
-```hcl
-moved {
-  from = keycloak_realm.assets
-  to   = module.realm.keycloak_realm.this
-}
-moved {
-  from = keycloak_realm_events.assets
-  to   = module.realm.keycloak_realm_events.this
-}
-
-# policies.tf
-moved {
-  from = keycloak_realm_client_policy_profile.code_flow
-  to   = module.realm.keycloak_realm_client_policy_profile.code_flow
-}
-moved {
-  from = keycloak_realm_client_policy_profile.confidential
-  to   = module.realm.keycloak_realm_client_policy_profile.confidential
-}
-moved {
-  from = keycloak_realm_client_policy_profile.m2m_dpop
-  to   = module.realm.keycloak_realm_client_policy_profile.m2m_dpop[0]
-}
-moved {
-  from = keycloak_realm_client_policy_profile_policy.code_flow
-  to   = module.realm.keycloak_realm_client_policy_profile_policy.code_flow
-}
-moved {
-  from = keycloak_realm_client_policy_profile_policy.confidential
-  to   = module.realm.keycloak_realm_client_policy_profile_policy.confidential
-}
-moved {
-  from = keycloak_realm_client_policy_profile_policy.m2m_dpop
-  to   = module.realm.keycloak_realm_client_policy_profile_policy.m2m_dpop[0]
-}
-
-# clients.tf
-moved {
-  from = keycloak_openid_client.api
-  to   = module.realm.keycloak_openid_client.api
-}
-moved {
-  from = keycloak_openid_client.platform
-  to   = module.realm.keycloak_openid_client.platform
-}
-moved {
-  from = keycloak_openid_client.mcp
-  to   = module.realm.keycloak_openid_client.mcp[0]
-}
-moved {
-  from = keycloak_openid_client.mcp_cli
-  to   = module.realm.keycloak_openid_client.mcp_cli[0]
-}
-moved {
-  from = keycloak_openid_audience_protocol_mapper.aud_api
-  to   = module.realm.keycloak_openid_audience_protocol_mapper.aud_api
-}
-moved {
-  from = keycloak_openid_client_default_scopes.platform
-  to   = module.realm.keycloak_openid_client_default_scopes.platform
-}
-moved {
-  from = keycloak_openid_client_optional_scopes.platform
-  to   = module.realm.keycloak_openid_client_optional_scopes.platform
-}
-moved {
-  from = keycloak_openid_client_default_scopes.mcp
-  to   = module.realm.keycloak_openid_client_default_scopes.mcp[0]
-}
-moved {
-  from = keycloak_openid_client_optional_scopes.mcp
-  to   = module.realm.keycloak_openid_client_optional_scopes.mcp[0]
-}
-moved {
-  from = keycloak_openid_client_default_scopes.mcp_cli
-  to   = module.realm.keycloak_openid_client_default_scopes.mcp_cli[0]
-}
-moved {
-  from = keycloak_openid_client_optional_scopes.mcp_cli
-  to   = module.realm.keycloak_openid_client_optional_scopes.mcp_cli[0]
-}
-moved {
-  from = keycloak_role.platform_admin
-  to   = module.realm.keycloak_role.platform_admin
-}
-
-# admin.tf (Schlüssel der Service Accounts: admin, sync statt der Client-ID)
-moved {
-  from = keycloak_openid_client.service["assets-admin"]
-  to   = module.realm.keycloak_openid_client.service["admin"]
-}
-moved {
-  from = keycloak_openid_client.service["assets-sync"]
-  to   = module.realm.keycloak_openid_client.service["sync"]
-}
-moved {
-  from = keycloak_openid_client_service_account_role.manage_realm["assets-admin"]
-  to   = module.realm.keycloak_openid_client_service_account_role.manage_realm["admin"]
-}
-moved {
-  from = keycloak_openid_client_service_account_role.manage_realm["assets-sync"]
-  to   = module.realm.keycloak_openid_client_service_account_role.manage_realm["sync"]
-}
-moved {
-  from = keycloak_openid_client_client_policy.admin_service_account
-  to   = module.realm.keycloak_openid_client_client_policy.admin_service_account
-}
-moved {
-  from = keycloak_openid_client_authorization_permission.admin
-  to   = module.realm.keycloak_openid_client_authorization_permission.admin
-}
-
-# scopes.tf
-moved {
-  from = keycloak_openid_client_scope.permission
-  to   = module.realm.keycloak_openid_client_scope.permission
-}
-moved {
-  from = keycloak_openid_client_scope.mcp
-  to   = module.realm.keycloak_openid_client_scope.mcp[0]
-}
-moved {
-  from = keycloak_openid_audience_protocol_mapper.mcp_scope_audience
-  to   = module.realm.keycloak_openid_audience_protocol_mapper.mcp_scope_audience[0]
-}
-moved {
-  from = terraform_data.organization_mapper
-  to   = module.realm.terraform_data.organization_mapper
-}
-
-# entra.tf
-moved {
-  from = keycloak_openid_client_service_account_role.manage_identity_providers
-  to   = module.realm.keycloak_openid_client_service_account_role.manage_identity_providers[0]
-}
-moved {
-  from = keycloak_authentication_flow.entra_first_login
-  to   = module.realm.keycloak_authentication_flow.entra_first_login[0]
-}
-moved {
-  from = keycloak_authentication_execution.entra_first_login_deny
-  to   = module.realm.keycloak_authentication_execution.entra_first_login_deny[0]
-}
-moved {
-  from = keycloak_authentication_execution_config.entra_first_login_deny
-  to   = module.realm.keycloak_authentication_execution_config.entra_first_login_deny[0]
-}
-moved {
-  from = keycloak_openid_user_session_note_protocol_mapper.identity_provider
-  to   = module.realm.keycloak_openid_user_session_note_protocol_mapper.identity_provider
-}
-
-# localization.tf
-moved {
-  from = keycloak_realm_localization.de
-  to   = module.realm.keycloak_realm_localization.this["de"]
-}
-moved {
-  from = keycloak_realm_localization.en
-  to   = module.realm.keycloak_realm_localization.this["en"]
-}
-```
-
-`infra/keycloak/bootstrap/main.tf` (Aufruf als `module "bootstrap"`, `product = "assets"`,
-`iac_jwks = file("${path.module}/../keys/assets-iac.json")`):
-
-```hcl
-moved {
-  from = keycloak_realm.assets
-  to   = module.bootstrap.keycloak_realm.this
-}
-moved {
-  from = keycloak_openid_client.iac
-  to   = module.bootstrap.keycloak_openid_client.iac
-}
-```
-
-Der vollständige Aufruf für Assets steht in `modules/test/roots/assets/main.tf` (dort mit Testschlüsseln und
-lokalem Backend). In Assets heissen die Werte `catalog = jsondecode(file("${path.module}/platform.json"))`,
-`theme_texts = jsondecode(file("${path.module}/localization-theme.json"))`, `jwks` aus `keys/assets-<client>.json`.
-
-### Unterschiede zu Assets infra/keycloak
-
-Ergebnis in Keycloak gleich (Nachweis unten); anders ist nur der Aufbau:
-
-- Teile hinter Schaltern: `m2m` (DPoP-Richtlinie), `mcp` (MCP-Clients, -Scope), `entra` (inkl. Weiterleitung
-  `/auth/entra/*` am BFF-Client). Offline-Sitzungen (30/90 Tage) setzt das Modul immer.
-- SMTP ist ohne Angabe aus (`smtp = null`); Assets nennt Server, Absender und Konto im Aufruf (oben), Anzeigename ist
-  `display_name`.
-- `lookup.ts` und `org-mapper.ts` erhalten Instanz, Realm und IaC-Client aus dem Modul; aus der Umgebung kommt nur der
-  private Schlüssel (`KEYCLOAK_IAC_PRIVATE_KEY`). Am `kc.sh` von Assets ändert sich nur der Aufruf des SMTP-Tests
-  ([Aufruf](#aufruf)).
-- Der Betreff der Einladungs-E-Mail nennt `display_name` statt fest «Assets».
+In Assets heissen die Werte `theme_texts = jsondecode(file("${path.module}/localization-theme.json"))`, `jwks` aus
+`keys/assets-<client>.json`; `catalog` hat nur noch `scopes`. Eine Umstellung bestehender IaC mit `moved`-Blöcken gibt es nicht
+(Greenfield).
 
 ### Gruppen aus Entra
 
@@ -409,11 +190,8 @@ Voraussetzungen ausserhalb des Moduls: In der Entra-App-Registrierung muss der G
 |---|---|---|
 | Format, Validierung, tflint | `tofu fmt -check -recursive modules`, je Modul `tofu init -backend=false && tofu validate`, `tflint --config ../.tflint.hcl` | nein |
 | Modultests (Namen, Schalter, Texte, Validierungen; Provider nachgebildet) | je Modul `tofu test` | nein |
-| Texte, Hilfsskripte, `moved`-Liste | `node --test modules/product-realm/test/*.test.ts modules/test/*.test.ts` | nein |
-| **gleiches Ergebnis wie Assets, frische Anlage** | `modules/test/keycloak.sh` | Docker, 26.8.1 |
+| Texte, Hilfsskripte | `node --test modules/product-realm/test/*.test.ts` | nein |
+| **frische Anlage** | `modules/test/keycloak.sh` | Docker, 26.8.1 |
 
-`keycloak.sh` legt in einer Wegwerf-Instanz Assets wie in Produktion an (`assets-tofu` nur mit `create-realm` →
-Bootstrap → `realm-admin` für `assets-iac` → `infra/keycloak` von `3a148ae` aus `modules/test/fixtures`), plant dann
-denselben State mit dem Modul und den `moved`-Blöcken (Verschiebungen; zusätzlich entfallen die Rollen, die Gruppe `/orgs`, der Mapper `groups` und das Gruppenrecht; neu `entra-groups`), wendet sie an und plant erneut («No
-changes»). Danach zwei frische Produkte mit beiden Modulen, einmal mit allen Schaltern, einmal ohne; der zweite Plan
-zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.
+`keycloak.sh` legt in einer Wegwerf-Instanz zwei frische Produkte mit beiden Modulen an (Bootstrap als `<produkt>-tofu`, dann
+Realm als `<produkt>-iac`), einmal mit allen Schaltern, einmal ohne; der zweite Plan zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.

@@ -190,6 +190,7 @@ export class KeycloakAdmin {
   async getOrg(id: string): Promise<KcOrg | null> { return (await this.call<KcOrg>('GET', `/organizations/${seg(id)}`, undefined, { ok: [404] })).data ?? null; }
   async createOrg(rep: Omit<KcOrg, 'id'>): Promise<string> { return KeycloakAdmin.idFrom((await this.call('POST', '/organizations', rep, { what: 'Organisation anlegen' })).location); }
   async updateOrg(org: KcOrg): Promise<void> { await this.call('PUT', `/organizations/${seg(org.id)}`, org, { what: 'Organisation ändern' }); }
+  async deleteOrg(id: string): Promise<void> { await this.call('DELETE', `/organizations/${seg(id)}`, undefined, { ok: [404], what: 'Organisation löschen' }); }
   members(orgId: string) { return this.page<KcUser>(`/organizations/${seg(orgId)}/members?briefRepresentation=false`); }
   async member(orgId: string, userId: string): Promise<KcUser | null> {
     const r = await this.call<KcUser>('GET', `/organizations/${seg(orgId)}/members/${seg(userId)}`, undefined, { ok: [404] });

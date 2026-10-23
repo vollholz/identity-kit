@@ -3840,6 +3840,10 @@
           "enabled": {
            "type": "boolean"
           },
+          "groupRolePrefix": {
+           "description": "Präfix der Rollengruppen in Keycloak (GROUP_ROLE_PREFIX, z. B. `/orgs`)",
+           "type": "string"
+          },
           "organization": {
            "type": "string"
           },
@@ -3903,7 +3907,8 @@
           "platformAdmin",
           "canManageMembers",
           "rolesManageable",
-          "roles"
+          "roles",
+          "groupRolePrefix"
          ],
          "type": "object"
         }
@@ -7790,6 +7795,24 @@
       }
      }
     ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": false,
+        "properties": {
+         "reason": {
+          "description": "Grund für das Protokoll",
+          "maxLength": 500,
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
     "responses": {
      "200": {
       "content": {
@@ -7878,6 +7901,140 @@
     ]
    }
   },
+  "/v1/platform/organizations/{alias}/roles": {
+   "get": {
+    "description": "Nur lesend, im Format von `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation mit Anzahl Personen. Nur platform-admin.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "alias",
+      "required": true,
+      "schema": {
+       "maxLength": 63,
+       "minLength": 1,
+       "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "customPermissions": {
+           "items": {
+            "enum": [
+             "tenant:read",
+             "tenant:admin",
+             "schema:read",
+             "schema:write",
+             "object:read",
+             "object:write",
+             "object:delete",
+             "connection:read",
+             "connection:write",
+             "connection:sync",
+             "credential:read",
+             "credential:use",
+             "credential:write",
+             "mapping:edit",
+             "mapping:activate",
+             "proposal:read",
+             "proposal:decide",
+             "webhook:read",
+             "webhook:admin",
+             "acl:read",
+             "acl:admin",
+             "audit:read",
+             "comment:write",
+             "comment:moderate",
+             "attachment:write",
+             "attachment:delete",
+             "report:share",
+             "view:share",
+             "members:admin",
+             "connector:activate",
+             "connector:draft",
+             "assistant:use"
+            ],
+            "type": "string"
+           },
+           "type": "array"
+          },
+          "items": {
+           "items": {
+            "$ref": "#/components/schemas/Role"
+           },
+           "type": "array"
+          },
+          "maxCustom": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "items",
+          "maxCustom",
+          "customPermissions"
+         ],
+         "type": "object"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    },
+    "summary": "Rollen einer Organisation",
+    "tags": [
+     "Plattform: Organisationen"
+    ]
+   }
+  },
   "/v1/platform/organizations/{alias}/suspend": {
    "post": {
     "parameters": [
@@ -7893,6 +8050,24 @@
       }
      }
     ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": false,
+        "properties": {
+         "reason": {
+          "description": "Grund für das Protokoll",
+          "maxLength": 500,
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
     "responses": {
      "200": {
       "content": {

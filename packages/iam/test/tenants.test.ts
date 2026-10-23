@@ -46,6 +46,17 @@ describe('Mandanten verwalten', { skip }, () => {
     await assert.rejects(setTenantStatus(ctx, t.admin, t.runtime, 'unbekannt', 'suspended'), /nicht gefunden/);
   });
 
+  test('Protokoll scheitert: kein Mandant angelegt, Status unverändert (eine Transaktion)', async () => {
+    const broken = { schema: 'notes', audit: { write: async () => { throw new Error('Protokoll nicht erreichbar'); } } };
+    await assert.rejects(createTenant(broken, t.admin, t.runtime, 'waise', 'Waise AG'), /Protokoll nicht erreichbar/);
+    assert.equal(await findTenant(t.runtime, 'waise'), null, 'Alias nicht verwaist belegt');
+    const tn = await createTenant(ctx, t.admin, t.runtime, 'waise', 'Waise AG');
+    assert.equal(tn.status, 'active', 'erneuter Versuch geht');
+    await assert.rejects(setTenantStatus(broken, t.admin, t.runtime, 'waise', 'suspended', 'Test'), /Protokoll nicht erreichbar/);
+    assert.equal((await findTenant(t.runtime, 'waise'))!.status, 'active', 'Status zurückgerollt');
+    assert.deepEqual(await actions(tn.id), ['tenant.provisioned']);
+  });
+
   test('auflisten über alle Mandanten; finden nur nach ASCII-Alias (Kelvin-Zeichen trifft nicht)', async () => {
     await createTenant(ctx, t.admin, t.runtime, 'kcme');
     assert.ok((await listTenants(t.runtime)).some(x => x.alias === 'kcme'), 'Laufzeit sieht alle über app.platform_tenants()');

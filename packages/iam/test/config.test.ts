@@ -53,6 +53,10 @@ test('Form und Bereiche', () => {
   const e = errorsOf({ ...base, DPOP_MODE: 'immer', SESSION_TTL: '8 Stunden', DATABASE_POOL_MAX: 'viele', ENTRA_IDP_SLOTS: '300', MEMBER_SYNC_INTERVAL: '30s', KEYCLOAK_MGMT_INVITE_LIFESPAN: '31d', SESSION_SECRET: 'kurz', ENCRYPTION_KEYS: 'k1:abc' }).join('\n');
   for (const m of [/DPOP_MODE: erlaubt/, /SESSION_TTL: ungültige Dauer/, /DATABASE_POOL_MAX: ganze Zahl/, /ENTRA_IDP_SLOTS: 1 bis 250/, /MEMBER_SYNC_INTERVAL: mindestens 1m/, /INVITE_LIFESPAN: 1h bis 30d/, /SESSION_SECRET: jeder Schlüssel/, /ENCRYPTION_KEYS: Schlüssel k1 muss 32 Bytes/]) assert.match(e, m);
   assert.deepEqual(errorsOf({ ...base, MEMBER_SYNC_INTERVAL: '0' }), []);
+  // GROUP_ROLE_PREFIX einheitlich mit führendem und ohne abschliessenden «/» (Token, Verwaltung und Status gleich)
+  for (const v of ['orgs', '/orgs/', 'orgs/']) assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: v }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/orgs', v);
+  assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: 'kunden/orgs' }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/kunden/orgs');
+  for (const v of ['/', 'a//b', '//orgs', '/mit leer']) assert.match(errorsOf({ ...base, GROUP_ROLE_PREFIX: v }).join('\n'), /GROUP_ROLE_PREFIX: Gruppenpfad/, v);
   assert.equal(parseDuration('0'), 0);
   assert.equal(parseDuration('90s'), 90_000);
 });

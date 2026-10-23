@@ -635,3 +635,52 @@ Audit-Trigger darauf warten.
   :alias/clients…` nur platform-admin), standardmässig aktiv; Tag `Verwaltung: Maschinen-Clients`. `personOf(req)`
   (nur Personen, nicht über MCP) ist exportiert und dient auch dem Modul `admin`.
 
+
+### 13.13 Modul `admin`, `sync` mit `MemberSync` (Teil-PR 6b)
+
+- **`AdminService`** (`src/admin.ts`, aus Assets `modules/admin/service.ts`, ohne Fastify) baut `createIam` als
+  `iam.admin`, wenn `KEYCLOAK_MGMT_CLIENT_ID` gesetzt ist (sonst `null`); der Abruf der Admin-API lässt sich mit
+  `keycloakFetch` ersetzen (Tests: `KeycloakFake.fetch`). Protokoll über den `AuditPort`, Mandanten über `tenants`
+  mit `resolver` (Sperren wirkt sofort in dieser Instanz).
+- **Modul `admin`** (`src/http/admin.ts`, aus Assets `modules/admin/index.ts`): `GET /v1/admin/status`,
+  `…/admin/members…`, `…/platform/organizations/:alias/members…`, `…/platform/organizations…` mit Sperren und
+  Entsperren; standardmässig aktiv (ohne Verwaltungs-Client 503 nach Spez. 9.1 Nr. 11). Tags
+  `Verwaltung: Mitglieder und Rollen` und `Plattform: Organisationen` (in `IAM_API_TAGS`). Setzt `iam.memberAccess`
+  (echte Rollen für `GET /v1/acl/effective`), wenn `ROLE_SOURCE=groups`. Die Routen der Entra-Anbindung (`…/entra…`,
+  `addFromEntra`) folgen mit Teil-PR 7, die Rollen (`/v1/roles`) mit 6c.
+- **Vertragszusätze** (Hauptsession, 2026-10-23):
+  - `GET /v1/admin/status` liefert `groupRolePrefix` (aus `GROUP_ROLE_PREFIX`, mit führendem und ohne abschliessenden
+    `/`, z. B. `/orgs`) für den Gruppenhinweis der Oberfläche (iam-web #18).
+  - `POST …/suspend` und `…/resume` erklären den Body `{ reason?: string (≤ 500) }` im Schema; ohne Body gilt `{}`.
+    `@fastify/swagger` schreibt für jede Route mit Body `requestBody.required: true`; `optionalBodies` (als
+    `transformObject`) weist die mit `'x-body-optional': true` markierten Routen als optional aus.
+  - Letzte Person mit org-admin (Spez. 9.1 Nr. 6): Es zählen nur **aktive** – Mitglied, Konto nicht gesperrt, keine
+    offene Einladung und nicht «Passwort setzen» offen ohne Zugriff (wie `status: 'active'` in der Liste). Assets
+    (`service.ts:232` `activeAdmins`, `:664` `lastAdminGuard`) zählt auch eine nie angenommene Einladung mit angelegtem
+    Konto, weil das neue Konto ab der Einladung Mitglied ist.
+  - `GET /v1/platform/organizations/{alias}/roles` (Frontend #21): Rollen einer anderen Organisation für die
+    Plattform-Administration, nur lesend, im Format von `GET /v1/roles` (Schema `Role`, `roleList`, `MAX_CUSTOM_ROLES`
+    im Kern; das Modul `roles` in 6c nutzt dieselben Bausteine). Mit Anzahl Personen je Rolle; Organisation ohne
+    Mandant: nur vordefinierte Rollen, kein Mandant angelegt. Auch im Auszug `iam-web/test/fixtures/openapi-iam.json`
+    (zusammen mit `groupRolePrefix` und dem Body von suspend/resume).
+- **Codex zu #24**: `createTenant` und `setTenantStatus` schreiben Mandant bzw. Status und Protokoll in einer
+  Transaktion der Laufzeit (scheitert das Protokoll, bleibt kein verwaister Mandant bzw. kein ungeprüfter Status).
+  Sperren und Entsperren laufen unter der Sperre der Organisation (`admin:<alias>`) und lesen die Organisation darunter
+  neu. Niemand entfernt sich selbst, auch nicht über die Plattform-Route. (Assets: `ops/tenants.ts` und
+  `service.ts:622/795` gleich wie vorher im Paket.)
+- **Unabhängige Review zu #24**: (A) Der Schutz des letzten Admins greift nur, wenn die Zielperson selbst aktiv ist –
+  eine feststeckende einzige Einladung mit org-admin lässt sich zurückziehen. (B) Ein gesperrter Mandant ohne
+  `kc_org_id` gilt nicht als die Organisation mit gleichem Alias (`orgMatches` false); die Verwaltung antwortet 409
+  `unbound-suspended` mit Hinweis auf `relinkTenant` und bindet nichts. (C) `GROUP_ROLE_PREFIX` wird beim Laden
+  einheitlich mit führendem und ohne abschliessenden `/` geführt (`normalizeGroupPrefix`); leere Teile und Leerzeichen
+  sind ein Konfigurationsfehler. (D) `optionalBodies` gibt bei Swagger 2 (`swaggerObject`) das Dokument unverändert
+  zurück.
+- **Alias nur ASCII klein** auch in der Verwaltung und im Abgleich (Zwischenspeicher der Organisationen, Zuordnung zum
+  Mandanten, Anlegen): Assets nutzt `toLowerCase()` (`service.ts:152/154/695/697/698/736`, `sync.ts:144`), das das
+  Kelvin-Zeichen zu «k» faltet.
+- **`sync`** (`src/sync.ts`, aus Assets `modules/admin/sync.ts` und `worker/member-sync.ts`): `orgMatches`,
+  `syncTenantName`, `syncTenantMembers`, `syncAllMembers` mit `{ schema, audit }` als erstem Parameter;
+  `new MemberSync(cfg, db, { schema, audit?, log?, fetch? })` wie 3.1 (Sperre `LOCKS.memberSync`).
+- **Offen**: `GET /v1/people`, `GET /v1/people/{id}` (Spez. 9.2 und 15.2: im Plugin, Vertrag der
+  Oberflächen-Bausteine; Assets `modules/catalog/people.ts`) sind noch keinem Teil-PR zugeordnet. Vorschlag: mit 6c.
+  Die Tests hier prüfen das Personenverzeichnis über die Tabelle `principal`.

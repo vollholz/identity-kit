@@ -60,6 +60,15 @@ describe('Eigene Rollen der Organisation', () => {
     expect(withCustomRoles(CATALOG, [])).toBe(CATALOG);
   });
 
+  it('ohne tenant:read auf Ebene der Organisation (Rechte nur über Freigaben): kein Abruf von /v1/roles', async () => {
+    const api = mockIamApi();
+    vi.stubGlobal('fetch', api.fetch);
+    const wrapper = ({ children }: { children: ReactNode }) => <StaticIam me={{ roles: [], permissions: [], grantedPermissions: ['note:read'] }}>{children}</StaticIam>;
+    const { result } = renderHook(() => useAuthz(), { wrapper });
+    await waitFor(() => expect(result.current.catalog).toBeDefined());
+    expect(api.calls.map(c => new URL(c.url).pathname)).not.toContain('/v1/roles');
+  });
+
   it('useAuthz lädt sie aus /v1/roles; ohne Antwort bleibt der Schlüssel', async () => {
     vi.stubGlobal('fetch', mockIamApi({ 'GET /v1/roles': () => json({ items: [own], maxCustom: 50, customPermissions: [] }) }).fetch);
     const { result } = renderHook(() => useAuthz(), { wrapper: wrap() });

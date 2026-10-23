@@ -9,7 +9,7 @@ Tests für Apps mit dem Baukasten (Spezifikation Kap. 14). Herkunft: vollholz/as
 | `startMockIdp({ audience, realm?, exchange? })`, `dpopKey()` | Discovery, JWKS, Tokens, Token Exchange (RFC 8693) mit DPoP, DPoP-Proofs |
 | `claimsFor({ personClientId, roleClientId?, groupPrefix? })` | `user()` und `client()`: Claims wie Keycloak (Organisationen, Rollengruppen, Service Accounts) |
 | `KeycloakFake` | Admin-API als `fetch`-Ersatz: Organisationen, Konten, Gruppen, Einladungen, Identity Provider |
-| `checkCatalog(GET /v1/authz/catalog, { product?, acl?, members? })` | reservierte Namen, Schlüsselregeln, Vollständigkeit (Kap. 8) |
+| `checkCatalog(GET /v1/authz/catalog, { product?, acl?, members? })` | reservierte Namen, Schlüsselregeln, Vollständigkeit (Kap. 8); ab 0.2.0 Stichwörter der Gruppen in Rollenbeschreibungen (`groups[].match`) und Rechte nur für Personen (`personOnly`), wenn der Katalog sie liefert |
 | `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`, `publicExecuteProblems`, `bypassRoleProblems` | allgemeine RLS-Prüfungen; liefern Befunde als Liste |
 | `routeCollector`, `installProbes`, `unreached`, `idSource`, `normalize`, `leaks`, `coverageProblems`, `routesOf`, `openApiPath` | Gerüst für den Isolations-Durchlauf über alle Routen |
 

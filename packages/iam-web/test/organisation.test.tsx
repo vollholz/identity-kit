@@ -4,8 +4,9 @@
  * die Organisation des Tabs nicht mehr verfügbar ist, Cache bei anderem Mandanten, andere Person im selben Tab.
  * Aus vollholz/assets `web/src/auth/organisation.test.tsx`.
  */
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, useQuery } from '@tanstack/react-query';
 import { act, render, waitFor, within } from '@testing-library/react';
+import { memo } from 'react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Me } from '../src/index.ts';
@@ -25,7 +26,7 @@ const ORGS: Record<string, { id: string; name: string }> = { demo: { id: 't-demo
 
 /** BFF wie Spezifikation 5.1: eine Sitzung, Vorgabe `def`, X-Tenant wählt je Anfrage, nur Organisationen im Token. */
 function server() {
-  const s = { def: 'demo' as string | null, orgs: ['demo', 'muster'], removed: new Set<string>(), calls: [] as { method: string; path: string; tenant: string | null }[] };
+  const s = { def: 'demo' as string | null, orgs: ['demo', 'muster'], removed: new Set<string>(), person: ME.person, switchStatus: 200, calls: [] as { method: string; path: string; tenant: string | null }[] };
   const allowed = (x: string | null) => !!x && s.orgs.includes(x) && !s.removed.has(x);
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(String(input), init);
@@ -35,7 +36,7 @@ function server() {
     if (path === '/auth/me') {
       const ok = allowed(tn);
       const me: Me = {
-        ...ME, tenant: ok ? { id: ORGS[tn!]!.id, alias: tn!, name: ORGS[tn!]!.name } : null, organizations: s.orgs,
+        ...ME, person: s.person, tenant: ok ? { id: ORGS[tn!]!.id, alias: tn!, name: ORGS[tn!]!.name } : null, organizations: s.orgs,
         organizationNames: Object.fromEntries(s.orgs.map(o => [o, ORGS[o]!.name])), selectedOrganization: s.def,
         tenantError: ok ? null : s.removed.has(tn!) ? 'Du wurdest aus dieser Organisation entfernt. Bitte melde dich neu an.' : `Kein Zugriff auf «${tn}».`,
         permissions: ok ? ME.permissions : [],
@@ -44,6 +45,7 @@ function server() {
     }
     if (path === '/auth/logout' && req.method === 'POST') return json({ redirect: '/' });
     if (path === '/auth/switch' && req.method === 'POST') {
+      if (s.switchStatus === 401) return json({ title: 'Nicht angemeldet', status: 401 }, 401);
       const { org } = (await req.json()) as { org: string };
       if (!s.orgs.includes(org)) return json({ title: 'Organisation nicht erlaubt', status: 403 }, 403);
       s.def = org;
@@ -51,7 +53,8 @@ function server() {
     }
     if (!allowed(tn)) return json({ title: 'Kein Mitglied mehr', status: 403 }, 403);
     if (path === '/v1/notes' && req.method === 'POST') return json({ id: 'n1', tenant: tn }, 201);
-    if (path === '/v1/notes') return json({ items: [{ id: `n-${tn}` }] });
+    // Daten je Person und Organisation (ID), damit die Tests sehen, wessen Daten die Oberfläche zeigt
+    if (path === '/v1/notes') return json({ items: [{ id: `n-${tn}` }], owner: `${s.person.subject}@${ORGS[tn!]!.id}` });
     return json({ title: 'Nicht gefunden', status: 404 }, 404);
   }));
   return s;
@@ -63,6 +66,12 @@ async function openTab(storage: Storage) {
   vi.stubGlobal('sessionStorage', storage);
   const iam = await import('../src/index.ts');
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Daten der App unter eigenem Schlüssel, in einer Komponente, die die Sitzung nicht liest (memo, keine Props): zeichnet
+  // nach einem Wechsel nur neu, wenn die Sitzung sie neu einhängt
+  const Notes = memo(function Notes() {
+    const q = useQuery({ queryKey: ['notes'], staleTime: Infinity, queryFn: () => iam.iamFetch<{ owner: string }>('/v1/notes') });
+    return <p>Daten von: {q.data?.owner ?? '…'}</p>;
+  });
   function Probe() {
     const { me, switchOrg, logout, orgName } = iam.useIam();
     return (
@@ -75,7 +84,7 @@ async function openTab(storage: Storage) {
       </div>
     );
   }
-  const view = render(<iam.IamProvider product="Notizen" queryClient={qc}><Probe /></iam.IamProvider>);
+  const view = render(<iam.IamProvider product="Notizen" queryClient={qc}><Probe /><Notes /></iam.IamProvider>);
   return { qc, view, in: within(view.container as HTMLElement) };
 }
 
@@ -152,19 +161,42 @@ describe('Organisation je Tab (zwei Tabs, eine Sitzung)', () => {
     expect(JSON.parse(storage.getItem('iam.tab.org')!)).toMatchObject({ alias: 'muster' });
   });
 
-  it('anderer Mandant im Tab (gleicher Alias, neue ID): Cache der App wird geleert, /auth/me bleibt', async () => {
+  it('anderer Mandant im Tab (gleicher Alias, neue ID): Cache der App geleert, Oberfläche zeigt nur noch neue Daten, /auth/me bleibt', async () => {
     server();
     const tab = await openTab(new MemoryStorage());
-    expect(await tab.in.findByText('Organisation: Demo AG')).toBeInTheDocument();
-    tab.qc.setQueryData(['notes'], ['aus der alten Organisation']);
+    expect(await tab.in.findByText('Daten von: sub-anna@t-demo')).toBeInTheDocument();
     tab.qc.setQueryData(['iam', 'roles'], ['auch Daten des Pakets']);
     ORGS.demo = { id: 't-demo-neu', name: 'Demo AG' };
     try {
       await act(async () => { await tab.qc.refetchQueries({ queryKey: ['iam', 'me'] }); });
-      expect(tab.qc.getQueryData(['notes'])).toBeUndefined();
       expect(tab.qc.getQueryData(['iam', 'roles'])).toBeUndefined();
       expect(tab.qc.getQueryData<Me>(['iam', 'me'])?.tenant?.id).toBe('t-demo-neu');
+      // die Komponente der App hängt neu ein und lädt; die alten Daten stehen nicht mehr da
+      expect(await tab.in.findByText('Daten von: sub-anna@t-demo-neu')).toBeInTheDocument();
+      expect(tab.in.queryByText('Daten von: sub-anna@t-demo')).toBeNull();
     } finally { ORGS.demo = { id: 't-demo', name: 'Demo AG' }; }
+  });
+
+  it('andere Person im selben Tab und derselben Organisation (in einem anderen Tab neu angemeldet): Cache geleert, nur ihre Daten', async () => {
+    const srv = server();
+    const tab = await openTab(new MemoryStorage());
+    expect(await tab.in.findByText('Daten von: sub-anna@t-demo')).toBeInTheDocument();
+    srv.person = { subject: 'sub-ben', name: 'Ben Neu', email: 'ben@demo.example' };
+    await act(async () => { await tab.qc.refetchQueries({ queryKey: ['iam', 'me'] }); });
+    expect(await tab.in.findByText('Daten von: sub-ben@t-demo')).toBeInTheDocument();
+    expect(tab.in.queryByText('Daten von: sub-anna@t-demo')).toBeNull();
+    expect(tab.qc.getQueryData<{ owner: string }>(['notes'])?.owner).toBe('sub-ben@t-demo');
+  });
+
+  it('401 beim Wechsel: «Sitzung abgelaufen» wie bei jeder Anfrage, keine Meldung «Organisation nicht gewechselt»', async () => {
+    const srv = server();
+    const tab = await openTab(new MemoryStorage());
+    expect(await tab.in.findByText('Organisation: Demo AG')).toBeInTheDocument();
+    srv.switchStatus = 401;
+    await userEvent.click(tab.in.getByRole('button', { name: 'Wechseln' }));
+    expect(await within(document.body).findByRole('alertdialog', { name: 'Sitzung abgelaufen' })).toBeInTheDocument();
+    expect(within(document.body).queryByText(/Organisation nicht gewechselt/)).toBeNull();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('andere Person im selben Tab: frühere Wahl gilt nicht', async () => {

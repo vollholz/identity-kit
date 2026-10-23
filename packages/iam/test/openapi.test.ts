@@ -15,7 +15,11 @@ import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
-const IAM_ROUTES = ['GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/acl', 'POST /v1/acl', 'DELETE /v1/acl/{id}', 'GET /v1/acl/effective'];
+const IAM_ROUTES = [
+  'GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/acl', 'POST /v1/acl', 'DELETE /v1/acl/{id}', 'GET /v1/acl/effective',
+  'GET /v1/admin/clients', 'PUT /v1/admin/clients/{clientId}', 'DELETE /v1/admin/clients/{clientId}',
+  'GET /v1/platform/organizations/{alias}/clients', 'PUT /v1/platform/organizations/{alias}/clients/{clientId}', 'DELETE /v1/platform/organizations/{alias}/clients/{clientId}',
+];
 
 describe('OpenAPI der Routen des Pakets', { skip }, () => {
   const db = notesDb();

@@ -4,7 +4,9 @@
  * Beschreibungen und Beschreibungen einzelner Felder, damit ihre OpenAPI-Beschreibung gleich bleibt.
  */
 import { Type, type TSchema } from '@sinclair/typebox';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifySchema } from 'fastify';
+import { forbidden } from '../errors.ts';
+import type { Principal } from '../principal.ts';
 import type { Iam } from '../iam.ts';
 
 export interface OpenApiOverrides {
@@ -34,15 +36,17 @@ export interface IamModule {
 /** Tags des Pakets in der Reihenfolge der Doku, mit Beschreibung (für `openapi.tags` der App). */
 export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Konto', description: 'Angemeldete Person oder Maschine, Mandant und Rechte (`/v1/me`).' },
+  { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
+  { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
 ];
 
 /** Schema einer Route mit den Ersetzungen der App (Texte, Tags, Felder). */
-export function routeSchema<T extends Record<string, unknown>>(ctx: ModuleContext, method: string, url: string, schema: T & { tags?: string[]; summary?: string; description?: string }): T {
+export function routeSchema<T extends Record<string, unknown>>(ctx: ModuleContext, method: string, url: string, schema: T & { tags?: string[]; summary?: string; description?: string }): T & FastifySchema {
   const o = ctx.openapi, r = o.routes?.[`${method} ${url}`];
   const tags = (r?.tags ?? schema.tags)?.map(t => o.tags?.[t] ?? t);
   const out: Record<string, unknown> = { ...schema, ...(tags ? { tags } : {}), ...(r?.summary ? { summary: r.summary } : {}), ...(r?.description ? { description: r.description } : {}) };
-  return (o.fields && Object.keys(o.fields).length ? describeFields(out, o.fields, null, `${method} ${url}`) : out) as T;
+  return (o.fields && Object.keys(o.fields).length ? describeFields(out, o.fields, null, `${method} ${url}`) : out) as T & FastifySchema;
 }
 
 /** Ersetzt Beschreibungen von Feldern in benannten Schemas (Kopie, das Original bleibt). */
@@ -70,6 +74,9 @@ function describeFields(node: unknown, fields: Record<string, string>, path: str
   return out;
 }
 
+/** Route ohne Eintrag in der OpenAPI-Beschreibung (`hide` von @fastify/swagger). */
+export const HIDDEN = { hide: true } as FastifySchema;
+
 export const Uuid = Type.String({ format: 'uuid' });
 export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'date-time' });
 export const Nullable = <T extends TSchema>(s: T) => Type.Union([s, Type.Null()]);
@@ -80,4 +87,11 @@ export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
 export class Params {
   readonly values: unknown[] = [];
   add(v: unknown): string { this.values.push(v); return `$${this.values.length}`; }
+}
+
+/** Angemeldete Person (nicht Maschinen-Client, nicht über den MCP-Dienst), sonst 403: für die Verwaltung. */
+export function personOf(req: FastifyRequest): Principal {
+  const p = req.requirePrincipal();
+  if (p.kind !== 'user' || p.scopeBound) throw forbidden('Nur für angemeldete Personen.');
+  return p;
 }

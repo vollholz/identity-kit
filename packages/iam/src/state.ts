@@ -11,6 +11,8 @@ import { schemaName, type Db } from './db.ts';
 export interface ReplayStore {
   /** true, wenn `key` neu ist (und jetzt für `ttlMs` gesperrt wird); false bei Wiederverwendung. */
   claim(key: string, ttlMs: number): Promise<boolean>;
+  /** Gibt einen Schlüssel wieder frei (die Arbeit nach `claim` ist gescheitert, eine Wiederholung soll gelten). */
+  release?(key: string): Promise<void>;
 }
 
 export class MemoryReplayStore implements ReplayStore {
@@ -23,6 +25,7 @@ export class MemoryReplayStore implements ReplayStore {
     this.seen.set(key, now + ttlMs);
     return true;
   }
+  async release(key: string): Promise<void> { this.seen.delete(key); }
 }
 
 export class PgReplayStore implements ReplayStore {
@@ -37,6 +40,7 @@ export class PgReplayStore implements ReplayStore {
        RETURNING 1`, [key, String(ttlMs)]);
     return r.rowCount === 1;
   }
+  async release(key: string): Promise<void> { await this.db.query(`DELETE FROM ${this.table} WHERE key = $1`, [key]); }
 }
 
 type IncrCallback = (err: Error | null, res?: { current: number; ttl: number }) => void;

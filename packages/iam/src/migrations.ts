@@ -16,6 +16,11 @@
  *   sind (in derselben Transaktion), sonst bricht der Runner ab und trägt nichts ein. Die IAM-Migrationen laufen dann
  *   direkt nach der Marke der App (`after`), spätere Migrationen der App danach; so dürfen auch diese spätere
  *   IAM-Migrationen voraussetzen.
+ * - Übernahme späterer IAM-Migrationen (`adopted.map`): Hat die App auch Entsprechungen nach der Grundlage schon
+ *   angewendet (Assets 051–053 = iam_010–012), nennt sie die Zuordnung. Diese IAM-Migrationen werden dann ebenfalls nur
+ *   eingetragen – wenn die Migration der App angewendet ist und die Objekte bestehen, sonst Abbruch. `after` ist dann
+ *   die letzte dieser Migrationen der App (Assets: `053_acl_unique.sql`), damit sie auch in einer frischen Datenbank
+ *   vor der Übernahme laufen.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -30,6 +35,8 @@ export interface Migration { name: string; sql: string; checksum: string }
 export interface Adoption {
   /** Letzte übernommene Migration der Quelle (einschliesslich). */
   upTo: string;
+  /** Weitere übernommene Migrationen der Quelle nach `upTo`, je mit der Migration einer anderen Quelle, die ihr entspricht. */
+  also?: { name: string; when: string }[];
   /** Marke in einer anderen Quelle: Diese Quelle läuft direkt nach ihr. */
   after: string;
   /** Befunde, warum nicht übernommen werden darf (leer = erfüllt); läuft als Besitzer-Rolle vor dem Eintragen. */
@@ -80,8 +87,23 @@ export interface IamMigrationOptions {
    * Objekte bestehen schon aus Migrationen der App (Assets: bis `049_tenant_roles.sql`): IAM-Migrationen bis
    * `IAM_BASELINE` nur eintragen, wenn `after` angewendet ist und die Objekte geschützt vorhanden sind.
    */
-  adopted?: { after: string };
+  adopted?: {
+    after: string;
+    /**
+     * Migrationen der App, die IAM-Migrationen nach der Grundlage entsprechen (Name der App → Name im IAM); diese werden
+     * nur eingetragen. Assets: `{ '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
+     * '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' }`
+     * mit `after: '053_acl_unique.sql'` (`ASSETS_ADOPTION`).
+     */
+    map?: Record<string, string>;
+  };
 }
+
+/** Übernahme für Assets: alles bis 053, nur iam_009 läuft (Entwurf 6.4). */
+export const ASSETS_ADOPTION = {
+  after: '053_acl_unique.sql',
+  map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql', '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },
+} as const satisfies NonNullable<IamMigrationOptions['adopted']>;
 
 /** Letzte IAM-Migration, die dem Stand von Assets nach Migration 049 entspricht (Übernahme). */
 export const IAM_BASELINE = 'iam_008_entra.sql';
@@ -120,8 +142,19 @@ export function iamMigrations(o: IamMigrationOptions): MigrationSource {
   return {
     name: 'iam', migrations, owner: roles.owner,
     sync: c => syncAclChecks(c, schema, { resourceTypes: acl.types, leafTypes: acl.leaves }),
-    ...(o.adopted ? { adopt: { upTo: IAM_BASELINE, after: o.adopted.after, check: c => adoptionProblems(c, { schema, app: roles.app, after: o.adopted!.after }) } } : {}),
+    ...(o.adopted ? { adopt: adoption(o.adopted, migrations, schema, roles.app) } : {}),
   };
+}
+
+/** Übernahme prüfen und zusammenstellen: zugeordnete IAM-Migrationen gibt es und sie liegen nach der Grundlage. */
+function adoption(a: NonNullable<IamMigrationOptions['adopted']>, migrations: Migration[], schema: string, app: string): Adoption {
+  const also = Object.entries(a.map ?? {}).map(([when, name]) => ({ name, when }));
+  for (const x of also) {
+    if (!migrations.some(m => m.name === x.name)) throw new Error(`adopted.map: IAM-Migration ${x.name} gibt es nicht`);
+    if (x.name <= IAM_BASELINE) throw new Error(`adopted.map: ${x.name} gehört zur Grundlage (bis ${IAM_BASELINE}) und wird ohnehin übernommen`);
+  }
+  if (new Set(also.map(x => x.name)).size !== also.length) throw new Error('adopted.map: eine IAM-Migration ist mehrfach zugeordnet');
+  return { upTo: IAM_BASELINE, after: a.after, also, check: c => adoptionProblems(c, { schema, app, after: a.after, also }) };
 }
 
 const lit = (v: string) => `'${v}'`;
@@ -184,10 +217,15 @@ const SELF_EXPR = '(id = app.tenant_id())';
  * (RLS mit FORCE und tenant_isolation je Mandantentabelle, tenant_self, kein Recht für PUBLIC, SECURITY DEFINER mit
  * festem search_path). Die Bedingungen zu Ressourcentypen gleicht danach `syncAclChecks` ab.
  */
-export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; app: string; after: string }): Promise<string[]> {
+export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; app: string; after: string; also?: { name: string; when: string }[] }): Promise<string[]> {
   const { schema, app } = o;
   const out: string[] = [];
   if (!(await c.query('SELECT 1 FROM public.schema_migrations WHERE name = $1', [o.after])).rowCount) out.push(`Migration ${o.after} ist nicht angewendet`);
+  for (const x of o.also ?? []) {
+    if (!(await c.query('SELECT 1 FROM public.schema_migrations WHERE name = $1', [x.when])).rowCount) out.push(`Migration ${x.when} (für ${x.name}) ist nicht angewendet`);
+    const problem = await laterObjectProblem(c, schema, x.name);
+    if (problem) out.push(`${x.name}: ${problem}`);
+  }
   const tables = new Map((await c.query<{ t: string; rls: boolean; force: boolean; pub: boolean }>(
     `SELECT c.relname AS t, c.relrowsecurity AS rls, c.relforcerowsecurity AS force,
             EXISTS (SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) x WHERE x.grantee = 0) AS pub
@@ -220,6 +258,29 @@ export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; ap
     if (r && !(r.secdef && (r.config ?? []).includes(`search_path=${schema}, pg_temp`))) out.push(`Funktion app.${f}: SECURITY DEFINER mit search_path=${schema}, pg_temp fehlt`);
   }
   return out;
+}
+
+/** Objekte einer übernommenen IAM-Migration nach der Grundlage (Prüfung wie für die Grundlage: vorhanden und geschützt). */
+async function laterObjectProblem(c: pg.ClientBase, schema: string, name: string): Promise<string | null> {
+  if (name.startsWith('iam_009_')) {
+    const pk = (await c.query<{ d: string }>("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'p'", [`${schema}.tenant_role`])).rows[0]?.d;
+    return pk === 'PRIMARY KEY (tenant_id, id)' ? null : `Primärschlüssel ${schema}.tenant_role (tenant_id, id) fehlt`;
+  }
+  if (name.startsWith('iam_010_')) {
+    const pub = (await c.query<{ f: string }>(
+      `SELECT n.nspname || '.' || p.proname AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname IN ('app', $1) AND EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x WHERE x.grantee = 0 AND x.privilege_type = 'EXECUTE')`, [schema])).rows.map(r => r.f);
+    return pub.length ? `PUBLIC darf noch ausführen: ${pub.join(', ')}` : null;
+  }
+  if (name.startsWith('iam_011_')) {
+    const src = (await c.query<{ s: string }>("SELECT prosrc AS s FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app' AND p.proname = 'resolve_tenant'")).rows[0]?.s ?? '';
+    return src.includes('translate(p_alias') ? null : 'app.resolve_tenant ohne strenge Prüfung des Alias';
+  }
+  if (name.startsWith('iam_012_')) {
+    const idx = (await c.query<{ d: string }>("SELECT indexdef AS d FROM pg_indexes WHERE schemaname = $1 AND indexname = 'acl_entry_unique'", [schema])).rows[0]?.d ?? '';
+    return /UNIQUE INDEX .*\(tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect\) NULLS NOT DISTINCT/.test(idx) ? null : `eindeutiger Index ${schema}.acl_entry_unique fehlt`;
+  }
+  return 'keine Prüfung für diese Migration bekannt; nur iam_009 bis iam_012 lassen sich übernehmen';
 }
 
 /** Reihenfolge der Ausführung: Quellen wie gegeben, eine übernommene Quelle direkt nach ihrer Marke. */
@@ -266,7 +327,8 @@ export async function migrate(adminUrl: string, sources: MigrationSource[], log:
       }
       // Übernahme: Vorbedingungen und Einträge in einer Transaktion
       const upTo = s.adopt ? s.migrations.findIndex(m => m.name === s.adopt!.upTo) : -1;
-      const toAdopt = s.migrations.slice(0, upTo + 1).filter(m => !done.has(m.name));
+      const also = new Set((s.adopt?.also ?? []).map(x => x.name));
+      const toAdopt = s.migrations.filter((m, i) => (i <= upTo || also.has(m.name)) && !done.has(m.name));
       if (s.adopt && toAdopt.length) {
         await client.query('BEGIN');
         try {

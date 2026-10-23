@@ -1,11 +1,14 @@
--- iam_001 Grundlage (Spezifikation Kap. 10.1, 10.3; aus Assets 001): Schema `app` für Funktionen, Schema der App für
--- Tabellen, Mandantenkontext je Transaktion und der automatische Schutz aller Tabellen mit `tenant_id`.
+-- iam_001 Grundlage (Spezifikation Kap. 10.1, 10.3): Schema `app` für Funktionen, Schema der App für Tabellen,
+-- Mandantenkontext je Transaktion und der automatische Schutz aller Tabellen mit `tenant_id`.
 --
 -- Muster für JEDE mandantenbezogene Tabelle (auch die der App):
 --   tenant_id uuid NOT NULL als erste Spalte des Primärschlüssels,
 --   ENABLE + FORCE ROW LEVEL SECURITY,
 --   Policy tenant_isolation TO {{app}} (USING und WITH CHECK auf app.tenant_id()).
 -- app.secure_tenant_tables() setzt das; der Migrations-Runner ruft sie nach jeder Migration auf.
+-- Keine Funktion ist für PUBLIC ausführbar: ausführen darf nur, wem es ausdrücklich gegeben ist.
+
+ALTER DEFAULT PRIVILEGES FOR ROLE {{owner}} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE SCHEMA IF NOT EXISTS app;      -- Funktionen
 CREATE SCHEMA IF NOT EXISTS {{schema}};   -- Tabellen
@@ -20,7 +23,7 @@ CREATE FUNCTION app.principal_id() RETURNS uuid LANGUAGE sql STABLE AS
 GRANT EXECUTE ON FUNCTION app.tenant_id(), app.principal_id() TO {{app}}, {{sched}};
 
 -- ---------- RLS und Rechte für alle Tabellen mit tenant_id (ausser tenant)
--- Idempotent; neue Tabellen sind damit automatisch geschützt.
+-- Idempotent; neue Tabellen sind damit automatisch geschützt. Ruft nur der Runner als Besitzer-Rolle auf.
 CREATE FUNCTION app.secure_tenant_tables() RETURNS int LANGUAGE plpgsql AS $$
 DECLARE t text; n int := 0;
 BEGIN

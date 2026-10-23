@@ -22,23 +22,23 @@ const label = (p: string) => CATALOG.permissions.find(x => x.key === p)!.label;
 const union = (...keys: string[]) => new Set(keys.flatMap(k => role(k).permissions));
 const N = CATALOG.permissions.length;
 const m = (id: string, name: string, roles: string[]): Member => ({
-  id: `00000000-0000-4000-8000-0000000000${id}`, principalId: `p${id}`, username: name.toLowerCase(), name, email: `${name.toLowerCase()}@demo.example`,
-  status: 'active', roles, lastSeenAt: null, createdAt: null, loginPath: null,
+  id: `00000000-0000-4000-8000-0000000000${id}`, kind: 'user', principalId: `p${id}`, username: name.toLowerCase(), name, email: `${name.toLowerCase()}@demo.example`,
+  status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null, description: null,
 });
+const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, roles: ROLES };
 const ANNA = m('a1', 'Anna', ['org-admin']);
 const OSKAR = m('d4', 'Oskar', ['org-admin']);
 const CARLA = m('c3', 'Carla', ['editor', 'viewer']);
 const ME = { person: { subject: ANNA.id, name: 'Anna', email: 'anna@demo.example' } };
 
 function renderIam(ui: ReactElement, routes: Record<string, MockHandler> = {}, config?: Partial<IamConfig>) {
-  const api = mockIamApi(routes);
+  const api = mockIamApi({ 'GET /v1/admin/status': () => json(STATUS), ...routes });
   vi.stubGlobal('fetch', api.fetch);
   return { ...api, ...render(<StaticIam me={ME} config={config}>{ui}</StaticIam>) };
 }
-function setup(o: { rolesManageable?: boolean; platform?: boolean; routes?: Record<string, MockHandler> } = {}) {
-  const alias = o.platform ? 'demo' : null;
+function setup(o: { platform?: boolean; routes?: Record<string, MockHandler> } = {}) {
   const base = o.platform ? '/v1/platform/organizations/demo/members' : '/v1/admin/members';
-  return renderIam(<MemberList alias={alias} roles={ROLES} platform={!!o.platform} rolesManageable={o.rolesManageable ?? true} self={o.platform ? undefined : ANNA.id} orgLabel="Demo AG" />,
+  return renderIam(o.platform ? <MemberList alias="demo" platform orgLabel="Demo AG" /> : <MemberList />,
     { [`GET ${base}`]: () => json({ items: [ANNA, OSKAR, CARLA] }), ...o.routes }).calls;
 }
 const open = async (name: string, verb: 'ansehen' | 'bearbeiten') => {
@@ -57,7 +57,7 @@ describe('Rollen ansehen ohne Formular', () => {
     expect(card).toHaveTextContent(`Organisations-Admin${roleSummary(role('org-admin').description)}`);
     expect(card).toHaveAttribute('title', role('org-admin').description);
     expect(await within(dlg).findByText(`Darf ${N} von ${N}`)).toBeInTheDocument();
-    expect(within(dlg).getByText('Alle Rechte. Zugriffsregeln gelten nicht.')).toBeInTheDocument();
+    expect(within(dlg).getByText('Alle Rechte.')).toBeInTheDocument();
     const cmp = within(dlg).getByText('Rollen vergleichen').closest('details')!;
     expect(cmp).not.toHaveAttribute('open');
     expect(within(dlg).queryByRole('button', { name: 'Speichern' })).toBeNull();
@@ -65,23 +65,6 @@ describe('Rollen ansehen ohne Formular', () => {
     expect(await axeProblems(dlg)).toEqual([]);
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(calls.some(c => c.method === 'PUT')).toBe(false);
-  });
-
-  it('Rollen nicht änderbar (aus Keycloak): «Ansehen» für alle, Rechte aus den Rollen der Person mit «Warum?»', async () => {
-    const calls = setup({ rolesManageable: false });
-    expect(await screen.findByRole('note')).toHaveTextContent('Rollen kommen in dieser Instanz aus Keycloak');
-    const dlg = await open('Carla', 'ansehen');
-    expect(within(dlg).getByRole('note')).toHaveTextContent('Rollen kommen in dieser Instanz aus Keycloak');
-    // Kein Formular: keine Kontrollkästchen; einziges Eingabefeld ist die Suche der Rechte-Übersicht
-    expect(within(dlg).queryAllByRole('checkbox')).toEqual([]);
-    expect([...dlg.querySelectorAll('input, select, textarea')].map(e => e.getAttribute('type'))).toEqual(['search']);
-    // Karten in der Reihenfolge der Rollenauswahl
-    expect(within(within(dlg).getByRole('list', { name: 'Rollen von Carla' })).getAllByRole('listitem').map(li => li.querySelector('.iam-b')!.textContent)).toEqual(['Bearbeiter:in', 'Leser:in']);
-    expect(await within(dlg).findByText(`Darf ${union('editor', 'viewer').size} von ${N}`)).toBeInTheDocument();
-    expect(within(dlg).getByText(/Zugriffsregeln können Rechte für einzelne Bereiche/)).toBeInTheDocument();
-    await userEvent.click(within(dlg).getByRole('button', { name: `Warum? ${label('note:write')}` }));
-    expect(within(dlg).getByText('Rolle «Bearbeiter:in».')).toBeInTheDocument();
     expect(calls.some(c => c.method === 'PUT')).toBe(false);
   });
 });
@@ -154,16 +137,16 @@ describe('Rechte mit Änderung gegenüber bisher', () => {
     // Bearbeiter:in weg: nur noch Leser:in
     await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' }));
     expect(within(dlg).getByText(`Darf ${union('viewer').size} von ${N}`)).toBeInTheDocument();
-    expect(dlg.querySelector('.iam-rights-delta')).toHaveTextContent('+ 0 Rechte, − 1 Recht gegenüber bisher');
+    expect(dlg.querySelector('.iam-rights-delta')).toHaveTextContent('+ 0 Rechte, − 2 Rechte gegenüber bisher');
 
     // Prüfer:in dazu
     await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Prüfer:in' }));
     const after = union('viewer', 'auditor');
     const keys = CATALOG.permissions.map(p => p.key);
     const add = keys.filter(p => after.has(p) && !before.has(p)), del = keys.filter(p => !after.has(p) && before.has(p));
-    expect(add).toEqual(['acl:read', 'audit:read']);
-    expect(del).toEqual(['note:write']);
-    expect(dlg.querySelector('.iam-rights-delta')).toHaveTextContent('+ 2 Rechte, − 1 Recht gegenüber bisher');
+    expect(add).toEqual(['audit:read']);
+    expect(del).toEqual(['access:admin', 'note:write']);
+    expect(dlg.querySelector('.iam-rights-delta')).toHaveTextContent('+ 1 Recht, − 2 Rechte gegenüber bisher');
     const list = within(dlg).getByRole('list', { name: /^Änderungen:/ });
     const items = (cls: string) => [...list.querySelectorAll(`li.${cls} .iam-rights-chg-l`)].map(e => e.textContent);
     expect(items('iam-is-add')).toEqual(add.map(label));
@@ -219,7 +202,7 @@ describe('Rechte mit Änderung gegenüber bisher', () => {
 
 describe('Letzte Admin-Person und eigene Rechte (Plattform)', () => {
   const platform = (items: Member[], self?: string, routes: Record<string, MockHandler> = {}) => renderIam(
-    <MemberList alias="demo" roles={ROLES} platform rolesManageable self={self} orgLabel="Demo AG" />,
+    <StaticIam me={{ person: { subject: self ?? 'sub-plattform', name: 'Pia', email: null } }}><MemberList alias="demo" platform orgLabel="Demo AG" /></StaticIam>,
     { 'GET /v1/platform/organizations/demo/members': () => json({ items }), ...routes }).calls;
 
   it('Entzug von org-admin bei der letzten aktiven Admin-Person: gesperrt mit Grund, kein Aufruf', async () => {

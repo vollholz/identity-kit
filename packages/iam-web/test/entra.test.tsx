@@ -317,7 +317,7 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
     ]);
     const org = { id: 'kc-muster', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: [], tenant: null };
     const routes = {
-      'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, rolesManageable: true, roles: CATALOG.roles }),
+      'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, roles: CATALOG.roles }),
       'GET /v1/platform/organizations/muster': () => json(org), 'GET /v1/platform/organizations/muster/members': () => json({ items: [] }),
       'GET /v1/platform/organizations/muster/entra': () => json({ enabled: true, reason: null, connection: null }),
     };
@@ -333,9 +333,9 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 });
 
 describe('Person aus Entra ID hinzufügen', () => {
-  const ANNA: Member = { id: 'sub-anna', principalId: 'p1', username: 'anna', name: 'Anna Admin', email: 'anna@demo.example', status: 'active', roles: ['org-admin'], lastSeenAt: new Date().toISOString(), createdAt: null, loginPath: null };
-  const NINA: Member = { id: 'm-nina', principalId: null, username: 'nina@demo.example', name: 'Nina Neu', email: 'nina@demo.example', status: 'invited', roles: ['viewer'], lastSeenAt: null, createdAt: new Date().toISOString(), loginPath: '/auth/entra/entra-001?org=demo' };
-  const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, rolesManageable: true, roles: CATALOG.roles };
+  const ANNA: Member = { id: 'sub-anna', kind: 'user', principalId: 'p1', username: 'anna', name: 'Anna Admin', email: 'anna@demo.example', status: 'active', roles: ['org-admin'], clearance: 2, breakGlassUntil: null, places: 0, lastSeenAt: new Date().toISOString(), createdAt: null, loginPath: null, clientId: null, scopes: null, description: null };
+  const NINA: Member = { id: 'm-nina', kind: 'user', principalId: 'p-new', username: 'nina@demo.example', name: 'Nina Neu', email: 'nina@demo.example', status: 'invited', roles: ['viewer'], lastSeenAt: null, createdAt: new Date().toISOString(), loginPath: '/auth/entra/entra-001?org=demo', clearance: 0, breakGlassUntil: null, places: 0, clientId: null, scopes: null, description: null };
+  const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, roles: CATALOG.roles };
   const HITS = { more: false, items: [
     { id: '11111111-0000-4000-8000-000000000001', name: 'Nina Neu', email: 'nina@demo.example', userPrincipalName: 'nina@demo.example', department: 'Planung', jobTitle: 'Planerin', selectable: true, reason: null },
     { id: '11111111-0000-4000-8000-000000000002', name: 'Nora Gast', email: 'nora@gmail.example', userPrincipalName: 'nora_gmail.example#EXT#@demo.onmicrosoft.com', department: null, jobTitle: null, selectable: false, reason: 'Gastkonto in Entra ID' },

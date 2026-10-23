@@ -33,15 +33,11 @@ export interface IamProviderProps {
   components?: Partial<IamComponents>;
   /** Gruppen im Rollendialog und in der Rollenmatrix (V3); jede Rolle muss im Katalog stehen (`roleGroupProblems`). */
   roleGroups?: RoleGroup[];
-  /** Symbol je vordefinierter Rolle auf der Seite «Rollen», z. B. `{ editor: 'edit' }`. */
-  roleIcons?: Record<string, string>;
   /** Vorgewählte Rollen beim Einladen; Standard: die Rolle mit den wenigsten Rechten ausser org-admin. */
   inviteRoles?: string[];
-  /** `GROUP_ROLE_PREFIX` für ältere Server ohne Angabe in `/v1/admin/status`; Standard `/orgs`. */
-  groupRolePrefix?: string;
   /** Weitere Hosts für die Zustimmung bei Microsoft (z. B. nationale Clouds); Standard `login.microsoftonline.com`. */
   entraConsentHosts?: string[];
-  /** Ressourcen der Zugriffsregeln: Namen, Auswahl und Kette (docs/entwurf.md 1.7). */
+  /** Orte der App: Namen (`useResolver`) und Sprung (`open`), Spezifikation 11.4. */
   resources?: IamResources;
   /** Personenverzeichnis, falls nicht `GET /v1/people` (docs/entwurf.md 1.8). */
   people?: IamPeople;
@@ -53,7 +49,7 @@ export interface IamProviderProps {
 }
 
 export function IamProvider(props: IamProviderProps) {
-  const { product, brand, locale = 'de', texts, queryClient, router, paths, features, legacyTabKey, components, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, resources, people, onTenant, onLogout, children } = props;
+  const { product, brand, locale = 'de', texts, queryClient, router, paths, features, legacyTabKey, components, roleGroups, inviteRoles, entraConsentHosts, resources, people, onTenant, onLogout, children } = props;
   const outer = useContext(QueryClientContext);
   const [own] = useState(() => (queryClient || outer ? null : new QueryClient()));
   const client = queryClient ?? outer ?? own!;
@@ -62,8 +58,8 @@ export function IamProvider(props: IamProviderProps) {
   // Texte vor dem Zeichnen der Kinder setzen (modulweit, auch für Code ohne React)
   const textState = useMemo(() => { configureTexts({ locale, texts: texts ?? {} }); return { locale, version: Date.now() }; }, [locale, texts]);
   const config = useMemo<IamConfig>(() => ({
-    product, brand, paths: { ...DEFAULT_PATHS, ...paths }, features: features ?? {}, router: router ?? historyRouter, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, resources, people, onTenant, onLogout,
-  }), [product, brand, paths, features, router, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, resources, people, onTenant, onLogout]);
+    product, brand, paths: { ...DEFAULT_PATHS, ...paths }, features: features ?? {}, router: router ?? historyRouter, roleGroups, inviteRoles, entraConsentHosts, resources, people, onTenant, onLogout,
+  }), [product, brand, paths, features, router, roleGroups, inviteRoles, entraConsentHosts, resources, people, onTenant, onLogout]);
   return (
     <QueryClientProvider client={client}>
       <IamTextProvider value={textState}>

@@ -7,6 +7,7 @@
  * «Nur Entra» je Domäne 60 s; `forget…` nach Sperren, Entzug, Entfernen, Änderung der Entra-Verbindung (andere
  * Instanzen nach Ablauf). Alle Schlüssel enthalten den Mandanten bzw. die ID der Organisation.
  */
+import { isCustomRole } from './catalog.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTx, type Db } from './db.ts';
 import { HttpError } from './errors.ts';
@@ -94,7 +95,9 @@ export function rolesFromClaims(claims: Claims, tenantAlias: string, cfg: IamCon
   const out = new Set<string>();
   if (serviceAccount || (cfg.roleSource !== 'groups' && orgCount <= 1)) {
     const ra = claims.resource_access as Record<string, { roles?: string[] }> | undefined;
-    for (const r of ra?.[cfg.roleClientId]?.roles ?? []) out.add(r);
+    // Eigene Rollen (`c-…`) gibt es nur als Gruppe der Organisation; als Client-Rolle träfe `c-…` sonst die eigene Rolle
+    // irgendeiner Organisation (Spezifikation 8.3: Clients nur vordefinierte Rollen)
+    for (const r of ra?.[cfg.roleClientId]?.roles ?? []) if (!isCustomRole(r)) out.add(r);
   }
   if (cfg.roleSource !== 'client') {
     for (const g of groupsFromClaims(claims, cfg.groupsClaim)) {

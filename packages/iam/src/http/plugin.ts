@@ -21,7 +21,9 @@ import { aclModule } from './acl.ts';
 import { adminModule } from './admin.ts';
 import { bffModule } from './bff.ts';
 import { clientsModule } from './clients.ts';
+import { defaultPeoplePermissions, peopleModule } from './people.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
+import { rolesModule } from './roles.ts';
 import type { IamModule, ModuleContext, OpenApiOverrides } from './routes.ts';
 
 /** Sitzung der Oberfläche (Modul `bff`): gültiges Access Token für eine Anfrage mit Sitzungs-Cookie oder null. */
@@ -29,7 +31,7 @@ export interface SessionBridge {
   accessToken(req: FastifyRequest, reply: FastifyReply): Promise<{ token: string; csrfOk: boolean } | null>;
 }
 
-export type IamModuleName = 'account' | 'acl' | 'admin' | 'bff' | 'clients';
+export type IamModuleName = 'account' | 'acl' | 'admin' | 'bff' | 'clients' | 'people' | 'roles';
 
 export interface IamPluginOptions {
   iam: Iam<any, any>;
@@ -52,6 +54,11 @@ export interface IamPluginOptions {
   sessions?: SessionBridge;
   /** Tags, Zusammenfassungen und Beschreibungen der Routen des Pakets (Entwurf 13.4). */
   openapi?: OpenApiOverrides;
+  /**
+   * Modul `people`: Rechte, von denen eines irgendwo (`needSomewhere`) das Personenverzeichnis öffnet; Standard die
+   * Fachrechte des Lese-Scopes `<produkt>:read` und `acl:read` (Assets: `['object:read']`).
+   */
+  people?: { permissions?: Perm[] };
   /** Span-Attribut mit dem Alias der Organisation (Standard `iam.tenant`). */
   spanAttribute?: string;
 }
@@ -113,7 +120,11 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const realm = iam.catalog.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', ...(iam.bff ? ['bff'] : []), 'clients'] as IamModuleName[]);
+  // Personenverzeichnis ohne Option nur, wenn ein Recht es öffnen kann (sonst startete die App nicht); ausdrücklich in
+  // `modules` verlangt, meldet das Modul den Fehler
+  const people = !o.modules && (!!o.people || defaultPeoplePermissions(iam.catalog).some(x => iam.catalog.isPermission(x)));
+  if (!o.modules && !people) app.log.warn('Modul «people» nicht geladen: kein Recht öffnet das Verzeichnis (Option people.permissions oder Lese-Scope <produkt>:read)');
+  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
   // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
   const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
@@ -201,8 +212,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   });
 
   // ---------- Module
-  const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {} };
-  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, admin: adminModule, bff: bffModule, clients: clientsModule };
+  const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {}, ...(o.people ? { people: o.people } : {}) };
+  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, admin: adminModule, bff: bffModule, clients: clientsModule, people: peopleModule, roles: rolesModule };
   for (const n of names) await modules[n].register(app, ctx);
 }
 

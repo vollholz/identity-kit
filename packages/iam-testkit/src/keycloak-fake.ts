@@ -261,6 +261,10 @@ export class KeycloakFake {
       const g = [...this.groups.values()].find(x => x.path === p);
       return g ? json(200, this.groupRep(g)) : json(404, { error: 'Group path does not exist' });
     }
+    // Keycloak legt einen Namen mit «/» als eine Gruppe an (Name maskiert), nie als Stufen: hier abgelehnt, damit das auffällt
+    if ((path === '/groups' || (seg[0] === 'groups' && seg[2] === 'children')) && method === 'POST' && String(data?.name).includes('/')) {
+      return json(400, { errorMessage: 'Group name with «/» is not a path' });
+    }
     if (path === '/groups' && method === 'POST') {
       if ([...this.groups.values()].some(g => g.parentId === null && g.name === data.name)) return json(409, { errorMessage: 'Top level group named already exists.' });
       const g = this.groupPath(`/${data.name}`); return created(`/groups/${g.id}`);

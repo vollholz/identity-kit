@@ -11,7 +11,7 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-## Stand (Teil-PR 6b)
+## Stand (Teil-PR 6c)
 
 | Baustein | Inhalt |
 |---|---|
@@ -34,6 +34,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 | `KeycloakAdmin`, `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant` | Keycloak-Admin-API (Organisationen, Konten, Gruppen, Anbieter) und Mandanten über alle hinweg (Betrieb, Plattform-Administration) |
 | Modul `clients` | Freigabe von Maschinen-Clients je Mandant (`/v1/admin/clients…`, `/v1/platform/organizations/:alias/clients…`) |
 | `AdminService` (`iam.admin`), Modul `admin` | Verwaltung ohne Keycloak-Konsole: `GET /v1/admin/status`, Mitglieder einladen, entfernen, Rollen setzen (`/v1/admin/members…`, `/v1/platform/organizations/:alias/members…`), Organisationen anlegen, ändern, sperren (`/v1/platform/organizations…`); ohne `KEYCLOAK_MGMT_CLIENT_ID` 503 |
+| Modul `roles` | Vordefinierte und eigene Rollen (`/v1/roles…`): anlegen, ändern mit `If-Match`, löschen (Gruppe in Keycloak und ACL-Einträge weg, Grabstein) |
+| Modul `people` | Personenverzeichnis `/v1/people…` mit Suche, Cursor und `ids`; Recht über die Option `people.permissions` |
 | `MemberSync`, `syncAllMembers`, `syncTenantMembers` | Abgleich der Mitglieder ins Personenverzeichnis (Worker, `KEYCLOAK_SYNC_*`, `MEMBER_SYNC_INTERVAL`) und Name der Organisation |
 | `optionalBodies` | `transformObject` für `@fastify/swagger`: optionale Bodies (`POST …/suspend`, `…/resume`) als optional ausweisen |
 | `Bff`, Modul `bff` | Anmeldung der Oberfläche unter `/auth/*`: Code-Flow mit PKCE, verschlüsselte Sitzung, CSRF, Erneuerung, Organisation je Tab, Abmeldung und Backchannel-Logout |

@@ -160,8 +160,13 @@ describe('Routen und Navigation', () => {
     expect(iamRoutes.map(r => [r.id, r.path, r.need, r.title, r.icon, r.nav])).toEqual([
       ['members', '/verwalten/mitglieder', { perm: 'members:admin' }, 'Mitglieder', 'users', true],
       ['roles', '/verwalten/rollen', { perm: 'members:admin' }, 'Rollen', 'tag', true],
+      ['clients', '/verwalten/maschinen-clients', { perm: 'members:admin' }, 'Maschinen-Clients', 'key', true],
+      ['organizations', '/verwalten/organisationen', { platformAdmin: true }, 'Organisationen', 'building', true],
+      ['organization', '/verwalten/organisationen/:alias', { platformAdmin: true }, 'Organisation', 'building', false],
     ]);
     expect(makeIamRoutes({ roles: '/admin/roles' }).find(r => r.id === 'roles')!.path).toBe('/admin/roles');
+    // ohne Plattform-Administration in der App (features.platform: false) keine Organisationen
+    expect(makeIamRoutes({}, { platform: false }).map(r => r.id)).toEqual(['members', 'roles', 'clients']);
     const { default: Page } = await iamRoutes[1]!.load();
     setup(<Page />, { 'GET /v1/roles': () => json(list()) });
     expect(await screen.findByRole('region', { name: 'Vordefinierte Rollen' })).toBeInTheDocument();
@@ -170,11 +175,28 @@ describe('Routen und Navigation', () => {
   it('IamNav: Gruppe «Zugang» mit Links über den Router-Adapter, aktiv auch auf Unterseiten', async () => {
     setup(<IamNav />, {}, { path: '/verwalten/mitglieder/irgendwas' });
     const nav = screen.getByRole('navigation', { name: 'Zugang' });
-    expect(within(nav).getAllByRole('link').map(a => [a.textContent, a.getAttribute('href')])).toEqual([['Mitglieder', '/verwalten/mitglieder'], ['Rollen', '/verwalten/rollen']]);
+    expect(within(nav).getAllByRole('link').map(a => [a.textContent, a.getAttribute('href')])).toEqual([['Mitglieder', '/verwalten/mitglieder'], ['Rollen', '/verwalten/rollen'], ['Maschinen-Clients', '/verwalten/maschinen-clients']]);
     expect(within(nav).getByRole('link', { name: 'Mitglieder' })).toHaveAttribute('aria-current', 'page');
     await userEvent.click(within(nav).getByRole('link', { name: 'Rollen' }));
     expect(window.location.pathname).toBe('/verwalten/rollen');
     expect(within(nav).getByRole('link', { name: 'Rollen' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav).getByRole('link', { name: 'Mitglieder' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('IamNav: «Organisationen» nur für die Plattform-Administration, aktiv auch auf der Detailseite; aus mit features.platform', async () => {
+    const status = (platformAdmin: boolean) => () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin, canManageMembers: true, rolesManageable: true, roles: [] });
+    const { unmount } = setup(<IamNav />, { 'GET /v1/admin/status': status(true) }, { path: '/verwalten/organisationen/muster' });
+    const link = await screen.findByRole('link', { name: 'Organisationen' });
+    expect(link).toHaveAttribute('aria-current', 'page');
+    unmount();
+    const off = setup(<IamNav />, { 'GET /v1/admin/status': status(true) }, { config: { features: { platform: false } } });
+    expect(screen.getByRole('link', { name: 'Maschinen-Clients' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Organisationen' })).toBeNull();
+    expect(off.calls.some(c => c.url.endsWith('/v1/admin/status'))).toBe(false);
+    off.unmount();
+    setup(<IamNav />, { 'GET /v1/admin/status': status(false) });
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Maschinen-Clients' })).toBeInTheDocument());
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByRole('link', { name: 'Organisationen' })).toBeNull();
   });
 });

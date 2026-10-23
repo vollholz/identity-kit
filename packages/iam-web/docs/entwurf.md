@@ -176,8 +176,10 @@ Dazu im Kern `iamRoutes`: Liste aller Seiten, aus der die App ihre Routen und ih
 mit eigenen Pfaden `makeIamRoutes(paths)`), `useIamNav()` mit den erlaubten Einträgen und `active` für eine eigene
 Leiste der App (Assets: `Rail.tsx`) und `<IamNav>` als fertige Gruppe «Zugang» (Mitglieder, Rollen, Anmeldung,
 Maschinen-Clients, Zugriff, Organisationen – je nach Recht und `features`). `load()` importiert den Einstieg `./pages`
-dynamisch; ein Bundler der App macht daraus einen eigenen Teil. Umgesetzt sind bisher Mitglieder und Rollen (PR 4),
-die übrigen Seiten kommen mit PR 5 und 6 dazu.
+dynamisch; ein Bundler der App macht daraus einen eigenen Teil. Umgesetzt sind Mitglieder und Rollen (PR 4),
+Maschinen-Clients und Organisationen (PR 5a); Anmeldung (5b) und Zugriff (6) kommen dazu. Der Parameter der
+Detailseite steht in der Schreibweise von React Router (`/verwalten/organisationen/:alias`, TanStack Router: `$alias`);
+die Seite liest den Alias selbst aus dem Pfad oder nimmt ihn als Prop.
 
 ```ts
 interface IamRoute {
@@ -421,7 +423,7 @@ Jeder PR mit Tests, `typecheck`, `build`, `test` grün; Version `0.1.0` und `pri
 | 2c | Provider und Sitzung | `IamProvider` (Gates, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`), Router-Adapter mit Standard, `useIam`, `useAuthz` (Sprache, `roleGroups`, `roleGroupProblems`), `useRoles`, `useResourceCan`, `useIamFetch`, `Can`, `iamKeys`, `testing` (`StaticIam`, `mockIamApi`, Beispielkatalog) | `auth/session`, `auth/organisation`, `auth/authz`, Router, Testhilfen; Browser: Zustände der Sitzung mit axe |
 | 3 | Rechte-Bausteine | `Requires`, `RequiresPlatformAdmin` (brauchen `NoPermission`), `useAdminStatus`, `AdminHead`, `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in Assets** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
 | 4 | Mitglieder und Rollen | `MembersPage`, `RolesPage`, `iamRoutes`, `IamNav` | `members`, `roles-page`, `roles-dialog`, Teile von `admin.test`, E2E Einladen/Rollen |
-| 5 | Maschinen-Clients, Anmeldung, Organisationen | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage`; in `MembersPage` «Person hinzufügen» aus Entra ID (mit `features.entra`) | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
+| 5 | Maschinen-Clients, Anmeldung, Organisationen (geteilt: 5a Maschinen-Clients und Organisationen, 5b Anmeldung) | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage`; in `MembersPage` «Person hinzufügen» aus Entra ID (mit `features.entra`) | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
 | 6 | Zugriff | `AccessPage` (Regeln, Dialog mit Vorschau, «Rechte prüfen»), `AclHint`, `resources`- und `people`-Adapter, `PersonName` | `acl.test` (40 Fälle), E2E Zugriffsregel |
 | 7 | Freigabe 0.1.0 | README (Einbinden, Beispiel), Migrationshinweis für Assets, CI-Schritt E2E, `private` entfernen → Release veröffentlicht `0.1.0` | `npm pack` enthält `dist`, `styles.css`, Typen |
 

@@ -28,7 +28,8 @@ export interface FakeEntraUser {
   jobTitle?: string | null;
 }
 
-export interface FakeTenant { id: string; name: string; domains: string[]; users: FakeEntraUser[]; consented: boolean }
+/** `groups`: Gruppen des Tenants (Objekt-ID, Anzeigename), lesbar mit GroupMember.Read.All. */
+export interface FakeTenant { id: string; name: string; domains: string[]; users: FakeEntraUser[]; consented: boolean; groups?: { id: string; displayName: string }[] }
 
 /** App-Registrierung einer Organisation in ihrem Tenant (eigene App). `roles`: erteilte Anwendungsberechtigungen. */
 export interface FakeApp {
@@ -83,13 +84,13 @@ export class EntraFake {
     return t;
   }
   /**
-   * Eigene App im Tenant `t` registrieren. Standard: Organization.Read.All, User.Read.All und Application.Read.All
+   * Eigene App im Tenant `t` registrieren. Standard: Organization.Read.All, User.Read.All, Application.Read.All und GroupMember.Read.All
    * erteilt, Geheimnis gültig bis `endDateTime` (Standard in einem Jahr). `consentedIn`: weitere Tenants mit Zustimmung.
    */
   app(t: FakeTenant, o: { clientId?: string; secret?: string; roles?: string[]; expired?: boolean; endDateTime?: string; consentedIn?: FakeTenant[] } = {}): FakeApp {
     const secret = o.secret ?? `kunde~${randomUUID()}`;
     const a: FakeApp = {
-      clientId: o.clientId ?? randomUUID(), tenantId: t.id, secret, roles: o.roles ?? ['Organization.Read.All', 'User.Read.All', 'Application.Read.All'], expired: o.expired ?? false, consentedIn: (o.consentedIn ?? []).map(x => x.id),
+      clientId: o.clientId ?? randomUUID(), tenantId: t.id, secret, roles: o.roles ?? ['Organization.Read.All', 'User.Read.All', 'Application.Read.All', 'GroupMember.Read.All'], expired: o.expired ?? false, consentedIn: (o.consentedIn ?? []).map(x => x.id),
       passwordCredentials: [{ keyId: randomUUID(), hint: secret.slice(0, 3), endDateTime: o.endDateTime ?? new Date(Date.now() + 365 * 86_400_000).toISOString() }],
     };
     this.apps.set(a.clientId, a);
@@ -159,7 +160,7 @@ export class EntraFake {
       if (!t || (!t.consented && !roles)) return json(401, { error: { code: 'InvalidAuthenticationToken' } });
       // Eigene App: nur mit der passenden Anwendungsberechtigung (sonst 403 wie Graph)
       const path = decodeURIComponent(url.pathname);
-      const needed = path === '/v1.0/organization' ? 'Organization.Read.All' : path.startsWith('/v1.0/users') ? 'User.Read.All' : path.startsWith('/v1.0/applications') ? 'Application.Read.All' : null;
+      const needed = path === '/v1.0/organization' ? 'Organization.Read.All' : path.startsWith('/v1.0/users') ? 'User.Read.All' : path.startsWith('/v1.0/applications') ? 'Application.Read.All' : path.startsWith('/v1.0/groups') ? 'GroupMember.Read.All' : null;
       if (roles && needed && !roles.includes(needed)) return json(403, { error: { code: 'Authorization_RequestDenied' } });
       const appRead = /^\/v1\.0\/applications\(appId='([^']+)'\)$/.exec(path);
       if (appRead) {
@@ -183,6 +184,18 @@ export class EntraFake {
         const a = m[1]!.replace(/''/g, "'").toLowerCase();
         return json(200, { value: t.users.filter(u => u.userPrincipalName.toLowerCase() === a || u.mail?.toLowerCase() === a) });
       }
+      if (url.pathname === '/v1.0/groups') {
+        // Wie Graph: $search nur mit ConsistencyLevel: eventual, Ausdruck "displayName:wert" (Wortanfang)
+        if ((init?.headers as Record<string, string> | undefined)?.ConsistencyLevel !== 'eventual') return json(400, { error: { code: 'Request_UnsupportedQuery' } });
+        const m = /"displayName:([^"]*)"/.exec(url.searchParams.get('$search') ?? '');
+        if (!m) return json(400, { error: { code: 'BadRequest' } });
+        this.searches.push(url.searchParams.get('$search')!);
+        const v = m[1]!.toLowerCase(), top = Number(url.searchParams.get('$top') ?? 100);
+        const hits = (t.groups ?? []).filter(g => g.displayName.toLowerCase().split(/[\s.@_-]+/).some(w => w.startsWith(v.split(' ')[0]!)));
+        return json(200, { value: hits.slice(0, top) });
+      }
+      const gr = /^\/v1\.0\/groups\/([^/]+)$/.exec(url.pathname);
+      if (gr) { const hit = (t.groups ?? []).find(x => x.id === gr[1]); return hit ? json(200, hit) : json(404, { error: { code: 'Request_ResourceNotFound' } }); }
       const u = /^\/v1\.0\/users\/([^/]+)$/.exec(url.pathname);
       if (u) { const hit = t.users.find(x => x.id === u[1]); return hit ? json(200, hit) : json(404, { error: { code: 'Request_ResourceNotFound' } }); }
       return json(404, { error: { code: 'NotFound' } });

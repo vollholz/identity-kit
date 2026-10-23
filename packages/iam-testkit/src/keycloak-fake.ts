@@ -10,7 +10,7 @@
  * Identitätsanbieter wie Keycloak 26.8 (Nr. 104): Anbieter anlegen/ändern/löschen (Löschen entfernt die Verknüpfungen der
  * Konten), mit Organisationen verbinden (je Verbindung `autoMembership`/`membershipType`), Domains mit
  * `identityProviderAlias`/`autoRedirect`, Verknüpfungen je Konto (409, wenn die Identität schon verknüpft ist),
- * Anmeldedaten löschen, Konten nach Verknüpfung suchen (`idpAlias`/`idpUserId`).
+ * Anmeldedaten löschen, Konten nach Verknüpfung suchen (`idpAlias`/`idpUserId`), Mapper je Anbieter (`entra-groups`).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -21,8 +21,6 @@ interface FakeGroup { id: string; name: string; path: string; parentId: string |
 
 export class KeycloakFake {
   /** Präfix der Rollengruppen (GROUP_ROLE_PREFIX), Standard `/orgs`. */
-  readonly groupPrefix: string;
-  constructor(o: { groupPrefix?: string } = {}) { this.groupPrefix = (o.groupPrefix ?? '/orgs').replace(/\/$/, ''); }
   readonly orgs = new Map<string, FakeOrg>();
   readonly users = new Map<string, FakeUser>();
   readonly groups = new Map<string, FakeGroup>();
@@ -32,6 +30,8 @@ export class KeycloakFake {
   readonly realmRoles = new Set<string>(['platform-admin']);
   readonly realmRoleMappings = new Map<string, Set<string>>();
   readonly idps = new Map<string, FakeIdp>();
+  /** Mapper je Identitätsanbieter (z. B. `entra-groups`). */
+  readonly idpMappers = new Map<string, { id: string; name: string; identityProviderAlias: string; identityProviderMapper: string; config: Record<string, string> }[]>();
   /** Verbindungen Organisation → Anbieter (Alias → Einstellungen der Verbindung). */
   readonly orgIdps = new Map<string, Map<string, { autoMembership: boolean; membershipType: string }>>();
   /** Verknüpfungen je Konto: Alias → Identität beim Anbieter. */
@@ -68,14 +68,9 @@ export class KeycloakFake {
     }
     return parent!;
   }
-  /** Person in Organisation mit Rollen (Gruppen <prefix>/<alias>/<rolle>). */
-  member(o: FakeOrg, u: FakeUser, roles: string[] = []) {
+  /** Person in Organisation (Rollen gibt es in Keycloak nicht; sie sind Tupel in der App). */
+  member(o: FakeOrg, u: FakeUser) {
     this.orgMembers.get(o.id)!.add(u.id);
-    for (const r of roles) this.userGroups.get(u.id)!.add(this.groupPath(`${this.groupPrefix}/${o.alias}/${r}`).id);
-  }
-  rolesOf(o: FakeOrg, u: { id: string }): string[] {
-    const base = `${this.groupPrefix}/${o.alias}/`;
-    return [...this.userGroups.get(u.id) ?? []].map(id => this.groups.get(id)!.path).filter(p => p.startsWith(base)).map(p => p.slice(base.length)).sort();
   }
   byEmail(email: string) { return [...this.users.values()].find(u => u.email === email) ?? null; }
 
@@ -212,10 +207,24 @@ export class KeycloakFake {
       }
       const idp = this.idps.get(seg[2] ?? '');
       if (!idp) return json(404, { error: 'Identity provider not found' });
+      if (seg[3] === 'mappers') {
+        const list = this.idpMappers.get(idp.alias) ?? [];
+        this.idpMappers.set(idp.alias, list);
+        if (seg.length === 4 && method === 'GET') return json(200, list);
+        if (seg.length === 4 && method === 'POST') {
+          if (list.some(m => m.name === data.name)) return json(409, { errorMessage: 'Mapper exists with same name' });
+          const id = randomUUID(); list.push({ ...data, id }); return created(`/identity-provider/instances/${idp.alias}/mappers/${id}`);
+        }
+        const i = list.findIndex(m => m.id === seg[4]);
+        if (i < 0) return json(404, { error: 'Mapper not found' });
+        if (method === 'PUT') { list[i] = { ...data, id: list[i]!.id }; return empty(); }
+        if (method === 'DELETE') { list.splice(i, 1); return empty(); }
+      }
       if (method === 'GET') return json(200, { ...idp, config: { ...idp.config, clientSecret: '**********' } });
       if (method === 'PUT') { this.idps.set(idp.alias, data); return empty(); }
       if (method === 'DELETE') {
         this.idps.delete(idp.alias);
+        this.idpMappers.delete(idp.alias);
         for (const l of this.links.values()) l.delete(idp.alias);
         for (const l of this.orgIdps.values()) l.delete(idp.alias);
         return empty();

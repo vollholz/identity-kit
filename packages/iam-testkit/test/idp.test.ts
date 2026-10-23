@@ -39,28 +39,28 @@ describe('Mock-IdP', () => {
 
 describe('claimsFor', () => {
   const c = claimsFor({ personClientId: 'notes-platform' });
-  test('Person mit Rollengruppen der ersten Organisation', () => {
-    const p = c.user({ org: ['acme', 'globex'], groupRoles: ['editor'], roles: ['viewer'] });
+  test('Person mit Organisationen und Gruppen aus Entra, ohne Rollen', () => {
+    const g = '0b6f2f7e-4c1d-4d2b-9a55-1f0c7c2d9e11';
+    const p = c.user({ org: ['acme', 'globex'], groups: [g] });
     assert.equal(p.azp, 'notes-platform');
     assert.deepEqual(p.organization, ['acme', 'globex']);
-    assert.deepEqual(p.groups, ['/orgs/acme/editor']);
-    assert.deepEqual(p.resource_access, { 'notes-platform': { roles: ['viewer'] } });
+    assert.deepEqual(p.groups, [g]);
+    assert.ok(!('resource_access' in p), 'keine Client-Rollen');
+    assert.ok(!('groups' in c.user({ org: 'acme' })), 'ohne Entra keine Gruppen');
   });
   test('Service Account', () => {
-    const s = c.client({ clientId: 'acme-sync', org: 'acme', roles: ['editor'], scopes: ['notes:read'] });
+    const s = c.client({ clientId: 'acme-sync', org: 'acme', scopes: ['notes:read'] });
     assert.deepEqual([s.azp, s.preferred_username, s.scope, s.organization], ['acme-sync', 'service-account-acme-sync', 'notes:read', ['acme']]);
-  });
-  test('eigenes Gruppenpräfix', () => {
-    assert.deepEqual(claimsFor({ personClientId: 'x', groupPrefix: '/tenants/' }).user({ org: 'a', groupRoles: ['r'] }).groups, ['/tenants/a/r']);
+    assert.ok(!('resource_access' in s));
   });
 });
 
 describe('KeycloakFake', () => {
-  test('Mitglieder, Rollengruppen und Admin-API mit Token', async () => {
+  test('Mitglieder und Admin-API mit Token', async () => {
     const kc = new KeycloakFake();
     const o = kc.org('acme'), u = kc.user('alice');
-    kc.member(o, u, ['editor', 'c-team']);
-    assert.deepEqual(kc.rolesOf(o, u), ['c-team', 'editor']);
+    kc.member(o, u);
+    assert.ok(kc.orgMembers.get(o.id)!.has(u.id));
     const base = 'http://kc.test/admin/realms/notes';
     assert.equal((await kc.fetch(`${base}/organizations`)).status, 401, 'ohne Token');
     const tok = await (await kc.fetch('http://kc.test/realms/notes/protocol/openid-connect/token', { method: 'POST', body: 'grant_type=client_credentials' })).json() as { access_token: string };
@@ -73,11 +73,19 @@ describe('KeycloakFake', () => {
     kc.deny.push(/^GET \/organizations$/);
     assert.equal((await kc.fetch(`${base}/organizations`, { headers: { authorization: `Bearer ${tok.access_token}` } })).status, 403);
   });
-  test('eigenes Gruppenpräfix', () => {
-    const kc = new KeycloakFake({ groupPrefix: '/tenants' });
-    const o = kc.org('acme'), u = kc.user('bob');
-    kc.member(o, u, ['viewer']);
-    assert.deepEqual(kc.rolesOf(o, u), ['viewer']);
-    assert.ok([...kc.groups.values()].some(g => g.path === '/tenants/acme/viewer'));
+  test('Mapper eines Identitätsanbieters (entra-groups)', async () => {
+    const kc = new KeycloakFake();
+    const tok = await (await kc.fetch('http://kc.test/realms/notes/protocol/openid-connect/token', { method: 'POST', body: 'grant_type=client_credentials' })).json() as { access_token: string };
+    const call = (method: string, path: string, body?: unknown) => kc.fetch(`http://kc.test/admin/realms/notes${path}`, { method, headers: { authorization: `Bearer ${tok.access_token}`, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    assert.equal((await call('POST', '/identity-provider/instances', { alias: 'entra-001', providerId: 'microsoft', config: {} })).status, 201);
+    const m = { name: 'entra-groups', identityProviderAlias: 'entra-001', identityProviderMapper: 'oidc-user-attribute-idp-mapper', config: { syncMode: 'FORCE', claim: 'groups', 'user.attribute': 'entra_groups' } };
+    assert.equal((await call('POST', '/identity-provider/instances/entra-001/mappers', m)).status, 201);
+    assert.equal((await call('POST', '/identity-provider/instances/entra-001/mappers', m)).status, 409);
+    const list = await (await call('GET', '/identity-provider/instances/entra-001/mappers')).json() as { id: string; name: string }[];
+    assert.deepEqual(list.map(x => x.name), ['entra-groups']);
+    assert.equal((await call('PUT', `/identity-provider/instances/entra-001/mappers/${list[0]!.id}`, { ...m, config: { ...m.config, syncMode: 'IMPORT' } })).status, 204);
+    assert.equal(kc.idpMappers.get('entra-001')![0]!.config.syncMode, 'IMPORT');
+    await call('DELETE', '/identity-provider/instances/entra-001');
+    assert.equal(kc.idpMappers.has('entra-001'), false);
   });
 });

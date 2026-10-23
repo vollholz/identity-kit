@@ -73,7 +73,7 @@ export function productDb(o: Omit<IamMigrationOptions, 'product'> & { product?: 
   const dbs = testDatabases({
     prefix: `iam_${p}_test_`, owner: `${p}_owner`, connect: [`${p}_app`, `${p}_sched`], env,
     migrate: async url => {
-      const iam = o.iam === false ? [] : [iamMigrations({ product, schema: o.schema, resourceTypes: o.resourceTypes, leafTypes: o.leafTypes, adopted: o.adopted })];
+      const iam = o.iam === false ? [] : [iamMigrations({ product, schema: o.schema, model: o.model, adopted: o.adopted })];
       return migrate(url, [...iam, ...(o.sources ?? [])]);
     },
     runtime: url => new pg.Pool({ connectionString: url, max: 3 }),

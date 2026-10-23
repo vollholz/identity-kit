@@ -142,19 +142,19 @@ export function iamMigrations(o: IamMigrationOptions): MigrationSource {
   return {
     name: 'iam', migrations, owner: roles.owner,
     sync: c => syncAclChecks(c, schema, { resourceTypes: acl.types, leafTypes: acl.leaves }),
-    ...(o.adopted ? { adopt: adoption(o.adopted, migrations, schema, roles.app) } : {}),
+    ...(o.adopted ? { adopt: adoption(o.adopted, migrations, schema, roles.app, roles.sched) } : {}),
   };
 }
 
 /** Übernahme prüfen und zusammenstellen: zugeordnete IAM-Migrationen gibt es und sie liegen nach der Grundlage. */
-function adoption(a: NonNullable<IamMigrationOptions['adopted']>, migrations: Migration[], schema: string, app: string): Adoption {
+function adoption(a: NonNullable<IamMigrationOptions['adopted']>, migrations: Migration[], schema: string, app: string, sched: string): Adoption {
   const also = Object.entries(a.map ?? {}).map(([when, name]) => ({ name, when }));
   for (const x of also) {
     if (!migrations.some(m => m.name === x.name)) throw new Error(`adopted.map: IAM-Migration ${x.name} gibt es nicht`);
     if (x.name <= IAM_BASELINE) throw new Error(`adopted.map: ${x.name} gehört zur Grundlage (bis ${IAM_BASELINE}) und wird ohnehin übernommen`);
   }
   if (new Set(also.map(x => x.name)).size !== also.length) throw new Error('adopted.map: eine IAM-Migration ist mehrfach zugeordnet');
-  return { upTo: IAM_BASELINE, after: a.after, also, check: c => adoptionProblems(c, { schema, app, after: a.after, also }) };
+  return { upTo: IAM_BASELINE, after: a.after, also, check: c => adoptionProblems(c, { schema, app, sched, after: a.after, also }) };
 }
 
 const lit = (v: string) => `'${v}'`;
@@ -217,13 +217,13 @@ const SELF_EXPR = '(id = app.tenant_id())';
  * (RLS mit FORCE und tenant_isolation je Mandantentabelle, tenant_self, kein Recht für PUBLIC, SECURITY DEFINER mit
  * festem search_path). Die Bedingungen zu Ressourcentypen gleicht danach `syncAclChecks` ab.
  */
-export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; app: string; after: string; also?: { name: string; when: string }[] }): Promise<string[]> {
+export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; app: string; sched?: string; after: string; also?: { name: string; when: string }[] }): Promise<string[]> {
   const { schema, app } = o;
   const out: string[] = [];
   if (!(await c.query('SELECT 1 FROM public.schema_migrations WHERE name = $1', [o.after])).rowCount) out.push(`Migration ${o.after} ist nicht angewendet`);
   for (const x of o.also ?? []) {
     if (!(await c.query('SELECT 1 FROM public.schema_migrations WHERE name = $1', [x.when])).rowCount) out.push(`Migration ${x.when} (für ${x.name}) ist nicht angewendet`);
-    const problem = await laterObjectProblem(c, schema, x.name);
+    const problem = await laterObjectProblem(c, schema, { app, sched: o.sched ?? app.replace(/_app$/, '_sched') }, x.name);
     if (problem) out.push(`${x.name}: ${problem}`);
   }
   const tables = new Map((await c.query<{ t: string; rls: boolean; force: boolean; pub: boolean }>(
@@ -260,8 +260,11 @@ export async function adoptionProblems(c: pg.ClientBase, o: { schema: string; ap
   return out;
 }
 
-/** Objekte einer übernommenen IAM-Migration nach der Grundlage (Prüfung wie für die Grundlage: vorhanden und geschützt). */
-async function laterObjectProblem(c: pg.ClientBase, schema: string, name: string): Promise<string | null> {
+/**
+ * Zustand einer übernommenen IAM-Migration nach der Grundlage – wie die Migration ihn herstellt, nicht nur ein Merkmal:
+ * Rechte (iam_010), Verhalten (iam_011, Probe in einer zurückgerollten Teiltransaktion), Katalog (iam_009, iam_012).
+ */
+async function laterObjectProblem(c: pg.ClientBase, schema: string, roles: { app: string; sched: string }, name: string): Promise<string | null> {
   if (name.startsWith('iam_009_')) {
     const pk = (await c.query<{ d: string }>("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'p'", [`${schema}.tenant_role`])).rows[0]?.d;
     return pk === 'PRIMARY KEY (tenant_id, id)' ? null : `Primärschlüssel ${schema}.tenant_role (tenant_id, id) fehlt`;
@@ -270,17 +273,51 @@ async function laterObjectProblem(c: pg.ClientBase, schema: string, name: string
     const pub = (await c.query<{ f: string }>(
       `SELECT n.nspname || '.' || p.proname AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname IN ('app', $1) AND EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x WHERE x.grantee = 0 AND x.privilege_type = 'EXECUTE')`, [schema])).rows.map(r => r.f);
-    return pub.length ? `PUBLIC darf noch ausführen: ${pub.join(', ')}` : null;
+    if (pub.length) return `PUBLIC darf noch ausführen: ${pub.join(', ')}`;
+    // Ohne diese Rechte scheitert app.audit_chain() (Trigger der Audit-Kette) für App und Scheduler
+    const fn = `app.audit_hash(bytea, ${schema}.audit_log)`;
+    const missing = [];
+    for (const role of [roles.app, roles.sched]) {
+      if (!(await c.query<{ ok: boolean }>('SELECT has_function_privilege($1, $2, $3) AS ok', [role, fn, 'EXECUTE'])).rows[0]!.ok) missing.push(role);
+    }
+    return missing.length ? `EXECUTE auf ${fn} fehlt für ${missing.join(', ')}` : null;
   }
-  if (name.startsWith('iam_011_')) {
-    const src = (await c.query<{ s: string }>("SELECT prosrc AS s FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app' AND p.proname = 'resolve_tenant'")).rows[0]?.s ?? '';
-    return src.includes('translate(p_alias') ? null : 'app.resolve_tenant ohne strenge Prüfung des Alias';
-  }
+  if (name.startsWith('iam_011_')) return resolveTenantProbe(c);
   if (name.startsWith('iam_012_')) {
-    const idx = (await c.query<{ d: string }>("SELECT indexdef AS d FROM pg_indexes WHERE schemaname = $1 AND indexname = 'acl_entry_unique'", [schema])).rows[0]?.d ?? '';
-    return /UNIQUE INDEX .*\(tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect\) NULLS NOT DISTINCT/.test(idx) ? null : `eindeutiger Index ${schema}.acl_entry_unique fehlt`;
+    const idx = (await c.query<{ unique: boolean; valid: boolean; partial: boolean; expr: boolean; nnd: boolean; cols: string[] }>(
+      `SELECT i.indisunique AS unique, i.indisvalid AS valid, i.indpred IS NOT NULL AS partial, i.indexprs IS NOT NULL AS expr, i.indnullsnotdistinct AS nnd,
+              array(SELECT a.attname::text FROM unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum, ord) JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum ORDER BY k.ord) AS cols
+         FROM pg_index i JOIN pg_class x ON x.oid = i.indexrelid
+        WHERE i.indrelid = $1::regclass AND x.relname = 'acl_entry_unique'`, [`${schema}.acl_entry`])).rows[0];
+    const cols = ['tenant_id', 'resource_type', 'resource_id', 'principal_type', 'principal_ref', 'permission', 'effect'];
+    if (!idx) return `eindeutiger Index ${schema}.acl_entry_unique fehlt`;
+    const ok = idx.unique && idx.valid && !idx.partial && !idx.expr && idx.nnd && idx.cols.join() === cols.join();
+    return ok ? null : `Index ${schema}.acl_entry_unique entspricht nicht iam_012 (UNIQUE, gültig, ohne Bedingung, NULLS NOT DISTINCT, Spalten ${cols.join(', ')})`;
   }
   return 'keine Prüfung für diese Migration bekannt; nur iam_009 bis iam_012 lassen sich übernehmen';
+}
+
+/**
+ * Verhalten von app.resolve_tenant nach iam_011, geprüft in einer Teiltransaktion, die danach zurückgerollt wird
+ * (nichts bleibt): ungültiger Alias (Kelvin-Zeichen) → NULL; Organisations-ID eines anderen Mandanten beim Anlegen und
+ * beim Binden → NULL statt Fehler bzw. fremder Mandant.
+ */
+async function resolveTenantProbe(c: pg.ClientBase): Promise<string | null> {
+  const r = (alias: string, kc: string | null, create: boolean) => c.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, $4) AS id', [alias, kc, 'Probe', create]).then(x => x.rows[0]!.id);
+  const tag = `iamprobe-${Date.now().toString(36)}`, kc = `${tag}-org`;
+  await c.query('SAVEPOINT iam_probe');
+  try {
+    if (!(await r(`${tag}-a`, kc, true))) return 'app.resolve_tenant legt keinen Mandanten an';
+    await r(`${tag}-k`, null, true);
+    if (await r(`${tag}-\u212a`, null, false)) return 'app.resolve_tenant findet einen Mandanten über einen ungültigen Alias (Kelvin-Zeichen)';
+    if (await r(`${tag}-b`, kc, true)) return 'app.resolve_tenant legt einen Mandanten mit der Organisations-ID eines anderen an';
+    if (await r(`${tag}-k`, kc, false)) return 'app.resolve_tenant bindet die Organisations-ID eines anderen Mandanten';
+    return null;
+  } catch (e) {
+    return `app.resolve_tenant: ${(e as Error).message}`;
+  } finally {
+    await c.query('ROLLBACK TO SAVEPOINT iam_probe');
+  }
 }
 
 /** Reihenfolge der Ausführung: Quellen wie gegeben, eine übernommene Quelle direkt nach ihrer Marke. */

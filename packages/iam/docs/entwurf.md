@@ -311,8 +311,12 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
 - **Spätere Entsprechungen (0.1.1):** Assets hat 051–053 schon angewendet (= `iam_010`–`iam_012`). Mit `after: '049…'`
   liefe `iam_012` danach erneut und scheiterte am bestehenden Index `acl_entry_unique`. `adopted.map` ordnet sie zu;
   `ASSETS_ADOPTION` = `{ after: '053_acl_unique.sql', map: { '051…': 'iam_010…', '052…': 'iam_011…', '053…': 'iam_012…' } }`.
-  Eingetragen wird nur, wenn die Migration der App angewendet ist und die Objekte bestehen (`laterObjectProblem`: kein
-  EXECUTE für PUBLIC, `resolve_tenant` mit strenger Prüfung, eindeutiger Index). In Assets läuft dann nur `iam_009`.
+  Eingetragen wird nur, wenn die Migration der App angewendet ist und der Zustand der IAM-Migration nachgewiesen ist
+  (`laterObjectProblem`): `iam_010` kein EXECUTE für PUBLIC und EXECUTE auf `app.audit_hash` für App- und
+  Scheduler-Rolle; `iam_011` Verhaltensprobe von `resolve_tenant` in einer zurückgerollten Teiltransaktion (ungültiger
+  Alias, fremde Organisations-ID beim Anlegen und Binden → NULL); `iam_012` Index über `pg_index` (eindeutig, gültig,
+  ohne Bedingung und Ausdrücke, NULLS NOT DISTINCT, Spalten in dieser Reihenfolge). Assets 051 vergibt dieselben Rechte
+  wie `iam_010` (geprüft am Quelltext). In Assets läuft dann nur `iam_009`.
   `iam_010`–`iam_012` bleiben unverändert: idempotent umgeschrieben änderten sie ihre Prüfsummen, und jede Datenbank,
   die 0.1.0 schon angewendet hat, bräche ab.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach

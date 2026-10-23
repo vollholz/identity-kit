@@ -14,6 +14,7 @@ export const ME_FIXTURE = {
   roles: ['org-admin'],
   permissions: ['tenant:read'],
   grantedPermissions: [],
+  accessTag: 'Zt3kQ9aP1x',
   csrfToken: 'csrf-123',
   session: { expiresAt: '2030-01-01T00:00:00.000Z', idleTimeoutSeconds: 3600 },
 } satisfies Me;

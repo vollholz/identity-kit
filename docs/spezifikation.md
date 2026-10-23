@@ -288,7 +288,7 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 | `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-(\d{3}|app-<alias>)$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
 | `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-(\d{3}|app-<alias>)$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
 | `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
-| `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles`, `permissions` (effektiv), `grantedPermissions` (immer, leer ohne Freigaben; [7.1](#71-entscheidung)), `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds`. Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
+| `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles`, `permissions` (effektiv), `grantedPermissions` (immer, leer ohne Freigaben; [7.1](#71-entscheidung)), `accessTag` (Fingerabdruck des Zugriffsstands, null ohne Mandant; [11.2](#112-rechte-sichtbar-machen)), `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds`. Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
 | `POST /auth/logout` | CSRF; Sitzung löschen, RP-initiated Logout mit `id_token_hint` und `post_logout_redirect_uri = <url>/abgemeldet` |
 | `POST /auth/backchannel-logout` | OIDC Back-Channel Logout 1.0: Logout-Token prüfen (`iss`, `aud` = BFF-Client, `iat`, `jti`, höchstens 10 min alt, Ereignis `backchannel-logout`, kein `nonce`, `sid` oder `sub`), `jti` gegen Wiederholung, betroffene Sitzungen löschen |
@@ -737,8 +737,8 @@ MenuButton,org}.tsx`, `web/src/features/{admin,acl}/*`, `docs/oberflaeche.md`, K
   ergänzt. Beim Bearbeiten neue und entzogene Rechte und die Zahl betroffener Personen.
 - **Fähigkeiten aktuell:** Nach eigenen Änderungen an Zugriffsregeln oder Rollen lädt das Paket `/auth/me` und die
   Daten der App neu (`rightsData`, Standard: alle Abfragen ausser denen des Pakets), damit `can` der Ressourcen stimmt;
-  meldet `/auth/me` andere Rollen oder Rechte (Änderung anderswo; geprüft beim Zurückkehren in den Tab und nach jedem
-  403), ebenso.
+  meldet `/auth/me` einen anderen Zugriffsstand (`accessTag`: jede Zugriffsregel, eigene Rolle, Kette der Ressourcen),
+  andere Rollen oder Rechte (Änderung anderswo; geprüft beim Zurückkehren in den Tab und nach jedem 403), ebenso.
 - **Rollenmatrix** Rechtegruppe × Rolle im Rollendialog, ohne waagrechtes Scrollen.
 - Begriffe (sichtbar, verbindlich): **Rolle**, **Recht**, **Scope** («Freigabe im Token»), **Zugriffsregel** (nicht
   «ACL», nicht «Principal»), **Organisation** (nicht «Mandant»).

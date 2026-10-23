@@ -44,6 +44,12 @@ export interface Me {
   permissions: Permission[];
   /** Rechte nur über Freigaben auf einzelnen Ressourcen; immer vorhanden, leer ohne Freigaben (5.1, 7.1). */
   grantedPermissions: Permission[];
+  /**
+   * Fingerabdruck des Zugriffsstands (Zugriffsregeln, eigene Rollen, Kette der Ressourcen, Rollen der Person); ändert er
+   * sich, sind Fähigkeiten (`can`) im Cache veraltet. Null ohne Mandant. Server vor `@vollholz/iam` 0.4.0 liefern es nicht;
+   * das Paket behandelt das Fehlen wie null.
+   */
+  accessTag: string | null;
   csrfToken: string;
   session: { expiresAt: string; idleTimeoutSeconds: number };
 }

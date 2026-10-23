@@ -8,7 +8,8 @@
  * - Organisation des Tabs nicht mehr verfügbar (Austritt, nicht mehr im Token, gesperrt) → Hinweis mit Auswahl und
  *   «Neu laden» statt Daten einer anderen Organisation; jedes 403 lässt /auth/me das prüfen
  * - anderer Mandant im Tab → Cache leeren (ausser /auth/me), nichts aus der vorigen Organisation weiterzeigen
- * - andere Rollen oder Rechte bei gleicher Person und Organisation → Daten der App neu laden (rightsData.ts)
+ * - anderer Zugriffsstand, andere Rollen oder Rechte bei gleicher Person und Organisation → Daten der App neu laden
+ *   (rightsData.ts)
  * - Sitzung abgelaufen (401) → Dialog «Erneut anmelden», ungespeicherte Eingaben bleiben sichtbar
  * - Abmelden entfernt die Organisation des Tabs; persönliche Daten der App über `onLogout`
  * Herkunft: vollholz/assets `web/src/auth/session.tsx`.
@@ -109,7 +110,7 @@ async function fetchMe(qc: QueryClient, config: IamConfig): Promise<Me> {
   // Andere Organisation (neue ID) oder andere Person im selben Tab (z. B. in einem anderen Tab ab- und neu angemeldet)
   const before = qc.getQueryData<Me>(iamKeys.me);
   if (before && scopeOf(before) !== scopeOf(me)) await clearTenantData(qc);
-  // Gleiche Person und Organisation, aber andere Rollen oder Rechte: Fähigkeiten der App im Cache sind veraltet
+  // Gleiche Person und Organisation, aber anderer Zugriffsstand, andere Rollen oder Rechte: Fähigkeiten im Cache veraltet
   else if (before && rightsOf(before) !== rightsOf(me)) void invalidateRightsData(qc, config);
   applyMe(me, config);
   return me;

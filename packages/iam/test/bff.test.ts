@@ -295,6 +295,13 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.deepEqual(b.organizations, ['acme']);
     assert.ok(b.roles.includes('editor') && b.permissions.includes('note:write'));
     assert.ok(typeof b.csrfToken === 'string' && b.csrfToken.length >= 40);
+    // Zugriffsstand: gleich bis zur nächsten Zugriffsregel, auch wenn sich Rollen und Rechte der Person nicht ändern
+    assert.match(b.accessTag, /^[\w-]{10}$/);
+    assert.equal((await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json().accessTag, b.accessTag);
+    await t.inspect.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', gen_random_uuid(), 'role', 'viewer', 'note:read', 'deny')", [b.tenant.id]);
+    const after = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([after.roles, after.permissions, after.grantedPermissions], [b.roles, b.permissions, b.grantedPermissions]);
+    assert.notEqual(after.accessTag, b.accessTag, 'neue Zugriffsregel ändert den Zugriffsstand');
     assert.equal(m.headers['cache-control'], 'no-store');
   });
 
@@ -603,7 +610,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     m = r.json();
     assert.equal(m.tenant, null);
     assert.match(m.tenantError, /initech/);
-    assert.deepEqual([m.roles, m.permissions], [[], []]);
+    assert.deepEqual([m.roles, m.permissions, m.accessTag], [[], [], null]);
     assert.ok(m.csrfToken && m.organizations.includes(a));
 
     // aus der Organisation entfernt (noch im Token): ebenso, mit dem Grund aus dem Resolver

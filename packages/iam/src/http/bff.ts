@@ -95,7 +95,9 @@ export const bffModule: IamModule = {
           tags: [TAG_UI], summary: 'Angemeldete Person, Mandant, Organisationen, Rollen, Rechte und CSRF-Token', security: [],
           description: 'Mandant aus dem Header `X-Tenant` (Organisation des Tabs), ohne Header aus der Vorgabe der Sitzung. Steht die Organisation nicht im Token '
             + 'oder ist die Person kein Mitglied mehr, ist `tenant` null und `tenantError` nennt den Grund. `organizationNames`: Name je Organisation des Tokens. '
-            + '`permissions`: Rechte auf Mandantenebene; `grantedPermissions`: Rechte nur über Freigaben auf einzelnen Ressourcen.',
+            + '`permissions`: Rechte auf Mandantenebene; `grantedPermissions`: Rechte nur über Freigaben auf einzelnen Ressourcen. '
+            + '`accessTag`: Fingerabdruck des Zugriffsstands (Zugriffsregeln, eigene Rollen, Kette der Ressourcen, Rollen der Person); ändert er sich, '
+            + 'sind Fähigkeiten (`can`) in zwischengespeicherten Antworten veraltet. Ohne Mandant null.',
         }),
       }, async (req: FastifyRequest, reply: FastifyReply) => {
         const s = await bff.current(req, reply);
@@ -103,19 +105,20 @@ export const bffModule: IamModule = {
         const header = req.headers['x-tenant'];
         const requested = typeof header === 'string' && header ? header : s.data.org;
         let tenant: { id: string; alias: string; name: string } | null = null, roles: string[] = [], permissions: string[] = [], grantedPermissions: string[] = [], tenantError: string | null = null;
+        let accessTag: string | null = null;
         try {
           const verified = await iam.verifier.verify(s.data.accessToken, { audience: cfg.oidc.apiAudience, method: 'GET', url: `${cfg.publicBaseUrl}/auth/me` });
           // Der Resolver bleibt die einzige Prüfung: nur Organisationen aus dem Token, Mitgliedschaft in der Plattform
           const p = await iam.resolver.resolve(verified, requested);
           tenant = { id: p.tenantId, alias: p.tenantAlias, name: await bff.tenantName(p.tenantId) ?? p.tenantAlias };
-          roles = p.roles; permissions = await iam.access.effective(p); grantedPermissions = await iam.access.granted(p);
+          roles = p.roles; permissions = await iam.access.effective(p); grantedPermissions = await iam.access.granted(p); accessTag = await iam.access.accessTag(p);
         } catch (e) {
           if (!(e instanceof HttpError) || e.status === 401 || e.status >= 500) throw e;
           tenantError = e.detail ?? e.title; // z. B. mehrere Organisationen und noch keine gewählt, nicht (mehr) im Token, kein Mitglied mehr
         }
         return {
           person: { subject: s.data.sub, name: s.data.name, email: s.data.email },
-          tenant, organizations: s.data.orgs, organizationNames: await bff.organizationNames(s), selectedOrganization: s.data.org, tenantError, roles, permissions, grantedPermissions,
+          tenant, organizations: s.data.orgs, organizationNames: await bff.organizationNames(s), selectedOrganization: s.data.org, tenantError, roles, permissions, grantedPermissions, accessTag,
           csrfToken: s.csrf, session: { expiresAt: new Date(s.expiresAt).toISOString(), idleTimeoutSeconds: Math.round(cfg.session.idleMs / 1000) },
         };
       });

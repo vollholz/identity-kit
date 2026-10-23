@@ -17,6 +17,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
   Rollendialog (`tasks`), beides optional und geprüft (bekannte Rechte, keine Selbstvoraussetzung, Aufgaben vollständig
   und ohne Rechte nur für `org-admin`); vordefinierte Rollen ohne ihre Voraussetzungen als Hinweis (`warnings`).
   `GET /v1/authz/catalog` liefert beides nur, wo gesetzt. Für die Warnungen und Aufgaben in `@vollholz/iam-web` 0.4.0.
+  `/auth/me` liefert `accessTag` (Fingerabdruck des Zugriffsstands wie für ETags, null ohne Mandant): Daran erkennt die
+  Oberfläche auch Änderungen an Zugriffsregeln einzelner Bereiche, die Rollen und Rechte der Person nicht ändern.
 - **0.3.0:** Entra mit eigener App der Organisation (`PUT …/entra/app`, Migration `iam_014`): Tenant, Anwendungs-ID
   und Geheimnis der Kunden-App, geprüft bei Microsoft vor dem Speichern, Geheimnis verschlüsselt (`ENCRYPTION_KEYS`,
   Rotation `rewrapEntraSecrets`), Anbieter `entra-app-<alias>`, Ablauf des Geheimnisses mit Warnung. Link

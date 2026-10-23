@@ -5,9 +5,10 @@
  * (`rightsData` der Konfiguration, Standard: alle Abfragen ausser denen des Pakets) neu:
  *
  * - Änderung in diesem Browser (Zugriffsregel anlegen oder löschen, eigene Rolle ändern oder löschen): sofort danach.
- * - Änderung anderswo (anderer Browser, andere Person): sobald /auth/me andere Rollen oder Rechte meldet als vorher, also
- *   beim Zurückkehren in den Tab (wenn /auth/me älter als eine Minute ist) und nach jedem 403. Verbote auf einzelnen
- *   Ressourcen ändern /auth/me nicht; sie zeigen sich beim nächsten Laden der Daten oder spätestens als 403 der Aktion.
+ * - Änderung anderswo (anderer Browser, andere Person): sobald /auth/me einen anderen Zugriffsstand (`accessTag`), andere
+ *   Rollen oder Rechte meldet als vorher, also beim Zurückkehren in den Tab (wenn /auth/me älter als eine Minute ist) und
+ *   nach jedem 403. `accessTag` ändert sich mit jeder Zugriffsregel, auch mit Freigaben und Verboten auf einzelnen
+ *   Ressourcen; Server ohne `accessTag` (vor `@vollholz/iam` 0.4.0) bemerken nur geänderte Rollen und Rechte.
  */
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
@@ -23,9 +24,9 @@ const appData = (config: Pick<IamConfig, 'rightsData'>) => {
   return { predicate: (q: { queryKey: readonly unknown[] }) => match(q.queryKey) };
 };
 
-/** Rollen und Rechte einer Antwort von /auth/me; ändert sich der Wert, sind die Fähigkeiten im Cache veraltet. */
+/** Zugriffsstand, Rollen und Rechte einer Antwort von /auth/me; ändert sich der Wert, sind die Fähigkeiten im Cache veraltet. */
 export const rightsOf = (me: Me | undefined): string => (me
-  ? JSON.stringify([[...me.roles].sort(), [...me.permissions].sort(), [...(me.grantedPermissions ?? [])].sort()])
+  ? JSON.stringify([me.accessTag ?? null, [...me.roles].sort(), [...me.permissions].sort(), [...(me.grantedPermissions ?? [])].sort()])
   : '');
 
 /** Daten der App neu laden (aktive sofort, übrige beim nächsten Gebrauch). */

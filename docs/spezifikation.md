@@ -540,7 +540,7 @@ Organisationen und Mitgliedern, `docs/mandantentrennung.md` › Verwaltung.
 
 | Endpunkt | Wer |
 |---|---|
-| `GET /v1/admin/status` (`enabled`, `reason`, `organization`, `platformAdmin`, `canManageMembers`, `rolesManageable`, `roles`) | jede angemeldete Person |
+| `GET /v1/admin/status` (`enabled`, `reason`, `organization`, `platformAdmin`, `canManageMembers`, `rolesManageable`, `groupRolePrefix`, `roles`) | jede angemeldete Person |
 | `GET/POST /v1/admin/members`, `PUT /v1/admin/members/{id}/roles`, `DELETE /v1/admin/members/{id}`, `POST /v1/admin/members/{id}/invitation` | `members:admin` |
 | `GET /v1/roles`, `GET /v1/roles/{key}` (vordefinierte und eigene, `memberCount` nur mit `members:admin`, `maxCustom`, `customPermissions`) | `tenant:read` |
 | `POST /v1/roles`, `PATCH /v1/roles/{key}`, `DELETE /v1/roles/{key}` | `members:admin`, nur Personen |

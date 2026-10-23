@@ -19,6 +19,11 @@ const IAM_ROUTES = [
   'GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/acl', 'POST /v1/acl', 'DELETE /v1/acl/{id}', 'GET /v1/acl/effective',
   'GET /v1/admin/clients', 'PUT /v1/admin/clients/{clientId}', 'DELETE /v1/admin/clients/{clientId}',
   'GET /v1/platform/organizations/{alias}/clients', 'PUT /v1/platform/organizations/{alias}/clients/{clientId}', 'DELETE /v1/platform/organizations/{alias}/clients/{clientId}',
+  'GET /v1/admin/status', 'GET /v1/admin/members', 'POST /v1/admin/members', 'PUT /v1/admin/members/{id}/roles', 'DELETE /v1/admin/members/{id}', 'POST /v1/admin/members/{id}/invitation',
+  'GET /v1/platform/organizations/{alias}/members', 'POST /v1/platform/organizations/{alias}/members', 'PUT /v1/platform/organizations/{alias}/members/{id}/roles',
+  'DELETE /v1/platform/organizations/{alias}/members/{id}', 'POST /v1/platform/organizations/{alias}/members/{id}/invitation',
+  'GET /v1/platform/organizations', 'POST /v1/platform/organizations', 'GET /v1/platform/organizations/{alias}', 'PATCH /v1/platform/organizations/{alias}',
+  'POST /v1/platform/organizations/{alias}/suspend', 'POST /v1/platform/organizations/{alias}/resume',
 ];
 
 describe('OpenAPI der Routen des Pakets', { skip }, () => {
@@ -45,6 +50,20 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
       assert.ok(op(r).summary, r);
     }
     assert.ok(!doc.paths['/v1/openapi.json'], 'versteckt');
+  });
+
+  test('Modul admin: groupRolePrefix im Status, Body von suspend/resume optional (optionalBodies), Einladen mit 202', () => {
+    const status = op('GET /v1/admin/status').responses['200'].content['application/json'].schema;
+    assert.ok(status.required.includes('groupRolePrefix') && status.properties.groupRolePrefix.type === 'string');
+    for (const v of ['suspend', 'resume']) {
+      const rb = op(`POST /v1/platform/organizations/{alias}/${v}`).requestBody;
+      assert.equal(rb.required, false, v);
+      assert.equal(rb.content['application/json'].schema.properties.reason.maxLength, 500);
+      assert.equal(op(`POST /v1/platform/organizations/{alias}/${v}`)['x-body-optional'], undefined, 'Markierung entfernt');
+    }
+    assert.equal(op('POST /v1/admin/members').requestBody.required, true);
+    assert.ok(op('POST /v1/admin/members').responses['202']);
+    for (const s of ['Member', 'Organization']) assert.ok(doc.components.schemas[s], s);
   });
 
   test('übliche Fehlerantworten als problem+json, auch für Routen der App', () => {

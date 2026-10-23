@@ -12,6 +12,7 @@ import type { BffOptions } from '../../src/bff.ts';
 import type { Catalog } from '../../src/catalog.ts';
 import { withTenant } from '../../src/db.ts';
 import { iamPlugin, need, type IamPluginOptions } from '../../src/http/plugin.ts';
+import { optionalBodies } from '../../src/http/routes.ts';
 import { createIam, type Iam, type IamEvents } from '../../src/iam.ts';
 import { migration } from '../../src/migrations.ts';
 import type { ResourceModel } from '../../src/resources.ts';
@@ -49,14 +50,16 @@ export interface NotesApp { app: FastifyInstance; iam: Iam<string, Map<string, s
 export async function notesApp(o: {
   db: Parameters<typeof createIam>[0]['db']; issuer: string; env?: Record<string, string>; plugin?: Partial<IamPluginOptions>; before?: (app: FastifyInstance) => Promise<void>;
   catalog?: Catalog<string>; resources?: ResourceModel<Map<string, string>>; bff?: BffOptions;
+  /** Keycloak-Admin-API (Modul `admin`, z. B. `KeycloakFake.fetch`). */
+  keycloakFetch?: typeof fetch;
   /** Nach allen Routen, vor `ready` (z. B. Testsonden). */
   after?: (app: FastifyInstance) => Promise<void> | void;
 }): Promise<NotesApp> {
   const events: NotesApp['events'] = [];
   const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}) });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}) });
   const app = Fastify({ logger: false });
-  await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) } });
+  await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });
   await o.before?.(app);
   await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], ...o.plugin });
   app.get('/v1/openapi.json', { schema: { hide: true } }, async () => app.swagger());

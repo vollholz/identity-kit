@@ -25,9 +25,11 @@ export { flatResources, flatChain, type ResourceModel, type ResourceRef } from '
 export { createIam, readinessChecks, type Iam, type IamOptions, type IamEvents, type MemberAccess } from './iam.ts';
 export { iamPlugin, need, needsToken, requestPath, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
 export { problem, problemResponses, registerProblemSchemas, registerErrorHandler, PROBLEM_SCHEMAS } from './http/problems.ts';
-export { IAM_API_TAGS, routeSchema, personOf, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
+export { IAM_API_TAGS, routeSchema, personOf, optionalBodies, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
 export { authzCatalogSchema } from './http/account.ts';
 export { pointlessAcl } from './http/acl.ts';
 export { Bff, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';
 export { KeycloakAdmin, KeycloakError, keyInfo, seg as keycloakSegment, type KcOrg, type KcUser, type KcGroup, type KcOrgDomain, type KcIdp, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
 export { listTenants, findTenant, createTenant, setTenantStatus, relinkTenant, type TenantRow, type TenantActor, type TenantsContext } from './tenants.ts';
+export { AdminService, roleCatalog, entraLoginPath, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type Organization, type CustomRole, type RoleInfo, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';
+export { MemberSync, syncAllMembers, syncTenantMembers, syncTenantName, orgMatches, pendingActions, displayName, type SyncContext, type SyncResult, type RoleCleanup } from './sync.ts';

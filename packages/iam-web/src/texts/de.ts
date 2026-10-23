@@ -270,6 +270,7 @@ export const de = {
   'iam.roles.saveAnyway': 'Trotzdem speichern',
   'iam.roles.loseAdmin': '{name} verliert die Rolle «{role}» in «{org}». Danach gilt nur noch, was die übrigen Rollen erlauben; Mitglieder, Rollen, Zugriff und die Einstellungen der Organisation verwaltet die Person nicht mehr.',
   'iam.roles.gainAdmin': '{name} erhält die Rolle «{role}» und damit alle Rechte in «{org}».',
+  'iam.roles.loseOwnAdmin': 'Du entziehst dir selbst «{perm}» in «{org}». Danach kannst du Mitglieder und Rollen hier nicht mehr verwalten.',
   'iam.roles.noneLeft': 'Ohne Rolle sieht {name} in «{org}» nichts mehr.',
   'iam.rolesPage.title': 'Rollen',
   'iam.rolesPage.sub': 'Rollen bündeln Rechte. Vordefinierte Rollen kommen mit der Plattform; eigene Rollen stellst du für «{org}» aus einzelnen Rechten zusammen. Vergeben werden beide unter «Mitglieder».',

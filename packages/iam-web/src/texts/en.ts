@@ -268,6 +268,7 @@ export const en: Record<IamTextKey, string> = {
   'iam.roles.saveAnyway': 'Save anyway',
   'iam.roles.loseAdmin': '{name} loses the role «{role}» in «{org}». From then on, only what the other roles allow applies; the person no longer manages members, roles, access and the organization settings.',
   'iam.roles.gainAdmin': '{name} gets the role «{role}» and with it all permissions in «{org}».',
+  'iam.roles.loseOwnAdmin': 'You remove «{perm}» from yourself in «{org}». Afterwards you can no longer manage members and roles here.',
   'iam.roles.noneLeft': 'Without a role, {name} no longer sees anything in «{org}».',
   'iam.rolesPage.title': 'Roles',
   'iam.rolesPage.sub': 'Roles bundle permissions. Predefined roles come with the platform; you put together custom roles for «{org}» from single permissions. Both are assigned under «Members».',

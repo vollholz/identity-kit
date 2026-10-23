@@ -12,5 +12,10 @@ export function MembersScreen() {
 
 export function RolesScreen() {
   useIamText();
-  return <Requires perm="members:admin" title={t('iam.rolesPage.title')} icon="tag"><RolesPage /></Requires>;
+  // GET /v1/roles braucht tenant:read auf Ebene der Organisation; ohne «Recht fehlt» statt eines 403
+  return (
+    <Requires perm="members:admin" title={t('iam.rolesPage.title')} icon="tag">
+      <Requires perm="tenant:read" somewhere={false} title={t('iam.rolesPage.title')} icon="tag"><RolesPage /></Requires>
+    </Requires>
+  );
 }

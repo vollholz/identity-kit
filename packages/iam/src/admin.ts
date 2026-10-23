@@ -603,7 +603,8 @@ export class AdminService {
         const userId = t.userId;
         invitation = !!t.invitation;
         if (t.invitation) failure.action = 'member.invitation_withdraw_failed';
-        if (!s.platform && userId === s.actor.subject) throw conflict('Du kannst dich nicht selbst aus der Organisation entfernen.');
+        // Auch über die Plattform-Route: niemand entfernt sich selbst (Spez. 9.1 Nr. 6)
+        if (userId === s.actor.subject) throw conflict('Du kannst dich nicht selbst aus der Organisation entfernen.');
         const roles = await this.rolesOf(org.alias, userId);
         const groups = await this.roleGroups(org.alias);
         if (roles.includes(ADMIN_ROLE)) {
@@ -777,20 +778,27 @@ export class AdminService {
     return this.organization(alias, s.correlationId);
   }
 
-  /** Sperren/Entsperren in Keycloak (Organisation deaktiviert) und in der Plattform (Mandant gesperrt) zugleich. */
+  /**
+   * Sperren/Entsperren in Keycloak (Organisation deaktiviert) und in der Plattform (Mandant gesperrt) zugleich, unter der
+   * Sperre der Organisation (wie alle Änderungen der Verwaltung): Gleichzeitiges Sperren und Entsperren liessen Keycloak
+   * und Mandant sonst auseinanderlaufen. Die Organisation wird unter der Sperre neu gelesen; scheitert der Mandant, wird
+   * Keycloak zurückgesetzt.
+   */
   async setOrganizationStatus(s: Scope, alias: string, status: 'active' | 'suspended', reason = ''): Promise<Organization> {
     const org = await this.org(alias, true);
     if (status === 'suspended' && asciiLower(org.alias) === s.actor.tenantAlias) throw conflict('Die Organisation, in der du gerade angemeldet bist, kannst du nicht sperren.');
-    await this.tenantFor(s, org); // Mandant existiert (sonst anlegen)
     const enabled = status === 'active';
-    if (org.enabled !== enabled) await this.kc.updateOrg({ ...org, enabled });
-    try {
-      // setTenantStatus vergisst den Mandanten im Resolver dieser Instanz
-      await setTenantStatus(this.tenants, this.deps.db, this.deps.db, org.alias, status, reason, this.actorOf(s));
-    } catch (e) {
-      if (org.enabled !== enabled) await this.kc.updateOrg({ ...org, enabled: org.enabled }).catch(() => undefined); // Keycloak und Plattform gleich halten
-      throw e;
-    }
+    await this.locked({ ...s, alias: org.alias }, org, null, async () => {
+      const cur = (await this.kc.getOrg(org.id)) ?? org;
+      if (cur.enabled !== enabled) await this.kc.updateOrg({ ...cur, enabled });
+      try {
+        // Status und Protokoll in eigener Transaktion; setTenantStatus vergisst den Mandanten im Resolver dieser Instanz
+        await setTenantStatus(this.tenants, this.deps.db, this.deps.db, org.alias, status, reason, this.actorOf(s));
+      } catch (e) {
+        if (cur.enabled !== enabled) await this.kc.updateOrg({ ...cur, enabled: cur.enabled }).catch(() => undefined); // Keycloak und Plattform gleich halten
+        throw e;
+      }
+    });
     this.orgs = null;
     return this.organization(alias, s.correlationId);
   }

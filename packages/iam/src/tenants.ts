@@ -5,12 +5,12 @@
  * ihre Tabellen kennt (Entwurf 7.1).
  *
  * Lesen über alle Mandanten und den Status setzen laufen über `app.platform_tenants()` und `app.set_tenant_status()`
- * (SECURITY DEFINER, iam_002) – so geht dasselbe mit der Besitzer-Rolle (Skript) und der Laufzeit (API). Das Protokoll
- * schreibt die Laufzeit-Rolle im Mandantenkontext über den `AuditPort`.
+ * (SECURITY DEFINER, iam_002) – so geht das Lesen mit der Besitzer-Rolle (Skript) und der Laufzeit (API). Anlegen und
+ * Status setzen laufen mit dem Protokoll (`AuditPort`) in einer Transaktion der Laufzeit-Rolle im Mandantenkontext.
  */
 import type pg from 'pg';
 import type { Actor, AuditPort } from './audit.ts';
-import { schemaName, withTenant, type Db } from './db.ts';
+import { schemaName, setContext, withTenant, withTx, type Db } from './db.ts';
 import { asciiLower, type PrincipalResolver } from './principal.ts';
 
 type Admin = pg.ClientBase | Db;
@@ -40,33 +40,46 @@ export async function findTenant(admin: Admin, alias: string): Promise<TenantRow
   return (await admin.query<TenantRow>(`SELECT ${COLS} FROM app.platform_tenants() WHERE alias = $1`, [asciiLower(alias)])).rows[0] ?? null;
 }
 
-async function record(ctx: TenantsContext, runtime: Db, tenantId: string, actor: Actor, e: { action: string; data: Record<string, unknown> }) {
-  await withTenant(runtime, { tenantId }, tx => ctx.audit.write(tx, actor, { action: e.action, resourceType: 'tenant', resourceId: tenantId, data: e.data }));
-}
+const entry = (tenantId: string, e: { action: string; data: Record<string, unknown> }) => ({ action: e.action, resourceType: 'tenant', resourceId: tenantId, data: e.data });
 
-/** Legt den Mandanten an (wie beim ersten Zugriff mit TENANT_AUTO_PROVISION) und protokolliert es. */
-export async function createTenant(ctx: TenantsContext, admin: Admin, runtime: Db, alias: string, name?: string, kcOrgId?: string, actor?: TenantActor): Promise<TenantRow> {
-  const id = (await runtime.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, true) AS id', [alias, kcOrgId ?? null, name ?? alias])).rows[0]!.id;
-  const t = await findTenant(admin, alias);
-  if (t && kcOrgId && t.kc_org_id && t.kc_org_id !== kcOrgId) throw new Error(`Mandant «${t.alias}» gehört zu einer anderen Keycloak-Organisation (${t.kc_org_id}); umhängen mit relinkTenant`);
-  if (!id || !t) throw new Error(`Mandant «${alias}» ist gesperrt oder konnte nicht angelegt werden`);
-  await record(ctx, runtime, t.id, who('tenant-create', actor), { action: 'tenant.provisioned', data: { alias: t.alias, ...actor?.data } });
-  return t;
+async function record(ctx: TenantsContext, runtime: Db, tenantId: string, actor: Actor, e: { action: string; data: Record<string, unknown> }) {
+  await withTenant(runtime, { tenantId }, tx => ctx.audit.write(tx, actor, entry(tenantId, e)));
 }
 
 /**
- * Sperren: keine Anmeldung, keine API-Zugriffe, Worker holt keine Jobs ab. Entsperren stellt alles wieder her. Vergisst
- * den Mandanten in `ctx.resolver`; andere Instanzen (und ohne `resolver`) nach spätestens 60 s. Gleicher Status: nichts
- * geändert, kein Protokolleintrag.
+ * Legt den Mandanten an (wie beim ersten Zugriff mit TENANT_AUTO_PROVISION) und protokolliert es. Anlage und Protokoll
+ * in einer Transaktion der Laufzeit: Scheitert das Protokoll, bleibt kein Mandant zurück, der den Alias belegt.
+ */
+export async function createTenant(ctx: TenantsContext, admin: Admin, runtime: Db, alias: string, name?: string, kcOrgId?: string, actor?: TenantActor): Promise<TenantRow> {
+  // Bestehender Mandant mit anderer Organisation: vor der Anlage melden (resolve_tenant gäbe nur null)
+  const before = await findTenant(admin, alias);
+  if (before && kcOrgId && before.kc_org_id && before.kc_org_id !== kcOrgId) throw new Error(`Mandant «${before.alias}» gehört zu einer anderen Keycloak-Organisation (${before.kc_org_id}); umhängen mit relinkTenant`);
+  return withTx(runtime, async tx => {
+    const id = (await tx.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, true) AS id', [alias, kcOrgId ?? null, name ?? alias])).rows[0]!.id;
+    const t = await findTenant(tx, alias);
+    if (!id || !t) throw new Error(`Mandant «${alias}» ist gesperrt oder konnte nicht angelegt werden`);
+    await setContext(tx, { tenantId: t.id });
+    await ctx.audit.write(tx, who('tenant-create', actor), entry(t.id, { action: 'tenant.provisioned', data: { alias: t.alias, ...actor?.data } }));
+    return t;
+  });
+}
+
+/**
+ * Sperren: keine Anmeldung, keine API-Zugriffe, Worker holt keine Jobs ab. Entsperren stellt alles wieder her. Status
+ * und Protokoll in einer Transaktion der Laufzeit (`app.set_tenant_status`, SECURITY DEFINER): scheitert das Protokoll,
+ * bleibt der Status. Vergisst den Mandanten danach in `ctx.resolver`; andere Instanzen (und ohne `resolver`) nach
+ * spätestens 60 s. Gleicher Status: nichts geändert, kein Protokolleintrag.
  */
 export async function setTenantStatus(ctx: TenantsContext, admin: Admin, runtime: Db, alias: string, status: 'active' | 'suspended', reason = '', actor?: TenantActor): Promise<TenantRow> {
   const t = await findTenant(admin, alias);
   if (!t) throw new Error(`Mandant «${alias}» nicht gefunden`);
   if (t.status === status) return t;
-  await admin.query('SELECT app.set_tenant_status($1, $2)', [t.id, status]);
-  ctx.resolver?.forgetTenant(t.alias);
+  await withTenant(runtime, { tenantId: t.id }, async tx => {
+    await tx.query('SELECT app.set_tenant_status($1, $2)', [t.id, status]);
+    await ctx.audit.write(tx, who(`tenant-${status}`, actor), entry(t.id, { action: status === 'suspended' ? 'tenant.suspended' : 'tenant.resumed', data: { reason, ...actor?.data } }));
+  });
   // Bestehende Sitzungen der Oberfläche enden beim nächsten Zugriff (Mandant nicht verfügbar).
-  await record(ctx, runtime, t.id, who(`tenant-${status}`, actor), { action: status === 'suspended' ? 'tenant.suspended' : 'tenant.resumed', data: { reason, ...actor?.data } });
+  ctx.resolver?.forgetTenant(t.alias);
   return { ...t, status };
 }
 

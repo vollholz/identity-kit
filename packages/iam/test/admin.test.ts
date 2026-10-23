@@ -271,6 +271,12 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(a.actor_name, 'Paula Plattform');
     assert.equal(a.data.platformAdmin, true);
     assert.equal(a.data.actorTenant, 'ops');
+    // Plattform-Administration entfernt sich auch über die Plattform-Route nicht selbst (zweite aktive Admin-Person da)
+    const otto = kc.user('otto', { email: 'otto@ops.example', firstName: 'Otto', lastName: 'Ops' });
+    kc.member([...kc.orgs.values()].find(o => o.alias === 'ops')!, otto, ['org-admin']);
+    const self = await call('paula', 'DELETE', `/v1/platform/organizations/ops/members/${u.paula.id}`);
+    assert.deepEqual([self.status, self.body.detail], [409, 'Du kannst dich nicht selbst aus der Organisation entfernen.']);
+    assert.ok(kc.orgMembers.get([...kc.orgs.values()].find(o => o.alias === 'ops')!.id)!.has(u.paula.id));
     // anna (org-admin) darf carla (org-admin) nicht entfernen
     assert.equal((await call('anna', 'DELETE', `/v1/admin/members/${u.carla.id}`)).status, 403);
     ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.carla.id}/roles`, { roles: ['viewer', 'editor'] }));
@@ -492,6 +498,24 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const back = ok(await call('paula', 'POST', '/v1/platform/organizations/muster/resume'));
     assert.deepEqual([back.enabled, back.tenant.status], [true, 'active']);
     assert.equal((await auditOf('muster', 'tenant.resumed')).at(-1)!.data.reason, '');
+    // Gleichzeitig sperren und entsperren: Das Sperren hängt nach dem Schritt in Keycloak (Zeile des Mandanten gesperrt),
+    // währenddessen kommt das Entsperren. Ohne die Sperre der Organisation endete das mit Keycloak aktiv, Mandant gesperrt.
+    const holder = t.inspect;
+    try {
+      await holder.query('BEGIN');
+      await holder.query("SELECT 1 FROM notes.tenant WHERE alias = 'muster' FOR UPDATE");
+      const mark = kc.calls.length;
+      const suspend = call('paula', 'POST', '/v1/platform/organizations/muster/suspend', {});
+      for (let i = 0; i < 200 && !kc.calls.slice(mark).includes(`PUT /organizations/${muster.id}`); i++) await sleep(10);
+      assert.equal(muster.enabled, false, 'Keycloak schon gesperrt');
+      const resume = call('paula', 'POST', '/v1/platform/organizations/muster/resume');
+      await sleep(300);
+      await holder.query('COMMIT');
+      assert.deepEqual((await Promise.all([suspend, resume])).map(x => x.status), [200, 200]);
+    } finally { await holder.query('ROLLBACK').catch(() => undefined); }
+    const st = (await t.inspect.query("SELECT status FROM notes.tenant WHERE alias = 'muster'")).rows[0].status;
+    assert.deepEqual([muster.enabled, st], [true, 'active'], 'Keycloak und Mandant gleich (Entsperren zuletzt)');
+    ok(await call('paula', 'POST', '/v1/platform/organizations/muster/resume'));
     // Keycloak scheitert → Mandant bleibt, wie er war
     kc.deny = [/^PUT \/organizations\//];
     assert.equal((await call('paula', 'POST', '/v1/platform/organizations/muster/suspend', {})).status, 502);

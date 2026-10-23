@@ -8,7 +8,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Me, Member, Organization } from '../src/index.ts';
+import { makeIamRoutes, tanstackParam, type Me, type Member, type Organization } from '../src/index.ts';
 import { OrganizationPage, OrganizationScreen, OrganizationsScreen } from '../src/pages/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
@@ -165,5 +165,31 @@ describe('Organisationen (Plattform-Administration)', () => {
     await userEvent.click(save);
     expect(await screen.findByText('Organisation «Muster AG» gespeichert')).toBeInTheDocument();
     expect(await calls.find(c => c.method === 'PATCH')!.clone().json()).toEqual({ name: 'Muster AG', domains: ['muster.example', 'muster.ch'], description: null });
+  });
+
+  it('Rollen in der Plattformansicht: nur vordefinierte; Personen mit eigenen Rollen der Organisation nur ansehen', async () => {
+    const OWN_A = { key: 'c-nur-demo', label: 'Nur Demo', description: 'Eigene Rolle von Demo AG', permissions: ['tenant:read'], adminOnly: false, custom: true };
+    const BEN = { ...CARLA, id: 'm-ben', name: 'Ben Muster', email: 'ben@muster.example', roles: ['viewer', 'c-muster-pflege'] };
+    setup(<OrganizationScreen />, detail(ORG, {
+      'GET /v1/admin/status': () => json({ ...PLATFORM, roles: [...CATALOG.roles, OWN_A] }),
+      'GET /v1/platform/organizations/muster/members': () => json({ items: [CARLA, BEN] }),
+    }), { path: '/verwalten/organisationen/muster' });
+    // eigene Rolle der eigenen Organisation (Demo AG) wird für Muster GmbH nicht angeboten
+    await userEvent.click(await screen.findByRole('button', { name: 'Rollen von Carla Check bearbeiten' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Rollen von Carla Check in «Muster GmbH»' });
+    expect(within(dlg).queryByText('Nur Demo')).toBeNull();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Abbrechen' }));
+    // Ben hat eine eigene Rolle von Muster GmbH: nur ansehen, damit sie beim Speichern nicht verloren geht
+    await userEvent.click(screen.getByRole('button', { name: 'Rollen von Ben Muster ansehen' }));
+    const view = await screen.findByRole('dialog', { name: 'Rollen von Ben Muster in «Muster GmbH»' });
+    expect(within(view).getByRole('note')).toHaveTextContent('Eigene Rollen dieser Organisation (c-muster-pflege) kennt diese Ansicht nicht.');
+    expect(within(view).queryByRole('checkbox')).toBeNull();
+  });
+
+  it('Pfad der Detailseite in der Schreibweise des Routers: `:alias` (Standard) oder `$alias` (TanStack); die Seite liest den Alias aus dem Pfad', async () => {
+    expect(makeIamRoutes().find(r => r.id === 'organization')!.path).toBe('/verwalten/organisationen/:alias');
+    expect(makeIamRoutes({ organizations: '/admin/orgs' }, {}, { param: tanstackParam }).find(r => r.id === 'organization')!.path).toBe('/admin/orgs/$alias');
+    setup(<OrganizationScreen />, detail(ORG), { path: '/verwalten/organisationen/muster/irgendwas' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Muster GmbH' })).toBeInTheDocument();
   });
 });

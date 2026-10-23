@@ -12,7 +12,7 @@ import { useIamConfig } from '../config.tsx';
 import type { AdminStatus, Organization } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import { iamKeys } from '../keys.ts';
-import { PLATFORM_ADMIN } from '../permissions.ts';
+import { isCustomRole, PLATFORM_ADMIN } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { NoPermission } from '../rights/MissingRight.tsx';
 import { orgName, useIam } from '../session.tsx';
@@ -182,7 +182,9 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
         {gate ?? (q.isPending ? <SkeletonRows rows={4} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} home={paths.organizations} /> : (
           <>
             <OrgForm org={q.data} />
-            <MemberList alias={q.data.alias} roles={status!.roles} platform rolesManageable={status!.rolesManageable} self={me.person.subject} orgLabel={q.data.name} />
+            {/* Rollen: nur die vordefinierten. Eigene Rollen gelten je Organisation, der Status liefert die der eigenen
+                Organisation, für eine andere gibt es keinen Endpunkt (Personen mit solchen Rollen nur ansehen). */}
+            <MemberList alias={q.data.alias} roles={status!.roles.filter(r => !isCustomRole(r.key))} platform rolesManageable={status!.rolesManageable} self={me.person.subject} orgLabel={q.data.name} />
             {q.data.tenant ? <ClientList alias={q.data.alias} orgLabel={q.data.name} /> : null}
             {features.entra ? <EntraSection alias={q.data.alias} orgLabel={q.data.name} /> : null}
           </>

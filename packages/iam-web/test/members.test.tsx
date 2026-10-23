@@ -4,11 +4,11 @@
  * Enthaltensein aus den Rechten. Aus vollholz/assets `web/src/features/admin.test.tsx` (Mitglieder und Rollen) und
  * `features/admin/members.test.tsx`, produktneutral (Notiz-App).
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { containers, type Me, type Member, type RoleInfo } from '../src/index.ts';
+import { containers, type IamConfig, type Me, type Member, type RoleInfo } from '../src/index.ts';
 import { MemberList, MembersScreen } from '../src/pages/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
@@ -377,6 +377,58 @@ describe('Einladen', () => {
     expect(await screen.findByText('Einladung zu «Demo AG» an nora@demo.example versendet')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(await screen.findByText('Nora Neu')).toBeInTheDocument();
+  });
+});
+
+describe('Review #18: Vorgaben, Cache, letzte Admin-Person', () => {
+  const invite = async (ui: ReactElement, extra: Partial<IamConfig> = {}) => {
+    const api = mockIamApi({ 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [ANNA] }) });
+    vi.stubGlobal('fetch', api.fetch);
+    render(<StaticIam me={ADMIN_ME} config={extra}>{ui}</StaticIam>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Person einladen' }));
+    return screen.findByRole('dialog');
+  };
+
+  it('Vorgabe ohne inviteRoles: nie eine eigene Rolle, auch wenn sie weniger Rechte hat', async () => {
+    const custom: RoleInfo = { key: 'c-protokoll', label: 'Protokoll', description: 'Nur Protokoll', permissions: ['audit:read'], adminOnly: false, custom: true };
+    const dlg = await invite(<MemberList alias={null} roles={[...ROLES, custom]} platform={false} rolesManageable self={ANNA.id} orgLabel="Demo AG" />);
+    expect(within(dlg).getByRole('checkbox', { name: 'Leser:in' })).toBeChecked();
+    expect(within(dlg).getByRole('checkbox', { name: 'Protokoll' })).not.toBeChecked();
+  });
+
+  it('inviteRoles mit org-admin: ausserhalb der Plattformansicht nicht vorgewählt (sonst 403), in der Plattformansicht schon', async () => {
+    const config = { inviteRoles: ['org-admin', 'editor'] };
+    const dlg = await invite(own(), config);
+    expect(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' })).toBeChecked();
+    expect(within(dlg).queryByText('Enthält alle anderen Rollen.')).toBeNull();
+    cleanup();
+    const p = await invite(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, config);
+    expect(within(p).getByRole('checkbox', { name: 'Organisations-Admin' })).toBeChecked();
+  });
+
+  it('nach dem Speichern: alle Mitgliederlisten neu geladen; gelöschte eigene Rolle wird nicht mitgeschickt', async () => {
+    const GONE = { ...CARLA, roles: ['editor', 'c-weg'] };
+    const { calls } = setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, GONE] }),
+      [`PUT /v1/admin/members/${CARLA.id}/roles`]: () => json({ ...CARLA, roles: ['editor', 'viewer'] }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Rollen von Carla Check bearbeiten' }));
+    const dlg = await screen.findByRole('dialog');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Prüfer:in' }));
+    const before = calls.filter(c => c.method === 'GET' && c.url.endsWith('/v1/admin/members')).length;
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: ['editor', 'auditor'] });
+    await waitFor(() => expect(calls.filter(c => c.method === 'GET' && c.url.endsWith('/v1/admin/members')).length).toBeGreaterThan(before));
+  });
+
+  it('deaktiviertes Konto mit org-admin ohne weitere aktive Admin-Person: Entfernen gesperrt (Plattform)', async () => {
+    const items = [{ ...ERIK, roles: ['org-admin'] }, CARLA];
+    setup(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Erik Extern' }));
+    const item = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' });
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).toHaveAccessibleDescription(/^Letzter Organisations-Admin/);
   });
 });
 

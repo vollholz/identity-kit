@@ -155,6 +155,59 @@ describe('Rollen', () => {
   });
 });
 
+describe('Review #18: Version, Limit, Rechte', () => {
+  it('412 beim Speichern: Liste mit aktueller Version neu laden, der nächste Versuch nimmt sie', async () => {
+    let version = 3, patches = 0;
+    const { calls } = setup(page, {
+      'GET /v1/roles': () => json(list([{ ...PFLEGE, version }])),
+      'PATCH /v1/roles/c-notizpflege': () => (++patches === 1
+        ? (version = 4, json({ title: 'Inzwischen geändert', status: 412, currentVersion: 4 }, 412))
+        : json({ ...PFLEGE, version: 5 })),
+    });
+    const row = (await screen.findByRole('heading', { name: 'Notizpflege' })).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Notizpflege' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Bearbeiten …' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Rolle «Notizpflege» bearbeiten' });
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent('Inzwischen geändert');
+    await waitFor(() => expect(calls.filter(c => c.method === 'GET' && c.url.endsWith('/v1/roles')).length).toBeGreaterThan(1));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls.filter(c => c.method === 'PATCH').map(c => c.headers.get('if-match'))).toEqual(['W/"3"', 'W/"4"']);
+  });
+
+  it('volles Limit: auch «Kopieren …» und «Als Vorlage …» gesperrt mit Grund', async () => {
+    setup(page, { 'GET /v1/roles': () => json({ ...list([PFLEGE]), maxCustom: 1 }) });
+    const row = (await screen.findByRole('heading', { name: 'Notizpflege' })).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Notizpflege' }));
+    const copy = screen.getByRole('menuitem', { name: 'Kopieren …' });
+    expect(copy).toHaveAttribute('aria-disabled', 'true');
+    expect(copy).toHaveAccessibleDescription('Höchstens 1 eigene Rollen');
+    await userEvent.click(copy);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await userEvent.keyboard('{Escape}');
+    const viewer = screen.getByRole('heading', { name: 'Leser:in' }).closest('li')!;
+    await userEvent.click(within(viewer).getByRole('button', { name: 'Mehr zu Leser:in' }));
+    expect(screen.getByRole('menuitem', { name: 'Als Vorlage für eigene Rolle …' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('ohne tenant:read auf Ebene der Organisation: «Recht fehlt», kein Abruf von /v1/roles', async () => {
+    const { calls } = setup(page, {}, { me: { roles: [], permissions: ['members:admin'] } });
+    expect(await screen.findByText(/«Organisation lesen»/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recht fehlt' })).toBeInTheDocument();
+    expect(calls.some(c => c.url.endsWith('/v1/roles'))).toBe(false);
+  });
+
+  it('Bearbeiten: Rechte, die eine eigene Rolle nicht (mehr) enthalten darf, als Hinweis', async () => {
+    setup(page, { 'GET /v1/roles': () => json(list([{ ...PFLEGE, permissions: [...PFLEGE.permissions, 'acl:admin'] }])) });
+    const row = (await screen.findByRole('heading', { name: 'Notizpflege' })).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Notizpflege' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Bearbeiten …' }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByText(/^Nicht übernommen, weil nur «Organisations-Admin» sie hat: Zugriff verwalten\.$/)).toBeInTheDocument();
+  });
+});
+
 describe('Routen und Navigation', () => {
   it('iamRoutes: Pfade wie Assets, Bedarf, Titel in der Sprache der Texte; load() liefert die Seite mit Guard', async () => {
     expect(iamRoutes.map(r => [r.id, r.path, r.need, r.title, r.icon, r.nav])).toEqual([

@@ -11,6 +11,7 @@ CREATE TABLE {{schema}}.entra_consent_link (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   token_hash text NOT NULL UNIQUE,
   entra_tenant_id uuid NOT NULL,
+  tenant_input text NOT NULL CHECK (length(tenant_input) <= 253),  -- Tenant-ID oder Domäne, wie bei der Erzeugung angegeben
   platform boolean NOT NULL,
   created_by uuid NOT NULL,              -- Principal der erzeugenden Person (bei der Plattform aus deren Mandant)
   created_by_subject text NOT NULL,

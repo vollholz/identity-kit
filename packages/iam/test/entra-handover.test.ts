@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { after, before, describe, test } from 'node:test';
+import { after, before, beforeEach, describe, test } from 'node:test';
 import { EntraFake, KeycloakFake, startMockIdp, type FakeEntraUser, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { CONSENT_ADMIN_ROLES } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
@@ -75,6 +75,8 @@ describe('Link an die Entra-Administration', { skip }, () => {
     for (const tok of [anna(), mona(), paula()]) ok(await call(tok, 'GET', '/v1/me'));
   });
   after(async () => { await app?.app.close(); await idp?.close(); await t?.drop(); });
+  // Jeder Test mit eigenen Links (höchstens 5 offene je Organisation)
+  beforeEach(async () => { await t?.inspect.query('UPDATE notes.entra_consent_link SET revoked_at = now() WHERE used_at IS NULL AND revoked_at IS NULL'); });
 
   test('erzeugen: nur members:admin bzw. Plattform; Adresse mit Token im Fragment, gespeichert nur der Hash; Gültigkeit 5 Min. bis 24 Std.', async () => {
     assert.equal((await call(person(u.carla, 'demo', ['viewer']), 'POST', '/v1/admin/entra/consent-links', { tenant: 'demo.example' })).status, 403);
@@ -93,11 +95,12 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await linkRow(p.id)).platform, true, 'Plattform im Auftrag');
   });
 
-  test('öffentlich ohne Anmeldung: nur Organisation, Produkt und Ablauf; nie zwischengespeichert; unbekannt immer 404; Ratenbegrenzung je IP', async () => {
+  test('öffentlich ohne Anmeldung: nur Organisation, Produkt, wer fragt, Verzeichnis und Ablauf; nie zwischengespeichert; unbekannt immer 404; Ratenbegrenzung je IP', async () => {
     const l = await newLink();
     const r = await call(null, 'POST', '/v1/entra/handover/info', { token: l.token });
-    assert.deepEqual(Object.keys(ok(r)).sort(), ['expiresAt', 'organization', 'product']);
+    assert.deepEqual(Object.keys(ok(r)).sort(), ['entraTenantId', 'expiresAt', 'organization', 'product', 'requestedBy', 'tenant']);
     assert.deepEqual([r.body.organization, r.body.product], [(await t.inspect.query("SELECT name FROM notes.tenant WHERE alias = 'demo'")).rows[0].name, 'notes']);
+    assert.deepEqual([r.body.requestedBy, r.body.tenant, r.body.entraTenantId], ['Anna Admin', 'demo.example', contoso.id], 'wer fragt und für welches Verzeichnis (gegen fremde Links)');
     assert.equal(r.headers['cache-control'], 'no-store');
     const bad = [`${l.token.slice(0, -1)}x`, l.token.replace(/^demo\./, 'muster.'), `gibtsnicht.${'a'.repeat(43)}`];
     for (const token of bad) assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token })).status, 404, token);
@@ -128,6 +131,34 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.deepEqual([item.status, item.error.reason], ['failed', 'consent-error']);
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.entra_connection')).rows[0].n, 0);
     assert.ok((await auditOf('entra.consent_failed')).filter(a => a.data.viaLink === l.id).length >= 4, 'Fehlschläge im Protokoll');
+  });
+
+  test('Link für Tenant T, Zustimmung aus Tenant U: 409, nichts verbunden (tid des ID-Tokens = Tenant des Links)', async () => {
+    const l = await newLink();
+    const u2 = ms.user(fremd, 'ga@fremd.example', { displayName: 'Fremde Administration' });
+    // a) ID-Token aus U für den Code aus T
+    const a = await viaLink(l.token, { wids: GA, claims: { tid: fremd.id } }, u2);
+    assert.deepEqual([a.status, a.body.reason], [409, 'consent-unproven']);
+    assert.match(a.body.detail, /anderen Tenant/);
+    // b) Anmeldung in U (Adresse auf U umgeschrieben): der Code aus U lässt sich am Token-Endpunkt von T nicht einlösen
+    const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    const back = ms.approve(start.url.replace(contoso.id, fremd.id), u2, { wids: GA });
+    const b = await call(null, 'POST', '/v1/entra/handover/complete', back);
+    assert.deepEqual([b.status, b.body.reason], [409, 'consent-unproven']);
+    assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.entra_connection')).rows[0].n, 0);
+  });
+
+  test('höchstens 5 offene Links je Organisation (409 too-many-links); Ratenbegrenzung beim Erzeugen', async () => {
+    const links = [];
+    for (let i = 0; i < 5; i++) links.push(await newLink());
+    const sixth = await call(anna(), 'POST', '/v1/admin/entra/consent-links', { tenant: 'demo.example' });
+    assert.deepEqual([sixth.status, sixth.body.reason], [409, 'too-many-links']);
+    assert.equal((await call(anna(), 'DELETE', `/v1/admin/entra/consent-links/${links[0].id}`)).status, 204);
+    await newLink();
+    for (const path of ['/v1/admin/entra/consent-links', '/v1/platform/organizations/:alias/entra/consent-links']) {
+      const rl = routeConfig.get(`POST ${path}`)?.rateLimit as { max: number; timeWindow: number; keyGenerator: (r: unknown) => string };
+      assert.deepEqual([rl.max, rl.timeWindow, rl.keyGenerator({ principal: { tenantId: 't1', subject: 's1' }, ip: '1.2.3.4' })], [10, 60_000, 'notes:entra-link:t1:s1'], path);
+    }
   });
 
   test('abgelaufen und widerrufen: 404 auch für einen schon gestarteten state; widerrufen nur offene', async () => {

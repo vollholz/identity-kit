@@ -47,9 +47,11 @@ export const entraFirstLoginFlow = (product: string) => `${product}-entra-first-
 const CONSENT_TTL_MS = 15 * 60_000;
 /** Längste Gültigkeit eines Links an die Entra-Administration. */
 const LINK_MAX_MINUTES = 24 * 60;
-const LINK_COLS = 'id, entra_tenant_id::text AS entra_tenant_id, platform, created_by::text AS created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, used_at, revoked_at, approver_name, error_reason, error_detail';
+/** Höchstens so viele offene Links je Organisation. */
+const LINK_MAX_OPEN = 5;
+const LINK_COLS = 'id, entra_tenant_id::text AS entra_tenant_id, tenant_input, platform, created_by::text AS created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, used_at, revoked_at, approver_name, error_reason, error_detail';
 interface LinkRow {
-  id: string; entra_tenant_id: string; platform: boolean; created_by: string; created_by_subject: string; created_by_name: string; created_by_tenant: string;
+  id: string; entra_tenant_id: string; tenant_input: string; platform: boolean; created_by: string; created_by_subject: string; created_by_name: string; created_by_tenant: string;
   created_at: Date; expires_at: Date; used_at: Date | null; revoked_at: Date | null; approver_name: string | null; error_reason: string | null; error_detail: string | null;
 }
 /** Link an die Entra-Administration für die Liste der Organisation. */
@@ -330,10 +332,15 @@ export class EntraService {
     const row = await withTenant(this.deps.db, { tenantId }, async tx => {
       const existing = await this.connectionOf(tx);
       if (existing && existing.entraTenantId !== tid) throw conflict('Die Organisation ist bereits mit einem anderen Entra-Tenant verbunden. Zuerst trennen.');
+      // Höchstens LINK_MAX_OPEN offene Links (unter der Sperre der Organisation gezählt): viele weitergegebene Links
+      // vergrössern die Angriffsfläche, ohne zu helfen
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey.admin(org.alias)]);
+      const open = Number((await tx.query<{ n: string }>(`SELECT count(*) AS n FROM ${this.S}.entra_consent_link WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`)).rows[0]!.n);
+      if (open >= LINK_MAX_OPEN) throw conflict(`Höchstens ${LINK_MAX_OPEN} offene Links je Organisation. Einen nicht mehr gebrauchten Link widerrufen.`, { reason: 'too-many-links' });
       const r = (await tx.query<{ id: string; expires_at: Date }>(`INSERT INTO ${this.S}.entra_consent_link
-          (tenant_id, token_hash, entra_tenant_id, platform, created_by, created_by_subject, created_by_name, created_by_tenant, expires_at)
-        VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6, $7, now() + make_interval(mins => $8)) RETURNING id, expires_at`,
-      [hash(token), tid, s.platform, s.actor.principalId, s.actor.subject, s.actor.name.slice(0, 256), s.actor.tenantAlias, minutes])).rows[0]!;
+          (tenant_id, token_hash, entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, expires_at)
+        VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6, $7, $8, now() + make_interval(mins => $9)) RETURNING id, expires_at`,
+      [hash(token), tid, input.tenant.trim().slice(0, 253), s.platform, s.actor.principalId, s.actor.subject, s.actor.name.slice(0, 256), s.actor.tenantAlias, minutes])).rows[0]!;
       await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_link_created', resourceType: 'tenant', resourceId: tenantId, data: { linkId: r.id, entraTenantId: tid, expiresAt: r.expires_at } });
       return r;
     });
@@ -384,11 +391,14 @@ export class EntraService {
     return { tenant, link };
   }
 
-  /** Öffentlich: was die Seite zeigt – nur Name der Organisation, App und Ablauf. */
-  async handoverInfo(token: string): Promise<{ organization: string; product: string; expiresAt: Date }> {
+  /**
+   * Öffentlich: was die Seite zeigt – Name der Organisation, App, wer fragt und für welches Verzeichnis (Tenant wie bei
+   * der Erzeugung angegeben, mit Tenant-ID), Ablauf. So erkennt die Entra-Administration einen fremden Link (Phishing).
+   */
+  async handoverInfo(token: string): Promise<{ organization: string; product: string; requestedBy: string; tenant: string; entraTenantId: string; expiresAt: Date }> {
     this.on();
     const { tenant, link } = await this.openLink(token);
-    return { organization: tenant.name, product: this.deps.catalog.product, expiresAt: link.expires_at };
+    return { organization: tenant.name, product: this.deps.catalog.product, requestedBy: link.created_by_name, tenant: link.tenant_input, entraTenantId: link.entra_tenant_id, expiresAt: link.expires_at };
   }
 
   /** Öffentlich: Zustimmung bei Microsoft starten (wie startConsent, `state` mit `h.`); wiederholbar, solange der Link offen ist. */

@@ -213,6 +213,8 @@ export const entraModule: IamModule = {
     entraRoutes(`${prefix}/platform/organizations/:alias/entra`, byAlias, true);
 
     // ---------------------------------------------------------------- Link an die Entra-Administration
+    /** Links erzeugen: je Person 10 pro Minute (dazu höchstens 5 offene je Organisation). */
+    const linkLimit = { max: 10, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-link:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
     const linkRoutes = (base: string, scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
       const p = withAlias ? { params: AliasParams } : {};
       app.post(`${base}/consent-links`, {
@@ -222,9 +224,10 @@ export const entraModule: IamModule = {
             tenant: Type.String({ minLength: 3, maxLength: 253, description: 'Tenant-ID (GUID) oder eine Domäne des Tenants' }),
             validMinutes: Type.Optional(Type.Integer({ minimum: 5, maximum: 1440, description: 'Gültigkeit in Minuten (Standard 15, höchstens 24 Stunden)' })),
           }, { additionalProperties: false }),
-          description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf: \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator»).`,
+          description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf (höchstens 5 offene je Organisation, sonst 409 \`too-many-links\`; 10 pro Minute und Person): \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator»).`,
           response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), url: Type.String(), entraTenantId: Type.String(), expiresAt: DateTime }) },
         }),
+        config: { rateLimit: linkLimit },
       }, async (req, reply) => { const sc = await scope(req); return reply.status(201).send(await on().ent.createConsentLink(sc, req.body as { tenant: string; validMinutes?: number })); });
 
       app.get(`${base}/consent-links`, {
@@ -255,7 +258,12 @@ export const entraModule: IamModule = {
       }, async (req, reply) => { reply.header('cache-control', 'no-store'); return fn(req.body); });
     const Token = Type.Object({ token: Type.String({ minLength: 46, maxLength: 120, description: 'Token aus dem Fragment des Links' }) }, { additionalProperties: false });
     publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation und Produkt für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
-      Token, Type.Object({ organization: Type.String(), product: Type.String(), expiresAt: DateTime }), b => on().ent.handoverInfo(b.token));
+      Token, Type.Object({
+        organization: Type.String(), product: Type.String(),
+        requestedBy: Type.String({ description: 'Name der Person, die den Link erzeugt hat' }),
+        tenant: Type.String({ description: 'Verzeichnis (Domäne bzw. Tenant-ID) wie bei der Erzeugung angegeben' }),
+        entraTenantId: Type.String({ description: 'Tenant-ID, in dem zugestimmt werden muss' }), expiresAt: DateTime,
+      }), b => on().ent.handoverInfo(b.token));
     publicRoute('start', 'Link der Entra-Administration: Zustimmung starten', 'Ohne Anmeldung. Adresse der Zustimmung bei Microsoft (Code-Flow mit PKCE, `prompt=admin_consent`); Rückkehr auf dieselbe Seite wie beim eigenen Verbinden, `state` mit `h.`. Wiederholbar, solange der Link offen ist.',
       Token, Type.Object({ url: Type.String() }), b => on().ent.handoverStart(b.token));
     publicRoute('complete', 'Link der Entra-Administration: Rückkehr von Microsoft', 'Ohne Anmeldung. Gleicher Nachweis wie `…/consent/complete` (sonst 409 `consent-unproven` bzw. `consent-error`); verbindet im Namen der Person, die den Link erzeugt hat. Erfolg löst den Link ein; ein Fehlschlag verbraucht nur den `state`.',

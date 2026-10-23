@@ -812,6 +812,10 @@ Audit-Trigger darauf warten.
 - Einlösen belegt den Link vor dem Nachweis (gleichzeitige Rückkehren: eine verbindet, die andere 404) und gibt ihn bei
   einem Fehlschlag mit dem Fehler wieder frei. Verbunden wird mit einem Akteur aus der erzeugenden Person (ohne Token);
   `entra.connected` mit `consentBy`, `viaLink`, `linkCreatedBy`.
+- `info` nennt neben Organisation und Produkt die erzeugende Person (`requestedBy`) und das Verzeichnis wie angegeben
+  (`tenant`, `entraTenantId`): Schutz gegen Phishing mit fremden Links. Höchstens 5 offene Links je Organisation (unter
+  der Sperre `admin:<alias>` gezählt), Erzeugen 10 pro Minute und Person. Das `tid` des ID-Tokens muss der Tenant des
+  Links sein (`verifyConsent`); ein Code aus einem anderen Tenant lässt sich am Token-Endpunkt nicht einlösen.
 - Öffentliche Routen `/v1/entra/handover/{info,start,complete}`: im Plugin immer öffentlich (Schutz über Token, `state`
   und PKCE, kein CSRF nötig ohne Sitzung), `config.rateLimit` 20 je Minute und IP, `Cache-Control: no-store`.
 

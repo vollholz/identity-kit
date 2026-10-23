@@ -138,7 +138,7 @@ problem+json und die Module:
 | `account` | `GET /v1/me`, `GET /v1/authz/catalog` | – |
 | `acl` | `/v1/acl…` | Katalog mit `resources` |
 | `admin` | `/v1/admin/status`, `/v1/admin/members…`, `/v1/platform/organizations…` | `KEYCLOAK_MGMT_CLIENT_ID`, sonst 503 |
-| `entra` | `/v1/admin/entra…`, `…/members/entra…` | Verwaltung und `ENTRA_CLIENT_ID`, sonst 503 |
+| `entra` | `/v1/admin/entra…`, `…/members/entra…`, öffentlich `/v1/entra/handover/*` | Verwaltung (sonst 503); eigene App der Organisation braucht `ENCRYPTION_KEYS`, die App der Plattform `ENTRA_CLIENT_ID` (optional, sonst 409 `platform-app-disabled`) |
 | `roles` | `/v1/roles…` | – (Gruppen und Anzahl Personen nur mit Verwaltung) |
 | `bff` | `/auth/*` | `OIDC_BFF_CLIENT_SECRET` bzw. `…_PRIVATE_KEY` |
 | `clients` | `/v1/admin/clients…`, `…/organizations/:alias/clients…` | – |

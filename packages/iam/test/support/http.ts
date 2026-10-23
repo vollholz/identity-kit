@@ -8,6 +8,7 @@ import { Type } from '@sinclair/typebox';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { claimsFor } from '@vollholz/iam-testkit';
 import { pgAudit } from '../../src/audit.ts';
+import type { BffOptions } from '../../src/bff.ts';
 import type { Catalog } from '../../src/catalog.ts';
 import { withTenant } from '../../src/db.ts';
 import { iamPlugin, need, type IamPluginOptions } from '../../src/http/plugin.ts';
@@ -47,13 +48,13 @@ export interface NotesApp { app: FastifyInstance; iam: Iam<string, Map<string, s
 /** Notiz-App mit dem Plugin; `env` für die Konfiguration, `plugin` für die Optionen des Plugins. */
 export async function notesApp(o: {
   db: Parameters<typeof createIam>[0]['db']; issuer: string; env?: Record<string, string>; plugin?: Partial<IamPluginOptions>; before?: (app: FastifyInstance) => Promise<void>;
-  catalog?: Catalog<string>; resources?: ResourceModel<Map<string, string>>;
+  catalog?: Catalog<string>; resources?: ResourceModel<Map<string, string>>; bff?: BffOptions;
   /** Nach allen Routen, vor `ready` (z. B. Testsonden). */
   after?: (app: FastifyInstance) => Promise<void> | void;
 }): Promise<NotesApp> {
   const events: NotesApp['events'] = [];
   const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}) });
   const app = Fastify({ logger: false });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) } });
   await o.before?.(app);

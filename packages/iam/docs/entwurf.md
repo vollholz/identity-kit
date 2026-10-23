@@ -254,7 +254,7 @@ entfallen):
 | `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
 | `iam_010_revoke_public_execute.sql` | kein EXECUTE für PUBLIC auf Funktionen in `app` und `<schema>`; `app.audit_hash` ausdrücklich für `_app` und `_sched` | 051 (vollholz/assets#24) |
 | `iam_011_resolve_tenant_strict.sql` | `app.resolve_tenant`: Alias roh gegen das ASCII-Muster prüfen, nur A–Z falten (kein `lower()`, Kelvin-Zeichen); scheitert das Binden der Organisations-ID, kein Mandant | 052 (vollholz/assets#26) |
-| `iam_012_acl_unique.sql` | keine doppelten Zugriffsregeln: eindeutiger Index über Ressource, Subjekt, Recht und Wirkung (`NULLS NOT DISTINCT`); bestehende Duplikate entfernt (der älteste bleibt) | 053 (folgt; Befund aus der Prüfung von #17) |
+| `iam_012_acl_unique.sql` | keine doppelten Zugriffsregeln: eindeutiger Index über Ressource, Subjekt, Recht und Wirkung (`NULLS NOT DISTINCT`); bestehende Duplikate entfernt (der älteste bleibt) | 053 (vollholz/assets#28) |
 
 Bis `iam_008` entsprechen die Rechte der Funktionen genau Assets 049, auch wo PUBLIC noch ausführen darf
 (`app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()`);
@@ -309,8 +309,8 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
   Bedingungen zu Ressourcentypen stellt danach der Abgleich her (6.2). Sonst bricht er ab und trägt nichts ein
   (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
-  001–052 (`63b9cf9`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
-  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010` und `iam_011` (= Assets 051, 052) mit den Parametern von Assets muss für alle
+  001–053 (`4a3574d`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
+  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010`–`iam_012` (= Assets 051–053) mit den Parametern von Assets muss für alle
   IAM-Tabellen und -Funktionen genau diesen Abzug ergeben (`schemaSnapshot`, exportiert): Besitzer, Spalten, Typen,
   Standardwerte, Sequenzen, Bedingungen mit Namen,
   Indizes, Policies, Trigger, RLS, Rechte von Tabellen, Spalten, Schemas und Funktionen, Funktionsrümpfe, Standardrechte.
@@ -586,9 +586,52 @@ Audit-Trigger darauf warten.
     `iam_012` setzt dafür einen eindeutigen Index `NULLS NOT DISTINCT` (gleichzeitige Anfragen → 409).
   - `acl:admin` gilt auf der Ressource des Eintrags (Anlegen und Löschen): Ein Verbot von `acl:admin` auf X sperrt das
     Verwalten der Zugriffsregeln von X und darunter. Wirkt nur, wenn der Katalog `acl:admin` auf weiteren
-    Ressourcentypen führt (reserviert: nur `tenant`, wie Assets).
+    Ressourcentypen führt. Entschieden (Hauptsession, 2026-10-23): Das reservierte `acl:admin` bleibt bei
+    `resources: ['tenant']` (wie Assets); die Prüfung je Ressource ist der Mechanismus für Apps, die es erweitern.
   - `/v1/acl/effective`: Maschinen-Clients, die entfernt sind oder keine Freigabe mehr haben, gelten als Simulation;
     `scopes` begrenzen auch eine simulierte Person mit `principal`.
   - Cookies: `@fastify/cookie` muss mit dem ersten Geheimnis von `SESSION_SECRET` signieren und jedes annehmen
     (Rotation). `DPOP_MODE` wird vor dem Resolver geprüft (abgewiesene Tokens schreiben nichts); alle 401 tragen
     `WWW-Authenticate`.
+
+### 13.11 Modul `bff` (Teil-PR 5)
+
+- **`createIam`** baut `bff`, wenn `OIDC_BFF_CLIENT_SECRET` oder `OIDC_BFF_PRIVATE_KEY` gesetzt ist (dann ist
+  `SESSION_SECRET` Pflicht, in Produktion auch `ENCRYPTION_KEYS`; sonst `ConfigError` beim Start); Option `bff: false`
+  schaltet es ab (MCP-Dienst), `bff: { now, log, cleanupIntervalMs }` für Tests. Das Plugin nimmt `iam.bff` als
+  `SessionBridge` und registriert das Modul `bff`, wenn es vorhanden ist.
+- **Cookies** heissen `<product>_sid` und `<product>_login`, in Produktion mit Präfix `__Host-` (Assets: `assets_sid`,
+  unverändert). Sitzungen in `<schema>.session` wie Assets (Hash der ID, Inhalt verschlüsselt, Erneuerung über
+  Zeilensperre, Backchannel-Logout mit Replay-Schutz aus `iam.replay`).
+- **Routen** wie Assets: `GET /auth/login`, `GET /auth/entra/:idp`, `GET /auth/callback` (versteckt), `GET /auth/switch`
+  (405), `POST /auth/switch`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/backchannel-logout` (versteckt); Tag
+  `Anmeldung (Oberfläche)`. Die Beschreibung von `/auth/me` nennt Freigaben «auf einzelnen Ressourcen» (Assets setzt
+  seinen Text über `openapi`). Die Auslieferung der Oberfläche (`/`, `/abgemeldet`, CSP) bleibt in der App.
+- **Prüfung von #19** (Hauptsession): `switchOrg` liest die Sitzung frisch und gesperrt und ändert nur `org` (sonst
+  schriebe ein Wechsel ein von einer anderen Instanz rotiertes Refresh Token zurück); der Name des Produkts im Cookie
+  wird beim Start geprüft (`checkProduct`); beim Backchannel-Logout muss `events[…backchannel-logout]` ein Objekt sein,
+  und scheitert das Löschen, gibt `ReplayStore.release` die `jti` wieder frei (Keycloak wiederholt). Sitzungscookies
+  nimmt das Plugin nur mit Modul `bff` oder ausdrücklicher `sessions` an.
+- **Bekannte Grenze** (wie Assets, entschieden): Es gibt ein Login-Cookie je Browser; starten zwei Tabs gleichzeitig
+  eine Anmeldung, gilt nur die zuletzt gestartete, die andere endet mit «Anmeldung abgelaufen».
+
+### 13.12 `keycloak`, `tenants`, Modul `clients` (Teil-PR 6a)
+
+- **`KeycloakAdmin(cfg, tokenEndpoint, fetch?, creds?)`** wie Assets (`private_key_jwt` bevorzugt, sonst Geheimnis;
+  Admin-URL aus `KEYCLOAK_MGMT_URL` oder dem Issuer; Listen seitenweise mit Obergrenze). Fehlermeldungen nennen statt
+  `npm run keycloak:setup` die Variablen und das Realm-Modul.
+  Jedes Pfadsegment läuft über `seg()`: leer, `.`, `..` und Segmente mit `/` werden vor der Anfrage abgewiesen (422),
+  weil `encodeURIComponent` Punkte nicht kodiert und `fetch` Punkt-Segmente auflöst (`DELETE /users/..` träfe den
+  Realm). Nach 401 wird einmal mit neuem Token wiederholt. Die Meldung von Keycloak (`errorMessage`) steht nur in
+  `KeycloakError.kcMessage` (fürs Log), nie in der Antwort. Abweichung von Assets (dort dieselben drei Punkte offen).
+- **`tenants`**: `listTenants`, `findTenant`, `createTenant`, `setTenantStatus`, `relinkTenant` mit `{ schema, audit }` als
+  erstem Parameter (Protokoll über den `AuditPort`). `findTenant` vergleicht den Alias nur ASCII klein geschrieben
+  (Assets: `lower()`, das in PostgreSQL das Kelvin-Zeichen zu «k» faltet); ebenso die E-Mail in `relinkTenant`.
+  Optional `resolver` im Kontext (`iam.resolver`): `setTenantStatus` und `relinkTenant` vergessen den Mandanten dann
+  selbst (sonst wirkt die Änderung nach spätestens 60 s). Gleicher Status: nichts geändert, kein Protokolleintrag.
+  `createTenant` meldet einen bestehenden Mandanten mit anderer Organisations-ID ausdrücklich. `purgeTenantData`
+  bleibt in der App.
+- **Modul `clients`** wie Assets (`/v1/admin/clients…` mit `members:admin`, nur Personen; `/v1/platform/organizations/
+  :alias/clients…` nur platform-admin), standardmässig aktiv; Tag `Verwaltung: Maschinen-Clients`. `personOf(req)`
+  (nur Personen, nicht über MCP) ist exportiert und dient auch dem Modul `admin`.
+

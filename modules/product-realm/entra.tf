@@ -160,7 +160,7 @@ resource "keycloak_realm_user_profile" "entra" {
   attribute {
     name         = "entra_groups"
     display_name = "Entra-Gruppen"
-    multivalued  = true
+    multi_valued = true
     permissions {
       view = ["admin"]
       edit = ["admin"]

@@ -127,7 +127,7 @@ run "alle_schalter" {
     error_message = "User Profile: Standardattribute von Keycloak bleiben, dazu entra_groups"
   }
   assert {
-    condition     = one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).multivalued && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].edit == toset(["admin"]) && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].view == toset(["admin"])
+    condition     = one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).multi_valued && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].edit == toset(["admin"]) && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].view == toset(["admin"])
     error_message = "entra_groups: mehrwertig, nur admin sieht und ändert"
   }
   assert {

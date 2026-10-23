@@ -5,6 +5,9 @@ Baukasten für Anmeldung und Rechte (authn und authz) der Apps auf der Identity-
 replizierbare, app-agnostische Lösung, die sich standardisiert auf Apps ausrollen lässt – Frontend und Backend, für
 Personen, Service-Clients, M2M, API und MCP.
 
+> **Neue App anbinden: [docs/neue-app.md](docs/neue-app.md)** – in 10 Schritten von den Zugängen über Realm,
+> Datenbank, Backend und Oberfläche bis zu Tests, CI und Entra ID.
+
 - **Standard** (dieses Repository): Realm-Soll, Anmeldung (BFF), Token-Prüfung, Mandanten = Keycloak-Organisationen,
   Rechte-Entscheidung, Zugriffsregeln, eigene Rollen, Verwaltung, Datenbank-Schutz (RLS), Oberflächen-Bausteine, Tests.
 - **App-lokal** (liefert jede App): Rechtekatalog (Rechte, vordefinierte Rollen, Scopes), Ressourcen, Design-Tokens,
@@ -29,10 +32,13 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 
 | Teil | Stand |
 |---|---|
-| `packages/iam-testkit` | **0.1.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Assets läuft lokal geprüft darauf (757/757 Tests) |
+| `packages/iam` | **0.3.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP, Migrationen; Entra ID mit eigener App der Organisation ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
+| `packages/iam-web` | **0.3.1** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» ([README](packages/iam-web/README.md)) |
+| `packages/iam-testkit` | **0.4.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen ([README](packages/iam-testkit/README.md)) |
 | `modules/product-realm`, `modules/product-realm-bootstrap` | **0.1.0** – Realm-Soll als OpenTofu-Modul; für Assets gegen Keycloak 26.8.1 dasselbe Ergebnis (`moved`-Blöcke, [README](modules/product-realm/README.md)) |
-| `packages/iam-web` | in Arbeit (privat): Vertragstypen, Client, Organisation je Tab, Texte; Entwurf und Plan in `packages/iam-web/docs/entwurf.md` |
-| übrige Pakete, Vorlage | leer |
+| `templates/create-iam-app` | leer; bis dahin [docs/neue-app.md](docs/neue-app.md) |
+
+Assets läuft vollständig auf diesen Versionen.
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
 übersprungen). Veröffentlichen: Version des Pakets erhöhen und mergen – der Workflow «Release» veröffentlicht neue

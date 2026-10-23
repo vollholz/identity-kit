@@ -94,11 +94,20 @@ export function mockIamApi(routes: Record<string, MockHandler> = {}, o: { me?: M
 export function staticResources(names: Record<string, Record<string, string>>, o: { parents?: Record<string, { type: string; id: string }>; noGrant?: string[] } = {}): IamResources {
   const chain = (type: string, id: string) => {
     const out: { type: string; id: string; label: string }[] = [];
-    for (let p = o.parents?.[`${type}:${id}`]; p; p = o.parents?.[`${p.type}:${p.id}`]) out.unshift({ ...p, label: names[p.type]?.[p.id] ?? p.id });
+    const seen = new Set([`${type}:${id}`]);
+    const parent = (k: string) => (o.parents && Object.hasOwn(o.parents, k) ? o.parents[k] : undefined);
+    // Zyklus in `parents` (Testdaten): abbrechen statt endlos laufen
+    for (let p = parent(`${type}:${id}`); p && !seen.has(`${p.type}:${p.id}`); p = parent(`${p.type}:${p.id}`)) {
+      seen.add(`${p.type}:${p.id}`);
+      out.unshift({ ...p, label: names[p.type]?.[p.id] ?? p.id });
+    }
     return out;
   };
   return {
-    useResolver: () => ({ name: (type, id) => names[type]?.[id], known: (type, id) => (names[type] ? id in names[type] : undefined) }),
+    useResolver: () => ({
+      name: (type, id) => (names[type] && Object.hasOwn(names[type], id) ? names[type][id] : undefined),
+      known: (type, id) => (names[type] ? Object.hasOwn(names[type], id) : undefined),
+    }),
     pick: async (type, query) => Object.entries(names[type] ?? {})
       .filter(([, label]) => label.toLowerCase().includes(query.trim().toLowerCase()))
       .map(([value, label]) => ({ value, label, sub: chain(type, value).map(s => s.label).join(' › ') || undefined })),

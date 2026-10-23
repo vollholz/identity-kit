@@ -15,7 +15,7 @@ import type { Permission } from '../permissions.ts';
 import { t, type IamTextKey } from '../texts/index.ts';
 import { useIamUi } from '../ui/context.tsx';
 import { usePicker } from '../ui/Picker.tsx';
-import { noGrantTypes, type AclLike } from './rules.ts';
+import { grantBlockedTypes, leafKnown, noGrantTypes, type AclLike } from './rules.ts';
 
 /** Abfrage für `GET /v1/acl/effective` (Spezifikation 7.1): echte Rechte oder Simulation. */
 export interface EffectiveQuery { principal?: string; client?: string; simulate?: boolean; roles?: string[]; groups?: string[]; scopes?: string[] }
@@ -42,16 +42,28 @@ export function useAclEntries(enabled = true) {
   return useQuery({ queryKey: iamKeys.acl, enabled, staleTime: 60_000, retry: false, queryFn: ({ signal }) => aclApi.list(signal) });
 }
 
+/** Einmal je Seite: Blatt der Kette unbekannt (weder `resources.noGrant` noch `leaf` im Katalog). */
+let warnedLeaf = false;
+
 /** Namen, Bekanntheit und Blätter der Ressourcen; ohne Adapter die ID und «nicht prüfbar». */
 export function useResources() {
   const { resources } = useIamConfig();
   const authz = useAuthz();
   const r = resources?.useResolver();
+  const leafSure = leafKnown(authz.catalog, resources?.noGrant);
+  if (authz.catalog && !leafSure && !warnedLeaf) {
+    warnedLeaf = true;
+    console.warn('@vollholz/iam-web: Blatt der Ressourcenkette unbekannt – der Katalog meldet kein `leaf` und `resources.noGrant` fehlt. «Freigeben» ist nur auf der ganzen Organisation möglich.');
+  }
   return {
     name: (type: string, id: string | null) => (!id ? (type === 'tenant' ? t('iam.acl.tenantName') : '—') : r?.name(type, id) ?? id),
     /** `false`: geladen und unbekannt (gelöscht, nicht sichtbar oder aus einer anderen Organisation); `undefined`: nicht prüfbar. */
     known: (type: string, id: string | null): boolean | undefined => (!id ? true : r?.known(type, id)),
+    /** Blätter, soweit bekannt (für «wirkungslos»). */
     leaves: noGrantTypes(authz.catalog, resources?.noGrant),
+    /** Typen ohne «Freigeben» im Dialog; ohne bekanntes Blatt alle ausser der Organisation. */
+    noGrant: grantBlockedTypes(authz.catalog, resources?.noGrant),
+    leafKnown: leafSure,
   };
 }
 

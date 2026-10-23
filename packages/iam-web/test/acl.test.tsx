@@ -5,6 +5,7 @@
  * `web/src/features/acl/acl.test.tsx`: die Regeln mit dem Katalog von Assets, die Seite mit der Notiz-App
  * (Ordner → Notiz) und dem Adapter `staticResources`.
  */
+import { QueryClient } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
@@ -181,6 +182,20 @@ describe('Regeln der Zugriffsregeln', () => {
     expect(filterEntries(items, { resourceType: 'schema', resourceId: S1 }).map(i => i.id)).toEqual(['a', 'c']);
   });
 
+  it('eigene Rolle (c-…) ohne geladene Rollenliste nicht als unbekannt melden, mit Liste schon', () => {
+    const custom = entry({ principalRef: 'c-weg' });
+    expect(ineffectiveReason(custom, ASSETS)).toBeNull();
+    expect(ineffectiveReason(custom, ASSETS, undefined, { customRoles: true })).toBe('Die Rolle «c-weg» gibt es nicht.');
+    expect(ineffectiveReason(entry({ principalRef: 'gibtsnicht' }), ASSETS)).toMatch(/gibt es nicht/);
+  });
+
+  it('staticResources: nur eigene Schlüssel, Zyklus in parents bricht ab', () => {
+    const r = staticResources({ folder: { a: 'A', b: 'B' } }, { parents: { 'folder:a': { type: 'folder', id: 'b' }, 'folder:b': { type: 'folder', id: 'a' } } });
+    expect(r.useChain!('folder', 'a')).toEqual([{ type: 'folder', id: 'b', label: 'B' }]);
+    expect(r.useResolver().known('folder', 'toString')).toBe(false);
+    expect(r.useResolver().name('folder', 'constructor')).toBeUndefined();
+  });
+
   it('prüft Gruppenpfade', () => {
     expect(groupPathError('/orgs/demo/team')).toBeNull();
     expect(groupPathError('orgs/demo')).toMatch(/«\/» am Anfang/);
@@ -221,11 +236,11 @@ function routes(over: Record<string, MockHandler> = {}): Record<string, MockHand
   };
 }
 
-function setup(path: string, o: { me?: Partial<Me>; routes?: Record<string, MockHandler>; config?: Partial<IamConfig>; ui?: ReactElement } = {}) {
+function setup(path: string, o: { me?: Partial<Me>; routes?: Record<string, MockHandler>; config?: Partial<IamConfig>; ui?: ReactElement; queryClient?: QueryClient } = {}) {
   window.history.replaceState(null, '', path);
   const api = mockIamApi(o.routes ?? routes());
   vi.stubGlobal('fetch', api.fetch);
-  return { ...api, ...render(<StaticIam me={o.me ?? ADMIN} config={o.config ?? { resources: RESOURCES }}>{o.ui ?? <AccessScreen />}</StaticIam>) };
+  return { ...api, ...render(<StaticIam me={o.me ?? ADMIN} queryClient={o.queryClient} config={o.config ?? { resources: RESOURCES }}>{o.ui ?? <AccessScreen />}</StaticIam>) };
 }
 const search = () => Object.fromEntries(new URLSearchParams(window.location.search));
 const effCalls = (calls: Request[]) => calls.filter(c => new URL(c.url).pathname === '/v1/acl/effective');
@@ -384,6 +399,93 @@ describe('Seite «Zugriff»', () => {
     expect(await calls.find(c => c.method === 'POST')!.json()).toEqual({ resourceType: 'folder', resourceId: F1, principalType: 'role', principalRef: 'folder-admin', permission: 'note:read', effect: 'restrict' });
   });
 
+  it('Blatt unbekannt (kein `leaf` im Katalog, kein noGrant): «Freigeben» nur auf der Organisation, Warnung einmal', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const NO_LEAF = { ...CATALOG, resourceTypes: CATALOG.resourceTypes.map(({ key, label }) => ({ key, label })) };
+    setup('/verwalten/zugriff', { routes: routes({ 'GET /v1/authz/catalog': () => json(NO_LEAF) }) });
+    const dlg = await openAdd();
+    const grant = within(dlg).getByRole('button', { name: 'Freigeben' });
+    expect(grant).toHaveAttribute('aria-disabled', 'true');
+    expect(grant).toHaveAttribute('title', 'Freigeben geht hier nur auf der ganzen Organisation: Für einzelne Bereiche ist es nicht eingerichtet.');
+    await userEvent.selectOptions(within(dlg).getByRole('combobox', { name: 'Ressource' }), 'tenant');
+    expect(grant).not.toHaveAttribute('aria-disabled');
+    expect(warn.mock.calls.filter(c => String(c[0]).includes('Blatt der Ressourcenkette unbekannt'))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it('mit resources.noGrant: Angabe der App gilt (Freigeben auf dem Ordner, nicht auf der Notiz)', async () => {
+    const NO_LEAF = { ...CATALOG, resourceTypes: CATALOG.resourceTypes.map(({ key, label }) => ({ key, label })) };
+    setup('/verwalten/zugriff', { routes: routes({ 'GET /v1/authz/catalog': () => json(NO_LEAF) }), config: { resources: { ...RESOURCES, noGrant: ['note'] } } });
+    const dlg = await openAdd();
+    expect(within(dlg).getByRole('button', { name: 'Freigeben' })).not.toHaveAttribute('aria-disabled');
+    await userEvent.selectOptions(within(dlg).getByRole('combobox', { name: 'Ressource' }), 'note');
+    expect(within(dlg).getByRole('button', { name: 'Freigeben' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('Freigeben an eine Rolle, die das Recht schon hat: Vorschau sagt «ändert nichts»', async () => {
+    setup('/verwalten/zugriff');
+    const dlg = await openAdd();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Freigeben' }));
+    await userEvent.selectOptions(within(dlg).getByRole('combobox', { name: 'Rolle' }), 'viewer');
+    await pickFolder(dlg, 'Archiv');
+    expect(within(dlg).getByRole('status', { name: 'Vorschau' })).toHaveTextContent('Ändert derzeit nichts an den Rollen – keine Rolle erhält dadurch das Recht neu.');
+  });
+
+  it('nach Anlegen und Entfernen: Zugriffsregeln und /auth/me neu; Entfernen mit 404 lädt die Liste neu', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const { calls } = setup('/verwalten/zugriff', { queryClient: qc, routes: routes({
+      'POST /v1/acl': () => json(note({ id: 'neu', principalRef: 'viewer' }), 201),
+      'DELETE /v1/acl/e1': () => json({ title: 'Nicht gefunden', status: 404, detail: 'Die Zugriffsregel gibt es nicht mehr.' }, 404),
+    }) });
+    const dlg = await openAdd();
+    await pickFolder(dlg, 'Archiv');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    await screen.findByText('Zugriffsregel in «Demo AG» hinzugefügt');
+    const keys = () => spy.mock.calls.map(c => JSON.stringify(c[0]?.queryKey));
+    expect(keys()).toEqual(expect.arrayContaining([JSON.stringify(['iam', 'acl']), JSON.stringify(['iam', 'me'])]));
+    spy.mockClear();
+    const lists = () => calls.filter(c => c.method === 'GET' && new URL(c.url).pathname === '/v1/acl').length;
+    const before = lists();
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu «Notizen ändern» beschränkt für Rolle «Bearbeiter:in» auf Projekte' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Zugriffsregel entfernen …' }));
+    const c = await screen.findByRole('alertdialog');
+    await userEvent.click(within(c).getByRole('button', { name: 'Entfernen' }));
+    expect(await within(c).findByRole('alert')).toHaveTextContent('Die Zugriffsregel gibt es nicht mehr.');
+    await waitFor(() => expect(lists()).toBeGreaterThan(before));
+  });
+
+  it('Fehler ohne eigenes Feld erscheint in der Box, auch neben einem Feldfehler', async () => {
+    setup('/verwalten/zugriff', { routes: routes({ 'POST /v1/acl': () => json({ title: 'Die Eingabe ist ungültig.', status: 422, detail: 'Zwei Fehler.', errors: [{ path: '/principalRef', message: 'Unbekannte Rolle' }, { path: '/effect', message: 'Wirkung passt nicht' }] }, 422) }) });
+    const dlg = await openAdd();
+    await pickFolder(dlg);
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    expect(await within(dlg).findByText('Unbekannte Rolle')).toBeInTheDocument();
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Wirkung passt nicht');
+  });
+
+  it('eigene Rolle in einer Zugriffsregel: ohne Rollenliste (kein tenant:read) nicht «wirkungslos», mit Liste schon', async () => {
+    const items = [note({ id: 'c1', principalRef: 'c-weg' })];
+    const { unmount } = setup('/verwalten/zugriff', { routes: routes({ 'GET /v1/acl': () => json({ items }) }) });
+    const table = await screen.findByRole('table', { name: 'Zugriffsregeln' });
+    expect(await within(table).findByText('wirkungslos')).toBeInTheDocument();
+    unmount();
+    setup('/verwalten/zugriff', { me: { roles: ['auditor'], permissions: ['audit:read', 'acl:read'] }, routes: routes({ 'GET /v1/acl': () => json({ items }) }) });
+    const t2 = await screen.findByRole('table', { name: 'Zugriffsregeln' });
+    expect(within(t2).getAllByText(/c-weg/).length).toBeGreaterThan(0);
+    expect(within(t2).queryByText('wirkungslos')).toBeNull();
+  });
+
+  it('ohne Adapter: ID der Ressource wird vor dem Absenden als UUID geprüft', async () => {
+    const { calls } = setup('/verwalten/zugriff', { config: {} });
+    const dlg = await openAdd();
+    await userEvent.type(within(dlg).getByRole('textbox', { name: 'Ordner' }), 'projekte');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    expect(within(dlg).getByText('Bitte eine gültige ID (UUID) angeben.')).toBeInTheDocument();
+    expect(within(dlg).getByRole('textbox', { name: 'Ordner' })).toHaveFocus();
+    expect(calls.some(c => c.method === 'POST')).toBe(false);
+  });
+
   it('ohne acl:admin nennt der Kopf das fehlende Recht, statt still auszublenden; keine Zeilenaktionen', async () => {
     setup('/verwalten/zugriff', { me: AUDITOR });
     const table = await screen.findByRole('table', { name: 'Zugriffsregeln' });
@@ -466,9 +568,12 @@ describe('Seite «Zugriff»', () => {
     const bundle = within(dlg).getByRole('combobox', { name: 'Rolle im Bereich' });
     expect(within(bundle).queryByRole('option', { name: 'Organisations-Admin' })).toBeNull();
     await userEvent.selectOptions(bundle, 'editor');
-    expect(within(dlg).getByText('Gibt die 2 passenden Rechte dieser Rolle frei: Notizen lesen, Notizen ändern.')).toBeInTheDocument();
+    // Wer ist noch Ordner-Admin: hat die Rechte schon, nichts freizugeben
+    expect(within(dlg).getByText('Personen mit Rolle «Ordner-Admin» haben diese Rechte schon; es gibt nichts freizugeben.')).toBeInTheDocument();
     await pickFolder(dlg);
+    expect(within(dlg).queryByRole('status', { name: 'Vorschau' })).toBeNull();
     await userEvent.selectOptions(within(dlg).getByRole('combobox', { name: 'Rolle' }), 'auditor');
+    expect(within(dlg).getByText('Gibt die 2 passenden Rechte dieser Rolle frei: Notizen lesen, Notizen ändern.')).toBeInTheDocument();
     const preview = within(dlg).getByRole('status', { name: 'Vorschau' });
     expect(preview).toHaveTextContent('Auf Ordner «Projekte» erhalten Personen mit Rolle «Prüfer:in» die Rechte der Rolle «Bearbeiter:in» (auch auf allem darunter), auch ohne diese Rolle: Notizen lesen, Notizen ändern.');
     expect(preview).toHaveTextContent('2 Zugriffsregeln (eine je Recht).');

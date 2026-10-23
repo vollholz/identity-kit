@@ -6,7 +6,7 @@
  * sind ausgenommen. Herkunft: vollholz/assets `web/src/features/acl/rules.ts`, produktneutral (Blätter statt «Objekt»).
  */
 import type { AuthzCatalog } from '../contract.ts';
-import { ADMIN_ROLE } from '../permissions.ts';
+import { ADMIN_ROLE, isCustomRole } from '../permissions.ts';
 import { listAnd, t, tn, type IamTextKey } from '../texts/index.ts';
 
 export interface AclLike { resourceType: string; resourceId: string | null; principalType: string; principalRef: string; permission: string; effect: string }
@@ -24,15 +24,28 @@ export const effectOf = (e: { effect: string }): Effect => (e.effect === 'grant'
 const roleLabel = (c: AuthzCatalog, key: string) => c.roles.find(r => r.key === key)?.label ?? key;
 const resLabel = (c: AuthzCatalog, key: string) => c.resourceTypes.find(r => r.key === key)?.label ?? key;
 
-/** Typen ohne Freigabe (Blatt der Kette): Angabe der App, sonst `leaf` aus dem Katalog. */
+/** Ist das Blatt der Kette bekannt: Angabe der App (`resources.noGrant`) oder `leaf` im Katalog? */
+export const leafKnown = (c: AuthzCatalog | undefined, noGrant?: readonly string[]): boolean =>
+  !!noGrant || !!c?.resourceTypes.some(r => r.leaf !== undefined);
+
+/** Typen ohne Freigabe (Blatt der Kette): Angabe der App, sonst `leaf` aus dem Katalog; unbekannt: keine (für «wirkungslos»). */
 export const noGrantTypes = (c: AuthzCatalog | undefined, noGrant?: readonly string[]): string[] =>
   [...(noGrant ?? c?.resourceTypes.filter(r => r.leaf).map(r => r.key) ?? [])];
 
+/**
+ * Typen, auf denen der Dialog «Freigeben» sperrt: das Blatt; ist es unbekannt, vorsichtig alle ausser der Organisation
+ * (sonst wäre «Freigeben» auf dem Blatt wählbar und der Server lehnte mit 422 ab).
+ */
+export const grantBlockedTypes = (c: AuthzCatalog | undefined, noGrant?: readonly string[]): string[] =>
+  (leafKnown(c, noGrant) ? noGrantTypes(c, noGrant) : aclResourceTypes(c).map(r => r.key).filter(k => k !== 'tenant'));
+
 /** Grund, warum ein Eintrag nie wirkt oder nicht erlaubt ist (gleiche Regeln wie die 422-Prüfung beim Anlegen), sonst `null`. */
-export function ineffectiveReason(e: AclLike, c: AuthzCatalog, noGrant: readonly string[] = noGrantTypes(c)): string | null {
+export function ineffectiveReason(e: AclLike, c: AuthzCatalog, noGrant: readonly string[] = noGrantTypes(c), o: { customRoles?: boolean } = {}): string | null {
   const admin = roleLabel(c, ADMIN_ROLE), effect = effectOf(e);
   if (e.principalType === 'role' && e.principalRef === ADMIN_ROLE) return t('iam.acl.why.adminRole', { admin });
-  if (e.principalType === 'role' && !c.roles.some(r => r.key === e.principalRef)) return t('iam.acl.why.noRole', { role: e.principalRef });
+  // Eigene Rollen (`c-…`) stehen nur mit geladener Rollenliste im Katalog (`customRoles: true`); sonst nicht als unbekannt melden
+  const known = c.roles.some(r => r.key === e.principalRef) || (isCustomRole(e.principalRef) && o.customRoles !== true);
+  if (e.principalType === 'role' && !known) return t('iam.acl.why.noRole', { role: e.principalRef });
   const p = c.permissions.find(x => x.key === e.permission);
   if (!p) return t('iam.acl.why.noPerm', { perm: e.permission });
   if (p.adminOnly && effect === 'grant') return t('iam.acl.why.adminGrant', { perm: p.label, admin });

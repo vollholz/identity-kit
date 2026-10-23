@@ -12,7 +12,7 @@ import { useMutation, useQueryClient, type UseQueryResult } from '@tanstack/reac
 import { Fragment, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { aclResourceTypes, effectOf, effectText, EFFECT_PILL, filterEntries, groupByResource, ineffectiveReason, whoKey } from '../acl/rules.ts';
 import { aclApi, principalLabel, PrincipalLabel, useAclEntries, usePermLabel, useResources, useWhoText } from '../acl/shared.tsx';
-import { useAuthz } from '../authz.ts';
+import { useAuthz, useRoles } from '../authz.ts';
 import { useIamConfig } from '../config.tsx';
 import type { AclEntry } from '../contract.ts';
 import { fmtDateTime, relTime, shortId } from '../format.ts';
@@ -109,11 +109,16 @@ function Rules({ q, admin, onAdd }: { q: UseQueryResult<AclEntry[]>; admin: bool
   const res = useResources();
   const who = useWhoText();
   const perm = usePermLabel();
+  // Eigene Rollen der Organisation (aus dem Zwischenspeicher, den useAuthz füllt): erst damit sind unbekannte `c-…` wirkungslos
+  const customRoles = useRoles(false);
   const [del, setDel] = useState<AclEntry | null>(null);
   // Fehler bleiben im Dialog, damit der Bezug zum Eintrag erhalten bleibt
   const remove = useMutation({
     mutationFn: (id: string) => aclApi.remove(id),
-    onSuccess: async () => { setDel(null); await qc.invalidateQueries({ queryKey: iamKeys.acl }); toast.show(t('iam.acl.removed', { org })); },
+    // Wirkt sofort, auch auf die eigenen Rechte (/auth/me)
+    onSuccess: async () => { setDel(null); await Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), qc.invalidateQueries({ queryKey: iamKeys.me })]); toast.show(t('iam.acl.removed', { org })); },
+    // Schon entfernt oder nicht mehr erlaubt (404, 403): Liste neu laden, der Fehler bleibt im Dialog
+    onError: () => void qc.invalidateQueries({ queryKey: iamKeys.acl }),
   });
   const closeDel = () => { remove.reset(); setDel(null); };
 
@@ -175,7 +180,7 @@ function Rules({ q, admin, onAdd }: { q: UseQueryResult<AclEntry[]>; admin: bool
                   <Fragment key={g.key}>
                     <tr className="iam-grp iam-static"><th scope="colgroup" colSpan={5}>{g.resourceType === 'tenant' ? t('iam.acl.wholeOrg') : <><span className="iam-muted iam-small">{authz.resourceLabel(g.resourceType)}</span> {resName(g.resourceType, g.resourceId)}</>}<span className="iam-cnt">{g.items.length}</span></th></tr>
                     {g.items.map(e => {
-                      const why = authz.catalog ? ineffectiveReason(e, authz.catalog, res.leaves) : null;
+                      const why = authz.catalog ? ineffectiveReason(e, authz.catalog, res.leaves, { customRoles: !!customRoles.data }) : null;
                       const eff = effectOf(e);
                       return (
                         <tr key={e.id}>

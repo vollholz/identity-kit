@@ -255,7 +255,6 @@ export function LoggedOut() {
   );
 }
 
-/** Karte für Anmeldung, Auswahl und Abmeldung mit der Marke der App. */
 /** Öffentliche Seite liess sich nicht laden (z. B. Chunk): Hinweis statt leerer Seite; das Token ist schon aus der Adresse. */
 class PublicPageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -263,6 +262,7 @@ class PublicPageBoundary extends Component<{ children: ReactNode }, { failed: bo
   override render() { return this.state.failed ? <Gate title={t('iam.handover.title')} text={t('iam.handover.loadFailed')} /> : this.props.children; }
 }
 
+/** Karte für Anmeldung, Auswahl und Abmeldung mit der Marke der App. */
 export function Gate({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
   const { product, brand } = useIamConfig();
   return (

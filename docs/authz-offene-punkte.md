@@ -28,7 +28,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 |---|---|---|---|
 | 0 Spezifikation (Vertrag) | identity-kit | `authz-p0-spec` | erledigt (#45) |
 | 1–3, 5 Backend + Testkit | identity-kit | `authz-p1-backend` | in Arbeit (session_01GtquhHRpny9fbKQ1oR8L5U) |
-| 4 Realm-Modul | identity-kit | `authz-p4-realm` | PR #44, CI läuft |
+| 4 Realm-Modul | identity-kit | `authz-p4-realm` | erledigt (#44) |
 | 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | in Arbeit (session_01ACrmwQS1MswhyanARMWS3g) |
 | 7 Release 1.0 | identity-kit | – | wartet auf 1–6 |
 | 8, 9a Assets Backend + Standardschema | assets | `authz-p8-backend` | wartet auf 7 |

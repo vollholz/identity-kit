@@ -9,6 +9,7 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iamRoutes, makeIamRoutes, type EntraConnection, type IamConfig, type Me, type Member } from '../src/index.ts';
 import { EntraConsentReturn, EntraScreen, EntraTestReturn, MembersScreen, OrganizationScreen } from '../src/pages/index.ts';
+import { authLink, isConsentUrl } from '../src/client.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
@@ -34,6 +35,25 @@ function setup(ui: ReactElement, routes: Record<string, MockHandler>, o: { path?
   return { ...api, ...render(<StaticIam me={o.me} config={o.config ?? ENTRA}>{ui}</StaticIam>) };
 }
 const status = (connection: EntraConnection | null) => ({ 'GET /v1/admin/entra': () => json({ enabled: true, reason: null, connection }) });
+const problem = (status: number, detail: string, extra: Record<string, unknown> = {}) =>
+  json({ type: 'about:blank', title: 'Fehler', status, detail, ...extra }, status, { 'Content-Type': 'application/problem+json' });
+/** Pfade, die nicht zur App gehören oder nicht unter «/auth/» liegen. */
+const FOREIGN = ['//evil.example/auth/x', '@evil.example/x', '/\\evil.example/auth/x', 'https://evil.example/auth/x', '/verwalten/x', '/auth/../verwalten'];
+
+describe('Adressen vom Server', () => {
+  it('authLink: nur Pfade unter «/auth/» dieser Herkunft, sonst null', () => {
+    expect(authLink('/auth/entra/entra-001?org=demo')).toBe(`${window.location.origin}/auth/entra/entra-001?org=demo`);
+    for (const p of [...FOREIGN, '', null, undefined]) expect(authLink(p)).toBeNull();
+  });
+
+  it('isConsentUrl: nur https und Hosts aus der Liste', () => {
+    const hosts = ['login.microsoftonline.com'];
+    expect(isConsentUrl('https://login.microsoftonline.com/x/v2.0/adminconsent', hosts)).toBe(true);
+    for (const u of ['http://login.microsoftonline.com/x', 'https://evil.example/x', 'https://login.microsoftonline.com.evil.example/x', 'https://user@evil.example/x', 'javascript:alert(1)', '/relativ'])
+      expect(isConsentUrl(u, hosts)).toBe(false);
+    expect(isConsentUrl('https://login.microsoftonline.us/x', [...hosts, 'login.microsoftonline.us'])).toBe(true);
+  });
+});
 
 describe('Anmeldung (Microsoft Entra ID)', () => {
   it('nicht verbunden: Erklärung und «Mit Entra ID verbinden»; der Dialog führt zu Microsoft', async () => {
@@ -72,7 +92,8 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
   it('Schritt 2: Testanmeldung als Link, «Nur Entra aktivieren» gesperrt bis zum Test', async () => {
     setup(<EntraScreen />, status(PENDING));
     expect(await screen.findByText('verbunden, noch nicht aktiv')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Testanmeldung mit Microsoft' })).toHaveAttribute('href', PENDING.testLoginPath);
+    expect(screen.getByRole('link', { name: 'Testanmeldung mit Microsoft' })).toHaveAttribute('href', `${window.location.origin}${PENDING.testLoginPath}`);
+    expect(screen.getByRole('button', { name: 'Link für eine andere Person kopieren' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nur Entra aktivieren …' })).toHaveAttribute('aria-disabled', 'true');
   });
 
@@ -143,6 +164,35 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
     expect(screen.getByRole('link', { name: 'Weiter' })).toHaveAttribute('href', '/verwalten/anmeldung');
     const body = await calls.find(c => c.method === 'POST')!.clone().json();
     expect(body).toEqual({ state: 'o.demo.abc', tenant: '0f0e0d0c-0000-4000-8000-000000000001', adminConsent: 'True' });
+    // Parameter aus der Adresse entfernt (replace), das Ergebnis bleibt sichtbar
+    expect(window.location.pathname).toBe('/verwalten/anmeldung/zustimmung');
+    expect(window.location.search).toBe('');
+    expect(screen.getByText(/Verbunden mit «Demo AG \(Entra\)»/)).toBeInTheDocument();
+  });
+
+  it('Rückkehr nach einem Neuladen (404 von der API): «Bereits abgeschlossen» statt Fehler', async () => {
+    setup(<EntraConsentReturn />, { 'POST /v1/admin/entra/consent/complete': () => problem(404, 'Die Zustimmung ist abgelaufen, wurde schon verwendet …') },
+      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&admin_consent=True' });
+    expect(await screen.findByRole('heading', { name: 'Bereits abgeschlossen' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Weiter' })).toHaveAttribute('href', '/verwalten/anmeldung');
+  });
+
+  it('Rückkehr mit error=access_denied: Parameter gehen an die API, deren Meldung erscheint', async () => {
+    const { calls } = setup(<EntraConsentReturn />, { 'POST /v1/admin/entra/consent/complete': () => problem(409, 'Die Zustimmung wurde bei Microsoft abgelehnt.', { reason: 'consent-error', code: 'access_denied' }) },
+      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&error=access_denied&error_description=AADSTS65004%3A+declined' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Die Zustimmung wurde bei Microsoft abgelehnt.');
+    expect(await calls.find(c => c.method === 'POST')!.clone().json()).toEqual({ state: 'o.demo.abc', error: 'access_denied', errorDescription: 'AADSTS65004: declined' });
+    expect(screen.getByRole('link', { name: 'Weiter' })).toBeInTheDocument();
+  });
+
+  it('Rückkehr mit `state` in fremdem Format: kein Aufruf, «Keine Rückkehr von Microsoft»', async () => {
+    for (const state of ['x.demo.abc', 'o.Demo.abc', 'o.demo', 'o.demo.a/b', 'p..abc', `o.${'a'.repeat(64)}.abc`]) {
+      const { calls, unmount } = setup(<EntraConsentReturn />, {}, { path: `/verwalten/anmeldung/zustimmung?state=${encodeURIComponent(state)}` });
+      expect(await screen.findByRole('heading', { name: 'Keine Rückkehr von Microsoft' })).toBeInTheDocument();
+      expect(calls.some(c => c.url.includes('/entra/'))).toBe(false);
+      unmount();
+    }
   });
 
   it('Rückkehr der Plattform-Administration: Organisation aus `state`, zurück zur Organisation', async () => {
@@ -168,6 +218,58 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
     expect(await screen.findByText(/Testanmeldung erfolgreich/)).toBeInTheDocument();
     expect(calls.filter(c => c.method === 'POST' && c.url.endsWith('/v1/admin/entra/test'))).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Zur Übersicht' })).toHaveAttribute('href', '/');
+  });
+
+  it('Rückkehr der Testanmeldung mit 403: Meldung der API', async () => {
+    setup(<EntraTestReturn />, { 'POST /v1/admin/entra/test': () => problem(403, 'Diese Sitzung ist nicht über Microsoft angemeldet.') }, { path: '/verwalten/anmeldung/test' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Diese Sitzung ist nicht über Microsoft angemeldet.');
+    expect(screen.queryByText(/Testanmeldung erfolgreich/)).toBeNull();
+  });
+
+  it('Testanmeldung und Anmeldelink nur für Pfade unter «/auth/» dieser App', async () => {
+    for (const testLoginPath of FOREIGN) {
+      const { unmount } = setup(<EntraScreen />, status({ ...PENDING, testLoginPath }));
+      expect(await screen.findByText('verbunden, noch nicht aktiv')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Testanmeldung mit Microsoft' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Link für eine andere Person kopieren' })).toBeNull();
+      unmount();
+    }
+  });
+
+  it('Verbinden: Adresse ausserhalb von Microsoft wird nicht geöffnet, Fehler im Dialog; weitere Hosts per entraConsentHosts', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    let url = 'https://evil.example/adminconsent?state=o.demo.abc';
+    setup(<EntraScreen />, { ...status(null), 'POST /v1/admin/entra/consent': () => json({ url, entraTenantId: 'x' }) },
+      { config: { ...ENTRA, entraConsentHosts: ['login.microsoftonline.us'] } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mit Entra ID verbinden' }));
+    const dlg = await screen.findByRole('dialog', { name: '«Demo AG» mit Entra ID verbinden' });
+    await userEvent.type(within(dlg).getByLabelText('Verzeichnis'), 'demoag.onmicrosoft.com');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Weiter zu Microsoft' }));
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent('keine Adresse von Microsoft');
+    expect(assign).not.toHaveBeenCalled();
+    url = 'https://login.microsoftonline.us/x/v2.0/adminconsent?state=o.demo.abc';
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Weiter zu Microsoft' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(url));
+  });
+
+  it('Verbinden: Fehler der API bleibt im Dialog, keine Navigation', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    setup(<EntraScreen />, { ...status(null), 'POST /v1/admin/entra/consent': () => problem(422, 'Kein Microsoft-Verzeichnis zu dieser Domäne gefunden.') });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mit Entra ID verbinden' }));
+    const dlg = await screen.findByRole('dialog', { name: '«Demo AG» mit Entra ID verbinden' });
+    await userEvent.type(within(dlg).getByLabelText('Verzeichnis'), 'unbekannt.example');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Weiter zu Microsoft' }));
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent('Kein Microsoft-Verzeichnis zu dieser Domäne gefunden.');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('Aktualisieren gescheitert: Meldung, Verbindung bleibt angezeigt', async () => {
+    setup(<EntraScreen />, { ...status(CONN), 'POST /v1/admin/entra/refresh': () => problem(502, 'Microsoft Graph ist nicht erreichbar.') });
+    await userEvent.click(await screen.findByRole('button', { name: 'Aktualisieren' }));
+    expect(await screen.findByText(/Aktualisieren gescheitert/)).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Gebundene Domänen' })).toHaveTextContent('@demo.example');
   });
 
   it('Routen und Organisation: nur mit features.entra (Seite, Rückkehrseiten, Abschnitt im Detail)', async () => {
@@ -233,8 +335,11 @@ describe('Person aus Entra ID hinzufügen', () => {
     const list = await within(dlg).findByRole('list', { name: 'Treffer im Verzeichnis' });
     expect(new URL(calls.find(c => c.url.includes('entra-search'))!.url).searchParams.get('q')).toBe('ni');
     const gast = within(list).getByRole('button', { name: /Nora Gast/ });
-    expect(gast).toBeDisabled();
+    // aria-disabled statt disabled: bleibt per Tastatur erreichbar, damit der Grund vorgelesen wird
+    expect(gast).toHaveAttribute('aria-disabled', 'true');
     expect(gast).toHaveAccessibleDescription('Gastkonto in Entra ID');
+    await userEvent.click(gast);
+    expect(within(dlg).getByRole('list', { name: 'Treffer im Verzeichnis' })).toBeInTheDocument();
     expect(await axeProblems(dlg)).toEqual([]);
     await userEvent.click(within(list).getByRole('button', { name: /Nina Neu/ }));
     expect(dlg).toHaveTextContent('Planerin · Planung');
@@ -248,6 +353,51 @@ describe('Person aus Entra ID hinzufügen', () => {
     expect(within(done).getByLabelText('Anmeldelink')).toHaveValue(`${window.location.origin}/auth/entra/entra-001?org=demo`);
     expect(done).toHaveTextContent('Nina Neu ist Mitglied von «Demo AG» mit der Rolle Leser:in und meldet sich über Microsoft an.');
     expect(done).not.toHaveTextContent('konnte die Einladung nicht per E-Mail senden');
+  });
+
+  it('mit E-Mail, aber nicht gesendet: Hinweis noMail und Link zum Weitergeben', async () => {
+    members(PENDING, {
+      'GET /v1/admin/members/entra-search': () => json(HITS),
+      'POST /v1/admin/members/entra': () => json({ result: 'added', emailSent: false, member: NINA }, 202),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Person hinzufügen' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Person zu «Demo AG» hinzufügen' });
+    await userEvent.type(within(dlg).getByRole('searchbox', { name: 'Im Verzeichnis suchen' }), 'ni');
+    await userEvent.click(await within(dlg).findByRole('button', { name: /Nina Neu/ }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    const done = await screen.findByRole('dialog', { name: 'Nina Neu hinzugefügt' });
+    expect(within(done).getByRole('alert')).toHaveTextContent('konnte die Einladung nicht per E-Mail senden');
+    expect(within(done).getByLabelText('Anmeldelink')).toHaveValue(`${window.location.origin}${NINA.loginPath}`);
+  });
+
+  it('fremder loginPath: kein Link im Ergebnis und kein «Anmeldelink kopieren» im Menü', async () => {
+    const EVIL = { ...NINA, loginPath: '//evil.example/auth/x' };
+    members(PENDING, {
+      'GET /v1/admin/members': () => json({ items: [ANNA, EVIL] }),
+      'GET /v1/admin/members/entra-search': () => json(HITS),
+      'POST /v1/admin/members/entra': () => json({ result: 'added', emailSent: false, member: { ...NINA, loginPath: '@evil.example/x' } }, 202),
+    });
+    const table = await screen.findByRole('table', { name: 'Mitglieder von Demo AG mit Rollen' });
+    const row = within(table).getByText('Nina Neu').closest('tr')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Nina Neu' }));
+    expect(within(await screen.findByRole('menu')).queryByRole('menuitem', { name: 'Anmeldelink kopieren' })).toBeNull();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Person hinzufügen' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Person zu «Demo AG» hinzufügen' });
+    await userEvent.type(within(dlg).getByRole('searchbox', { name: 'Im Verzeichnis suchen' }), 'ni');
+    await userEvent.click(await within(dlg).findByRole('button', { name: /Nina Neu/ }));
+    await userEvent.click(within(dlg).getByLabelText('Einladung per E-Mail senden'));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    const done = await screen.findByRole('dialog', { name: 'Nina Neu hinzugefügt' });
+    expect(within(done).queryByLabelText('Anmeldelink')).toBeNull();
+  });
+
+  it('Suche im Verzeichnis gescheitert: Meldung im Dialog', async () => {
+    members(PENDING, { 'GET /v1/admin/members/entra-search': () => problem(502, 'Microsoft Graph ist nicht erreichbar.') });
+    await userEvent.click(await screen.findByRole('button', { name: 'Person hinzufügen' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Person zu «Demo AG» hinzufügen' });
+    await userEvent.type(within(dlg).getByRole('searchbox', { name: 'Im Verzeichnis suchen' }), 'ni');
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent('Microsoft Graph ist nicht erreichbar.');
   });
 
   it('externe Person: Wechsel zu «Per E-Mail einladen»', async () => {

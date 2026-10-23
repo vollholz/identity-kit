@@ -559,8 +559,8 @@ tbody tr.iam-static:hover td{background:none}
 .iam-entra-hits{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto}
 .iam-entra-hit,.iam-entra-picked{display:grid;grid-template-columns:minmax(0,1fr);row-gap:1px;width:100%;text-align:left;padding:7px 8px;border-radius:7px}
 .iam-entra-hit{border:0;background:none;color:inherit;cursor:pointer}
-.iam-entra-hit:hover:not(:disabled){background:var(--iam-surface-2)}
-.iam-entra-hit:disabled{cursor:default;opacity:.6}
+.iam-entra-hit:hover:not([aria-disabled=true]){background:var(--iam-surface-2)}
+.iam-entra-hit[aria-disabled=true]{cursor:default;opacity:.6}
 .iam-entra-hit>*,.iam-entra-picked>*{overflow:hidden;text-overflow:ellipsis}
 .iam-entra-why{color:var(--iam-text-3)}
 .iam-entra-picked{border:1px solid var(--iam-line-2);background:var(--iam-surface-2);margin:10px 0 4px}

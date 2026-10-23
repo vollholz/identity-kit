@@ -15,6 +15,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { entraApi, entraTest, useEntra } from '../admin.ts';
+import { authLink, isConsentUrl } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
 import type { EntraConnection, EntraConsentReturn, EntraMember, EntraResult, EntraStatus } from '../contract.ts';
 import { fmtDateTime, relTime } from '../format.ts';
@@ -35,6 +36,10 @@ const notLinkedOf = (e: unknown): EntraMember[] | null => {
   return p?.reason === 'confirm-not-linked' ? p.notLinked ?? [] : null;
 };
 const atDomains = (c: EntraConnection) => c.domains.map(d => `@${d}`).join(', ');
+/** Hosts für die Zustimmung bei Microsoft, wenn die App keine nennt (`entraConsentHosts`). */
+const CONSENT_HOSTS = ['login.microsoftonline.com'];
+/** `state` vom Server: `o.<alias>.<zufall>` (eigene Organisation) oder `p.<alias>.<zufall>` (Plattform-Administration). */
+const STATE = /^(o|p)\.([a-z0-9][a-z0-9_-]{0,62})\.[A-Za-z0-9_-]+$/;
 
 /** Seite der eigenen Organisation (Recht `members:admin` prüft der Guard der Route). */
 export function EntraPage() {
@@ -131,16 +136,17 @@ function ConnectionView({ c, onEdit }: { c: EntraConnection; onEdit: () => void 
 /** Schritte 1–3 mit Stand; Testanmeldung als Link (Navigation zu Keycloak/Microsoft), Aktivieren erst nach dem Test. */
 function Steps({ c, onEnforce }: { c: EntraConnection; onEnforce: () => void }) {
   const { Button, Icon, toast } = useIamUi();
-  const link = `${window.location.origin}${c.testLoginPath}`;
-  const copy = () => { void navigator.clipboard?.writeText(link).then(() => toast.show(t('iam.entra.linkCopied')), () => undefined); };
+  // Nur ein Anmeldepfad unter «/auth/» dieser Herkunft; sonst weder Knopf noch Link
+  const link = authLink(c.testLoginPath);
+  const copy = () => { if (link) void navigator.clipboard?.writeText(link).then(() => toast.show(t('iam.entra.linkCopied')), () => undefined); };
   return (
     <ol className="iam-pad iam-entra-steps" aria-label={t('iam.entra.steps')}>
       <li><Icon name="check" className="iam-ico" /><strong>{t('iam.entra.step1')}</strong> – {t('iam.entra.step1.text')}</li>
       <li>
         {c.testedAt ? <><Icon name="check" className="iam-ico" /><strong>{t('iam.entra.step2.done')}</strong> – {c.testedBy}, <span title={fmtDateTime(c.testedAt)}>{relTime(c.testedAt)}</span>.</>
           : <><strong>{t('iam.entra.step2')}</strong> – {t('iam.entra.step2.text', { domains: atDomains(c) })}</>}
-        {' '}<Button size="sm" icon="user" href={c.testLoginPath}>{t(c.testedAt ? 'iam.entra.retest' : 'iam.entra.test')}</Button>
-        {' '}<button type="button" className="iam-linkbtn" onClick={copy}>{t('iam.entra.copyTest')}</button>
+        {link ? <>{' '}<Button size="sm" icon="user" href={link}>{t(c.testedAt ? 'iam.entra.retest' : 'iam.entra.test')}</Button>
+          {' '}<button type="button" className="iam-linkbtn" onClick={copy}>{t('iam.entra.copyTest')}</button></> : null}
       </li>
       <li>
         {c.stage === 'enforced'
@@ -177,9 +183,18 @@ function BindReport({ r, enforced, onClose }: { r: EntraResult; enforced: boolea
 
 function ConnectDialog({ alias, orgLabel, tenant: fixed, onClose }: { alias: string | null; orgLabel: string; tenant?: string; onClose: () => void }) {
   const { Dialog, Button, Icon } = useIamUi();
+  const { entraConsentHosts = CONSENT_HOSTS } = useIamConfig();
   const fid = useId();
   const [tenant, setTenant] = useState(fixed ?? '');
-  const start = useMutation({ mutationFn: () => entraApi(alias).consent(tenant.trim()), onSuccess: r => { window.location.assign(r.url); } });
+  const start = useMutation({
+    mutationFn: async () => {
+      const r = await entraApi(alias).consent(tenant.trim());
+      // Nur zu Microsoft weiterleiten (https, bekannter Host); eine andere Adresse ist ein Fehler, keine Navigation
+      if (!isConsentUrl(r.url, entraConsentHosts)) throw new Error(t('iam.entra.connect.badUrl'));
+      return r;
+    },
+    onSuccess: r => { window.location.assign(r.url); },
+  });
   return (
     <Dialog title={t('iam.entra.connect.title', { org: orgLabel })} onClose={onClose} onSubmit={() => { if (tenant.trim()) start.mutate(); }} width={600}
       footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" disabled={!tenant.trim()} busy={start.isPending}><Icon name="link" className="iam-ico" />{t('iam.entra.connect.go')}</Button></>}>
@@ -264,26 +279,39 @@ function DomainsDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string 
 
 /**
  * Rückkehr von der Zustimmung bei Microsoft (Parameter im Suchtext). `state` stammt vom Server: `o.<alias>.…` für die
- * eigene Organisation, `p.<alias>.…` für die Plattform-Administration.
+ * eigene Organisation, `p.<alias>.…` für die Plattform-Administration; ein anderes Format gilt als keine Rückkehr
+ * (kein API-Aufruf). Nach dem Senden verschwinden die Parameter aus der Adresse; nach einem Neuladen meldet die API 404.
  */
 export function EntraConsentReturn() {
-  const { router: { Link, useSearch }, paths } = useIamConfig();
+  const { router: { Link, useSearch, usePathname, navigate }, paths } = useIamConfig();
   const { me } = useIam();
   useIamText();
-  const s = new URLSearchParams(useSearch());
-  const get = (k: string) => s.get(k) || undefined;
-  const state = get('state');
-  const [kind, alias] = (state ?? '').split('.');
+  const search = useSearch();
+  const pathname = usePathname();
+  // Parameter einmal lesen: Nach dem Senden verschwinden sie aus der Adresse (replace), das Ergebnis bleibt im Zustand
+  const [body] = useState<EntraConsentReturn | null>(() => {
+    const s = new URLSearchParams(search);
+    const get = (k: string) => s.get(k) || undefined;
+    const state = get('state');
+    return state && STATE.test(state) ? {
+      state, ...(get('tenant') ? { tenant: get('tenant') } : {}), ...(get('admin_consent') ? { adminConsent: get('admin_consent') } : {}),
+      ...(get('error') ? { error: get('error') } : {}), ...(get('error_description') ? { errorDescription: get('error_description') } : {}),
+    } : null;
+  });
+  const [, kind, alias] = body ? STATE.exec(body.state)! : [];
   const target = kind === 'p' ? alias! : null;
-  const body: EntraConsentReturn | null = state ? {
-    state, ...(get('tenant') ? { tenant: get('tenant') } : {}), ...(get('admin_consent') ? { adminConsent: get('admin_consent') } : {}),
-    ...(get('error') ? { error: get('error') } : {}), ...(get('error_description') ? { errorDescription: get('error_description') } : {}),
-  } : null;
   const qc = useQueryClient();
   const complete = useMutation({ mutationFn: (b: EntraConsentReturn) => entraApi(target).complete(b), onSuccess: () => qc.invalidateQueries({ queryKey: iamKeys.entra(target) }) });
   const sent = useRef(false);
   const wrongOrg = kind === 'o' && alias !== me.tenant?.alias;
-  useEffect(() => { if (body && !wrongOrg && !sent.current) { sent.current = true; complete.mutate(body); } });
+  useEffect(() => {
+    if (!body || wrongOrg || sent.current) return;
+    sent.current = true;
+    complete.mutate(body);
+    if (search) navigate(pathname, { replace: true });
+  });
+  // 404: `state` schon verwendet (z. B. nach einem Neuladen), abgelaufen oder fremd
+  const used = complete.error instanceof ApiError && complete.error.status === 404;
   const back = target
     ? <Link className="iam-btn" to={organizationPath(paths.organizations, target)}>{t('iam.entra.backOrg')}</Link>
     : <Link className="iam-btn" to={paths.entra}>{t('iam.entra.next')}</Link>;
@@ -294,6 +322,7 @@ export function EntraConsentReturn() {
         {!body ? <Empty icon="warn" title={t('iam.entra.return.none')}>{t('iam.entra.return.noneText')} {back}</Empty>
           : wrongOrg ? <Empty icon="warn" title={t('iam.entra.return.other')}>{t('iam.entra.return.otherText', { alias: alias ?? '' })} {back}</Empty>
           : complete.isPending || complete.isIdle ? <SkeletonRows rows={3} />
+          : used ? <Empty icon="check" title={t('iam.entra.return.used')}>{t('iam.entra.return.usedText')} {back}</Empty>
           : complete.error ? <><ErrorBox error={complete.error} />{back}</>
           : (
             <>
@@ -312,12 +341,19 @@ const CheckIcon = () => { const { Icon } = useIamUi(); return <Icon name="check"
 
 /** Rückkehr der Testanmeldung: Diese Sitzung ist über Microsoft angemeldet – der API melden. */
 export function EntraTestReturn() {
-  const { router: { Link }, paths } = useIamConfig();
+  const { router: { Link, useSearch, usePathname, navigate }, paths } = useIamConfig();
   useIamText();
+  const search = useSearch();
+  const pathname = usePathname();
   const qc = useQueryClient();
   const test = useMutation({ mutationFn: entraTest, onSuccess: () => qc.invalidateQueries({ queryKey: iamKeys.entra(null) }) });
   const sent = useRef(false);
-  useEffect(() => { if (!sent.current) { sent.current = true; test.mutate(); } });
+  useEffect(() => {
+    if (sent.current) return;
+    sent.current = true;
+    test.mutate();
+    if (search) navigate(pathname, { replace: true });
+  });
   return (
     <>
       <AdminHead icon="shield" title={t('iam.entra.testTitle')} />

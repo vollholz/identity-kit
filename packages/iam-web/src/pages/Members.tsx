@@ -18,6 +18,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { memberApi, useAdminStatus, useEntra, useMembers } from '../admin.ts';
+import { authLink } from '../client.ts';
 import { useAuthz } from '../authz.ts';
 import type { EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts';
 import { useIamConfig } from '../config.tsx';
@@ -42,9 +43,6 @@ const STATUS = {
   invited: ['iam.members.status.invited', 'iam-st-warn', 'iam.members.status.invitedWhy'],
   disabled: ['iam.members.status.disabled', 'iam-st-bad', 'iam.members.status.disabledWhy'],
 } as const;
-
-/** Link zum Weitergeben (Anmeldung über Microsoft für Personen aus Entra ID, die sich noch nie angemeldet haben). */
-const absolute = (path: string) => `${window.location.origin}${path}`;
 
 /** Alle Mitgliederlisten (eigene Organisation und Plattformansicht), für die Invalidierung nach Änderungen. */
 const MEMBER_LISTS = ['iam', 'admin', 'members'] as const;
@@ -131,7 +129,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
   const api = memberApi(alias);
   // Rechte wirken sofort (8.3), auch für die eigene Person: Mitgliederlisten (eigene und Plattformansicht) und /auth/me neu laden
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: MEMBER_LISTS }), qc.invalidateQueries({ queryKey: iamKeys.me })]);
-  const copyLink = (m: Member) => { void navigator.clipboard?.writeText(absolute(m.loginPath!)).then(() => toast.show(t('iam.members.linkCopied', { name: m.name })), () => undefined); };
+  const copyLink = (link: string, m: Member) => { void navigator.clipboard?.writeText(link).then(() => toast.show(t('iam.members.linkCopied', { name: m.name })), () => undefined); };
 
   const resend = useMutation({
     mutationFn: (m: Member) => api.resend(m.id),
@@ -226,6 +224,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
               {rows.map(m => {
                 const [st, cls, why] = STATUS[m.status];
                 const inv = m.status === 'invited';
+                const link = authLink(m.loginPath);
                 const fixed = !rolesManageable || (platform ? m.roles.some(k => !label[k]) : m.roles.includes(ADMIN));
                 return (
                   <tr key={m.id}>
@@ -241,7 +240,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
                           {close => <>
                             {inv ? <>
                               <MenuItem icon="send" label={t('iam.members.resend')} why={resend.isPending ? t('iam.members.resending') : null} onPick={() => { close(); resend.mutate(m); }} />
-                              {m.loginPath ? <MenuItem icon="copy" label={t('iam.members.copyLink')} onPick={() => { close(); copyLink(m); }} /> : null}
+                              {link ? <MenuItem icon="copy" label={t('iam.members.copyLink')} onPick={() => { close(); copyLink(link, m); }} /> : null}
                               <div className="iam-menu-sep" role="separator" />
                             </> : null}
                             <MenuItem icon="x" danger label={t(inv ? 'iam.members.withdraw' : 'iam.members.remove')} why={removeBlock(m)} onPick={() => { close(); setRemoving(m); }} />
@@ -435,7 +434,8 @@ function EntraAddDialog({ alias, orgLabel, roles, platform, rolesManageable, onC
   };
   const detail = (c: { jobTitle: string | null; department: string | null }) => [c.jobTitle, c.department].filter(Boolean).join(' · ');
   if (result) {
-    const link = result.member.loginPath ? absolute(result.member.loginPath) : null;
+    /** Link zum Weitergeben (Anmeldung über Microsoft für Personen, die sich noch nie angemeldet haben). */
+    const link = authLink(result.member.loginPath);
     const names = roleNames(result.member.roles, roles);
     return (
       <Dialog title={t('iam.entraAdd.doneTitle', { name: result.member.name })} onClose={onClose} width={560} footer={<Button variant="primary" data-autofocus onClick={onClose}>{t('iam.common.close')}</Button>}>
@@ -468,7 +468,7 @@ function EntraAddDialog({ alias, orgLabel, roles, platform, rolesManageable, onC
             : <ul className="iam-entra-hits" aria-label={t('iam.entraAdd.hits')}>
                 {items.map(c => (
                   <li key={c.id}>
-                    <button type="button" className="iam-entra-hit" disabled={!c.selectable} onClick={() => setPicked(c)} aria-describedby={c.reason ? `${fid}-${c.id}-r` : undefined}>
+                    <button type="button" className="iam-entra-hit" aria-disabled={c.selectable ? undefined : true} onClick={() => { if (c.selectable) setPicked(c); }} aria-describedby={c.reason ? `${fid}-${c.id}-r` : undefined}>
                       <span className="iam-b">{c.name}</span><span className="iam-mono-s iam-muted">{c.email}</span>
                       {detail(c) ? <span className="iam-muted iam-small">{detail(c)}</span> : null}
                       {c.reason ? <span id={`${fid}-${c.id}-r`} className="iam-small iam-entra-why">{c.reason}</span> : null}

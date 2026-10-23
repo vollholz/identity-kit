@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { entraAddress } from '../src/admin.ts';
+import { CONSENT_ADMIN_ROLES } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
@@ -87,8 +88,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     for (const tok of [anna(), paula(), person(u.mona, 'muster', ['org-admin'])]) ok(await call(tok, 'GET', '/v1/me'));
     // Verbinden (Stufe pending) wie in Teil 1; frei.example bleibt ungebunden
     const s = ok(await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: contoso.id }));
-    contoso.consented = true;
-    ok(await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: new URL(s.url).searchParams.get('state'), tenant: contoso.id }));
+    ok(await call(anna(), 'POST', '/v1/admin/entra/consent/complete', ms.approve(s.url, contoso.users.find(x => x.id === oid.anna)!, { wids: [CONSENT_ADMIN_ROLES[0]!] })));
     ok(await call(anna(), 'PUT', '/v1/admin/entra/domains', { domains: ['demo.example', 'demoag.onmicrosoft.com'] }));
   });
   after(async () => { await app?.app.close(); await idp?.close(); await t?.drop(); });
@@ -249,14 +249,20 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     const inv = await call(anna(), 'POST', '/v1/admin/members', { email: 'zoe@demo.example' });
     assert.deepEqual([inv.status, inv.body.reason], [409, 'entra-domain']);
     assert.match(inv.body.detail, /Person hinzufügen/);
+    // Konto der Plattform-Administration behält Passwort (Notfallzugang), auch bei «Nur Entra»
+    const pa = kc.user('pia', { email: 'pia@demo.example', firstName: 'Pia', lastName: 'Plattform' });
+    kc.realmRoleMappings.set(pa.id, new Set(['platform-admin']));
+    const oidPia = ms.user(contoso, 'pia@demo.example', { displayName: 'Pia Plattform' }).id;
+    ok(await add(oidPia), 202);
+    assert.deepEqual([pa.password, kc.links.get(pa.id)!.get('entra-001')!.userId], [true, oidPia]);
   });
 
   test('Rate-Limit der Suche je Person: 30 je Minute, Schlüssel Mandant und Person (wirkt mit @fastify/rate-limit der App)', async () => {
     for (const url of ['/v1/admin/members/entra-search', '/v1/platform/organizations/:alias/members/entra-search']) {
       const rl = routeConfig.get(`GET ${url}`)?.rateLimit as { max: number; timeWindow: number; keyGenerator: (r: unknown) => string } | undefined;
       assert.deepEqual([rl?.max, rl?.timeWindow], [30, 60_000], url);
-      assert.equal(rl!.keyGenerator({ principal: { tenantId: 't1', subject: 's1' }, ip: '1.2.3.4' }), 'entra-search:t1:s1');
-      assert.equal(rl!.keyGenerator({ principal: null, ip: '1.2.3.4' }), 'entra-search::1.2.3.4');
+      assert.equal(rl!.keyGenerator({ principal: { tenantId: 't1', subject: 's1' }, ip: '1.2.3.4' }), 'notes:entra-search:t1:s1');
+      assert.equal(rl!.keyGenerator({ principal: null, ip: '1.2.3.4' }), 'notes:entra-search::1.2.3.4');
     }
   });
 

@@ -744,5 +744,17 @@ Audit-Trigger darauf warten.
   Testanmeldung `<pfad>/test` (`returnTo` in `testLoginPath`). `GET …/entra` nennt beide (`consentPath`, `testPath`).
   Spez. 9.4 und 13 nachgeführt, ebenso der OpenAPI-Auszug von `@vollholz/iam-web`.
 - **Ablauf der Erstanmeldung** `<produkt>-entra-first-login` (Realm-Modul `entra.tf`) statt `assets-entra-first-login`.
-- **Tests**: Die Nachbildung von Microsoft liegt vorerst in `test/support/entra-fake.ts` (aus Assets); Vorschlag: ins
-  Test-Kit übernehmen wie `KeycloakFake`.
+- **Review zu #26 (Hauptsession)**, Abweichungen von Assets:
+  - F1, Sicherheit: Die Admin-Zustimmung (`…/adminconsent`) bewies nichts. Microsoft stellt Client-Credentials-Tokens aus,
+    sobald der Tenant irgendwann zugestimmt hat; eine org-admin hätte mit dem `state` aus der Adresse `complete` direkt
+    aufrufen und einen fremden Tenant samt Domänen und Verzeichnis übernehmen können. Jetzt Code-Flow mit PKCE und
+    `nonce` (beide per HMAC mit `ENTRA_CLIENT_SECRET` aus `state` abgeleitet, keine neue Spalte), Einlösen auf dem
+    Server und Prüfung des ID-Tokens (`EntraGraph.verifyConsent`, Spez. 9.4). `consentBy` im Audit.
+    Vertragsänderung: `POST …/entra/consent/complete` nimmt `code` statt `tenant` und `adminConsent`.
+  - F2: «Nur Entra» lässt Konten mit `PLATFORM_ADMIN_ROLE` (zusammengesetzt gelesen) Passwort und Passkey
+    (`removeFirstFactor`, auch beim Hinzufügen aus Entra ID); Vorschau und Ergebnis mit `passwordKept`.
+  - F3–F6: Schlüssel der Ratenbegrenzung mit Produkt (`<produkt>:entra-search:…`), `POST /v1/platform/entra/refresh`
+    prüft das Recht vor «nicht eingerichtet», `ENTRA_UI_PATH` ohne `.`/`..`, Audit `entra.consent_started` und
+    `entra.consent_failed`.
+- **Tests**: Die Nachbildung von Microsoft ist `EntraFake` im Test-Kit (0.3.0), mit `approve` für die Anmeldung im
+  Browser und ID-Tokens mit eigenem JWKS.

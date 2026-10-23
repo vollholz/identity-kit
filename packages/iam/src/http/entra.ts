@@ -73,16 +73,16 @@ const EntraResult = Type.Object({
   members: Type.Array(Type.Object({
     email: Type.String(), name: Type.String(), linked: Type.Boolean({ description: 'Mit der Person in Entra ID verknüpft (über die Objekt-ID)' }),
     reason: Nullable(Type.String({ description: 'Warum nicht verknüpft; bei «Nur Entra» kann sich die Person nicht mehr anmelden' })),
+    passwordKept: Type.Optional(Type.String({ description: 'Warum Passwort und Passkey bei «Nur Entra» bleiben (Konto der Plattform-Administration)' })),
   }), { description: 'Mitglieder mit Adresse in einer betroffenen Domäne; bei «Nur Entra» wurde ihr Passwort entfernt' }),
   rejectedDomains: Type.Array(Type.String(), { description: 'Verifizierte Domänen, die bereits einer anderen Organisation zugeordnet sind (welcher, bleibt verborgen)' }),
 });
 const ConsentComplete = Type.Object({
   state: Type.String({ minLength: 10, maxLength: 200 }),
-  tenant: Type.Optional(Type.String({ maxLength: 64 })),
-  adminConsent: Type.Optional(Type.String({ maxLength: 16 })),
+  code: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: 'Code der Anmeldung (Nachweis der Zustimmung)' })),
   error: Type.Optional(Type.String({ maxLength: 200 })),
   errorDescription: Type.Optional(Type.String({ maxLength: 2000 })),
-}, { additionalProperties: false, description: 'Parameter der Rückkehr von Microsoft (`state`, `tenant`, `admin_consent`, `error`, `error_description`)' });
+}, { additionalProperties: false, description: 'Parameter der Rückkehr von Microsoft (`code`, `state`, `error`, `error_description`)' });
 const NotLinked = Type.Array(Type.String({ maxLength: 254 }), { maxItems: 10_000, description: 'Bestätigt: Diese Mitglieder verlieren die Anmeldung (Adressen aus der Vorschau)' });
 
 export const entraModule: IamModule = {
@@ -110,7 +110,7 @@ export const entraModule: IamModule = {
     };
     const byAlias = (req: FastifyRequest) => platform(req, (req.params as { alias: string }).alias);
     /** Personensuche in Entra ID: je Person 30 Anfragen pro Minute (jede Suche ruft Microsoft Graph und Keycloak). */
-    const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
+    const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
 
     // ---------------------------------------------------------------- Personen aus Entra ID
     const memberRoutes = (base: string, tags: string[], scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
@@ -160,7 +160,7 @@ export const entraModule: IamModule = {
       app.post(`${base}/consent/complete`, {
         schema: routeSchema(ctx, 'POST', `${base}/consent/complete`, {
           tags: [TAG], summary: 'Verbinden: Rückkehr von der Admin-Zustimmung', ...p, body: ConsentComplete,
-          description: 'Prüft `state` (einmal gültig, an Person, Organisation und Tenant gebunden), liest Organisation und verifizierte Domänen im Tenant, legt den Identitätsanbieter in Keycloak an, bindet die Domänen (ohne die einer anderen Organisation), verknüpft bestehende Mitglieder dieser Domänen über ihre Objekt-ID. Passwörter bleiben bis «Nur Entra».',
+          description: 'Prüft `state` (einmal gültig, an Person, Organisation und Tenant gebunden) und weist die Zustimmung über `code` nach (ID-Token einer globalen Administration oder «Privileged Role Administrator» des Tenants, sonst 409 `consent-unproven`), liest Organisation und verifizierte Domänen im Tenant, legt den Identitätsanbieter in Keycloak an, bindet die Domänen (ohne die einer anderen Organisation), verknüpft bestehende Mitglieder dieser Domänen über ihre Objekt-ID. Passwörter bleiben bis «Nur Entra».',
           response: { 200: EntraResult },
         }),
       }, async req => { const sc = await scope(req); return on().ent.completeConsent(sc, req.body as { state: string }); });
@@ -221,6 +221,6 @@ export const entraModule: IamModule = {
         tags: [TAG], summary: 'Alle Entra-Verbindungen aktualisieren', description: 'Z. B. nach einem neuen ENTRA_CLIENT_SECRET: führt die Identitätsanbieter aller Organisationen nach.',
         response: { 200: Type.Object({ refreshed: Type.Array(Type.String()), failed: Type.Array(Type.Object({ alias: Type.String(), detail: Type.String() })) }) },
       }),
-    }, async req => on().ent.refreshAll(platform(req)));
+    }, async req => { const sc = platform(req); return on().ent.refreshAll(sc); }); // erst das Recht (403), dann eingerichtet (503)
   },
 };

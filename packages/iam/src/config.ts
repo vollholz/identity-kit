@@ -226,7 +226,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
     if (!raw.ENTRA_CLIENT_SECRET) errors.push('ENTRA_CLIENT_ID gesetzt: ENTRA_CLIENT_SECRET (bzw. _FILE) fehlt');
     if (!raw.KEYCLOAK_MGMT_CLIENT_ID) errors.push('ENTRA_CLIENT_ID gesetzt: KEYCLOAK_MGMT_CLIENT_ID fehlt – die Anmeldung über Entra ID richtet die Plattform über die Verwaltung in Keycloak ein');
   }
-  if (raw.ENTRA_UI_PATH !== undefined && !/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH)) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
+  if (raw.ENTRA_UI_PATH !== undefined && (!/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH) || raw.ENTRA_UI_PATH.split('/').some(x => x === '.' || x === '..'))) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
   if (raw.GROUP_ROLE_PREFIX !== undefined && !/^\/?[^\s/]+(\/[^\s/]+)*\/?$/.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');

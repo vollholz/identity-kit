@@ -249,6 +249,7 @@ export class KeycloakFake {
       if (seg[2] === 'role-mappings' && seg[3] === 'realm') {
         const mine = this.realmRoleMappings.get(u.id) ?? new Set<string>();
         this.realmRoleMappings.set(u.id, mine);
+        // `composite`: wirksame Rollen (hier ohne Verschachtelung gleich den zugewiesenen)
         if (method === 'GET') return json(200, [...mine].map(name => ({ name })));
         if (method === 'POST') { for (const r of data as { name: string }[]) { if (!this.realmRoles.has(r.name)) return json(404, { error: 'Role not found' }); mine.add(r.name); } return empty(); }
       }

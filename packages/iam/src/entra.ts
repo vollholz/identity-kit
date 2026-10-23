@@ -29,13 +29,13 @@
  * Personen vorab hinzufügen: `search` sucht Personen im Tenant der Organisation; hinzufügen, verknüpfen und einladen
  * macht `AdminService.addFromEntra` mit `connectionOf`, `graph`, `linkAccount` und `removeFirstFactor`.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMAIN_RE, entraAddress, type AdminDeps, type AdminService, type Scope, type Work } from './admin.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Tx } from './db.ts';
 import { conflict, HttpError, invalid, notFound } from './errors.ts';
-import { EntraError, notLinkable, SEARCH_MIN, type EntraGraph, type EntraOrganization, type EntraUser } from './graph.ts';
+import { EntraError, notLinkable, SEARCH_MIN, type ConsentApprover, type EntraGraph, type EntraOrganization, type EntraUser } from './graph.ts';
 import type { KcIdp, KcOrg, KcOrgDomain, KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
 import { listTenants } from './tenants.ts';
@@ -86,7 +86,7 @@ export interface EntraConnectionOut {
 export interface EntraStatus { enabled: boolean; reason: string | null; consentPath: string; testPath: string; connection: EntraConnectionOut | null }
 
 /** Mitglied einer gebundenen Domäne: verknüpft (bzw. verknüpfbar) oder nicht (mit Grund). */
-export interface BindResult { email: string; name: string; linked: boolean; reason: string | null }
+export interface BindResult { email: string; name: string; linked: boolean; reason: string | null; passwordKept?: string }
 export interface ConnectResult { connection: EntraConnectionOut; members: BindResult[]; rejectedDomains: string[] }
 /**
  * Treffer der Personensuche: nur, was die Auswahl braucht. `selectable` false mit Grund: nicht verknüpfbar
@@ -210,7 +210,7 @@ export class EntraService {
   // ---------------------------------------------------------------- Admin-Zustimmung
   /**
    * Startet die Admin-Zustimmung: Tenant über Tenant-ID oder Domäne suchen, `state` speichern (nur als Hash, an Person,
-   * Organisation und Tenant gebunden), Adresse für die Navigation zurückgeben. `state` trägt vorne `o.`/`p.` und den
+   * Organisation und Tenant gebunden), Adresse für die Navigation zurückgeben (Code-Flow mit PKCE und `nonce` aus `state`). `state` trägt vorne `o.`/`p.` und den
    * Alias, damit die Oberfläche nach der Rückkehr den richtigen Endpunkt wählt; geprüft wird nur gegen die Datenbank.
    */
   async startConsent(s: Scope, input: { tenant: string }): Promise<{ url: string; entraTenantId: string }> {
@@ -227,17 +227,20 @@ export class EntraService {
       await tx.query(`DELETE FROM ${this.S}.entra_consent WHERE expires_at < now()`);
       await tx.query(`INSERT INTO ${this.S}.entra_consent (tenant_id, state_hash, entra_tenant_id, subject, platform, expires_at)
         VALUES (app.tenant_id(), $1, $2, $3, $4, now() + make_interval(secs => $5))`, [hash(state), tid, s.actor.subject, s.platform, CONSENT_TTL_MS / 1000]);
+      await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_started', resourceType: 'tenant', resourceId: tenantId, data: { entraTenantId: tid } });
     });
-    return { url: g.adminConsentUrl(tid, { state, redirectUri: consentRedirectUri(this.deps.cfg) }), entraTenantId: tid };
+    const proof = this.consentProof(state);
+    return { url: g.consentUrl(tid, { state, redirectUri: consentRedirectUri(this.deps.cfg), nonce: proof.nonce, codeChallenge: createHash('sha256').update(proof.verifier).digest('base64url') }), entraTenantId: tid };
   }
 
   /**
-   * Rückkehr von der Admin-Zustimmung (Parameter wie von Microsoft). `state` muss zu dieser Organisation, dieser Person
-   * und demselben Weg (eigene Organisation bzw. Plattform) passen und ist nur einmal gültig; der Tenant aus der Rückkehr
-   * muss der gestartete sein. Danach liest die Plattform die Organisation im Tenant selbst (Token nur nach Zustimmung).
+   * Rückkehr von der Zustimmung (Parameter wie von Microsoft: `code`, `state` bzw. `error`). `state` muss zu dieser
+   * Organisation, dieser Person und demselben Weg (eigene Organisation bzw. Plattform) passen und ist nur einmal gültig.
+   * Nachweis über den Code: ID-Token einer Administration des gestarteten Tenants (`EntraGraph.verifyConsent`); ein Tenant,
+   * der schon früher zugestimmt hat, genügt nie. Danach liest die Plattform die Organisation im Tenant selbst.
    */
-  async completeConsent(s: Scope, p: { state: string; tenant?: string; adminConsent?: string; error?: string; errorDescription?: string }): Promise<ConnectResult> {
-    const g = this.on();
+  async completeConsent(s: Scope, p: { state: string; code?: string; error?: string; errorDescription?: string }): Promise<ConnectResult> {
+    this.on();
     const { org, tenantId } = await this.ctx(s);
     const gone = () => new HttpError(404, 'Zustimmung nicht gefunden', 'Die Zustimmung ist abgelaufen, wurde schon verwendet oder gehört nicht zu dieser Organisation. Bitte neu verbinden.');
     if (p.state.split('.')[1] !== org.alias) throw gone();
@@ -245,6 +248,20 @@ export class EntraService {
       `UPDATE ${this.S}.entra_consent SET used_at = now() WHERE state_hash = $1 AND used_at IS NULL AND expires_at > now() AND subject = $2 AND platform = $3
        RETURNING entra_tenant_id::text AS tid`, [hash(p.state), s.actor.subject, s.platform])).rows[0]);
     if (!row) throw gone();
+    try { return await this.proveAndConnect(s, org, row.tid, p); } catch (e) {
+      // Abgelehnt, nicht nachgewiesen oder Fehler bei Microsoft: im Protokoll der Organisation (der state ist verbraucht)
+      if (e instanceof HttpError && e.status === 409 && ['consent-error', 'consent-unproven'].includes(String(e.extra.reason))) {
+        await withTenant(this.deps.db, { tenantId }, tx => this.admin.write(tx, this.admin.actorOf(s), {
+          action: 'entra.consent_failed', resourceType: 'tenant', resourceId: tenantId, data: { entraTenantId: row.tid, reason: e.extra.reason, detail: e.detail ?? null },
+        })).catch(() => undefined);
+      }
+      throw e;
+    }
+  }
+
+  private async proveAndConnect(s: Scope, org: KcOrg, tid: string, p: { state: string; code?: string; error?: string; errorDescription?: string }): Promise<ConnectResult> {
+    const g = this.on();
+    const row = { tid };
     if (p.error) {
       // Gründe von Microsoft nur als Code (die Beschreibung kann Interna des Tenants enthalten)
       const code = /AADSTS\d+/.exec(p.errorDescription ?? '')?.[0] ?? p.error.slice(0, 64);
@@ -252,7 +269,11 @@ export class EntraService {
         ? `Die Zustimmung wurde abgelehnt oder abgebrochen (${code}). Die Zustimmung braucht eine globale Administration oder die Rolle «Privileged Role Administrator» im Tenant.`
         : `Microsoft meldet einen Fehler (${code}).`, {}, { reason: 'consent-error', code });
     }
-    if (p.tenant && p.tenant.toLowerCase() !== row.tid) throw new HttpError(409, 'Anderer Tenant', 'Die Zustimmung kam aus einem anderen Tenant als dem gestarteten. Bitte neu verbinden.');
+    // Nachweis: Code der Anmeldung im gestarteten Tenant, ID-Token einer Administration (nicht nur «irgendwann zugestimmt»,
+    // das Client-Credentials-Token allein bewiese nichts über die handelnde Person)
+    if (!p.code) throw new HttpError(409, 'Zustimmung nicht nachgewiesen', 'Die Rückkehr von Microsoft enthält keinen Code. Bitte neu verbinden.', {}, { reason: 'consent-unproven' });
+    const proof = this.consentProof(p.state);
+    const approver = await g.verifyConsent(row.tid, { code: p.code, redirectUri: consentRedirectUri(this.deps.cfg), codeVerifier: proof.verifier, nonce: proof.nonce });
     let eo: EntraOrganization | null = null;
     for (const wait of this.retryMs) {
       if (wait) await sleep(wait);
@@ -261,7 +282,16 @@ export class EntraService {
         if (!(e instanceof EntraError) || e.status !== 409 || wait === this.retryMs.at(-1)) throw e;
       }
     }
-    return this.connect(s, org, eo!);
+    return this.connect(s, org, eo!, approver);
+  }
+
+  /**
+   * PKCE-Verifier und `nonce` der Zustimmung, aus `state` abgeleitet (HMAC mit ENTRA_CLIENT_SECRET): an den gespeicherten
+   * state gebunden, ohne ihn im Klartext zu speichern; wer nur `state` kennt (er steht in der Adresse), kennt sie nicht.
+   */
+  private consentProof(state: string): { verifier: string; nonce: string } {
+    const mac = (label: string) => createHmac('sha256', this.deps.cfg.entra.clientSecret ?? '').update(`${label}\0${state}`).digest('base64url');
+    return { verifier: mac('pkce'), nonce: mac('nonce') };
   }
 
   // ---------------------------------------------------------------- Bausteine
@@ -291,24 +321,29 @@ export class EntraService {
     const out: Plan[] = [];
     for (const u of members) {
       if (!domains.includes(domainOf(u.email) ?? '')) continue;
-      const link = idp ? (await this.kc.federatedIdentities(u.id)).find(f => f.identityProvider === idp) : undefined;
-      if (link) {
-        // Bestehende Verknüpfung nur, solange die Person in Entra verknüpfbar bleibt (deaktiviert, gelöscht, Gast, Domäne
-        // gewechselt: Anmeldung ginge verloren); die Objekt-ID zählt, nicht die Adresse
-        const e = await g.user(tid, link.userId);
-        out.push({ user: u, entra: null, reason: e ? notLinkable(e, domains) : 'In Entra ID nicht gefunden' });
-        continue;
-      }
-      const hits = await g.usersByAddress(tid, u.email!);
-      const ok = hits.filter(h => !notLinkable(h, domains, u.email));
-      if (ok.length === 1) out.push({ user: u, entra: ok[0]!, reason: null });
-      else out.push({ user: u, entra: null, reason: ok.length > 1 ? 'Mehrere Personen in Entra ID mit dieser Adresse' : hits.length ? notLinkable(hits[0]!, domains, u.email) : 'In Entra ID nicht gefunden' });
+      const x = await this.planOne(g, tid, u, domains, idp);
+      if (await this.keepsFirstFactor(u.id)) x.passwordKept = 'Plattform-Administration: Passwort und Passkey bleiben (Notfallzugang)';
+      out.push(x);
     }
     return out;
   }
 
+  private async planOne(g: EntraGraph, tid: string, u: KcUser, domains: string[], idp: string | null): Promise<Plan> {
+    const link = idp ? (await this.kc.federatedIdentities(u.id)).find(f => f.identityProvider === idp) : undefined;
+    if (link) {
+      // Bestehende Verknüpfung nur, solange die Person in Entra verknüpfbar bleibt (deaktiviert, gelöscht, Gast, Domäne
+      // gewechselt: Anmeldung ginge verloren); die Objekt-ID zählt, nicht die Adresse
+      const e = await g.user(tid, link.userId);
+      return { user: u, entra: null, reason: e ? notLinkable(e, domains) : 'In Entra ID nicht gefunden' };
+    }
+    const hits = await g.usersByAddress(tid, u.email!);
+    const ok = hits.filter(h => !notLinkable(h, domains, u.email));
+    if (ok.length === 1) return { user: u, entra: ok[0]!, reason: null };
+    return { user: u, entra: null, reason: ok.length > 1 ? 'Mehrere Personen in Entra ID mit dieser Adresse' : hits.length ? notLinkable(hits[0]!, domains, u.email) : 'In Entra ID nicht gefunden' };
+  }
+
   private static report(plan: Plan[]): BindResult[] {
-    return plan.map(x => ({ email: x.user.email!, name: nameOf(x.user), linked: !x.reason, reason: x.reason }));
+    return plan.map(x => ({ email: x.user.email!, name: nameOf(x.user), linked: !x.reason, reason: x.reason, ...(x.passwordKept ? { passwordKept: x.passwordKept } : {}) }));
   }
 
   /**
@@ -346,12 +381,21 @@ export class EntraService {
 
   /** Erstfaktoren (Passwort, Passkey) und die offene Aktion «Passwort setzen» entfernen (auch für `addFromEntra`). */
   async removeFirstFactor(w: Pick<Work, 'done'>, user: KcUser): Promise<boolean> {
+    if (await this.keepsFirstFactor(user.id)) return false;
     let changed = false;
     for (const c of await this.kc.credentials(user.id)) if (FIRST_FACTORS.has(c.type)) { await this.kc.deleteCredential(user.id, c.id); changed = true; }
     const actions = user.requiredActions ?? [];
     if (actions.includes('UPDATE_PASSWORD')) { await this.kc.updateUser(user.id, { requiredActions: actions.filter(a => a !== 'UPDATE_PASSWORD') }); changed = true; }
     if (changed) w.done({ step: 'password_removed' });
     return changed;
+  }
+
+  /**
+   * Konten der Plattform-Administration (PLATFORM_ADMIN_ROLE, auch zusammengesetzt) behalten Passwort und Passkey: «Nur
+   * Entra» einer Organisation ändert nie den Notfallzugang der Plattform.
+   */
+  private async keepsFirstFactor(userId: string): Promise<boolean> {
+    return (await this.kc.realmRoles(userId)).includes(this.deps.cfg.tenancy.platformAdminRole);
   }
 
   /**
@@ -384,7 +428,7 @@ export class EntraService {
    * schon beim Aktivieren bzw. Hinzufügen der Domäne verloren). Scheitert ein Schritt, werden Organisation und ein neu
    * angelegter Anbieter zurückgesetzt; was bleibt, protokolliert locked() (`entra.connect_failed`).
    */
-  private async connect(s: Scope, org0: KcOrg, eo: EntraOrganization): Promise<ConnectResult> {
+  private async connect(s: Scope, org0: KcOrg, eo: EntraOrganization, approver: ConsentApprover | null = null): Promise<ConnectResult> {
     const g = this.on();
     return this.admin.locked(s, org0, { action: 'entra.connect_failed', resourceType: 'tenant' }, async w => {
       const { tx } = w;
@@ -426,6 +470,7 @@ export class EntraService {
         const members = EntraService.report(plan);
         await w.log({ action: existing ? 'entra.reconnected' : 'entra.connected', resourceType: 'tenant', resourceId: w.tenantId, data: {
           entraTenantId: eo.id, entraName: eo.displayName, domains: bound, rejectedDomains: rejected, stage: c.stage, linked: members.filter(r => r.linked).length,
+          ...(approver ? { consentBy: approver } : {}),
           notLinked: members.filter(r => !r.linked).map(r => ({ email: r.email, reason: r.reason })),
         } });
         this.deps.resolver.forgetEntra();
@@ -610,4 +655,4 @@ export class EntraService {
 }
 
 /** Geplante Verknüpfung eines Mitglieds: `entra` = zu verknüpfende Person, `reason` = warum nicht (null: verknüpft bzw. verknüpfbar). */
-interface Plan { user: KcUser; entra: EntraUser | null; reason: string | null }
+interface Plan { user: KcUser; entra: EntraUser | null; reason: string | null; passwordKept?: string }

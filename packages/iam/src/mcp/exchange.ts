@@ -48,6 +48,8 @@ export class TokenExchanger {
   readonly dpop: DpopSigner;
   /** Getauschte Tokens gelten bis so viele Millisekunden vor ihrem Ablauf. */
   static readonly MARGIN_MS = 30_000;
+  /** Höchstens so viele getauschte Tokens im Zwischenspeicher. */
+  static readonly MAX_CACHED = 10_000;
 
   /** @param o.catalog Katalog der App: nur seine Scopes (und `organization…`) gehen in den Tausch. */
   constructor(cfg: IamConfig, provider: OidcProvider, o: { dpop: DpopSigner; catalog: Catalog; fetch?: typeof fetch; now?: () => number }) {
@@ -58,13 +60,19 @@ export class TokenExchanger {
 
   /** API-Token für das eingehende Token; `scopes` begrenzt das Ergebnis (Downscoping) auf die Scopes des MCP-Tokens. */
   async exchange(subjectToken: string, scopes: string[]): Promise<ExchangedToken> {
+    // Ohne Scope des Katalogs gäbe es ein API-Token ohne Fachrechte (oder Keycloak nähme die Scopes des Clients): nie tauschen
+    if (!scopes.some(s => this.catalog.scopes.has(s))) throw new HttpError(403, 'Scope fehlt', 'Das Token enthält keinen Scope des Katalogs; ohne ihn wird nicht getauscht.');
     const id = createHash('sha256').update(subjectToken).digest('base64url');
     const hit = this.cache.get(id);
     if (hit && hit.expiresAt - TokenExchanger.MARGIN_MS > this.now()) return hit;
     const running = this.inflight.get(id);
     if (running) return running;
     const p = this.request(subjectToken, scopes).then(t => {
-      if (this.cache.size > 10_000) for (const [k, v] of this.cache) if (v.expiresAt <= this.now()) this.cache.delete(k);
+      if (this.cache.size >= TokenExchanger.MAX_CACHED) {
+        for (const [k, v] of this.cache) if (v.expiresAt <= this.now()) this.cache.delete(k);
+        // immer noch voll: die ältesten Einträge zuerst (Map in Einfügereihenfolge)
+        for (const k of this.cache.keys()) { if (this.cache.size < TokenExchanger.MAX_CACHED) break; this.cache.delete(k); }
+      }
       this.cache.set(id, t);
       return t;
     }).finally(() => this.inflight.delete(id));

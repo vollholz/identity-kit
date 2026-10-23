@@ -30,6 +30,8 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **0.3.1:** `KeycloakFake` mit `PUT /users/{id}/reset-password` (temporär: Pflichtaktion «Passwort setzen»)
+  und `GET /roles/{name}` für die Ersteinrichtung (`orgBootstrap`); `checkCatalog` kennt `resourceTypes[].leaf`.
 - **0.3.0:** `EntraFake` (vorher nur in den Tests von `@vollholz/iam`) mit `FakeTenant` und `FakeEntraUser`, dazu
   `approve` für die Zustimmung mit Anmeldung. `KeycloakFake` mit Realm-Rollen (`realmRoles`, `realmRoleMappings`).
   `KeycloakFake` lehnt Gruppennamen mit «/» ab (400): Keycloak legt einen solchen Namen als eine Gruppe an, nie als

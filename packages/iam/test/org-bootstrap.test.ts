@@ -7,11 +7,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import { KeycloakFake } from '@vollholz/iam-testkit';
@@ -83,6 +83,40 @@ describe('Ersteinrichtung einer Organisation', () => {
     const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', catalogRoles: ROLES, initialPassword: { realm: 'notes', secretDir } });
     assert.ok(again.steps.includes('anna@demo.example hat schon ein Passwort – nichts geändert'));
     assert.equal(readFileSync(r.passwordFile!, 'utf8').trim(), pw, 'Datei unverändert');
+  });
+
+  test('Passwortdatei sicher: Verzeichnis für andere offen, Datei oder Link schon da, Fehler beim Setzen → keine Datei; Realm im Namen bereinigt', async () => {
+    const fake = new KeycloakFake();
+    const run = (secretDir: string, email = 'ben@demo.example', realm = 'notes') => orgBootstrap(admin(fake), { alias: 'demo', email, catalogRoles: ROLES, initialPassword: { realm, secretDir } });
+    const open = join(dir, 'offen');
+    mkdirSync(open, { mode: 0o755 }); chmodSync(open, 0o755);
+    await assert.rejects(run(open), /für andere zugänglich/);
+    const safe = join(dir, 'sicher');
+    // Link auf eine fremde Datei unter dem erwarteten Namen: nie folgen, nie überschreiben
+    const target = join(dir, 'ziel.txt');
+    writeFileSync(target, 'unberührt');
+    mkdirSync(safe, { mode: 0o700 });
+    symlinkSync(target, join(safe, 'initial-password-notes-ben@demo.example.txt'));
+    await assert.rejects(run(safe), /besteht schon/);
+    assert.equal(readFileSync(target, 'utf8'), 'unberührt');
+    assert.equal(fake.byEmail('ben@demo.example')!.password, false, 'ohne Datei kein Passwort');
+    // Keycloak lehnt ab: Datei wieder weg
+    fake.fail = [{ re: /reset-password/, status: 500 }];
+    await assert.rejects(run(safe, 'cleo@demo.example'));
+    fake.fail = [];
+    assert.ok(!existsSync(join(safe, 'initial-password-notes-cleo@demo.example.txt')));
+    const r = await run(safe, 'dora@demo.example', '../Fremd');
+    assert.equal(dirname(r.passwordFile!), safe, 'Realm ohne Pfadteile');
+  });
+
+  test('kein Passwort für Konten mit Identitätsanbieter (MFA dort); ungültiges Präfix', async () => {
+    const fake = new KeycloakFake();
+    const eva = fake.user('eva', { email: 'eva@demo.example', password: false });
+    fake.links.set(eva.id, new Map([['entra-001', { userId: 'oid-eva', userName: 'eva@demo.example' }]]));
+    const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', catalogRoles: ROLES, initialPassword: { realm: 'notes', secretDir: join(dir, 'eva') } });
+    assert.ok(r.steps.includes('eva@demo.example meldet sich über einen Identitätsanbieter an – kein Passwort gesetzt'));
+    assert.deepEqual([eva.password, r.passwordFile], [false, null]);
+    for (const p of ['', '/', '/a//b', '/mit leer']) await assert.rejects(orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', catalogRoles: ROLES, groupRolePrefix: p }), /GROUP_ROLE_PREFIX/, p);
   });
 
   describe('Kommandozeile', () => {

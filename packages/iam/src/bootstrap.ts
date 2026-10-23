@@ -9,9 +9,10 @@
  * Kommandozeile: `iam-org-bootstrap` (src/bin/org-bootstrap.ts).
  */
 import { randomInt } from 'node:crypto';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, lstatSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { ADMIN_ROLE } from './catalog.ts';
+import { GROUP_PREFIX_RE } from './config.ts';
 import { seg, type KeycloakAdmin } from './keycloak.ts';
 import { ALIAS_PATTERN } from './principal.ts';
 
@@ -49,12 +50,38 @@ export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email
   return out;
 }
 
+const safeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
+
+/**
+ * Verzeichnis für Geheimnisse: anlegen (0700) oder bestehendes prüfen – kein symbolischer Link, eigene Person als
+ * Besitzerin, für andere nicht zugänglich (sonst Abbruch, nie still lockern lassen).
+ */
+function privateDir(dir: string): string {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (!st.isDirectory()) throw new Error(`${dir} ist kein Verzeichnis (symbolischer Link?)`);
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) throw new Error(`${dir} gehört nicht dir`);
+  if (st.mode & 0o077) throw new Error(`${dir} ist für andere zugänglich (Rechte ${(st.mode & 0o777).toString(8)}); chmod 700 ${dir}`);
+  return dir;
+}
+
+/** Neue Datei 0600 schreiben: nie über einen symbolischen Link, nie eine bestehende überschreiben. */
+function writeSecret(file: string, content: string) {
+  let fd: number;
+  try { fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`${file} besteht schon (älteres Passwort?); prüfen und entfernen, dann erneut ausführen`);
+    throw e;
+  }
+  try { writeSync(fd, content); } finally { closeSync(fd); }
+}
+
 export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): Promise<OrgBootstrapResult> {
   const alias = o.alias.toLowerCase(), email = o.email.trim().toLowerCase();
   const roles = o.roles?.length ? o.roles : [ADMIN_ROLE];
   const errors = orgBootstrapErrors({ alias, email, roles, catalogRoles: o.catalogRoles });
   if (errors.length) throw new Error(errors.join('\n'));
   const prefix = (o.groupRolePrefix ?? '/orgs').replace(/^\/+|\/+$/g, '');
+  if (!GROUP_PREFIX_RE.test(`/${prefix}`)) throw new Error(`GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs oder /kunden/orgs («${o.groupRolePrefix}»)`);
   const dry = !!o.dryRun;
   const steps: string[] = [];
   const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
@@ -117,16 +144,21 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   }
   if (o.initialPassword) {
     if (await kc.hasPassword(res.userId)) step(`${email} hat schon ein Passwort – nichts geändert`);
+    // Konto mit Anmeldung über einen Identitätsanbieter (z. B. Entra ID): ein Passwort umginge dessen MFA
+    else if ((await kc.federatedIdentities(res.userId)).length) step(`${email} meldet sich über einen Identitätsanbieter an – kein Passwort gesetzt`);
     else if (dry) step(`${email}: temporäres Passwort würde gesetzt`);
     else {
       const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.:+';
       const password = Array.from({ length: 20 }, () => alphabet[randomInt(alphabet.length)]).join('');
       const { realm, secretDir } = o.initialPassword;
-      mkdirSync(secretDir, { recursive: true, mode: 0o700 });
-      const file = join(secretDir, `initial-password-${realm}-${email.replace(/[^a-z0-9@._-]/g, '_')}.txt`);
-      writeFileSync(file, `${password}\n`, { mode: 0o600 });
-      chmodSync(file, 0o600);
-      await kc.call('PUT', `/users/${seg(res.userId)}/reset-password`, { type: 'password', value: password, temporary: true }, { what: 'Passwort setzen' });
+      const file = join(privateDir(secretDir), `initial-password-${safeName(realm)}-${safeName(email)}.txt`);
+      writeSecret(file, `${password}\n`);
+      try {
+        await kc.call('PUT', `/users/${seg(res.userId)}/reset-password`, { type: 'password', value: password, temporary: true }, { what: 'Passwort setzen' });
+      } catch (e) {
+        rmSync(file, { force: true }); // ohne gesetztes Passwort keine Datei, die eines vortäuscht
+        throw e;
+      }
       res.passwordFile = file;
       step(`${email}: temporäres Passwort gesetzt, abgelegt in ${file}`);
     }

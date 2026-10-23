@@ -523,7 +523,8 @@ an die Person zurück (nur `exists` = 404 bzw. Zustand der Kette).
 `McpAuth` kommt ins Paket (Teil-PR 8): nur Tokens der Hosts aus `MCP_HOST_CLIENT_IDS` (sonst 403), `exchangeScopes`
 mit `organization:<alias>` (eine Organisation bleibt im API-Token festgelegt), Protected Resource Metadata (RFC 9728)
 mit den Scopes des Katalogs, Fehler `-32602` mit der eigenen Liste der Organisationen bei fehlender Wahl,
-Zwischenspeicher der getauschten Tokens mit Schlüssel Token + Mandant. Katalog bzw. `SCOPES` sind Parameter.
+Zwischenspeicher der getauschten Tokens je Token, der Rechte (`GET /v1/me`) je Token + Mandant (13.6). Katalog bzw.
+`SCOPES` sind Parameter.
 
 ### 13.6 Zwischenspeicher und Wirkungszeiten (Auflage 10)
 
@@ -778,3 +779,13 @@ Audit-Trigger darauf warten.
   Worker, MCP, Betrieb (Ersteinrichtung, Entra-App mit Verzeichnisrollen im Gruppen-Claim), Tests.
 - `private` entfernt: Der Release-Workflow veröffentlicht `@vollholz/iam` 0.1.0 nach dem Merge.
 
+- **Review zu #29 (Hauptsession)**:
+  - S1: `WWW-Authenticate` nur mit druckbarem ASCII (`headerText`), sonst scheiterte der Header an «…» oder CR/LF.
+  - S2: Passwortdatei nur in einem eigenen, für andere geschlossenen Verzeichnis (`lstat`), neu mit `O_EXCL|O_NOFOLLOW`
+    und 0600; scheitert das Setzen in Keycloak, wird sie gelöscht.
+  - S3: Test-Kit 0.3.1 (0.3.0 ist mit #26 veröffentlicht).
+  - S4, S9: MCP-Beispiel mit GET/POST/DELETE, `redact`, `allowedOrigins`; absolute Links; `SHARED_STATE`; Export
+    `./package.json`.
+  - S5–S8: `GROUP_ROLE_PREFIX` geprüft (`GROUP_PREFIX_RE`), Realm im Dateinamen bereinigt; kein Passwort für Konten mit
+    Identitätsanbieter; `X-Tenant`/`?org=` nach `ALIAS_PATTERN` (400); `TokenExchanger` tauscht nie ohne Scope des
+    Katalogs, höchstens 10 000 Tokens im Zwischenspeicher.

@@ -20,7 +20,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Catalog } from '../catalog.ts';
 import type { IamConfig } from '../config.ts';
 import { HttpError } from '../errors.ts';
-import { orgAlias, orgsFromClaims } from '../principal.ts';
+import { ALIAS_PATTERN, orgAlias, orgsFromClaims } from '../principal.ts';
 import type { TokenVerifier, VerifiedToken } from '../tokens.ts';
 import { ApiClient, ApiError } from './api.ts';
 import type { TokenExchanger } from './exchange.ts';
@@ -57,6 +57,12 @@ export function exchangeScopes(scopes: string[], claims: VerifiedToken['claims']
   const alias = orgs.length === 1 ? orgAlias(orgs[0]!.alias) : null;
   if (!alias || !scopes.includes('organization')) return scopes;
   return scopes.map(s => s === 'organization' ? `organization:${alias}` : s);
+}
+
+/** Text für einen Header-Parameter: Umlaute ohne Zeichen, «…» als «...», Striche als «-», sonst nur druckbares ASCII ohne «"» und «\». */
+export function headerText(s: string): string {
+  return s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/…/g, '...').replace(/[\u2010-\u2015]/g, '-')
+    .replace(/[«»„“”]/g, "'").replace(/[^\x20-\x7e]+/g, ' ').replace(/["\\]/g, '').trim();
 }
 
 export class McpAuth {
@@ -102,9 +108,13 @@ export class McpAuth {
     };
   }
 
-  /** Inhalt von `WWW-Authenticate`; ohne `error` für Anfragen ohne Token (RFC 6750 Abschnitt 3.1). */
+  /**
+   * Inhalt von `WWW-Authenticate`; ohne `error` für Anfragen ohne Token (RFC 6750 Abschnitt 3.1). Die Beschreibung nur
+   * als druckbares ASCII: Zeichen wie «…» oder ein Zeilenumbruch liessen das Setzen des Headers scheitern, der Host
+   * fände dann die Metadaten nicht.
+   */
   challenge(error?: string, description?: string): string {
-    return `Bearer resource_metadata="${this.metadataUrl}", scope="${this.defaultScopes.join(' ')}"${error ? `, error="${error}"` : ''}${description ? `, error_description="${description.replace(/["\\]/g, '')}"` : ''}`;
+    return `Bearer resource_metadata="${this.metadataUrl}", scope="${this.defaultScopes.join(' ')}"${error ? `, error="${error}"` : ''}${description ? `, error_description="${headerText(description)}"` : ''}`;
   }
 
   /** Fehler → JSON-RPC-Antwort ohne `id` (Status, Header, Body); 5xx ohne Interna. */
@@ -145,6 +155,7 @@ export class McpAuth {
     // Organisation: Header X-Tenant, sonst ?org=<alias> an der MCP-Adresse (für Hosts, die keine eigenen Header setzen)
     const org = new URL(req.url, this.resource).searchParams.get('org');
     const tenant = header('x-tenant') ?? (org || null);
+    if (tenant !== null && !ALIAS_PATTERN.test(tenant)) throw new HttpError(400, 'Organisation ungültig', 'X-Tenant bzw. ?org= ist kein Alias einer Organisation (Kleinbuchstaben, Ziffern, «-» und «_»).');
     const exchanged = await exchanger.exchange(v.token, exchangeScopes(scopes, v.claims, cfg.tenancy.claim));
     const load = async (alias: string | null): Promise<McpOrg> => {
       const api = new ApiClient({ baseUrl: cfg.mcp.apiUrl, publicBaseUrl: cfg.publicBaseUrl, token: exchanged.token, dpop: exchanger.dpop, tenant: alias, fetch: this.o.fetch, requestId: req.id });

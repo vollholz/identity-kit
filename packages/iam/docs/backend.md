@@ -1,7 +1,8 @@
 # `@vollholz/iam` in einer App
 
 Leitfaden für Apps, die Anmeldung, Mandanten und Rechte über `@vollholz/iam` beziehen. Den Vertrag beschreibt die
-[Spezifikation](../../../docs/spezifikation.md), die Festlegungen des Pakets der [Entwurf](entwurf.md). Die Beispiele
+[Spezifikation](https://github.com/vollholz/identity-kit/blob/main/docs/spezifikation.md), die Festlegungen des Pakets
+der [Entwurf](https://github.com/vollholz/identity-kit/blob/main/packages/iam/docs/entwurf.md). Die Beispiele
 nutzen das Produkt `notes`.
 
 ## 1. Einbinden
@@ -129,6 +130,8 @@ problem+json und die Module:
 - **`modules`** wählt die Module ausdrücklich, **`openapi`** ersetzt Tags, Texte und Feldbeschreibungen.
 - **`events`** (`createIam`): Ereignisse wie `acl.changed` in derselben Transaktion, z. B. für eine Outbox der App.
 - **`readinessChecks(iam)`** für `/readyz` (Datenbank, Anmeldedienst).
+- **Mehrere Instanzen:** `SHARED_STATE=postgres` (Standard) hält Replay-Schutz für DPoP und Logout-Tokens sowie das
+  Rate-Limit (`pgRateLimitStore`) über alle Instanzen; `memory` nur für eine einzelne Instanz.
 
 ## 6. Worker
 
@@ -147,27 +150,32 @@ Der Abgleich nutzt den eigenen Lese-Client `KEYCLOAK_SYNC_*`, nicht den Verwaltu
 Das Paket bringt Anmeldung und Token-Tausch; Server und Werkzeuge baut die App (z. B. mit `@modelcontextprotocol/sdk`).
 
 ```ts
-import { DpopSigner, McpAuth, OidcProvider, registerMcpAuth, TokenExchanger, TokenVerifier } from '@vollholz/iam';
+import Fastify from 'fastify';
+import { DpopSigner, loadIamConfig, McpAuth, OidcProvider, registerMcpAuth, TokenExchanger, TokenVerifier } from '@vollholz/iam';
 
 const cfg = loadIamConfig(process.env, { product: 'notes', service: 'mcp' });
 const provider = new OidcProvider(cfg.oidc.issuer);
 const exchanger = new TokenExchanger(cfg, provider, { dpop: await DpopSigner.create(cfg.mcp.dpopKey), catalog });
-const auth = new McpAuth({ cfg, catalog, verifier: new TokenVerifier(provider, cfg), exchanger });
+const auth = new McpAuth({ cfg, catalog, verifier: new TokenVerifier(provider, cfg), exchanger, allowedOrigins: [] });
 
-const app = Fastify();
-registerMcpAuth(app, auth);                   // Metadaten (RFC 9728) und Fehler als JSON-RPC
-app.post('/mcp', async (req, reply) => {
+// Tokens und Proofs nie ins Log
+const app = Fastify({ logger: { redact: ['req.headers.authorization', 'req.headers.dpop'] } });
+registerMcpAuth(app, auth);                   // Metadaten (RFC 9728); ersetzt den Error-Handler (Fehler als JSON-RPC)
+// GET und DELETE mit registrieren: authorize antwortet darauf mit 405 (zustandslos, nur POST) statt 404
+app.route({ method: ['GET', 'POST', 'DELETE'], url: '/mcp', handler: async (req, reply) => {
   const { orgs, scopes } = await auth.authorize(req);   // 401/403 mit Challenge, Organisation(en) mit API-Client und Rechten
   const server = buildServer(orgs, scopes);             // Werkzeuge der App, Aufrufe nur über orgs[i].api (REST-API)
-  // … Transport des SDK
-});
+  // … Transport des SDK (reply.hijack(), Antwort über reply.raw)
+} });
 ```
 
 - Nur Tokens der Hosts aus `MCP_HOST_CLIENT_IDS`; gebundene Tokens von Maschinen-Clients ergeben 403.
 - Organisation über `X-Tenant` oder `?org=`; ohne Wahl lädt `authorize` alle Organisationen im Token. Verlangt die API
   eine Wahl, entsteht Fehler -32602 mit der eigenen Liste.
 - API-Tokens sind DPoP-gebunden an `MCP_DPOP_KEY`. Ohne Schlüssel erzeugt jede Instanz einen eigenen.
-- Getauschte Tokens werden bis kurz vor Ablauf zwischengespeichert, die Rechte je Token und Mandant 60 s.
+- Getauschte Tokens werden bis kurz vor Ablauf zwischengespeichert (höchstens 10 000), die Rechte je Token und
+  Mandant 60 s.
+- `allowedOrigins`: weitere Browser-Ursprünge neben dem von `MCP_PUBLIC_URL` (Schutz gegen DNS-Rebinding).
 
 ## 8. Betrieb
 

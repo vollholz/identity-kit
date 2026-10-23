@@ -15,7 +15,7 @@ import { dpopKey, startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { ConfigError } from '../src/config.ts';
 import { HttpError } from '../src/errors.ts';
 import { ApiClient } from '../src/mcp/api.ts';
-import { exchangeScopes, McpAuth, registerMcpAuth, type McpAuthorized } from '../src/mcp/auth.ts';
+import { exchangeScopes, headerText, McpAuth, registerMcpAuth, type McpAuthorized } from '../src/mcp/auth.ts';
 import { DpopSigner } from '../src/mcp/dpop.ts';
 import { TokenExchanger } from '../src/mcp/exchange.ts';
 import { OidcProvider, TokenVerifier } from '../src/tokens.ts';
@@ -82,6 +82,8 @@ describe('MCP: DPoP und Token Exchange', () => {
       ex.forget(sub);
       await ex.exchange(sub, ['notes:read']);
       assert.equal(idp.exchanges, n + 1, 'nach forget neu getauscht');
+      await assert.rejects(ex.exchange(await subject(idp), ['openid', 'organization']), (e: HttpError) => e.status === 403, 'ohne Scope des Katalogs nie getauscht');
+      assert.equal(idp.exchanges, n + 1);
     });
 
     test('Nonce des Anmeldedienstes: einmal wiederholen, danach gleich mitsenden', async () => {
@@ -121,6 +123,10 @@ describe('MCP: DPoP und Token Exchange', () => {
     const loop: typeof fetch = async () => new Response('{}', { status: 401, headers: { 'www-authenticate': 'DPoP error="use_dpop_nonce"', 'dpop-nonce': `api-n${++n + 1}` } });
     await assert.rejects(new ApiClient({ baseUrl: 'http://intern:8080', token: 'tok', dpop: signer, fetch: loop }).get('/v1/me'), (e: { status: number }) => e.status === 401);
     assert.equal(n, 2, 'nicht endlos wiederholt');
+  });
+
+  test('headerText: nur druckbares ASCII ohne Anführungszeichen', () => {
+    assert.equal(headerText('Gebundene «Tokens» – mit Umlaut ä und …\r\nNeue Zeile "x" \\'), "Gebundene 'Tokens' - mit Umlaut a und ... Neue Zeile x");
   });
 
   test('exchangeScopes: bei der Anmeldung gewählte Organisation ausdrücklich anfordern', () => {
@@ -231,6 +237,12 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     assert.deepEqual((await (await post(token, { url: `${mcpUrl}?org=globex` })).json()).orgs.map((o: any) => o.alias), ['globex']);
     assert.deepEqual((await (await post(token, { headers: { 'x-tenant': 'acme' } })).json()).orgs.map((o: any) => o.alias), ['acme']);
     assert.equal((await post(token, { url: `${mcpUrl}?org=initech` })).status, 403, 'Organisation, der die Person nicht angehört');
+    for (const bad of [`${mcpUrl}?org=B%C3%B6se`, `${mcpUrl}?org=a%2F..`]) {
+      const r = await post(token, { url: bad });
+      assert.deepEqual([r.status, (await r.json()).error.code], [400, -32602], bad);
+    }
+    const h = await post(token, { headers: { 'x-tenant': 'ACME!' } });
+    assert.equal(h.status, 400, 'X-Tenant ohne gültigen Alias');
   });
 
   test('API verlangt eine Wahl: -32602 mit der eigenen Liste; 401 der API verwirft das getauschte Token', async () => {
@@ -264,7 +276,11 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     const r = await post(bound, { headers: { authorization: `DPoP ${bound}`, dpop: await key.proof('POST', PUBLIC, bound) } });
     assert.equal(r.status, 403);
     assert.match((await r.json()).error.message, /sendergebundene Tokens/);
-    assert.equal((await post(bound, { headers: { dpop: await key.proof('POST', PUBLIC, bound) } })).status, 401, 'Bearer-Schema');
+    // Grund mit «…» im Header: auf ASCII gebracht, Challenge und JSON-RPC bleiben (sonst ERR_INVALID_CHAR)
+    const bearer = await post(bound, { headers: { dpop: await key.proof('POST', PUBLIC, bound) } });
+    assert.equal(bearer.status, 401, 'Bearer-Schema');
+    assert.match(bearer.headers.get('www-authenticate') ?? '', /resource_metadata=.*error="invalid_token", error_description="DPoP-gebundene Tokens mit 'Authorization: DPoP \.\.\.' senden\."/);
+    assert.equal((await bearer.json()).error.code, -32001);
     assert.equal(idp.exchanges, n, 'kein Tausch');
   });
 });

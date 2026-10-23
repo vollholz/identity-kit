@@ -1,8 +1,9 @@
 # Maschinen-Clients als Code (Spezifikation 12.1, B4): Organisations-Clients (eine Organisation) und System-Clients
 # (mehrere Organisationen, je Aufruf X-Tenant) aus var.machine_clients statt von Hand in der Konsole nach Vorlage.
 # Je Client: Service Account mit private_key_jwt, DPoP-gebundene Tokens (Richtlinie <produkt>-m2m-dpop), 5 min, keine
-# Refresh-Tokens; Zielgruppe <produkt>-api (und <produkt>-mcp mit mcp = true), fester Claim organization mit den
-# Aliassen, Client-Rollen von <produkt>-platform am Service Account, Rechte-Scopes als Standard-Scopes.
+# Refresh-Tokens; Zielgruppe <produkt>-api, fester Claim organization mit den Aliassen, Client-Rollen von
+# <produkt>-platform am Service Account, Rechte-Scopes als Standard-Scopes. Keine Zielgruppe <produkt>-mcp: der
+# MCP-Dienst tauscht keine sendergebundenen Tokens und nimmt nur die MCP-Hosts an; Maschinen nutzen die REST-API.
 # Wirksam wird ein Client in einer Organisation erst mit ihrer Freigabe in der App (client_grant, members:admin);
 # ein falscher Alias öffnet so keine fremde Organisation.
 
@@ -48,10 +49,6 @@ resource "keycloak_openid_client" "machine" {
       condition     = var.m2m
       error_message = "machine_clients braucht m2m = true (Richtlinie <produkt>-m2m-dpop)."
     }
-    precondition {
-      condition     = !each.value.mcp || var.mcp
-      error_message = "machine_clients.${each.key}.mcp braucht mcp = true (Zielgruppe <produkt>-mcp)."
-    }
   }
 }
 
@@ -64,19 +61,6 @@ resource "keycloak_openid_audience_protocol_mapper" "machine_api" {
   add_to_access_token        = true
   add_to_id_token            = false
   add_to_token_introspection = true
-}
-
-resource "keycloak_openid_audience_protocol_mapper" "machine_mcp" {
-  for_each                   = { for c, m in var.machine_clients : c => m if m.mcp }
-  realm_id                   = local.realm
-  client_id                  = keycloak_openid_client.machine[each.key].id
-  name                       = "aud-mcp"
-  included_client_audience   = "${var.product}-mcp"
-  add_to_access_token        = true
-  add_to_id_token            = false
-  add_to_token_introspection = true
-
-  depends_on = [keycloak_openid_client.mcp]
 }
 
 # Organisationen des Clients als fester Claim (Liste von Aliassen, wie TENANT_CLAIM sie liest)

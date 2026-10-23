@@ -302,8 +302,8 @@ run "maschinen_clients" {
     error_message = "Rechte-Scopes als Standard-Scopes, keine optionalen"
   }
   assert {
-    condition     = keys(keycloak_openid_audience_protocol_mapper.machine_api) == ["acme-export", "monitoring"] && length(keycloak_openid_audience_protocol_mapper.machine_mcp) == 0
-    error_message = "Zielgruppe <produkt>-api, ohne mcp keine Zielgruppe <produkt>-mcp"
+    condition     = keys(keycloak_openid_audience_protocol_mapper.machine_api) == ["acme-export", "monitoring"] && keycloak_openid_audience_protocol_mapper.machine_api["monitoring"].included_client_audience == "beispiel-api"
+    error_message = "Zielgruppe <produkt>-api"
   }
   assert {
     condition     = join(",", output.machine_clients["monitoring"].organizations) == "acme,zeta"

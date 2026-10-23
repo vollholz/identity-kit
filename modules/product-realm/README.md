@@ -38,7 +38,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `smtp` | object | `null` | ausgehende Mails über das **eigene Konto des Produkts**: `host`, `from`, `user` Pflicht (keine Vorgaben, damit keine App stillschweigend das Postfach einer anderen nutzt); `port` 587, `starttls` an, `ssl` aus, `reply_to` leer, `from_display_name` = `display_name` als Vorgaben. `null`: kein SMTP |
 | `smtp_password` | string, sensitiv | `""` | nur aus der Umgebung (`TF_VAR_smtp_password`); ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab |
 | `m2m` | bool | `false` | Maschinen-Clients der Organisationen (Kap. 12.1): Richtlinie `<produkt>-m2m-dpop` |
-| `machine_clients` | map(object) | `{}` | Maschinen-Clients als Code ([unten](#maschinen-clients)), Schlüssel = Client-ID: `organizations` (Aliasse; einer = Organisations-Client, mehrere = System-Client), `roles` (Rollen des Katalogs), `scopes` (Rechte-Scopes des Katalogs), `jwks` (öffentlicher Schlüssel), optional `name`, `description`, `mcp` (zusätzlich Zielgruppe `<produkt>-mcp`). Braucht `m2m` |
+| `machine_clients` | map(object) | `{}` | Maschinen-Clients als Code ([unten](#maschinen-clients)), Schlüssel = Client-ID: `organizations` (Aliasse; einer = Organisations-Client, mehrere = System-Client), `roles` (Rollen des Katalogs), `scopes` (Rechte-Scopes des Katalogs), `jwks` (öffentlicher Schlüssel), optional `name`, `description`. Nur REST-API. Braucht `m2m` |
 | `mcp` | bool | `false` | MCP-Dienst (Kap. 12.2): `<produkt>-mcp`, `<produkt>-mcp-cli`, Scope `<produkt>-mcp`, `offline_access` für `<produkt>-mcp-cli` |
 | `mcp_cli_callback_port` | number | `8765` | fester Loopback-Port von `<produkt>-mcp-cli` |
 | `mcp_extra_redirect_uris` | list(string) | `[]` | weitere Weiterleitungen von `<produkt>-mcp-cli`, z. B. `https://claude.ai/api/mcp/auth_callback` |
@@ -152,8 +152,7 @@ Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes�
 
 `machine_clients` ersetzt die Einrichtung in der Konsole nach Vorlage (Spezifikation 12.1). Je Eintrag entsteht ein
 vertraulicher Client mit Service Account: `private_key_jwt` (ES256, JWKS aus `jwks`), DPoP-gebundene Tokens, 5 min,
-keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgruppe `<produkt>-api` (mit `mcp` auch
-`<produkt>-mcp`), fester Claim `organization` mit den Aliassen (JSON-Liste), die Client-Rollen aus `roles` am Service
+keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgruppe `<produkt>-api`, fester Claim `organization` mit den Aliassen (JSON-Liste), die Client-Rollen aus `roles` am Service
 Account und die Scopes aus `scopes` als Standard-Scopes (keine optionalen).
 
 - **Organisations-Client**: eine Organisation; das Token gilt nur dort.
@@ -164,6 +163,8 @@ Account und die Scopes aus `scopes` als Standard-Scopes (keine optionalen).
 - Erlaubt sind nur Rollen des Katalogs (auch `org-admin`; nie eigene Rollen `c-…`) und Scopes aus `catalog.scopes`.
   Client-IDs der Clients des Produkts und eingebaute Clients von Keycloak sind gesperrt.
 - Der private Schlüssel bleibt beim Dienst, der den Client nutzt; im Repository der App liegt nur `keys/<client>.json`.
+- Nur für die REST-API: Der MCP-Dienst (`McpAuth`) tauscht keine sendergebundenen Tokens und nimmt nur Anmeldungen
+  über die MCP-Hosts an (`MCP_HOST_CLIENT_IDS`); «MCP für Maschinen» (Spezifikation 12) ist deshalb noch offen.
 
 ## Umstieg auf 0.2.0
 

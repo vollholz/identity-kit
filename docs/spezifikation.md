@@ -761,7 +761,7 @@ Konfiguration der App an.
 | System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min | Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Client-Rollen ∧ Scope ∧ Zugriffsregel | im Realm-Modul (`machine_clients` mit mehreren Organisationen), Freigabe je Mandant wie M2M; nie `members:admin` (in keinem Scope) |
 | App-zu-App | Dienst von Produkt B ruft API von Produkt A | wie System-Client im Realm von A | wie oben | wie System-Client | wie oben | System-Client in A; B verwahrt nur seinen privaten Schlüssel. Personen-Kontext über Realm-Grenzen nur mit Identity Brokering (offen) |
 | MCP | Person über KI-Host | öffentlicher MCP-Client, Code + PKCE; MCP-Dienst tauscht (RFC 8693) | `aud = <produkt>-mcp` → getauscht `<produkt>-api` | `X-Tenant` oder `?org=` | Rolle ∧ Scope ∧ Zugriffsregel | Schalter `mcp` ([12.2](#122-mcp-dienst-kann)) |
-| MCP für Maschinen | Agent ohne Person | Client Credentials an den MCP-Dienst | wie M2M | wie M2M | wie M2M | wie Organisations-Client, Audience `<produkt>-mcp` |
+| MCP für Maschinen | Agent ohne Person | Client Credentials an den MCP-Dienst | wie M2M | wie M2M | wie M2M | **offen:** der MCP-Dienst tauscht keine sendergebundenen Tokens und nimmt nur die MCP-Hosts an; `machine_clients` legt deshalb keine Audience `<produkt>-mcp` an, Maschinen nutzen die REST-API |
 
 Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), keine Rechte ohne Scope
 (`members:admin` nie), Audit mit Client und Person, Ratenbegrenzung je Mandant und Principal, Tokens höchstens 5 min.
@@ -772,7 +772,7 @@ Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), k
   nur übergangsweise), DPoP-gebundene Tokens (alternativ mTLS), Access Token 5 min, keine Refresh-Tokens.
 - Einrichtung als Code im Repository der App: Eingabe `machine_clients` des Realm-Moduls (`product-realm` ≥ 0.2.0) mit
   Organisationen, Rollen, Scopes und öffentlichem Schlüssel. Das Modul legt an: Service Account, *DPoP bound access
-  tokens*, Audience `<produkt>-api` (optional `<produkt>-mcp`), Hardcoded-Claim `organization = ["<alias>", …]` (JSON),
+  tokens*, Audience `<produkt>-api`, Hardcoded-Claim `organization = ["<alias>", …]` (JSON),
   Client-Rollen von `<produkt>-platform`, Rechte-Scopes als Standard-Scopes, Attribute `<produkt>.platform = true`,
   `<produkt>.m2m = true`. Freigegeben wird über Plan → Freigabe → Apply wie der übrige Realm.
 - **Danach Freigabe** durch die Verwaltung der Organisation (`members:admin`) in der App; ohne Freigabe 403. Ein falscher Mapper öffnet so keine fremde

@@ -209,8 +209,8 @@ variable "machine_clients" {
     Maschinen-Clients als Code (Kap. 12.1, B4), Schlüssel = Client-ID. organizations: Aliasse der Organisationen, für
     die der Client Tokens erhält (einer: Organisations-Client; mehrere: System-Client, je Aufruf X-Tenant). roles:
     Rollen des Katalogs (Client-Rollen von <produkt>-platform; nie eigene Rollen c-…). scopes: Rechte-Scopes des
-    Katalogs. jwks: öffentlicher Schlüssel (JWKS, EC P-256, z. B. keys/<client>.json). mcp: zusätzlich Zielgruppe
-    <produkt>-mcp. Wirksam erst mit der Freigabe in der jeweiligen Organisation (App, members:admin). Braucht m2m = true.
+    Katalogs. jwks: öffentlicher Schlüssel (JWKS, EC P-256, z. B. keys/<client>.json). Nur REST-API (Zielgruppe
+    <produkt>-api). Wirksam erst mit der Freigabe in der jeweiligen Organisation (App, members:admin). Braucht m2m = true.
   EOT
   type = map(object({
     name          = optional(string)
@@ -219,7 +219,6 @@ variable "machine_clients" {
     roles         = list(string)
     scopes        = optional(list(string), [])
     jwks          = string
-    mcp           = optional(bool, false)
   }))
   default = {}
   validation {

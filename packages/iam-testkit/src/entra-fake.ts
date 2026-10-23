@@ -6,9 +6,10 @@
  * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215. Zustimmung mit
  * Anmeldung: `approve` spielt den Browser nach, der Token-Endpunkt löst den Code (PKCE) gegen ein signiertes ID-Token ein.
  * Eigene App einer Organisation (`app`): App-Registrierung in einem Tenant mit eigenem Geheimnis, erteilten
- * Anwendungsberechtigungen (`roles` im Token, Graph prüft sie: sonst 403) und Ablauf des Geheimnisses
- * (`/applications(appId='…')`, nur mit Application.Read.All). Wie Microsoft: App eines anderen Tenants AADSTS700016,
- * falsches Geheimnis AADSTS7000215, abgelaufenes AADSTS7000222.
+ * Anwendungsberechtigungen (`roles` im Token, Graph prüft sie: sonst 403) und Registrierung mit Ablauf des Geheimnisses
+ * (`/applications(appId='…')`, nur im Heimat-Tenant und mit Application.Read.All). `consentedIn`: weitere Tenants, die
+ * der (mandantenfähigen) App zugestimmt haben – dort gibt es Tokens, aber keine Registrierung. Wie Microsoft: App ohne
+ * Zustimmung im Tenant AADSTS700016, falsches Geheimnis AADSTS7000215, abgelaufenes AADSTS7000222.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from 'jose';
@@ -31,7 +32,7 @@ export interface FakeTenant { id: string; name: string; domains: string[]; users
 
 /** App-Registrierung einer Organisation in ihrem Tenant (eigene App). `roles`: erteilte Anwendungsberechtigungen. */
 export interface FakeApp {
-  clientId: string; tenantId: string; secret: string; roles: string[]; expired: boolean;
+  clientId: string; tenantId: string; secret: string; roles: string[]; expired: boolean; consentedIn: string[];
   passwordCredentials: { keyId: string; hint: string; endDateTime: string }[];
 }
 
@@ -82,13 +83,13 @@ export class EntraFake {
     return t;
   }
   /**
-   * Eigene App im Tenant `t` registrieren. Standard: Organization.Read.All und User.Read.All erteilt, Geheimnis gültig
-   * bis `endDateTime` (Standard in einem Jahr).
+   * Eigene App im Tenant `t` registrieren. Standard: Organization.Read.All, User.Read.All und Application.Read.All
+   * erteilt, Geheimnis gültig bis `endDateTime` (Standard in einem Jahr). `consentedIn`: weitere Tenants mit Zustimmung.
    */
-  app(t: FakeTenant, o: { clientId?: string; secret?: string; roles?: string[]; expired?: boolean; endDateTime?: string } = {}): FakeApp {
+  app(t: FakeTenant, o: { clientId?: string; secret?: string; roles?: string[]; expired?: boolean; endDateTime?: string; consentedIn?: FakeTenant[] } = {}): FakeApp {
     const secret = o.secret ?? `kunde~${randomUUID()}`;
     const a: FakeApp = {
-      clientId: o.clientId ?? randomUUID(), tenantId: t.id, secret, roles: o.roles ?? ['Organization.Read.All', 'User.Read.All'], expired: o.expired ?? false,
+      clientId: o.clientId ?? randomUUID(), tenantId: t.id, secret, roles: o.roles ?? ['Organization.Read.All', 'User.Read.All', 'Application.Read.All'], expired: o.expired ?? false, consentedIn: (o.consentedIn ?? []).map(x => x.id),
       passwordCredentials: [{ keyId: randomUUID(), hint: secret.slice(0, 3), endDateTime: o.endDateTime ?? new Date(Date.now() + 365 * 86_400_000).toISOString() }],
     };
     this.apps.set(a.clientId, a);
@@ -118,7 +119,7 @@ export class EntraFake {
         if (!t || t.id !== key) return json(400, { error: 'invalid_request', error_description: 'AADSTS900023: Specified tenant identifier is neither a valid DNS name, nor a valid external domain.' });
         const own = this.apps.get(f.get('client_id') ?? '');
         if (own && f.get('grant_type') === 'client_credentials') {
-          if (own.tenantId !== t.id) return json(400, { error: 'unauthorized_client', error_description: `AADSTS700016: Application with identifier '${own.clientId}' was not found in the directory.` });
+          if (own.tenantId !== t.id && !own.consentedIn.includes(t.id)) return json(400, { error: 'unauthorized_client', error_description: `AADSTS700016: Application with identifier '${own.clientId}' was not found in the directory.` });
           if (f.get('client_secret') !== own.secret) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' });
           if (own.expired) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000222: The provided client secret keys are expired.' });
           // Wie Microsoft ein JWT mit `roles` (hier unsigniert; die Plattform liest nur die Rollen)

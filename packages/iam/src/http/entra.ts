@@ -53,7 +53,7 @@ const Permission = Type.Object({
   name: Type.String({ description: 'Berechtigung in Microsoft Graph, z. B. User.Read.All' }),
   type: Type.Unsafe<'Application' | 'Delegated'>({ type: 'string', enum: ['Application', 'Delegated'], description: '`Application`: Anwendungsberechtigung, braucht die Administratorzustimmung im Tenant' }),
   why: Type.String({ description: 'Wofür die Plattform sie braucht (für die Anleitung)' }),
-  optional: Type.Boolean({ description: 'Nicht nötig für die Anmeldung (Application.Read.All: Ablauf des Geheimnisses lesen)' }),
+  optional: Type.Boolean({ description: 'true: nicht nötig (zurzeit sind alle nötig)' }),
 });
 const OwnAppGuide = Type.Object({
   redirectUri: Type.String({ description: 'In der App einzutragende Umleitungs-URI, Plattform «Web» (Broker-Endpunkt des Anbieters in Keycloak); fest je Organisation' }),
@@ -116,9 +116,9 @@ const ConsentComplete = Type.Object({
 const AppCredentials = {
   clientId: Type.String({ minLength: 36, maxLength: 36, description: 'Anwendungs-ID (Client-ID) der App im eigenen Tenant' }),
   clientSecret: Type.String({ minLength: 1, maxLength: 1000, description: 'Wert des geheimen Clientschlüssels (verschlüsselt gespeichert, nie ausgegeben)' }),
-  secretExpiresAt: Type.Optional(Nullable(Type.String({ format: 'date-time', description: 'Ablauf des Geheimnisses, falls die App ihn nicht selbst lesen darf (Application.Read.All)' }))),
+  secretExpiresAt: Type.Optional(Nullable(Type.String({ format: 'date-time', description: 'Ablauf des Geheimnisses, falls er in der Registrierung nicht zu finden ist (Graph liest ihn sonst selbst)' }))),
 };
-const APP_ERRORS = '409 mit `reason`: `invalid-secret`, `secret-expired`, `wrong-tenant` (keine App mit dieser ID im Tenant), `invalid-client`, `missing-permissions` (mit `missing`; auch ohne Administratorzustimmung), `domains-taken`, `tenant-mismatch` (anders verbunden); 503 `encryption-missing`.';
+const APP_ERRORS = '409 mit `reason`: `invalid-secret`, `secret-expired`, `wrong-tenant` (keine App mit dieser ID im Tenant), `invalid-client`, `missing-permissions` (mit `missing`; auch ohne Administratorzustimmung), `app-not-registered-in-tenant` (App nicht in diesem Tenant registriert, z. B. die eines Herstellers), `domains-taken`, `tenant-mismatch` (anders verbunden); 503 `encryption-missing`.';
 const NotLinked = Type.Array(Type.String({ maxLength: 254 }), { maxItems: 10_000, description: 'Bestätigt: Diese Mitglieder verlieren die Anmeldung (Adressen aus der Vorschau)' });
 
 export const entraModule: IamModule = {

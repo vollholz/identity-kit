@@ -32,7 +32,8 @@ test('RLS', async () => {
 
 - **0.4.0:** `EntraFake.app(tenant, o)`: eigene App einer Organisation in ihrem Tenant (`FakeApp`: eigenes Geheimnis,
   erteilte Anwendungsberechtigungen als `roles` im Token, Graph prüft sie mit 403, `passwordCredentials` unter
-  `/applications(appId='…')` nur mit Application.Read.All). Wie Microsoft: App eines anderen Tenants AADSTS700016,
+  `/applications(appId='…')` nur im Heimat-Tenant und mit Application.Read.All; `consentedIn`: mandantenfähige App mit
+  Zustimmung in weiteren Tenants). Wie Microsoft: App ohne Zustimmung im Tenant AADSTS700016,
   falsches Geheimnis AADSTS7000215, abgelaufen AADSTS7000222.
 - **0.3.1:** `KeycloakFake` mit `PUT /users/{id}/reset-password` (temporär: Pflichtaktion «Passwort setzen»)
   und `GET /roles/{name}` für die Ersteinrichtung (`orgBootstrap`); `checkCatalog` kennt `resourceTypes[].leaf`.

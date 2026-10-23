@@ -12,8 +12,9 @@ import { randomBytes } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { EntraFake, KeycloakFake, startMockIdp, type FakeApp, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { parseEncryptionKeys } from '../src/config.ts';
-import { withTenant } from '../src/db.ts';
+import { withTenant, withTx } from '../src/db.ts';
 import { decryptAppSecret, rewrapEntraSecrets } from '../src/entra.ts';
+import { EntraGraph } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
@@ -77,7 +78,7 @@ describe('Eigene App der Organisation', { skip }, () => {
     const s = ok(await call(anna(), 'GET', '/v1/admin/entra'));
     assert.deepEqual([s.enabled, s.methods, s.ownAppReason, s.connection], [false, { platformApp: false, ownApp: true }, null, null]);
     assert.equal(s.ownApp.redirectUri, `${idp.issuer}/broker/entra-app-demo/endpoint`);
-    assert.deepEqual(s.ownApp.permissions.map((p: any) => `${p.type}:${p.name}${p.optional ? '?' : ''}`), ['Delegated:User.Read', 'Application:Organization.Read.All', 'Application:User.Read.All', 'Application:Application.Read.All?']);
+    assert.deepEqual(s.ownApp.permissions.map((p: any) => `${p.type}:${p.name}${p.optional ? '?' : ''}`), ['Delegated:User.Read', 'Application:Organization.Read.All', 'Application:User.Read.All', 'Application:Application.Read.All']);
     assert.ok(s.ownApp.permissions.every((p: any) => p.why));
     const n = ok(await call(anna(), 'GET', '/v1/admin/entra', undefined, noKeys));
     assert.deepEqual([n.methods.ownApp, n.ownApp], [false, null]);
@@ -98,9 +99,12 @@ describe('Eigene App der Organisation', { skip }, () => {
     await fail({ tenant: contoso.id, clientId: other.clientId, clientSecret: other.secret }, 409, 'wrong-tenant', 'App eines anderen Tenants');
     const weak = ms.app(contoso, { roles: ['User.Read.All'] });
     const b = await fail({ tenant: 'demo.example', clientId: weak.clientId, clientSecret: weak.secret }, 409, 'missing-permissions', 'Berechtigung fehlt');
-    assert.deepEqual(b.missing, ['Organization.Read.All']);
+    assert.deepEqual(b.missing, ['Organization.Read.All', 'Application.Read.All']);
     const none = ms.app(contoso, { roles: [] });
-    assert.deepEqual((await fail({ tenant: contoso.id, clientId: none.clientId, clientSecret: none.secret }, 409, 'missing-permissions', 'ohne Administratorzustimmung')).missing, ['Organization.Read.All', 'User.Read.All']);
+    assert.deepEqual((await fail({ tenant: contoso.id, clientId: none.clientId, clientSecret: none.secret }, 409, 'missing-permissions', 'ohne Administratorzustimmung')).missing, ['Organization.Read.All', 'User.Read.All', 'Application.Read.All']);
+    // Mandantenfähige App eines Herstellers, der contoso zugestimmt hat: Token mit allen Rollen, aber keine Registrierung
+    const vendor = ms.app(fremd, { consentedIn: [contoso] });
+    await fail({ tenant: contoso.id, clientId: vendor.clientId, clientSecret: vendor.secret }, 409, 'app-not-registered-in-tenant', 'App eines Herstellers');
     const old = ms.app(contoso, { expired: true });
     await fail({ tenant: contoso.id, clientId: old.clientId, clientSecret: old.secret }, 409, 'secret-expired', 'abgelaufen');
     await fail({ tenant: 'gibt-es-nicht.example', clientId: own.clientId, clientSecret: own.secret }, 422, null, 'Tenant unbekannt');
@@ -116,7 +120,7 @@ describe('Eigene App der Organisation', { skip }, () => {
     const accounts = kc.users.size;
     const r = ok(await putApp({ tenant: 'demo.example', clientId: own.clientId.toUpperCase(), clientSecret: ` ${own.secret} ` }));
     assert.deepEqual([r.connection.method, r.connection.clientId, r.connection.stage, r.connection.secretExpiresAt, r.connection.secretExpiresSoon],
-      ['own', own.clientId, 'pending', null, false]);
+      ['own', own.clientId, 'pending', own.passwordCredentials[0]!.endDateTime, false], 'Ablauf aus der Registrierung');
     assert.equal(r.connection.redirectUri, `${idp.issuer}/broker/entra-app-demo/endpoint`);
     assert.deepEqual(r.connection.domains, ['demo.example', 'demoag.onmicrosoft.com']);
     assert.ok(r.members.find((m: any) => m.email === 'anna@demo.example').linked);
@@ -146,14 +150,14 @@ describe('Eigene App der Organisation', { skip }, () => {
   test('Geheimnis wechseln (gleiche App, gleicher Tenant): Stufe und Domänen bleiben; Ablauf aus Graph bzw. angegeben; Warnung vor Ablauf', async () => {
     await t.inspect.query("UPDATE notes.entra_connection SET domains = '{demo.example}'");
     const before = await connRow('demo');
-    own.secret = 'neu~geheimnis-1'; own.passwordCredentials = [{ keyId: 'k', hint: 'neu', endDateTime: new Date(Date.now() + 10 * 86_400_000).toISOString() }];
+    own.secret = 'neu~geheimnis-1'; own.passwordCredentials = [];
     ok(await putApp({ tenant: contoso.id, clientId: own.clientId, clientSecret: own.secret, secretExpiresAt: '2030-01-01T00:00:00Z' }));
     let row = await connRow('demo');
     assert.notEqual(row.app_secret_enc, before.app_secret_enc);
     assert.deepEqual(row.domains, ['demo.example'], 'Domänen bleiben');
-    assert.equal(row.app_secret_expires_at.toISOString(), '2030-01-01T00:00:00.000Z', 'ohne Application.Read.All: angegeben');
+    assert.equal(row.app_secret_expires_at.toISOString(), '2030-01-01T00:00:00.000Z', 'kein passender Schlüssel in Graph: angegeben');
     assert.equal(kc.idps.get('entra-app-demo')!.config.clientSecret, 'neu~geheimnis-1');
-    own.roles = ['Organization.Read.All', 'User.Read.All', 'Application.Read.All'];
+    own.passwordCredentials = [{ keyId: 'k', hint: 'neu', endDateTime: new Date(Date.now() + 10 * 86_400_000).toISOString() }];
     const r = ok(await putApp({ tenant: contoso.id, clientId: own.clientId, clientSecret: own.secret }));
     assert.equal(new Date(r.connection.secretExpiresAt).toISOString(), own.passwordCredentials[0]!.endDateTime, 'aus Graph (Hinweis = erste drei Zeichen)');
     assert.equal(r.connection.secretExpiresSoon, true, 'in 10 Tagen');
@@ -162,6 +166,32 @@ describe('Eigene App der Organisation', { skip }, () => {
     assert.equal(f.connection.secretExpiresSoon, false, 'Aktualisieren liest den Ablauf neu');
     row = await connRow('demo');
     assert.equal(row.app_secret_expires_at.toISOString(), own.passwordCredentials[0]!.endDateTime);
+  });
+
+  test('Wechsel scheitert nach dem Prüfen (Verknüpfung): Keycloak meldet weiter mit dem bisherigen Geheimnis an, Datenbank unverändert', async () => {
+    const cara = kc.user('cara', { email: 'cara@demo.example', firstName: 'Cara', lastName: 'Konflikt' });
+    kc.member(demo, cara, ['viewer']);
+    const caraOid = ms.user(contoso, 'cara@demo.example').id;
+    // Caras Person in Entra ist schon mit einem anderen Konto verknüpft: linkAccount scheitert mit 409
+    kc.links.set(u.paula.id, new Map([['entra-app-demo', { userId: caraOid, userName: 'cara@demo.example' }]]));
+    const before = await connRow('demo'), secret = own.secret;
+    own.secret = 'neu~geheimnis-2';
+    try {
+      const r = await putApp({ tenant: contoso.id, clientId: own.clientId, clientSecret: own.secret });
+      assert.equal(r.status, 409, JSON.stringify(r.body));
+      assert.equal(kc.idps.get('entra-app-demo')!.config.clientSecret, secret, 'Anbieter nicht überschrieben');
+      assert.equal((await connRow('demo')).app_secret_enc, before.app_secret_enc);
+    } finally {
+      kc.links.delete(u.paula.id); own.secret = secret;
+      kc.orgMembers.get(demo.id)!.delete(cara.id);
+    }
+  });
+
+  test('Token ohne lesbare Rollen: abgelehnt (invalid-client), nicht still durchgelassen', async () => {
+    const opaque: typeof fetch = async (input, init) => (String(input instanceof Request ? input.url : input).endsWith('/oauth2/v2.0/token')
+      ? new Response(JSON.stringify({ access_token: 'undurchsichtig', expires_in: 3599 }), { status: 200 }) : ms.fetch(input, init));
+    const g = new EntraGraph({ clientId: own.clientId, clientSecret: own.secret, timeoutMs: 5000, own: true }, opaque);
+    await assert.rejects(g.checkApp(contoso.id), (e: any) => e.extra?.reason === 'invalid-client');
   });
 
   test('anderer Tenant 409 tenant-mismatch; Zustimmung über die App der Plattform 409 own-app (Wechsel nur über Trennen)', async () => {
@@ -177,6 +207,7 @@ describe('Eigene App der Organisation', { skip }, () => {
   test('Link «Credentials eintragen»: Kunden-IT trägt die App ohne Konto ein; Tenant fest aus dem Link; Fehler lassen den Link offen; einmal einlösbar', async () => {
     const link = ok(await call(mona(), 'POST', '/v1/admin/entra/consent-links', { tenant: 'muster.example' }), 201);
     assert.equal(link.kind, 'credentials', 'ohne App der Plattform: Standard credentials');
+    const second = ok(await call(mona(), 'POST', '/v1/admin/entra/consent-links', { tenant: 'muster.example' }), 201);
     const token = new URL(link.url).hash.slice(1);
     const info = ok(await call(null, 'POST', '/v1/entra/handover/info', { token }));
     assert.deepEqual([info.kind, info.entraTenantId, info.ownApp.redirectUri], ['credentials', muster.id, `${idp.issuer}/broker/entra-app-muster/endpoint`]);
@@ -199,6 +230,8 @@ describe('Eigene App der Organisation', { skip }, () => {
     assert.ok(!JSON.stringify(a).includes(mapp.secret));
     item = ok(await call(mona(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === link.id);
     assert.deepEqual([item.status, item.error], ['connected', null]);
+    const other = ok(await call(mona(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === second.id);
+    assert.deepEqual([other.status, other.error.reason], ['revoked', 'superseded'], 'übrige Links verfallen nach dem Verbinden');
     assert.equal((await call(null, 'POST', '/v1/entra/handover/credentials', { token, clientId: mapp.clientId, clientSecret: mapp.secret })).status, 404, 'eingelöst');
   });
 
@@ -211,5 +244,6 @@ describe('Eigene App der Organisation', { skip }, () => {
     assert.ok(row.app_secret_enc.startsWith('v1.k2.'));
     assert.equal(decryptAppSecret([keys[0]!], demoId, own.clientId, row.app_secret_enc), own.secret, 'nur mit dem neuen Schlüssel');
     assert.equal(await withTenant(t.runtime, { tenantId: demoId }, tx => rewrapEntraSecrets(tx, keys, { schema: 'notes' })), 0, 'zweiter Lauf: nichts');
+    await assert.rejects(withTx(t.runtime, tx => rewrapEntraSecrets(tx, keys, { schema: 'notes' })), /Mandantenkontext fehlt/, 'ohne Mandantenkontext nie still 0');
   });
 });

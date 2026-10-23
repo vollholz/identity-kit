@@ -286,7 +286,7 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 | Endpunkt | Verhalten |
 |---|---|
 | `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-(\d{3}|app-<alias>)$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
-| `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-\d{3}$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
+| `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-(\d{3}|app-<alias>)$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
 | `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
 | `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles`, `permissions` (effektiv), `grantedPermissions` (immer, leer ohne Freigaben; [7.1](#71-entscheidung)), `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds`. Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
@@ -581,14 +581,18 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
 
 - **Eigene App der Organisation (Kit 0.3, Normalfall):** Die Organisation registriert eine App in ihrem eigenen Tenant
   und trägt Tenant, Anwendungs-ID und Geheimnis ein (`PUT …/entra/app`); Kunden haben so nichts mit einer App des
-  Betreibers zu tun. Vor dem Speichern prüft die API bei Microsoft: Token der App im Tenant (Client Credentials; die App
-  liegt in genau diesem Tenant), erteilte Anwendungsberechtigungen (`roles`), Organisation und verifizierte Domänen.
+  Betreibers zu tun. Vor dem Speichern prüft die API bei Microsoft: Token der App im Tenant (Client Credentials),
+  erteilte Anwendungsberechtigungen (`roles`; Token ohne lesbare Rollen: abgelehnt), Registrierung der App im Tenant
+  (`GET /applications(appId=…)`, nur im Heimat-Tenant der App – ein Token allein belegt nur eine Zustimmung, auch für die
+  mandantenfähige App eines Herstellers), Organisation und verifizierte Domänen.
   Fehler: 409 `invalid-secret`, `secret-expired`, `wrong-tenant`, `invalid-client`, `missing-permissions` (mit
-  `missing`), `tenant-mismatch` (anders verbunden), `domains-taken`; 503 `encryption-missing`. Kein Nachweis über `wids`:
+  `missing`), `app-not-registered-in-tenant`, `tenant-mismatch` (anders verbunden), `domains-taken`; 503
+  `encryption-missing`. Kein Nachweis über `wids`:
   Anwendungsberechtigungen mit Administratorzustimmung erteilt nur die Administration des Tenants. Erneut `PUT` wechselt
   Geheimnis bzw. App im selben Tenant; Stufe und Domänen bleiben. Anbieter `entra-app-<alias>` (kein Platz): die
   Redirect-URI steht vorab fest; `GET …/entra` liefert `methods` (`ownApp`, `platformApp`), `ownApp` (Redirect-URI,
-  Berechtigungen mit Grund, `Application.Read.All` optional für den Ablauf des Geheimnisses) und an der Verbindung
+  Berechtigungen mit Grund: delegiert `User.Read`, Anwendung `Organization.Read.All`, `User.Read.All`, `Application.Read.All`
+  für den Nachweis der Registrierung und den Ablauf des Geheimnisses) und an der Verbindung
   `method`, `clientId`, `secretExpiresAt`, `secretExpiresSoon` (30 Tage). Das Geheimnis liegt verschlüsselt
   (ENCRYPTION_KEYS, AAD an Mandant und App) in der Datenbank und in Keycloak, nie in Antworten oder im Protokoll.
   Personensuche, Vorschau, «Nur Entra» und Aktualisieren laufen mit der App der Verbindung.

@@ -227,9 +227,12 @@ Organisation registriert eine App in ihrem eigenen Tenant und trägt Tenant, Anw
   `invalid-secret`, `secret-expired`, `wrong-tenant`, `invalid-client`, `missing-permissions` (mit `missing`).
 - Anleitung für die Kunden-IT im Status (`ownApp`): Umleitungs-URI `<OIDC_ISSUER_URL>/broker/entra-app-<alias>/endpoint`
   (Plattform «Web», Kontotyp «Nur Konten in diesem Organisationsverzeichnis»), delegiert `User.Read`, Anwendung
-  `Organization.Read.All` und `User.Read.All` mit Administratorzustimmung; optional `Application.Read.All`, dann liest
-  das Paket den Ablauf des Geheimnisses selbst (sonst `secretExpiresAt` bei der Eingabe). Der Status warnt 30 Tage
-  vorher (`secretExpiresSoon`); Wechsel: erneut `PUT …/app` mit dem neuen Geheimnis, Stufe und Domänen bleiben.
+  `Organization.Read.All`, `User.Read.All` und `Application.Read.All` mit Administratorzustimmung. `Application.Read.All`
+  ist Pflicht: Das Paket weist damit nach, dass die App im Tenant registriert ist (`GET /applications(appId=…)` gibt
+  sie nur im Heimat-Tenant; die mandantenfähige App eines Herstellers, der der Tenant zugestimmt hat, ergibt 409
+  `app-not-registered-in-tenant`), und liest den Ablauf des Geheimnisses (sonst `secretExpiresAt` bei der Eingabe).
+  Der Status warnt 30 Tage vorher (`secretExpiresSoon`); Wechsel: erneut `PUT …/app` mit dem neuen Geheimnis, Stufe und
+  Domänen bleiben. Nach dem Verbinden verfallen übrige offene Links für die eigene App (`superseded`).
 - Das Geheimnis liegt verschlüsselt in `entra_connection.app_secret_enc` (Migration `iam_014`, AAD an Mandant und App)
   und im Anbieter in Keycloak, nie in einer Antwort oder im Protokoll. Beim Wechsel der Hauptschlüssel ruft das
   Rotationsskript der App je Mandant `rewrapEntraSecrets(tx, keys, { schema })` auf.

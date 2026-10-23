@@ -840,8 +840,13 @@ Audit-Trigger darauf warten.
   Plätzen; `entra_consent_link.kind`. Rotation: `rewrapEntraSecrets` (Aufruf aus dem Rotationsskript der App).
 - `EntraGraph` mit `own`: Fehler bei Microsoft mit `reason` für die Eingaben der Organisation; `checkApp` prüft die
   Rollen im Token (Graph-Tokens sind JWTs, gelesen ohne Signaturprüfung, sie kommen direkt von Microsoft), liest die
-  Organisation und – nur mit Application.Read.All o. ä. – den Ablauf über `passwordCredentials.hint` (erste drei Zeichen;
-  mehrere passende: das früheste Ende). Fehlende Berechtigung und fehlende Administratorzustimmung sind im Token nicht
+  Registrierung der App im Tenant und daraus den Ablauf über `passwordCredentials.hint` (erste drei Zeichen; mehrere
+  passende: das früheste Ende). Review #36: Ein Client-Credentials-Token belegt nur eine Zustimmung des Tenants, auch für
+  die mandantenfähige App eines Herstellers (der so alle Domänen des Tenants an seine Organisation binden könnte);
+  `GET /applications(appId=…)` gibt die Registrierung nur im Heimat-Tenant, darum ist Application.Read.All Pflicht
+  (`app-not-registered-in-tenant`). Token ohne lesbare Rollen: `invalid-client` statt still durchgelassen. Ein
+  bestehender Anbieter wird erst als letzter Schritt nachgeführt (scheitert vorher etwas, meldet Keycloak weiter mit
+  der bisherigen App an); `rewrapEntraSecrets` wirft ohne Mandantenkontext. Fehlende Berechtigung und fehlende Administratorzustimmung sind im Token nicht
   unterscheidbar (keine Rolle) und ergeben beide `missing-permissions`.
 - `connect` nimmt die App als Parameter (`graphFor` für die übrigen Wege); `connectApp` und der Link mit
   `kind: 'credentials'` (`handoverApp`) teilen sich Belegen, Einlösen in der Transaktion der Verbindung und Freigeben mit

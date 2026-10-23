@@ -156,7 +156,7 @@ interface Target { id: string; userId: string; user: KcUser | null; member: bool
 /** In Keycloak erfolgte Änderung, für das Protokoll, falls danach etwas scheitert. Nur Angaben dieser Organisation. */
 export interface Step {
   step: 'account_created' | 'membership_added' | 'membership_removed' | 'account_deleted' | 'role_added' | 'role_removed' | 'organization_updated'
-    | 'idp_created' | 'idp_linked' | 'idp_deleted' | 'account_linked' | 'password_removed';
+    | 'idp_created' | 'idp_linked' | 'idp_updated' | 'idp_deleted' | 'account_linked' | 'password_removed';
   role?: string;
 }
 

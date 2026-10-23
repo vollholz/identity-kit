@@ -31,8 +31,9 @@
  *
  * Eigene App (Kit 0.3, `connectApp`; aus Assets #22): Statt der App der Plattform trägt die Organisation Tenant,
  * Anwendungs-ID und Geheimnis einer App aus ihrem eigenen Tenant ein – auch ohne ENTRA_CLIENT_ID. Kein Nachweis über
- * eine Admin-Zustimmung: Ein Token der App im Tenant belegt, dass die App dort liegt und die Administration ihr die
- * Anwendungsberechtigungen erteilt hat. Dieselbe App meldet in Keycloak an und liest Graph. Der Anbieter heisst
+ * eine Admin-Zustimmung: Ein Token der App im Tenant belegt die erteilten Anwendungsberechtigungen, die Registrierung
+ * im Tenant (`GET /applications`, nur im Heimat-Tenant der App) belegt, dass die App dem Tenant gehört – nicht einem
+ * Hersteller, dem der Tenant nur zugestimmt hat. Dieselbe App meldet in Keycloak an und liest Graph. Der Anbieter heisst
  * `entra-app-<alias>`, damit die Redirect-URI vor dem Verbinden feststeht. Das Geheimnis liegt verschlüsselt in der
  * Datenbank (ENCRYPTION_KEYS, AAD an Mandant und App) und in Keycloak, nie in einer Antwort. Ein Link (`kind:
  * 'credentials'`) lässt die Kunden-IT die App selbst eintragen, ohne Konto und ohne das Geheimnis weiterzugeben.
@@ -122,6 +123,8 @@ export function decryptAppSecret(keys: Keyring, tenantId: string, clientId: stri
  */
 export async function rewrapEntraSecrets(tx: Tx, keys: Keyring, o: { schema: string; dryRun?: boolean }): Promise<number> {
   const S = schemaName(o.schema), primary = primaryKey(keys);
+  // Ohne Mandantenkontext sähe die Abfrage (FORCE RLS) nichts und meldete still 0: der alte Schlüssel wäre scheinbar frei
+  if (!(await tx.query<{ t: string | null }>('SELECT app.tenant_id() AS t')).rows[0]?.t) throw new Error('rewrapEntraSecrets: Mandantenkontext fehlt (withTenant je Mandant)');
   const rows = (await tx.query<{ tenant_id: string; app_client_id: string; app_secret_enc: string }>(
     `SELECT tenant_id::text, app_client_id::text, app_secret_enc FROM ${S}.entra_connection WHERE app_secret_enc IS NOT NULL AND split_part(app_secret_enc, '.', 2) <> $1 FOR UPDATE`, [primary.id])).rows;
   if (!o.dryRun) {
@@ -873,8 +876,9 @@ export class EntraService {
         const rep = idpRepresentation(alias, eo.id, own ?? this.deps.cfg.entra, this.deps.catalog.product);
         const have = await this.kc.getIdp(alias);
         if (have && !existing) await this.kc.deleteIdp(alias); // Rest eines abgebrochenen Laufs: Plätze und `entra-app-<alias>` gehören der Plattform
-        if (have && existing) await this.kc.updateIdp(rep);
-        else { await this.kc.createIdp(rep); created = true; w.done({ step: 'idp_created' }); }
+        // Bestehender Anbieter: erst nach allen anderen Schritten nachführen (unten), sonst meldete Keycloak nach einem
+        // Fehlschlag mit der neuen App an, während die Datenbank zurückrollt
+        if (!(have && existing)) { await this.kc.createIdp(rep); created = true; w.done({ step: 'idp_created' }); }
         if (!existing) { await this.kc.linkOrgIdp(org.id, alias); w.done({ step: 'idp_linked' }); }
         const d = EntraService.orgDomains(org, alias, bound, enforced);
         await this.kc.updateOrg({ ...org, domains: d.domains });
@@ -897,6 +901,10 @@ export class EntraService {
         } });
         // In derselben Transaktion wie die Verbindung (z. B. Link als eingelöst markieren)
         if (onConnected) await onConnected(tx, approver);
+        // Übrige offene Links für die eigene App verfallen: ein alter Link überschriebe sonst später diese Verbindung
+        if (own) await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'superseded', error_detail = NULL
+          WHERE kind = 'credentials' AND used_at IS NULL AND revoked_at IS NULL`);
+        if (have && existing) { await this.kc.updateIdp(rep); w.done({ step: 'idp_updated' }); }
         this.deps.resolver.forgetEntra();
         return { connection: this.out(c, org.alias), members, rejectedDomains: rejected };
       } catch (e) {

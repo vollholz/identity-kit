@@ -120,9 +120,12 @@ Entra ID verbinden» mehr; angeboten wird, was der Server meldet (ältere Server
 
 - **Eigene App verbinden:** Der Dialog führt Schritt für Schritt durch die App-Registrierung (nur dieses Verzeichnis,
   Plattform «Web» mit der Umleitungs-URI des Servers, Berechtigungen von Microsoft Graph mit Administratorzustimmung,
-  Secret) und nimmt Verzeichnis (ID oder Domäne), Anwendungs-ID, Secret und optional dessen Ablauf entgegen
-  (`PUT …/entra/app`; ohne Application.Read.All kann der Server den Ablauf nicht selbst lesen). Fehler wie falsches
-  oder abgelaufenes Secret, falsches Verzeichnis oder fehlende Berechtigungen bzw. Zustimmung erscheinen mit eigenem Text.
+  Secret) und nimmt Verzeichnis (ID oder Domäne), Anwendungs-ID und Secret entgegen (`PUT …/entra/app`). Kontotyp
+  zwingend «Nur Konten in diesem Organisationsverzeichnis»; Application.Read.All ist Pflicht (Nachweis der Registrierung
+  im Verzeichnis, Ablauf des Secrets). Ein Feld für den Ablauf erscheint nur, wenn die Anleitung des Servers diese
+  Berechtigung nicht als Pflicht meldet. Fehler wie falsches oder abgelaufenes Secret, falsches Verzeichnis, App nicht im
+  Verzeichnis registriert oder fehlende Berechtigungen bzw. Zustimmung erscheinen mit eigenem Text. Passwort-Manager
+  sollen das Secret nicht speichern (`autocomplete="new-password"`, Ignorier-Attribute der gängigen Manager).
 - **Secret wechseln:** Bei der eigenen App zeigt «Anmeldung» den Ablauf des Secrets mit Warnung (bald fällig,
   abgelaufen); «Secret wechseln …» nimmt das neue Secret (das Verzeichnis bleibt, die Anwendungs-ID darf wechseln).
 - **Link «Credentials eintragen»:** «Link an die Entra-Administration senden» erzeugt im Modus der eigenen App einen

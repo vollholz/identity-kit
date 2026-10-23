@@ -56,7 +56,7 @@ test('ganzer Ablauf: Link «Credentials eintragen», Seite ohne Sitzung, Fehler 
   await page.goto('/admin.html?p=entra&own=1');
   await page.getByRole('button', { name: 'Link an die Entra-Administration senden' }).click();
   const dlg = page.getByRole('dialog', { name: 'Link an die Entra-Administration von «Demo AG»' });
-  await expect(dlg).toContainText('Das Secret siehst du so nie.');
+  await expect(dlg).toContainText('das Secret siehst du so nie.');
   await dlg.getByRole('textbox', { name: 'Verzeichnis' }).fill(TID);
   await dlg.getByRole('button', { name: 'Link erzeugen' }).click();
   const url = await page.getByRole('dialog', { name: 'Link für «Demo AG» erzeugt' }).getByLabel('Link').inputValue();

@@ -112,7 +112,8 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
             {linkKinds.length ? <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button> : null}</>}</> : null}
       </div>
       {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !available ? (
-        <Empty icon="shield" title={t('iam.entra.off')}><p>{q.data.reason ?? q.data.ownAppReason}</p></Empty>
+        <Empty icon="shield" title={t('iam.entra.off')}>{/* Ab iam 0.3.0 zuerst die Ursache der eigenen App (reason betrifft nur die App der Plattform) */}
+          {[...new Set([q.data.methods ? q.data.ownAppReason : null, q.data.reason].filter(Boolean))].map(r => <p key={r}>{r}</p>)}</Empty>
       ) : !c ? (
         <Empty icon="shield" title={t('iam.entra.none.title')}><p>{t(methods.platformApp ? 'iam.entra.none.text' : 'iam.entra.none.textOwn', { org: orgLabel })}</p></Empty>
       ) : (

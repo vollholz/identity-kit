@@ -22,7 +22,7 @@ import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { ErrorBox, Loading } from '../ui/states.tsx';
-import { OwnAppError, OwnAppFields, OwnAppGuideSteps, ownAppBody, ownAppComplete, type OwnAppDraft } from './EntraOwnApp.tsx';
+import { needsExpiry, OwnAppError, OwnAppFields, OwnAppGuideSteps, ownAppBody, ownAppComplete, type OwnAppDraft } from './EntraOwnApp.tsx';
 
 const is404 = (e: unknown) => e instanceof ApiError && e.status === 404;
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
@@ -91,6 +91,7 @@ function CredentialsForm({ token, d }: { token: string; d: HandoverInfo }) {
   const save = useMutation({
     mutationFn: () => handoverApi.credentials({ token, ...ownAppBody(v) }),
     onSuccess: () => setV(x => ({ ...x, clientSecret: '' })),
+    onError: () => setV(x => ({ ...x, clientSecret: '' })),
   });
   const ready = ownAppComplete(v, false);
   if (save.isSuccess) return <Gate title={t('iam.handover.app.done')} text={t('iam.handover.app.doneText', { organization: save.data.organization })} />;
@@ -109,7 +110,7 @@ function CredentialsForm({ token, d }: { token: string; d: HandoverInfo }) {
       <p className="iam-warnbox" role="note"><Icon name="warn" className="iam-ico" /><span>{t('iam.handover.app.onlyIf', { person: d.requestedBy })}</span></p>
       {d.ownApp ? <OwnAppGuideSteps guide={d.ownApp} product={d.product} formal /> : null}
       <form className="iam-handover-form" onSubmit={e => { e.preventDefault(); if (ready) save.mutate(); }}>
-        <OwnAppFields value={v} onChange={setV} tenant={false} formal organization={d.organization} />
+        <OwnAppFields value={v} onChange={setV} tenant={false} expiry={needsExpiry(d.ownApp)} formal organization={d.organization} />
         {save.error ? <OwnAppError error={save.error} /> : null}
         <Button type="submit" variant="primary" icon="key" disabled={!ready} busy={save.isPending}>{t('iam.handover.app.go')}</Button>
       </form>

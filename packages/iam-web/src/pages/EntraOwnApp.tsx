@@ -43,7 +43,9 @@ export function ownAppErrorText(e: unknown): string | null {
   const key = reason && Object.hasOwn(REASON, reason) ? REASON[reason]! : null;
   if (!key) return null;
   const missing = Array.isArray(p.missing) ? p.missing.filter((x): x is string => typeof x === 'string').join(', ') : '';
-  return t(key, { missing: missing || '–' });
+  // Ohne Liste: derselbe Satz ohne Aufzählung
+  if (reason === 'missing-permissions' && !missing) return t('iam.ownApp.err.missingPermissionsAny');
+  return t(key, { missing });
 }
 
 /** Fehler beim Eintragen: bekannter Grund mit eigenem Text, sonst die Meldung des Servers. */
@@ -90,6 +92,13 @@ export function OwnAppGuideSteps({ guide, product, formal = false, secretOnly = 
   );
 }
 
+/**
+ * Ablauf des Secrets von Hand: nur nötig, wenn der Server ihn nicht selbst lesen kann (Application.Read.All fehlt in der
+ * Anleitung oder ist dort optional). Mit Pflicht-Berechtigung liest er ihn über Graph; das Feld bleibt dann weg.
+ */
+export const needsExpiry = (guide: EntraOwnAppGuide | null | undefined) =>
+  !guide?.permissions.some(p => p.name === 'Application.Read.All' && !p.optional);
+
 /** Eingaben der Felder; `secretExpiresAt` als Datum (JJJJ-MM-TT) oder leer. */
 export interface OwnAppDraft { tenant: string; clientId: string; clientSecret: string; secretExpiresAt: string }
 
@@ -97,8 +106,10 @@ export interface OwnAppDraft { tenant: string; clientId: string; clientSecret: s
  * Felder Verzeichnis (ohne `tenant`: gibt der Link vor), Anwendungs-ID, Secret und Ablauf des Secrets (optional);
  * `tenantFixed`: beim Secret-Wechsel bleibt das Verzeichnis gleich (nur lesbar).
  */
-export function OwnAppFields({ value, onChange, tenant = true, tenantFixed = false, formal = false, organization = '' }: {
+export function OwnAppFields({ value, onChange, tenant = true, tenantFixed = false, expiry = false, formal = false, organization = '' }: {
   value: OwnAppDraft; onChange: (v: OwnAppDraft) => void; tenant?: boolean; tenantFixed?: boolean;
+  /** Feld «Secret gültig bis» zeigen (`needsExpiry`). */
+  expiry?: boolean;
   /** Öffentliche Seite («Sie»), mit dem Namen der Organisation im Hinweis zum Secret. */
   formal?: boolean; organization?: string;
 }) {
@@ -126,13 +137,19 @@ export function OwnAppFields({ value, onChange, tenant = true, tenantFixed = fal
         onChange={e => onChange({ ...value, clientId: e.target.value })} onBlur={blur('clientId')} {...focus('clientId')} />
       <div id={`${fid}-client-h`} className={bad.clientId ? 'iam-hint iam-ferr' : 'iam-hint'}>{t(bad.clientId ? 'iam.ownApp.notGuid' : 'iam.ownApp.clientId.hint')}</div>
       <label htmlFor={`${fid}-secret`}>{t('iam.ownApp.secret')}</label>
-      <input id={`${fid}-secret`} type="password" className="iam-inp iam-mono-s" value={value.clientSecret} required autoComplete="off" spellCheck={false}
+      <input id={`${fid}-secret`} type="password" className="iam-inp iam-mono-s" value={value.clientSecret} required spellCheck={false}
+        // Kein Passwort der Person: Browser und Passwort-Manager sollen es weder vorschlagen noch speichern
+        autoComplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore
         aria-describedby={`${fid}-secret-h`} onChange={e => onChange({ ...value, clientSecret: e.target.value })} {...focus('secret')} />
       <div id={`${fid}-secret-h`} className="iam-hint">{formal ? t('iam.handover.app.secret.hint', { organization }) : t('iam.ownApp.secret.hint')}</div>
-      <label htmlFor={`${fid}-exp`}>{t('iam.ownApp.expires')}</label>
-      <input id={`${fid}-exp`} type="date" className="iam-inp" value={value.secretExpiresAt} aria-describedby={`${fid}-exp-h`}
-        onChange={e => onChange({ ...value, secretExpiresAt: e.target.value })} />
-      <div id={`${fid}-exp-h`} className="iam-hint">{t(formal ? 'iam.handover.app.expires.hint' : 'iam.ownApp.expires.hint')}</div>
+      {expiry ? (
+        <>
+        <label htmlFor={`${fid}-exp`}>{t('iam.ownApp.expires')}</label>
+        <input id={`${fid}-exp`} type="date" className="iam-inp" value={value.secretExpiresAt} aria-describedby={`${fid}-exp-h`}
+          min={today()} onChange={e => onChange({ ...value, secretExpiresAt: e.target.value })} />
+        <div id={`${fid}-exp-h`} className="iam-hint">{t(formal ? 'iam.handover.app.expires.hint' : 'iam.ownApp.expires.hint')}</div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -140,9 +157,12 @@ export function OwnAppFields({ value, onChange, tenant = true, tenantFixed = fal
 /** Eingaben vollständig (`tenant` nur, wenn das Feld da ist). */
 export const ownAppComplete = (v: OwnAppDraft, withTenant = true) =>
   (!withTenant || TENANT.test(v.tenant.trim())) && GUID.test(v.clientId.trim()) && v.clientSecret.trim().length > 0;
-/** Körper ohne Leerzeichen am Rand (Kopieren bringt oft einen Zeilenumbruch mit); Ablauf als Zeitpunkt (Ende des Tages, UTC). */
+/** Heute als JJJJ-MM-TT (lokal), frühestes Datum für den Ablauf. */
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+/** Körper ohne Leerzeichen am Rand (Kopieren bringt oft einen Zeilenumbruch mit); Ablauf als Zeitpunkt (Ende des Tages, lokal). */
 export function ownAppBody(v: OwnAppDraft): { clientId: string; clientSecret: string; secretExpiresAt?: string } {
-  const d = /^\d{4}-\d{2}-\d{2}$/.test(v.secretExpiresAt) ? `${v.secretExpiresAt}T23:59:59.000Z` : null;
+  // Ende des Tages in der Zeitzone der Person
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(v.secretExpiresAt) ? new Date(`${v.secretExpiresAt}T23:59:59.999`).toISOString() : null;
   return { clientId: v.clientId.trim().toLowerCase(), clientSecret: v.clientSecret.trim(), ...(d ? { secretExpiresAt: d } : {}) };
 }
 
@@ -162,6 +182,8 @@ export function OwnAppDialog({ alias, orgLabel, product, guide, connection, onCl
   const save = useMutation({
     mutationFn: () => entraApi(alias).ownApp({ tenant: v.tenant.trim(), ...ownAppBody(v) }),
     onSuccess: async r => { setV(x => ({ ...x, clientSecret: '' })); await onDone(r); },
+    // Nach einem Fehler das Secret neu eingeben (oft war es das falsche)
+    onError: () => setV(x => ({ ...x, clientSecret: '' })),
   });
   const ready = ownAppComplete(v);
   return (
@@ -169,7 +191,7 @@ export function OwnAppDialog({ alias, orgLabel, product, guide, connection, onCl
       footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" icon="key" disabled={!ready} busy={save.isPending}>{t(rotate ? 'iam.ownApp.rotate.go' : 'iam.ownApp.go')}</Button></>}>
       <p>{t(rotate ? 'iam.ownApp.rotate.intro' : 'iam.ownApp.intro', { org: orgLabel })}</p>
       <OwnAppGuideSteps guide={guide} product={product} secretOnly={rotate} />
-      <OwnAppFields value={v} onChange={setV} tenantFixed={!!connection} />
+      <OwnAppFields value={v} onChange={setV} tenantFixed={!!connection} expiry={needsExpiry(guide)} />
       {save.error ? <OwnAppError error={save.error} /> : null}
     </Dialog>
   );

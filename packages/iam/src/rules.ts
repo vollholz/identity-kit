@@ -41,28 +41,37 @@ export async function checkRoleChange(access: AccessService, a: Acting, changed:
   }
 }
 
-/** Aktive Personen mit Tupel `org-admin` an org: nicht entfernt, keine offene Einladung (Principal-IDs). */
-export async function activeAdmins(tx: Tx, schema: string): Promise<string[]> {
-  return (await tx.query<{ id: string }>(
-    `SELECT p.id FROM ${schema}.principal p
+/** Ist das Konto aktiv (in Keycloak nicht gesperrt)? Ohne Prüfung zählt jedes Konto mit Principal. */
+export type ActiveCheck = (subject: string) => Promise<boolean>;
+
+/**
+ * Personen mit Tupel `org-admin` an org, nicht entfernt, ohne offene Einladung (Spez. 9.1 Nr. 6); ob das Konto gesperrt
+ * ist, weiss nur Keycloak (`ActiveCheck` in `lastAdminGuard`).
+ */
+export async function activeAdmins(tx: Tx, schema: string): Promise<{ id: string; subject: string }[]> {
+  return (await tx.query<{ id: string; subject: string }>(
+    `SELECT p.id, p.subject FROM ${schema}.principal p
       WHERE p.kind = 'user' AND p.removed_at IS NULL
         AND EXISTS (SELECT 1 FROM ${schema}.authz_tuple t WHERE t.subject = 'user:' || p.id AND t.relation = $1 AND t.object_type = 'org' AND (t.expires_at IS NULL OR t.expires_at > now()))
-        AND NOT EXISTS (SELECT 1 FROM ${schema}.member_invitation i WHERE i.user_id = p.subject AND i.accepted_at IS NULL)`, [ADMIN_ROLE])).rows.map(r => r.id);
+        AND NOT EXISTS (SELECT 1 FROM ${schema}.member_invitation i WHERE i.user_id = p.subject AND i.accepted_at IS NULL)`, [ADMIN_ROLE])).rows;
 }
 
-/** Die letzte aktive Person mit org-admin bleibt (409 `last-admin`). Ist die Zielperson nicht aktiv, sperrt nichts. */
-export async function lastAdminGuard(tx: Tx, schema: string, principalId: string, label = 'Organisations-Admin'): Promise<void> {
+/**
+ * Die letzte aktive Person mit org-admin bleibt (409 `last-admin`). Ist die Zielperson nicht aktiv, sperrt nichts; andere
+ * zählen nur, wenn ihr Konto aktiv ist (`isActive`, z. B. nicht gesperrt in Keycloak).
+ */
+export async function lastAdminGuard(tx: Tx, schema: string, principalId: string, label = 'Organisations-Admin', isActive?: ActiveCheck): Promise<void> {
   const admins = await activeAdmins(tx, schema);
-  if (admins.includes(principalId) && admins.length === 1) {
-    throw conflict(`Die Organisation braucht mindestens eine aktive Person mit der Rolle «${label}». Zuerst eine andere Person zur Administration machen.`, { reason: 'last-admin' });
-  }
+  if (!admins.some(a => a.id === principalId)) return;
+  for (const a of admins) if (a.id !== principalId && (!isActive || await isActive(a.subject))) return;
+  throw conflict(`Die Organisation braucht mindestens eine aktive Person mit der Rolle «${label}». Zuerst eine andere Person zur Administration machen.`, { reason: 'last-admin' });
 }
 
 /**
  * Rollen eines Subjekts an org auf genau diese Liste setzen (fehlende anlegen, übrige löschen), mit allen Regeln.
  * @returns hinzugefügte und entfernte Rollen
  */
-export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: TupleStore; schema: string; acting: Acting; subject: string; roles: string[]; createdBy: string | null }): Promise<{ added: string[]; removed: string[] }> {
+export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: TupleStore; schema: string; acting: Acting; subject: string; roles: string[]; createdBy: string | null; isActive?: ActiveCheck }): Promise<{ added: string[]; removed: string[] }> {
   const roles = checkRoles(o.access, o.roles);
   const current = (await tx.query<{ id: string; relation: string; expires_at: Date | null }>(
     `SELECT id, relation, expires_at FROM ${o.schema}.authz_tuple WHERE subject = $1 AND object_type = 'org'`, [o.subject])).rows;
@@ -71,7 +80,7 @@ export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: Tu
   const added = roles.filter(r => !have.includes(r)), removed = have.filter(r => !roles.includes(r));
   if (!added.length && !removed.length) return { added, removed };
   await checkRoleChange(o.access, o.acting, [...added, ...removed]);
-  if (removed.includes(ADMIN_ROLE) && o.subject.startsWith('user:')) await lastAdminGuard(tx, o.schema, o.subject.slice(5), o.access.model.roles.get(ADMIN_ROLE)?.label);
+  if (removed.includes(ADMIN_ROLE) && o.subject.startsWith('user:')) await lastAdminGuard(tx, o.schema, o.subject.slice(5), o.access.model.roles.get(ADMIN_ROLE)?.label, o.isActive);
   for (const t of current) {
     if (removed.includes(t.relation) || (added.includes(t.relation) && !live(t))) await o.tuples.revoke(tx, t.id);
   }

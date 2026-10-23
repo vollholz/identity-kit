@@ -297,6 +297,15 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.deepEqual(b.organizations, ['acme']);
     assert.ok(b.roles.includes('editor') && b.permissions.includes('note:write'));
     assert.deepEqual([b.somewhere.includes('note:write'), b.clearance, b.breakGlassUntil, b.breakGlassAllowed, b.tenant.entraConnected], [true, 0, null, false, false]);
+    // Banner-Daten für Break-Glass (Kap. 9.7): erlaubt mit direktem Tupel org-admin; aktiv mit Ende und Stufe 2
+    await grant(t.runtime, r.json().tenant.id, `user:${r.json().principal.id}`, 'org-admin');
+    const allowed = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([allowed.breakGlassAllowed, allowed.breakGlassUntil], [true, null]);
+    const bg = await app.inject({ method: 'POST', url: '/v1/break-glass', cookies: { notes_sid: cookie }, headers: { 'x-csrf-token': allowed.csrfToken }, payload: { reason: 'Banner', minutes: 5 } });
+    assert.equal(bg.statusCode, 200, bg.body);
+    const banner = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([banner.clearance, banner.breakGlassUntil], [2, bg.json().until]);
+    await app.inject({ method: 'DELETE', url: '/v1/break-glass', cookies: { notes_sid: cookie }, headers: { 'x-csrf-token': allowed.csrfToken } });
     assert.ok(!('grantedPermissions' in b));
     assert.ok(typeof b.csrfToken === 'string' && b.csrfToken.length >= 40);
     assert.equal(m.headers['cache-control'], 'no-store');

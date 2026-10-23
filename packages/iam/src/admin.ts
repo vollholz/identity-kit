@@ -587,6 +587,9 @@ export class AdminService {
    * sie keiner anderen Organisation an, wird das unbenutzte Konto gelöscht – fremde Konten nie. `accountDeleted`
    * erfährt nur die Plattform-Administration. Zurückziehen mit Mindestdauer wie beim Einladen.
    */
+  /** Konto in Keycloak vorhanden und nicht gesperrt (zählt für «letzte aktive Person mit org-admin»). */
+  readonly accountActive = async (subject: string): Promise<boolean> => { const u = await this.kc.getUser(subject); return !!u && u.enabled !== false; };
+
   async removeMember(s: Scope, id: string): Promise<{ accountDeleted: boolean }> {
     const org = await this.org(s.alias);
     let invitation = false;
@@ -602,7 +605,7 @@ export class AdminService {
         const principalId = await this.principalIdOf(tx, userId);
         const roles = principalId ? await this.deps.tuples.rolesAtOrg(tx, `user:${principalId}`) : [];
         await checkRoleChange(this.deps.access, acting, roles);
-        if (principalId && roles.includes(ADMIN_ROLE)) await lastAdminGuard(tx, this.S, principalId, this.deps.model.roles.get(ADMIN_ROLE)?.label);
+        if (principalId && roles.includes(ADMIN_ROLE)) await lastAdminGuard(tx, this.S, principalId, this.deps.model.roles.get(ADMIN_ROLE)?.label, this.accountActive);
         if (t.member) { await this.kc.removeMember(org.id, userId); done({ step: 'membership_removed' }); }
         // Verknüpfung mit Entra ID dieser Organisation lösen: sonst bliebe die Anmeldung über Entra bestehen
         const idp = (await tx.query<{ idp_alias: string }>(`SELECT idp_alias FROM ${this.S}.entra_connection`)).rows[0]?.idp_alias;
@@ -644,7 +647,7 @@ export class AdminService {
     await this.locked(s, org, null, async ({ tx, tenantId, log, acting }) => {
       const t = await this.target(tx, org, id);
       const principalId = await this.principalOf(tx, t.userId, t.user ? displayName(t.user) : t.invitation?.display_name ?? null, t.user?.email ?? t.invitation?.email ?? null);
-      const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
+      const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, isActive: this.accountActive });
       if (!added.length && !removed.length) return;
       await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: principalId, data: { added, removed } });
       if (!this.deps.model.permissionsForRoles(roles).has('members:admin')) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);

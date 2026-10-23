@@ -236,7 +236,7 @@ export const accessModule: IamModule = {
       const p = personOf(req);
       const t = await own(p, (req.params as { id: string }).id);
       await write(p, async tx => {
-        if (t.relation === ADMIN_ROLE && t.object_type === ORG && t.subject.startsWith('user:')) await lastAdminGuard(tx, S, t.subject.slice(5), access.model.roles.get(ADMIN_ROLE)?.label);
+        if (t.relation === ADMIN_ROLE && t.object_type === ORG && t.subject.startsWith('user:')) await lastAdminGuard(tx, S, t.subject.slice(5), access.model.roles.get(ADMIN_ROLE)?.label, iam.admin?.accountActive);
         if (!(await tuples.revoke(tx, t.id, actorOf(req, p)))) throw notFound('Freigabe');
       });
       return reply.status(204).send(null);

@@ -46,7 +46,11 @@ test('Kontomenü und «Meine Rollen und Rechte» per Tastatur', async ({ page })
   await page.keyboard.press('Enter');
   const dlg = page.getByRole('dialog', { name: 'Meine Rollen und Rechte' });
   await expect(dlg.getByRole('button', { name: 'Schliessen' })).toBeFocused();
-  await expect(dlg.getByText('Zusätzlich in einzelnen Bereichen freigegeben: «Zugriff verwalten».')).toBeVisible();
+  // Freigaben einzelner Bereiche: eigener Status statt «fehlt», gezählt, Hinweis ohne Bereiche
+  await expect(dlg.getByText('Darf 7 von 10')).toBeVisible();
+  await expect(dlg.getByText(/2 Rechte davon nur in einzelnen Bereichen\./)).toBeVisible();
+  await expect(dlg.locator('.iam-rights-r', { hasText: 'Ordner verwalten' })).toContainText('in einzelnen Bereichen');
+  await expect(dlg.getByText(/Rechte «in einzelnen Bereichen» gelten nur dort, wo eine Zugriffsregel sie freigibt/)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveCount(0);
   await expect(account).toBeFocused();

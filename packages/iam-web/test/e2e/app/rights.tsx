@@ -7,7 +7,8 @@ import { ME, mockIamApi } from '../../../src/testing/index.tsx';
 import './page.css';
 
 sessionStorage.removeItem('iam.tab.org');
-const me = { ...ME, roles: ['folder-admin', 'auditor'], permissions: ['tenant:read', 'acl:read', 'note:read', 'note:write', 'note:delete', 'folder:admin', 'audit:read'], grantedPermissions: ['acl:admin'] };
+// Rollen ohne «Notizen löschen» und «Ordner verwalten»; beides nur über Freigaben einzelner Bereiche (Status «in einzelnen Bereichen»)
+const me = { ...ME, roles: ['editor', 'auditor'], permissions: ['tenant:read', 'acl:read', 'note:read', 'note:write', 'audit:read'], grantedPermissions: ['note:delete', 'folder:admin'] };
 window.fetch = mockIamApi({}, { me }).fetch;
 
 function App() {

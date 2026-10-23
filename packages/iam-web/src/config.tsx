@@ -50,6 +50,10 @@ export interface IamConfig {
   roleGroups?: RoleGroup[];
   /** Symbol je Rolle auf der Seite «Rollen» (Name aus `IamIconName` oder der App); Standard: `shield` für org-admin, sonst `tag`. */
   roleIcons?: Record<string, string>;
+  /** Vorgewählte Rollen beim Einladen; Standard: die Rolle mit den wenigsten Rechten ausser org-admin. */
+  inviteRoles?: string[];
+  /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14) für den Hinweis auf die Gruppen der Rollen; Standard `/orgs`. */
+  groupRolePrefix?: string;
   onTenant?: (me: Me) => void;
   onLogout?: () => void;
 }

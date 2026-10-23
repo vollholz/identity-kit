@@ -18,6 +18,7 @@ import { useId, useMemo, useState } from 'react';
 import { memberApi, useAdminStatus, useMembers } from '../admin.ts';
 import { useAuthz } from '../authz.ts';
 import type { InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts';
+import { useIamConfig } from '../config.tsx';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { ADMIN_ROLE as ADMIN, type Permission } from '../permissions.ts';
@@ -51,6 +52,7 @@ const roleNames = (keys: readonly string[], roles: readonly RoleInfo[]) => keys.
 /** Seite «Mitglieder» der eigenen Organisation (Recht `members:admin` prüft der Guard der Route). */
 export function MembersPage() {
   const { me, orgName: org } = useIam();
+  const { groupRolePrefix = '/orgs' } = useIamConfig();
   const { Button } = useIamUi();
   useIamText();
   const status = useAdminStatus();
@@ -64,7 +66,7 @@ export function MembersPage() {
           <Empty icon="cog" title={t('iam.members.off.title')}>
             <p>{status.data.reason}</p>
             <p className="iam-muted iam-small">{t('iam.members.off.text')}</p>
-            <details className="iam-more"><summary>{t('iam.members.off.details')}</summary><p className="iam-muted iam-small">{t('iam.members.off.groups')} <code>/orgs/{me.tenant?.alias}/&lt;{t('iam.members.off.role')}&gt;</code>.</p></details>
+            <details className="iam-more"><summary>{t('iam.members.off.details')}</summary><p className="iam-muted iam-small">{t('iam.members.off.groups')} <code>{groupRolePrefix.replace(/\/+$/, '')}/{me.tenant?.alias}/&lt;{t('iam.members.off.role')}&gt;</code>.</p></details>
           </Empty>
         ) : <MemberList alias={null} roles={status.data.roles} platform={false} rolesManageable={status.data.rolesManageable} self={me.person.subject} orgLabel={org} inviting={inviting} onInviting={setInviting} />}
       </div></div>
@@ -361,14 +363,22 @@ function RoleView({ member, roles }: { member: Member; roles: RoleInfo[] }) {
 interface InviteProps { alias: string | null; orgLabel: string; roles: RoleInfo[]; platform: boolean; rolesManageable: boolean; onClose: () => void; onDone: () => Promise<void> }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** Vorgabe beim Einladen: die Rolle mit den wenigsten Rechten ausser org-admin (Notiz-App, Assets: Leser:in). */
-const defaultRole = (roles: RoleInfo[]) => [...roles].filter(r => r.key !== ADMIN && !r.adminOnly).sort((a, b) => a.permissions.length - b.permissions.length)[0]?.key;
+/**
+ * Vorgabe beim Einladen: `inviteRoles` der App (nur Rollen, die es gibt), sonst die Rolle mit den wenigsten Rechten
+ * ausser org-admin (Notiz-App und Assets: Leser:in).
+ */
+function defaultRoles(roles: RoleInfo[], configured?: string[]): string[] {
+  if (configured) return configured.filter(k => roles.some(r => r.key === k));
+  const least = [...roles].filter(r => r.key !== ADMIN && !r.adminOnly).sort((a, b) => a.permissions.length - b.permissions.length)[0];
+  return least ? [least.key] : [];
+}
 
 function InviteDialog({ alias, orgLabel, roles, platform, rolesManageable, onClose, onDone }: InviteProps) {
   const { Dialog, Button, Icon, toast } = useIamUi();
   const fid = useId();
   const [d, setD] = useState({ email: '', firstName: '', lastName: '' });
-  const [sel, setSel] = useState<Set<string>>(() => { const r = rolesManageable ? defaultRole(roles) : undefined; return new Set(r ? [r] : []); });
+  const { inviteRoles } = useIamConfig();
+  const [sel, setSel] = useState<Set<string>>(() => new Set(rolesManageable ? defaultRoles(roles, inviteRoles) : []));
   const [result, setResult] = useState<InviteResult | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const send = useMutation({

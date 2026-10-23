@@ -54,6 +54,13 @@ describe('Seite Mitglieder', () => {
     expect(screen.queryByRole('button', { name: 'Person einladen' })).toBeNull();
   });
 
+  it('Hinweis auf die Gruppen folgt `groupRolePrefix` (GROUP_ROLE_PREFIX des Servers)', async () => {
+    const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'aus' }) });
+    vi.stubGlobal('fetch', api.fetch);
+    render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
+    expect(await screen.findByText('/mandanten/demo/<rolle>')).toBeInTheDocument();
+  });
+
   it('listet Mitglieder mit Status, Rollen und «Zuletzt aktiv»; Hauptaktion im Seitenkopf; Name der Organisation', async () => {
     setup(<MembersScreen />, { 'GET /v1/admin/status': () => json(STATUS), 'GET /v1/admin/members': () => json({ items: [ANNA, NORA, ERIK] }) });
     const table = await screen.findByRole('table', { name: 'Mitglieder von Demo AG mit Rollen' });
@@ -324,6 +331,17 @@ describe('Einladen', () => {
     const post = calls.find(c => c.method === 'POST')!;
     expect(await post.clone().json()).toEqual({ email: 'nora@demo.example', roles: ['viewer', 'editor'] });
     expect(post.headers.get('X-CSRF-Token')).toBe('csrf-123');
+  });
+
+  it('Vorgabe der App (`inviteRoles`) statt der Rolle mit den wenigsten Rechten', async () => {
+    const api = mockIamApi({ 'GET /v1/admin/members': () => json({ items: [ANNA] }) });
+    vi.stubGlobal('fetch', api.fetch);
+    render(<StaticIam me={ADMIN_ME} config={{ inviteRoles: ['editor', 'gibt-es-nicht'] }}>{own()}</StaticIam>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Person einladen' }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' })).toBeChecked();
+    expect(within(dlg).queryByRole('checkbox', { name: 'Leser:in' })).toBeNull(); // in Bearbeiter:in enthalten
+    expect(within(dlg).getByText('Leser:in', { selector: '.iam-rp-l' }).closest('li')).toHaveTextContent('in Bearbeiter:in enthalten');
   });
 
   it('mit Versand: Meldung mit Organisation und Adresse, Dialog zu, Liste neu geladen', async () => {

@@ -620,9 +620,17 @@ Audit-Trigger darauf warten.
 - **`KeycloakAdmin(cfg, tokenEndpoint, fetch?, creds?)`** wie Assets (`private_key_jwt` bevorzugt, sonst Geheimnis;
   Admin-URL aus `KEYCLOAK_MGMT_URL` oder dem Issuer; Listen seitenweise mit Obergrenze). Fehlermeldungen nennen statt
   `npm run keycloak:setup` die Variablen und das Realm-Modul.
+  Jedes Pfadsegment läuft über `seg()`: leer, `.`, `..` und Segmente mit `/` werden vor der Anfrage abgewiesen (422),
+  weil `encodeURIComponent` Punkte nicht kodiert und `fetch` Punkt-Segmente auflöst (`DELETE /users/..` träfe den
+  Realm). Nach 401 wird einmal mit neuem Token wiederholt. Die Meldung von Keycloak (`errorMessage`) steht nur in
+  `KeycloakError.kcMessage` (fürs Log), nie in der Antwort. Abweichung von Assets (dort dieselben drei Punkte offen).
 - **`tenants`**: `listTenants`, `findTenant`, `createTenant`, `setTenantStatus`, `relinkTenant` mit `{ schema, audit }` als
   erstem Parameter (Protokoll über den `AuditPort`). `findTenant` vergleicht den Alias nur ASCII klein geschrieben
-  (Assets: `lower()`, das in PostgreSQL das Kelvin-Zeichen zu «k» faltet). `purgeTenantData` bleibt in der App.
+  (Assets: `lower()`, das in PostgreSQL das Kelvin-Zeichen zu «k» faltet); ebenso die E-Mail in `relinkTenant`.
+  Optional `resolver` im Kontext (`iam.resolver`): `setTenantStatus` und `relinkTenant` vergessen den Mandanten dann
+  selbst (sonst wirkt die Änderung nach spätestens 60 s). Gleicher Status: nichts geändert, kein Protokolleintrag.
+  `createTenant` meldet einen bestehenden Mandanten mit anderer Organisations-ID ausdrücklich. `purgeTenantData`
+  bleibt in der App.
 - **Modul `clients`** wie Assets (`/v1/admin/clients…` mit `members:admin`, nur Personen; `/v1/platform/organizations/
   :alias/clients…` nur platform-admin), standardmässig aktiv; Tag `Verwaltung: Maschinen-Clients`. `personOf(req)`
   (nur Personen, nicht über MCP) ist exportiert und dient auch dem Modul `admin`.

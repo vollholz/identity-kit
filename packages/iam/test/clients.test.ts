@@ -73,6 +73,10 @@ describe('Maschinen-Clients: Freigabe je Mandant', { skip }, () => {
     // Maschinen-Clients selbst verwalten keine Freigaben, auch nicht mit org-admin
     const adminClient = await idp.token({ ...claims.client({ clientId: 'import', org: 'acme', roles: ['org-admin'], scopes: ['notes:read'] }) });
     assert.equal((await call(adminClient, 'PUT', '/v1/admin/clients/anderer', { body: {} })).status, 403);
+    // Person mit org-admin über den MCP-Dienst (scope-gebunden): nie
+    const viaMcp = await idp.token({ ...claims.user({ org: 'acme', groupRoles: ['org-admin'], name: 'Ada Acme' }), azp: 'notes-mcp', scope: 'openid notes:read notes:write' });
+    assert.equal((await call(viaMcp, 'GET', '/v1/admin/clients')).status, 403, 'MCP: nur Personen direkt');
+    assert.equal((await call(viaMcp, 'PUT', '/v1/admin/clients/anderer', { body: {} })).status, 403);
     // globex sieht die Freigabe von acme nicht
     assert.deepEqual(ok(await call(tok.globex!, 'GET', '/v1/admin/clients')).items, []);
     assert.equal((await call(tok.globex!, 'DELETE', '/v1/admin/clients/import')).status, 404);

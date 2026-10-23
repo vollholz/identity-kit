@@ -32,14 +32,15 @@ describe('Mandanten verwalten', { skip }, () => {
     assert.deepEqual([tn.alias, tn.name, tn.status], ['sperre', 'Sperre AG', 'active']);
     const me = async () => (await n.app.inject({ url: '/v1/me', headers: { authorization: `Bearer ${await idp.token(claims.user({ org: 'sperre' }))}` } })).statusCode;
     assert.equal(await me(), 200);
-    const suspended = await setTenantStatus(ctx, t.admin, t.runtime, 'sperre', 'suspended', 'Test');
+    // Mit `resolver` im Kontext vergisst setTenantStatus den Mandanten selbst (Wirkung sofort in dieser Instanz)
+    const live = { ...ctx, resolver: n.iam.resolver };
+    const suspended = await setTenantStatus(live, t.admin, t.runtime, 'sperre', 'suspended', 'Test');
     assert.equal(suspended.status, 'suspended');
-    n.iam.resolver.forgetTenant('sperre');
     assert.equal(await me(), 403, 'gesperrt: keine Anmeldung');
-    await setTenantStatus(ctx, t.runtime, t.runtime, 'sperre', 'active', '', { principal: null, source: 'api', correlationId: 'req-1', data: { platformAdmin: true } });
-    n.iam.resolver.forgetTenant('sperre');
+    await setTenantStatus(live, t.runtime, t.runtime, 'sperre', 'active', '', { principal: null, source: 'api', correlationId: 'req-1', data: { platformAdmin: true } });
     assert.equal(await me(), 200);
-    assert.deepEqual(await actions(tn.id), ['tenant.provisioned', 'tenant.suspended', 'tenant.resumed']);
+    assert.equal((await setTenantStatus(live, t.admin, t.runtime, 'sperre', 'active', 'nochmals')).status, 'active');
+    assert.deepEqual(await actions(tn.id), ['tenant.provisioned', 'tenant.suspended', 'tenant.resumed'], 'gleicher Status: kein Eintrag');
     const resumed = (await t.inspect.query("SELECT correlation_id, data FROM notes.audit_log WHERE tenant_id = $1 AND action = 'tenant.resumed'", [tn.id])).rows[0];
     assert.deepEqual([resumed.correlation_id, resumed.data.platformAdmin], ['req-1', true]);
     await assert.rejects(setTenantStatus(ctx, t.admin, t.runtime, 'unbekannt', 'suspended'), /nicht gefunden/);
@@ -73,5 +74,11 @@ describe('Mandanten verwalten', { skip }, () => {
     const log = (await t.inspect.query("SELECT data FROM notes.audit_log WHERE tenant_id = $1 AND action = 'tenant.relinked'", [tn.id])).rows;
     assert.equal(log.length, 1);
     assert.deepEqual([log[0].data.from, log[0].data.to, log[0].data.principals], [alt, neu, [{ email: 'person@example.ch', from: altSub, to: neuSub }]]);
+    // E-Mail nur ASCII klein verglichen: «Kim@…» mit Kelvin-Zeichen (U+212A) ist nicht «kim@…»
+    const kimSub = randomUUID();
+    await t.inspect.query("INSERT INTO notes.principal (tenant_id, kind, subject, display_name, email) VALUES ($1, 'user', $2, 'Kim', 'Kim@Example.ch')", [tn.id, kimSub]);
+    assert.equal((await relinkTenant(ctx, t.admin, t.runtime, 'umzug', neu, { '\u212Aim@example.ch': randomUUID() })).principals, 0, 'Kelvin-Zeichen trifft nicht');
+    assert.equal((await relinkTenant(ctx, t.admin, t.runtime, 'umzug', neu, { 'KIM@EXAMPLE.CH': randomUUID() })).principals, 1, 'ASCII-Grossschreibung trifft');
+    await assert.rejects(createTenant(ctx, t.admin, t.runtime, 'umzug', 'Umzug AG', alt), /anderen Keycloak-Organisation/);
   });
 });

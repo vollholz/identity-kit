@@ -39,18 +39,33 @@ export async function keyInfo(pem: string): Promise<{ alg: string; kid: string; 
   return { alg, kid, publicJwk: { ...jwk, kid, alg, use: 'sig' } };
 }
 
-/** Fehler der Admin-API → verständlicher Fehler der Plattform (ohne Interna von Keycloak preiszugeben). */
+/**
+ * Fehler der Admin-API → verständlicher Fehler der Plattform (ohne Interna von Keycloak preiszugeben). `kcMessage`:
+ * Meldung von Keycloak (`errorMessage`), nur fürs Log (die Fehlerbehandlung protokolliert den Fehler), nie in der Antwort.
+ */
 export class KeycloakError extends HttpError {
   readonly kcStatus: number;
-  constructor(kcStatus: number, what: string, detail?: string) {
+  readonly kcMessage: string | null;
+  constructor(kcStatus: number, what: string, detail?: string, kcMessage: string | null = null) {
     const status = kcStatus === 404 ? 404 : kcStatus === 409 ? 409 : 502;
     const title = kcStatus === 404 ? 'In Keycloak nicht gefunden' : kcStatus === 409 ? 'Konflikt in Keycloak' : 'Keycloak-Verwaltung nicht verfügbar';
     super(status, title, detail ?? what);
     this.kcStatus = kcStatus;
+    this.kcMessage = kcMessage;
   }
 }
 
 type Fetch = typeof fetch;
+
+/**
+ * Ein Pfadsegment der Admin-API. `encodeURIComponent` kodiert `.` nicht, und `fetch` löst Punkt-Segmente auf: Eine ID
+ * `..` machte aus `DELETE /users/..` ein `DELETE` auf den Realm. Leere Segmente, `.`, `..` und Segmente mit `/` werden
+ * deshalb abgewiesen, bevor eine Anfrage hinausgeht.
+ */
+export function seg(s: string): string {
+  if (typeof s !== 'string' || s === '' || s === '.' || s === '..' || s.includes('/')) throw new HttpError(422, 'Ungültige Kennung', 'Kennung für Keycloak ungültig (leer, «.», «..» oder mit «/»).');
+  return encodeURIComponent(s);
+}
 
 export class KeycloakAdmin {
   readonly adminUrl: string;
@@ -117,22 +132,30 @@ export class KeycloakAdmin {
     return this.pending;
   }
 
-  /** Aufruf der Admin-API. `ok`: zusätzlich erlaubte Fehlerstatus (z. B. 404 → null). */
+  /**
+   * Aufruf der Admin-API. `ok`: zusätzlich erlaubte Fehlerstatus (z. B. 404 → null). Bei 401 (Token widerrufen, Schlüssel
+   * gewechselt) einmal mit neuem Token wiederholt.
+   */
   async call<T = unknown>(method: string, path: string, body?: unknown, o: { ok?: number[]; form?: Record<string, string>; what?: string } = {}): Promise<{ status: number; data: T; location: string | null }> {
-    const headers: Record<string, string> = { authorization: `Bearer ${await this.accessToken()}` };
     let payload: string | URLSearchParams | undefined;
-    if (o.form) { payload = new URLSearchParams(o.form); headers['content-type'] = 'application/x-www-form-urlencoded'; }
-    else if (body !== undefined) { payload = JSON.stringify(body); headers['content-type'] = 'application/json'; }
-    let r: Response;
-    try { r = await this.fetchImpl(`${this.adminUrl}${path}`, { method, headers, body: payload, signal: AbortSignal.timeout(this.cfg.timeoutMs) }); }
-    catch (e) { throw new KeycloakError(503, o.what ?? 'Keycloak nicht erreichbar', `Keycloak nicht erreichbar (${(e as Error).name}).`); }
-    if (r.status === 401) this.token = null;
+    const type: Record<string, string> = {};
+    if (o.form) { payload = new URLSearchParams(o.form); type['content-type'] = 'application/x-www-form-urlencoded'; }
+    else if (body !== undefined) { payload = JSON.stringify(body); type['content-type'] = 'application/json'; }
+    let r!: Response;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const headers = { authorization: `Bearer ${await this.accessToken()}`, ...type };
+      try { r = await this.fetchImpl(`${this.adminUrl}${path}`, { method, headers, body: payload, signal: AbortSignal.timeout(this.cfg.timeoutMs) }); }
+      catch (e) { throw new KeycloakError(503, o.what ?? 'Keycloak nicht erreichbar', `Keycloak nicht erreichbar (${(e as Error).name}).`); }
+      if (r.status !== 401) break;
+      this.token = null;
+      if (attempt === 0) await r.body?.cancel().catch(() => undefined);
+    }
     const text = await r.text();
     if (!r.ok && !(o.ok ?? []).includes(r.status)) {
-      let msg = '';
-      try { const j = JSON.parse(text) as { errorMessage?: string; error?: string }; msg = j.errorMessage ?? j.error ?? ''; } catch { /* kein JSON */ }
-      if (r.status === 403) throw new KeycloakError(403, o.what ?? 'Keycloak verweigert', 'Dem Verwaltungs-Client fehlt ein Recht in Keycloak. Einrichtung mit dem Realm-Modul abgleichen.');
-      throw new KeycloakError(r.status, o.what ?? `${method} ${path}`, `${o.what ?? 'Aufruf'} fehlgeschlagen (Keycloak ${r.status}${msg ? `: ${msg.slice(0, 200)}` : ''}).`);
+      let msg: string | null = null;
+      try { const j = JSON.parse(text) as { errorMessage?: string; error?: string }; msg = (j.errorMessage ?? j.error ?? '').slice(0, 500) || null; } catch { /* kein JSON */ }
+      if (r.status === 403) throw new KeycloakError(403, o.what ?? 'Keycloak verweigert', 'Dem Verwaltungs-Client fehlt ein Recht in Keycloak. Einrichtung mit dem Realm-Modul abgleichen.', msg);
+      throw new KeycloakError(r.status, o.what ?? `${method} ${path}`, `${o.what ?? 'Aufruf'} fehlgeschlagen (Keycloak ${r.status}).`, msg);
     }
     let data: T;
     try { data = (text ? JSON.parse(text) : undefined) as T; } catch { data = text as T; }
@@ -164,17 +187,17 @@ export class KeycloakAdmin {
 
   // ---------------------------------------------------------------- Organisationen
   listOrgs() { return this.page<KcOrg>('/organizations?briefRepresentation=false'); }
-  async getOrg(id: string): Promise<KcOrg | null> { return (await this.call<KcOrg>('GET', `/organizations/${encodeURIComponent(id)}`, undefined, { ok: [404] })).data ?? null; }
+  async getOrg(id: string): Promise<KcOrg | null> { return (await this.call<KcOrg>('GET', `/organizations/${seg(id)}`, undefined, { ok: [404] })).data ?? null; }
   async createOrg(rep: Omit<KcOrg, 'id'>): Promise<string> { return KeycloakAdmin.idFrom((await this.call('POST', '/organizations', rep, { what: 'Organisation anlegen' })).location); }
-  async updateOrg(org: KcOrg): Promise<void> { await this.call('PUT', `/organizations/${encodeURIComponent(org.id)}`, org, { what: 'Organisation ändern' }); }
-  members(orgId: string) { return this.page<KcUser>(`/organizations/${encodeURIComponent(orgId)}/members?briefRepresentation=false`); }
+  async updateOrg(org: KcOrg): Promise<void> { await this.call('PUT', `/organizations/${seg(org.id)}`, org, { what: 'Organisation ändern' }); }
+  members(orgId: string) { return this.page<KcUser>(`/organizations/${seg(orgId)}/members?briefRepresentation=false`); }
   async member(orgId: string, userId: string): Promise<KcUser | null> {
-    const r = await this.call<KcUser>('GET', `/organizations/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, undefined, { ok: [404] });
+    const r = await this.call<KcUser>('GET', `/organizations/${seg(orgId)}/members/${seg(userId)}`, undefined, { ok: [404] });
     return r.status === 404 ? null : r.data;
   }
-  async addMember(orgId: string, userId: string) { await this.call('POST', `/organizations/${encodeURIComponent(orgId)}/members`, userId, { what: 'Mitglied hinzufügen' }); }
-  async removeMember(orgId: string, userId: string) { await this.call('DELETE', `/organizations/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, undefined, { what: 'Mitglied entfernen', ok: [404] }); }
-  async memberOrgs(userId: string): Promise<KcOrg[]> { return (await this.call<KcOrg[]>('GET', `/organizations/members/${encodeURIComponent(userId)}/organizations?briefRepresentation=true`)).data ?? []; }
+  async addMember(orgId: string, userId: string) { await this.call('POST', `/organizations/${seg(orgId)}/members`, userId, { what: 'Mitglied hinzufügen' }); }
+  async removeMember(orgId: string, userId: string) { await this.call('DELETE', `/organizations/${seg(orgId)}/members/${seg(userId)}`, undefined, { what: 'Mitglied entfernen', ok: [404] }); }
+  async memberOrgs(userId: string): Promise<KcOrg[]> { return (await this.call<KcOrg[]>('GET', `/organizations/members/${seg(userId)}/organizations?briefRepresentation=true`)).data ?? []; }
   /**
    * Einladung an ein bestehendes Konto (Keycloak sendet die E-Mail; Mitglied erst nach Annahme).
    * `sent`: versendet. `failed`: Versand gescheitert (500, meist kein SMTP im Realm). `refused`: Keycloak lehnt das
@@ -182,7 +205,7 @@ export class KeycloakAdmin {
    * etwas über das Konto, nicht über den Versand; das Modul `admin` antwortet dann wie für ein neues Konto.
    */
   async inviteExistingUser(orgId: string, userId: string): Promise<'sent' | 'failed' | 'refused'> {
-    const r = await this.call('POST', `/organizations/${encodeURIComponent(orgId)}/members/invite-existing-user`, undefined, { form: { id: userId }, ok: [400, 409, 500], what: 'Einladung senden' });
+    const r = await this.call('POST', `/organizations/${seg(orgId)}/members/invite-existing-user`, undefined, { form: { id: userId }, ok: [400, 409, 500], what: 'Einladung senden' });
     return r.status < 300 ? 'sent' : r.status === 500 ? 'failed' : 'refused';
   }
   /** E-Mail-Versand im Realm eingerichtet (SMTP-Server gesetzt)? Braucht view-realm (in manage-realm enthalten). */
@@ -198,27 +221,27 @@ export class KeycloakAdmin {
   }
   /** Konten, deren Benutzername, Name oder Adresse `search` enthält (Teiltreffer, alle Seiten). */
   searchUsers(search: string) { return this.page<KcUser>(`/users?search=${encodeURIComponent(search)}&briefRepresentation=false`); }
-  async getUser(id: string): Promise<KcUser | null> { const r = await this.call<KcUser>('GET', `/users/${encodeURIComponent(id)}`, undefined, { ok: [404] }); return r.status === 404 ? null : r.data; }
+  async getUser(id: string): Promise<KcUser | null> { const r = await this.call<KcUser>('GET', `/users/${seg(id)}`, undefined, { ok: [404] }); return r.status === 404 ? null : r.data; }
   async createUser(rep: Omit<KcUser, 'id'>): Promise<string> { return KeycloakAdmin.idFrom((await this.call('POST', '/users', rep, { what: 'Konto anlegen' })).location); }
-  async deleteUser(id: string) { await this.call('DELETE', `/users/${encodeURIComponent(id)}`, undefined, { ok: [404], what: 'Konto löschen' }); }
+  async deleteUser(id: string) { await this.call('DELETE', `/users/${seg(id)}`, undefined, { ok: [404], what: 'Konto löschen' }); }
   async hasPassword(id: string): Promise<boolean> {
-    return ((await this.call<{ type: string }[]>('GET', `/users/${encodeURIComponent(id)}/credentials`)).data ?? []).some(c => c.type === 'password');
+    return ((await this.call<{ type: string }[]>('GET', `/users/${seg(id)}/credentials`)).data ?? []).some(c => c.type === 'password');
   }
   /** E-Mail mit Aktionen (z. B. «Passwort setzen»). false: Versand gescheitert (meist kein SMTP im Realm). */
   async sendActionsEmail(id: string, actions: string[], o: { lifespanSec: number; clientId?: string; redirectUri?: string }): Promise<boolean> {
     const q = new URLSearchParams({ lifespan: String(o.lifespanSec), ...(o.clientId ? { client_id: o.clientId } : {}), ...(o.redirectUri ? { redirect_uri: o.redirectUri } : {}) });
     // Versand scheitert ohne SMTP mit 500; 400 z. B. bei ungültiger Weiterleitung. Beides: Konto bleibt, E-Mail später erneut senden.
-    const r = await this.call('PUT', `/users/${encodeURIComponent(id)}/execute-actions-email?${q}`, actions, { ok: [400, 500], what: 'Einladung senden' });
+    const r = await this.call('PUT', `/users/${seg(id)}/execute-actions-email?${q}`, actions, { ok: [400, 500], what: 'Einladung senden' });
     return r.status < 300;
   }
 
-  async updateUser(id: string, rep: Partial<KcUser>) { await this.call('PUT', `/users/${encodeURIComponent(id)}`, rep, { what: 'Konto ändern' }); }
-  async credentials(id: string): Promise<KcCredential[]> { return (await this.call<KcCredential[]>('GET', `/users/${encodeURIComponent(id)}/credentials`)).data ?? []; }
-  async deleteCredential(id: string, credentialId: string) { await this.call('DELETE', `/users/${encodeURIComponent(id)}/credentials/${encodeURIComponent(credentialId)}`, undefined, { ok: [404], what: 'Anmeldedaten entfernen' }); }
-  async federatedIdentities(id: string): Promise<KcFederatedIdentity[]> { return (await this.call<KcFederatedIdentity[]>('GET', `/users/${encodeURIComponent(id)}/federated-identity`)).data ?? []; }
+  async updateUser(id: string, rep: Partial<KcUser>) { await this.call('PUT', `/users/${seg(id)}`, rep, { what: 'Konto ändern' }); }
+  async credentials(id: string): Promise<KcCredential[]> { return (await this.call<KcCredential[]>('GET', `/users/${seg(id)}/credentials`)).data ?? []; }
+  async deleteCredential(id: string, credentialId: string) { await this.call('DELETE', `/users/${seg(id)}/credentials/${seg(credentialId)}`, undefined, { ok: [404], what: 'Anmeldedaten entfernen' }); }
+  async federatedIdentities(id: string): Promise<KcFederatedIdentity[]> { return (await this.call<KcFederatedIdentity[]>('GET', `/users/${seg(id)}/federated-identity`)).data ?? []; }
   /** Konto mit einer Identität beim Anbieter verknüpfen (`userId`: Prinzipal beim Anbieter, bei Entra die Objekt-ID). 409: schon verknüpft. */
   async addFederatedIdentity(id: string, link: KcFederatedIdentity): Promise<'linked' | 'conflict'> {
-    const r = await this.call('POST', `/users/${encodeURIComponent(id)}/federated-identity/${encodeURIComponent(link.identityProvider)}`, link, { ok: [409], what: 'Konto verknüpfen' });
+    const r = await this.call('POST', `/users/${seg(id)}/federated-identity/${seg(link.identityProvider)}`, link, { ok: [409], what: 'Konto verknüpfen' });
     return r.status === 409 ? 'conflict' : 'linked';
   }
   /** Konto, das mit dieser Identität beim Anbieter verknüpft ist (bei Entra: Objekt-ID); null = keines. */
@@ -226,35 +249,35 @@ export class KeycloakAdmin {
     const q = new URLSearchParams({ idpAlias: alias, idpUserId, briefRepresentation: 'false', max: '2' });
     return (await this.call<KcUser[]>('GET', `/users?${q}`)).data?.[0] ?? null;
   }
-  async removeFederatedIdentity(id: string, alias: string) { await this.call('DELETE', `/users/${encodeURIComponent(id)}/federated-identity/${encodeURIComponent(alias)}`, undefined, { ok: [404], what: 'Verknüpfung lösen' }); }
+  async removeFederatedIdentity(id: string, alias: string) { await this.call('DELETE', `/users/${seg(id)}/federated-identity/${seg(alias)}`, undefined, { ok: [404], what: 'Verknüpfung lösen' }); }
 
   // ---------------------------------------------------------------- Identitätsanbieter (Recht manage-identity-providers)
-  async getIdp(alias: string): Promise<KcIdp | null> { const r = await this.call<KcIdp>('GET', `/identity-provider/instances/${encodeURIComponent(alias)}`, undefined, { ok: [404] }); return r.status === 404 ? null : r.data; }
+  async getIdp(alias: string): Promise<KcIdp | null> { const r = await this.call<KcIdp>('GET', `/identity-provider/instances/${seg(alias)}`, undefined, { ok: [404] }); return r.status === 404 ? null : r.data; }
   async createIdp(rep: KcIdp) { await this.call('POST', '/identity-provider/instances', rep, { what: 'Identitätsanbieter anlegen' }); }
-  async updateIdp(rep: KcIdp) { await this.call('PUT', `/identity-provider/instances/${encodeURIComponent(rep.alias)}`, rep, { what: 'Identitätsanbieter ändern' }); }
+  async updateIdp(rep: KcIdp) { await this.call('PUT', `/identity-provider/instances/${seg(rep.alias)}`, rep, { what: 'Identitätsanbieter ändern' }); }
   /** Löscht den Anbieter samt aller Verknüpfungen von Konten (Keycloak entfernt sie mit). */
-  async deleteIdp(alias: string) { await this.call('DELETE', `/identity-provider/instances/${encodeURIComponent(alias)}`, undefined, { ok: [404], what: 'Identitätsanbieter löschen' }); }
+  async deleteIdp(alias: string) { await this.call('DELETE', `/identity-provider/instances/${seg(alias)}`, undefined, { ok: [404], what: 'Identitätsanbieter löschen' }); }
   /** Anbieter mit der Organisation verbinden; ohne automatische Mitgliedschaft (sonst kehrte eine entfernte Person mit der nächsten Anmeldung zurück). */
   async linkOrgIdp(orgId: string, alias: string) {
-    const base = `/organizations/${encodeURIComponent(orgId)}/identity-providers`;
+    const base = `/organizations/${seg(orgId)}/identity-providers`;
     await this.call('POST', base, alias, { ok: [409], what: 'Anbieter mit Organisation verbinden' });
-    await this.call('PUT', `${base}/${encodeURIComponent(alias)}`, { autoMembership: false, membershipType: 'UNMANAGED' }, { what: 'Anbieter mit Organisation verbinden' });
+    await this.call('PUT', `${base}/${seg(alias)}`, { autoMembership: false, membershipType: 'UNMANAGED' }, { what: 'Anbieter mit Organisation verbinden' });
   }
-  async unlinkOrgIdp(orgId: string, alias: string) { await this.call('DELETE', `/organizations/${encodeURIComponent(orgId)}/identity-providers/${encodeURIComponent(alias)}`, undefined, { ok: [400, 404], what: 'Anbieter von Organisation lösen' }); }
+  async unlinkOrgIdp(orgId: string, alias: string) { await this.call('DELETE', `/organizations/${seg(orgId)}/identity-providers/${seg(alias)}`, undefined, { ok: [400, 404], what: 'Anbieter von Organisation lösen' }); }
 
   // ---------------------------------------------------------------- Gruppen
   async groupByPath(path: string): Promise<KcGroup | null> {
-    const r = await this.call<KcGroup>('GET', `/group-by-path/${path.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`, undefined, { ok: [404] });
+    const r = await this.call<KcGroup>('GET', `/group-by-path/${path.split('/').filter(Boolean).map(seg).join('/')}`, undefined, { ok: [404] });
     return r.status === 404 ? null : r.data;
   }
   async createGroup(parentId: string | null, name: string): Promise<string> {
-    const r = await this.call('POST', parentId ? `/groups/${encodeURIComponent(parentId)}/children` : '/groups', { name }, { what: 'Gruppe anlegen', ok: [409] });
+    const r = await this.call('POST', parentId ? `/groups/${seg(parentId)}/children` : '/groups', { name }, { what: 'Gruppe anlegen', ok: [409] });
     if (r.status === 409) throw new KeycloakError(409, 'Gruppe existiert bereits');
     return KeycloakAdmin.idFrom(r.location);
   }
-  async deleteGroup(id: string) { await this.call('DELETE', `/groups/${encodeURIComponent(id)}`, undefined, { what: 'Gruppe löschen', ok: [404] }); }
-  groupMembers(groupId: string) { return this.page<KcUser>(`/groups/${encodeURIComponent(groupId)}/members?briefRepresentation=true`); }
-  async userGroups(userId: string): Promise<KcGroup[]> { return (await this.call<KcGroup[]>('GET', `/users/${encodeURIComponent(userId)}/groups?briefRepresentation=true&max=1000`)).data ?? []; }
-  async joinGroup(userId: string, groupId: string) { await this.call('PUT', `/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(groupId)}`, undefined, { what: 'Rolle zuweisen' }); }
-  async leaveGroup(userId: string, groupId: string) { await this.call('DELETE', `/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(groupId)}`, undefined, { what: 'Rolle entziehen', ok: [404] }); }
+  async deleteGroup(id: string) { await this.call('DELETE', `/groups/${seg(id)}`, undefined, { what: 'Gruppe löschen', ok: [404] }); }
+  groupMembers(groupId: string) { return this.page<KcUser>(`/groups/${seg(groupId)}/members?briefRepresentation=true`); }
+  async userGroups(userId: string): Promise<KcGroup[]> { return (await this.call<KcGroup[]>('GET', `/users/${seg(userId)}/groups?briefRepresentation=true&max=1000`)).data ?? []; }
+  async joinGroup(userId: string, groupId: string) { await this.call('PUT', `/users/${seg(userId)}/groups/${seg(groupId)}`, undefined, { what: 'Rolle zuweisen' }); }
+  async leaveGroup(userId: string, groupId: string) { await this.call('DELETE', `/users/${seg(userId)}/groups/${seg(groupId)}`, undefined, { what: 'Rolle entziehen', ok: [404] }); }
 }

@@ -29,5 +29,5 @@ export { IAM_API_TAGS, routeSchema, personOf, HIDDEN, type OpenApiOverrides, typ
 export { authzCatalogSchema } from './http/account.ts';
 export { pointlessAcl } from './http/acl.ts';
 export { Bff, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';
-export { KeycloakAdmin, KeycloakError, keyInfo, type KcOrg, type KcUser, type KcGroup, type KcOrgDomain, type KcIdp, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
+export { KeycloakAdmin, KeycloakError, keyInfo, seg as keycloakSegment, type KcOrg, type KcUser, type KcGroup, type KcOrgDomain, type KcIdp, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
 export { listTenants, findTenant, createTenant, setTenantStatus, relinkTenant, type TenantRow, type TenantActor, type TenantsContext } from './tenants.ts';

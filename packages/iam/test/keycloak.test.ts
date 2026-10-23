@@ -9,7 +9,8 @@ import { test } from 'node:test';
 import { importSPKI, jwtVerify } from 'jose';
 import { KeycloakFake } from '@vollholz/iam-testkit';
 import { ConfigError } from '../src/config.ts';
-import { KeycloakAdmin, KeycloakError, keyInfo } from '../src/keycloak.ts';
+import { HttpError } from '../src/errors.ts';
+import { KeycloakAdmin, KeycloakError, keyInfo, seg } from '../src/keycloak.ts';
 import { testConfig } from './support/config.ts';
 
 const ISSUER = 'http://idp.test/realms/notes', TOKEN = async () => `${ISSUER}/protocol/openid-connect/token`;
@@ -79,4 +80,42 @@ test('Anmeldung abgelehnt bzw. Keycloak nicht erreichbar: 502 ohne Interna', asy
   await assert.rejects(refuse.listOrgs(), (e: unknown) => e instanceof KeycloakError && e.status === 502 && /unauthorized_client/.test(e.detail ?? ''));
   const down = new KeycloakAdmin(cfg, TOKEN, async () => { throw new TypeError('fetch failed'); });
   await assert.rejects(down.listOrgs(), (e: unknown) => e instanceof KeycloakError && /nicht erreichbar/.test(e.detail ?? '') && !/fetch failed/.test(e.detail ?? ''));
+});
+
+test('Pfadsegmente: «..», «.», leer und «/» werden abgewiesen, bevor eine Anfrage hinausgeht (kein DELETE auf den Realm)', async () => {
+  const cfg = testConfig(ISSUER, { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'x' });
+  const fake = new KeycloakFake();
+  const o = fake.org('demo');
+  const sent: string[] = [];
+  const kca = new KeycloakAdmin(cfg, TOKEN, async (i, init) => { sent.push(`${init?.method ?? 'GET'} ${String(i)}`); return fake.fetch(i, init); });
+  for (const bad of ['..', '.', '', 'a/b', '../users']) {
+    for (const run of [() => kca.deleteUser(bad), () => kca.removeMember(o.id, bad), () => kca.leaveGroup(bad, 'g'), () => kca.deleteIdp(bad), () => kca.deleteCredential('u', bad), () => kca.getUser(bad)]) {
+      await assert.rejects(run(), (e: unknown) => e instanceof HttpError && e.status === 422, `«${bad}»`);
+    }
+  }
+  await assert.rejects(kca.groupByPath('/orgs/../demo'), (e: unknown) => e instanceof HttpError && e.status === 422);
+  await assert.rejects(kca.groupByPath('/orgs/./demo'), (e: unknown) => e instanceof HttpError && e.status === 422);
+  assert.deepEqual(sent, [], 'keine Anfrage, auch kein Token');
+  assert.equal(seg('a b%'), 'a%20b%25');
+  assert.equal(seg('ok.id'), 'ok.id');
+  fake.groupPath('/orgs/demo/viewer');
+  assert.equal((await kca.groupByPath('/orgs/demo/viewer'))!.path, '/orgs/demo/viewer');
+});
+
+test('401 der Admin-API: einmal mit neuem Token wiederholt; Meldung von Keycloak nur im Fehler fürs Log, nicht in der Antwort', async () => {
+  const cfg = testConfig(ISSUER, { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'x' });
+  const fake = new KeycloakFake();
+  fake.org('demo');
+  let revoke = 1;
+  const kca = new KeycloakAdmin(cfg, TOKEN, async (i, init) => {
+    if (!String(i).includes('/token') && revoke > 0) { revoke--; return new Response('{"error":"HTTP 401 Unauthorized"}', { status: 401 }); }
+    return fake.fetch(i, init);
+  });
+  assert.deepEqual((await kca.listOrgs()).map(x => x.alias), ['demo']);
+  assert.equal(fake.tokenRequests.length, 2, 'neues Token nach 401');
+  revoke = 2;
+  await assert.rejects(kca.listOrgs(), (e: unknown) => e instanceof KeycloakError && e.kcStatus === 401 && e.status === 502);
+  assert.equal(fake.tokenRequests.length, 3, 'nur ein weiterer Versuch (ein neues Token)');
+  const leaky = new KeycloakAdmin(cfg, TOKEN, async (i, init) => (String(i).includes('/token') ? fake.fetch(i, init) : new Response(JSON.stringify({ errorMessage: 'User exists with same username interne@fremd.example' }), { status: 400 })));
+  await assert.rejects(leaky.deleteUser('x'), (e: unknown) => e instanceof KeycloakError && !JSON.stringify({ d: e.detail, x: e.extra }).includes('fremd') && /fremd/.test(e.kcMessage ?? ''));
 });

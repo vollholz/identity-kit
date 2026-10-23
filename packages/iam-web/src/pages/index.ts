@@ -7,4 +7,7 @@ export { RolesPage } from './Roles.tsx';
 export { ClientList, ClientsPage, checkRightsHref, type ClientListProps } from './Clients.tsx';
 export { OrganizationPage, OrganizationsPage, organizationPath } from './Organizations.tsx';
 export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './Entra.tsx';
-export { ClientsScreen, EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
+export { AccessPage, useAccessSearch } from './Access.tsx';
+export { AddEntry, groupPathError } from './AddEntry.tsx';
+export { Check } from './Check.tsx';
+export { AccessScreen, ClientsScreen, EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';

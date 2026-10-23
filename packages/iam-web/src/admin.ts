@@ -11,10 +11,21 @@ import type {
   EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Member, MemberList, Organization, OrganizationInput,
   OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
 } from './contract.ts';
+import { useIamConfig } from './config.tsx';
 import { iamKeys } from './keys.ts';
 
 export function useAdminStatus(enabled = true) {
   return useQuery({ queryKey: iamKeys.adminStatus, enabled, staleTime: 5 * 60_000, queryFn: ({ signal }) => iamFetch<AdminStatus>('/v1/admin/status', { signal }) });
+}
+
+/**
+ * Präfix der Rollengruppen in Keycloak für Hinweise und Beispiele («/orgs/<alias>/…»): vom Server
+ * (`/v1/admin/status`), sonst `groupRolePrefix` der App, sonst `/orgs`; ohne «/» am Ende.
+ */
+export function useGroupRolePrefix(): string {
+  const { groupRolePrefix } = useIamConfig();
+  const status = useAdminStatus();
+  return (status.data?.groupRolePrefix ?? groupRolePrefix ?? '/orgs').replace(/\/+$/, '');
 }
 
 /** Aufrufe für Mitglieder; `alias` = Organisation der Plattform-Administration, sonst die eigene. */

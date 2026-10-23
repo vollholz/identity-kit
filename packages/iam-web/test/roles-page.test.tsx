@@ -214,12 +214,15 @@ describe('Routen und Navigation', () => {
       ['members', '/verwalten/mitglieder', { perm: 'members:admin' }, 'Mitglieder', 'users', true],
       ['roles', '/verwalten/rollen', { perm: 'members:admin' }, 'Rollen', 'tag', true],
       ['clients', '/verwalten/maschinen-clients', { perm: 'members:admin' }, 'Maschinen-Clients', 'key', true],
+      ['access', '/verwalten/zugriff', { perm: 'acl:read' }, 'Zugriff', 'shield', true],
       ['organizations', '/verwalten/organisationen', { platformAdmin: true }, 'Organisationen', 'building', true],
       ['organization', '/verwalten/organisationen/:alias', { platformAdmin: true }, 'Organisation', 'building', false],
     ]);
     expect(makeIamRoutes({ roles: '/admin/roles' }).find(r => r.id === 'roles')!.path).toBe('/admin/roles');
     // ohne Plattform-Administration in der App (features.platform: false) keine Organisationen
-    expect(makeIamRoutes({}, { platform: false }).map(r => r.id)).toEqual(['members', 'roles', 'clients']);
+    expect(makeIamRoutes({}, { platform: false }).map(r => r.id)).toEqual(['members', 'roles', 'clients', 'access']);
+    // ohne Zugriffsregeln (features.acl: false) keine Seite «Zugriff»
+    expect(makeIamRoutes({}, { platform: false, acl: false }).map(r => r.id)).toEqual(['members', 'roles', 'clients']);
     const { default: Page } = await iamRoutes[1]!.load();
     setup(<Page />, { 'GET /v1/roles': () => json(list()) });
     expect(await screen.findByRole('region', { name: 'Vordefinierte Rollen' })).toBeInTheDocument();
@@ -228,7 +231,7 @@ describe('Routen und Navigation', () => {
   it('IamNav: Gruppe «Zugang» mit Links über den Router-Adapter, aktiv auch auf Unterseiten', async () => {
     setup(<IamNav />, {}, { path: '/verwalten/mitglieder/irgendwas' });
     const nav = screen.getByRole('navigation', { name: 'Zugang' });
-    expect(within(nav).getAllByRole('link').map(a => [a.textContent, a.getAttribute('href')])).toEqual([['Mitglieder', '/verwalten/mitglieder'], ['Rollen', '/verwalten/rollen'], ['Maschinen-Clients', '/verwalten/maschinen-clients']]);
+    expect(within(nav).getAllByRole('link').map(a => [a.textContent, a.getAttribute('href')])).toEqual([['Mitglieder', '/verwalten/mitglieder'], ['Rollen', '/verwalten/rollen'], ['Maschinen-Clients', '/verwalten/maschinen-clients'], ['Zugriff', '/verwalten/zugriff']]);
     expect(within(nav).getByRole('link', { name: 'Mitglieder' })).toHaveAttribute('aria-current', 'page');
     await userEvent.click(within(nav).getByRole('link', { name: 'Rollen' }));
     expect(window.location.pathname).toBe('/verwalten/rollen');

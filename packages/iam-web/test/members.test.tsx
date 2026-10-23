@@ -54,11 +54,16 @@ describe('Seite Mitglieder', () => {
     expect(screen.queryByRole('button', { name: 'Person einladen' })).toBeNull();
   });
 
-  it('Hinweis auf die Gruppen folgt `groupRolePrefix` (GROUP_ROLE_PREFIX des Servers)', async () => {
+  it('Hinweis auf die Gruppen folgt GROUP_ROLE_PREFIX: aus /v1/admin/status, sonst `groupRolePrefix` der App', async () => {
     const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'aus' }) });
     vi.stubGlobal('fetch', api.fetch);
-    render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
+    const { unmount } = render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
     expect(await screen.findByText('/mandanten/demo/<rolle>')).toBeInTheDocument();
+    unmount();
+    // Meldet der Server den Präfix (`/v1/admin/status`), gilt seiner
+    vi.stubGlobal('fetch', mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'aus', groupRolePrefix: '/kunden' }) }).fetch);
+    render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
+    expect(await screen.findByText('/kunden/demo/<rolle>')).toBeInTheDocument();
   });
 
   it('listet Mitglieder mit Status, Rollen und «Zuletzt aktiv»; Hauptaktion im Seitenkopf; Name der Organisation', async () => {

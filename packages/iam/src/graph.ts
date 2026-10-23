@@ -113,15 +113,17 @@ export class EntraGraph {
   }
 
   /**
-   * Adresse der Zustimmung im Tenant (Navigation im Browser): Anmeldung mit Code-Flow, PKCE und `nonce`, Zustimmung
-   * erzwungen (`prompt=consent`). Anders als `…/adminconsent` liefert die Rückkehr einen Code, dessen ID-Token belegt,
-   * wer im Tenant zugestimmt hat (`verifyConsent`).
+   * Adresse der Zustimmung im Tenant (Navigation im Browser): Anmeldung mit Code-Flow, PKCE und `nonce`.
+   * `prompt=admin_consent`: Zustimmung für den ganzen Tenant (Anwendungsberechtigungen über `.default` verlangen ohnehin
+   * Global bzw. Privileged Role Administrator); `openid profile` darf neben `<resource>/.default` stehen, weitere statische
+   * Scopes nicht. Anders als `…/adminconsent` liefert die Rückkehr einen Code, dessen ID-Token belegt, wer im Tenant
+   * zugestimmt hat (`verifyConsent`).
    */
   consentUrl(tenantId: string, o: { state: string; redirectUri: string; nonce: string; codeChallenge: string }): string {
     if (!GUID_RE.test(tenantId)) throw new Error('Tenant-ID ungültig');
     const q = new URLSearchParams({
       client_id: this.cfg.clientId, response_type: 'code', response_mode: 'query', redirect_uri: o.redirectUri, scope: CONSENT_SCOPE,
-      state: o.state, nonce: o.nonce, code_challenge: o.codeChallenge, code_challenge_method: 'S256', prompt: 'consent',
+      state: o.state, nonce: o.nonce, code_challenge: o.codeChallenge, code_challenge_method: 'S256', prompt: 'admin_consent',
     });
     return `${ENTRA_LOGIN}/${tenantId}/oauth2/v2.0/authorize?${q}`;
   }
@@ -150,7 +152,10 @@ export class EntraGraph {
     if (c.nonce !== o.nonce) throw unproven('ID-Token gehört nicht zu dieser Zustimmung.');
     // Gast: `acct` 1 bzw. Anmeldung über einen anderen Aussteller (`idp`)
     if (c.acct === 1 || (typeof c.idp === 'string' && c.idp !== c.iss)) throw unproven('Zugestimmt hat ein Gast des Tenants.');
-    const wids = Array.isArray(c.wids) ? c.wids.map(String) : [];
+    // `wids` gibt Microsoft nur aus, wenn die App-Registrierung Verzeichnisrollen im Gruppen-Claim ausgibt
+    // (groupMembershipClaims mit «DirectoryRole»); fehlt der Claim, gilt die Zustimmung nicht (nie «kein Claim = Admin»)
+    if (!Array.isArray(c.wids)) throw unproven('wids fehlt: DirectoryRole-Claim in der App-Registrierung aktivieren (Token configuration › groups claim › Directory roles).');
+    const wids = c.wids.map(String);
     if (!CONSENT_ADMIN_ROLES.some(w => wids.includes(w))) throw unproven('Die zustimmende Person hat im Tenant weder «Global Administrator» noch «Privileged Role Administrator».');
     if (typeof c.oid !== 'string') throw unproven('ID-Token ohne Objekt-ID.');
     return { oid: c.oid, name: typeof c.name === 'string' ? c.name.slice(0, 256) : null, username: typeof c.preferred_username === 'string' ? c.preferred_username.slice(0, 256) : null };

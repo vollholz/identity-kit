@@ -69,7 +69,8 @@ export interface CatalogRole { key: string; label: string; description: string; 
 export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
 /** Werkzeug des MCP-Dienstes (12.2) mit dem Recht und dem Scope, die es braucht. */
 export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean }
-export interface ResourceTypeInfo { key: string; label: string }
+/** `leaf`: Blatt der Kette, dort nie `grant` (7.1); fehlt, wenn der Server es nicht meldet. */
+export interface ResourceTypeInfo { key: string; label: string; leaf?: boolean }
 
 export interface AuthzCatalog {
   permissions: PermissionInfo[];
@@ -117,6 +118,8 @@ export interface AdminStatus {
   canManageMembers: boolean;
   rolesManageable: boolean;
   roles: RoleInfo[];
+  /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14), z. B. `/orgs`; ältere Server ohne. */
+  groupRolePrefix?: string;
 }
 /** Rolle in `GET /v1/admin/status`: vergebbare Rollen der Organisation mit ihren Rechten. */
 export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }

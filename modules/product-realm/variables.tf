@@ -63,19 +63,10 @@ variable "iac_client_id" {
 # ---------- Rechtekatalog, Schlüssel, Texte
 
 variable "catalog" {
-  description = "Rollen und Scopes aus dem Rechtekatalog der App (Inhalt von infra/keycloak/platform.json): roles = { <rolle> = <Beschreibung> }, scopes = [<scope>, …]. Ohne die reservierte Rolle org-admin: die legt das Modul selbst an."
+  description = "Scopes aus dem Modell der App: scopes = [<scope>, …]. Rollen kennt Keycloak nicht (Rollen liegen in der App-Datenbank)."
   type = object({
-    roles  = map(string)
     scopes = list(string)
   })
-  validation {
-    condition     = length(setintersection(keys(var.catalog.roles), ["org-admin", "platform-admin"])) == 0
-    error_message = "catalog.roles ohne org-admin (legt das Modul an) und ohne platform-admin (Realm-Rolle): Spezifikation 8.1. platform.json mit @vollholz/iam ab 0.4.0 erzeugen (catalog.platformJson())."
-  }
-  validation {
-    condition     = alltrue([for r in keys(var.catalog.roles) : can(regex("^[a-z][a-z0-9-]*$", r)) && !startswith(r, "c-")])
-    error_message = "Rollen: ^[a-z][a-z0-9-]*$ und nicht mit c- (eigene Rollen der Organisation, Spezifikation 8.2/8.3)."
-  }
   validation {
     condition     = alltrue([for s in var.catalog.scopes : can(regex("^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$", s))])
     error_message = "Scopes: <bereich>:<verb> (Spezifikation 8.2)."
@@ -207,16 +198,15 @@ variable "entra_deny_message" {
 variable "machine_clients" {
   description = <<-EOT
     Maschinen-Clients als Code (Kap. 12.1, B4), Schlüssel = Client-ID. organizations: Aliasse der Organisationen, für
-    die der Client Tokens erhält (einer: Organisations-Client; mehrere: System-Client, je Aufruf X-Tenant). roles:
-    Rollen des Katalogs (Client-Rollen von <produkt>-platform; nie eigene Rollen c-…). scopes: Rechte-Scopes des
-    Katalogs. jwks: öffentlicher Schlüssel (JWKS, EC P-256, z. B. keys/<client>.json). Nur REST-API (Zielgruppe
+    die der Client Tokens erhält (einer: Organisations-Client; mehrere: System-Client, je Aufruf X-Tenant). Rollen
+    gibt es in Keycloak nicht: die Rolle der Maschine liegt als Client-Freigabe in der App-Datenbank. scopes:
+    Rechte-Scopes des Katalogs. jwks: öffentlicher Schlüssel (JWKS, EC P-256, z. B. keys/<client>.json). Nur REST-API (Zielgruppe
     <produkt>-api). Wirksam erst mit der Freigabe in der jeweiligen Organisation (App, members:admin). Braucht m2m = true.
   EOT
   type = map(object({
     name          = optional(string)
     description   = optional(string, "")
     organizations = list(string)
-    roles         = list(string)
     scopes        = optional(list(string), [])
     jwks          = string
   }))
@@ -237,10 +227,6 @@ variable "machine_clients" {
     condition = alltrue([for m in values(var.machine_clients) : length(m.organizations) > 0 && length(distinct(m.organizations)) == length(m.organizations)
     && alltrue([for a in m.organizations : can(regex("^[a-z0-9][a-z0-9_-]{0,62}$", a))])])
     error_message = "machine_clients: organizations mit mindestens einem Alias (^[a-z0-9][a-z0-9_-]{0,62}$), ohne Doppelte."
-  }
-  validation {
-    condition     = alltrue([for m in values(var.machine_clients) : length(m.roles) > 0 && length(setsubtract(m.roles, concat(["org-admin"], keys(var.catalog.roles)))) == 0])
-    error_message = "machine_clients: roles mit mindestens einer Rolle, nur Rollen des Katalogs (org-admin oder catalog.roles; keine eigenen Rollen c-…)."
   }
   validation {
     condition     = alltrue([for m in values(var.machine_clients) : length(setsubtract(m.scopes, var.catalog.scopes)) == 0])

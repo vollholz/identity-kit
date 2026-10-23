@@ -22,7 +22,6 @@ module "realm" {
   keycloak_base_path = var.keycloak_base_path
 
   catalog = {
-    roles  = { editor = "Bearbeiter:in", viewer = "Leser:in" }
     scopes = ["${var.product}:read", "notes:write"]
   }
   theme_texts = {
@@ -44,7 +43,6 @@ module "realm" {
   machine_clients = var.switches ? {
     "${var.product}-export" = {
       organizations = ["acme", "zeta"]
-      roles         = ["viewer"]
       scopes        = ["${var.product}:read"]
       jwks          = file("${var.keys_dir}/${var.product}-m2m.json")
     }

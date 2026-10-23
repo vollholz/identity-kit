@@ -76,6 +76,23 @@ await migrate(cfg.db.adminUrl!, [
 ]);
 ```
 
+**Übernahme bestehender Objekte** (App mit eigenen IAM-Tabellen, z. B. Assets): `adopted` trägt die IAM-Migrationen bis
+`IAM_BASELINE` und die zugeordneten späteren nur ein, nach geprüften Vorbedingungen (sonst Abbruch ohne Eintrag). Für
+Assets mit 051–053:
+
+```ts
+import { ASSETS_ADOPTION } from '@vollholz/iam';
+
+await migrate(cfg.db.adminUrl!, [
+  dirMigrations('db/migrations'),
+  iamMigrations({ product: 'assets', resourceTypes: […], leafTypes: ['object'], adopted: ASSETS_ADOPTION }),
+  // = { after: '053_acl_unique.sql', map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
+  //     '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' } }
+]);
+```
+
+Die IAM-Migrationen laufen direkt nach `after`; nur `iam_009` wird ausgeführt.
+
 ## 5. API
 
 ```ts

@@ -2,6 +2,7 @@
 import { Requires, RequiresPlatformAdmin } from '../rights/Requires.tsx';
 import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
+import { AccessPage } from './Access.tsx';
 import { ClientsPage } from './Clients.tsx';
 import { EntraPage } from './Entra.tsx';
 import { MembersPage } from './Members.tsx';
@@ -42,4 +43,9 @@ export function OrganizationScreen() {
 export function EntraScreen() {
   useIamText();
   return <Requires perm="members:admin" title={t('iam.entra.title')} icon="shield"><EntraPage /></Requires>;
+}
+
+export function AccessScreen() {
+  useIamText();
+  return <Requires perm="acl:read" title={t('iam.acl.title')} icon="shield"><AccessPage /></Requires>;
 }

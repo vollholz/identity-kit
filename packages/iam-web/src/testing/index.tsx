@@ -3,10 +3,11 @@
  * - `StaticIam`: Provider mit fester Sitzung ohne Server (Konfiguration, Texte, Grundkomponenten, QueryClient)
  * - `mockIamApi`: fetch-Ersatz mit Antworten je «METHOD /pfad» und Standardantworten für /auth/me, Katalog und Rollen
  * - `CATALOG`, `ME`: Beispielkatalog und Person (Notiz-App)
+ * - `staticResources`: Adapter `resources` aus festen Namen und Eltern (Zugriffsregeln ohne Daten der App)
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
-import { DEFAULT_PATHS, IamConfigProvider, type IamConfig } from '../config.tsx';
+import { DEFAULT_PATHS, IamConfigProvider, type IamConfig, type IamResources } from '../config.tsx';
 import type { AuthzCatalog, Me, RoleList } from '../contract.ts';
 import { historyRouter } from '../router.tsx';
 import { StaticSession } from '../session.tsx';
@@ -83,5 +84,34 @@ export function mockIamApi(routes: Record<string, MockHandler> = {}, o: { me?: M
       const h = all[`${req.method} ${new URL(req.url).pathname}`];
       return h ? h(req) : json({ title: 'Nicht gefunden', status: 404 }, 404);
     },
+  };
+}
+
+/**
+ * Adapter `resources` aus festen Daten: `names[type][id] = Name`, `parents['type:id'] = { type, id }` (Stufe darüber,
+ * ohne tenant). Unbekannte IDs eines Typs mit Namen gelten als unbekannt (`known: false`), andere Typen als nicht prüfbar.
+ */
+export function staticResources(names: Record<string, Record<string, string>>, o: { parents?: Record<string, { type: string; id: string }>; noGrant?: string[] } = {}): IamResources {
+  const chain = (type: string, id: string) => {
+    const out: { type: string; id: string; label: string }[] = [];
+    const seen = new Set([`${type}:${id}`]);
+    const parent = (k: string) => (o.parents && Object.hasOwn(o.parents, k) ? o.parents[k] : undefined);
+    // Zyklus in `parents` (Testdaten): abbrechen statt endlos laufen
+    for (let p = parent(`${type}:${id}`); p && !seen.has(`${p.type}:${p.id}`); p = parent(`${p.type}:${p.id}`)) {
+      seen.add(`${p.type}:${p.id}`);
+      out.unshift({ ...p, label: names[p.type]?.[p.id] ?? p.id });
+    }
+    return out;
+  };
+  return {
+    useResolver: () => ({
+      name: (type, id) => (names[type] && Object.hasOwn(names[type], id) ? names[type][id] : undefined),
+      known: (type, id) => (names[type] ? Object.hasOwn(names[type], id) : undefined),
+    }),
+    pick: async (type, query) => Object.entries(names[type] ?? {})
+      .filter(([, label]) => label.toLowerCase().includes(query.trim().toLowerCase()))
+      .map(([value, label]) => ({ value, label, sub: chain(type, value).map(s => s.label).join(' › ') || undefined })),
+    useChain: (type, id) => (id ? chain(type, id) : []),
+    ...(o.noGrant ? { noGrant: o.noGrant } : {}),
   };
 }

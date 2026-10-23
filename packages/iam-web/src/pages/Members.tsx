@@ -17,7 +17,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useState } from 'react';
-import { memberApi, useAdminStatus, useEntra, useMembers } from '../admin.ts';
+import { memberApi, useAdminStatus, useEntra, useGroupRolePrefix, useMembers } from '../admin.ts';
 import { authLink } from '../client.ts';
 import { useAuthz } from '../authz.ts';
 import type { EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts';
@@ -62,7 +62,8 @@ const roleNames = (keys: readonly string[], roles: readonly RoleInfo[]) => keys.
 /** Seite «Mitglieder» der eigenen Organisation (Recht `members:admin` prüft der Guard der Route). */
 export function MembersPage() {
   const { me, orgName: org } = useIam();
-  const { groupRolePrefix = '/orgs', features } = useIamConfig();
+  const { features } = useIamConfig();
+  const groupRolePrefix = useGroupRolePrefix();
   const { Button } = useIamUi();
   useIamText();
   const status = useAdminStatus();
@@ -78,7 +79,7 @@ export function MembersPage() {
           <Empty icon="cog" title={t('iam.members.off.title')}>
             <p>{status.data.reason}</p>
             <p className="iam-muted iam-small">{t('iam.members.off.text')}</p>
-            <details className="iam-more"><summary>{t('iam.members.off.details')}</summary><p className="iam-muted iam-small">{t('iam.members.off.groups')} <code>{groupRolePrefix.replace(/\/+$/, '')}/{me.tenant?.alias}/&lt;{t('iam.members.off.role')}&gt;</code>.</p></details>
+            <details className="iam-more"><summary>{t('iam.members.off.details')}</summary><p className="iam-muted iam-small">{t('iam.members.off.groups')} <code>{groupRolePrefix}/{me.tenant?.alias}/&lt;{t('iam.members.off.role')}&gt;</code>.</p></details>
           </Empty>
         ) : <MemberList alias={null} roles={status.data.roles} platform={false} rolesManageable={status.data.rolesManageable} self={me.person.subject} orgLabel={org} inviting={inviting} onInviting={setInviting} />}
       </div></div>

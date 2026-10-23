@@ -15,7 +15,7 @@ import { useIamText } from './texts/react.tsx';
 import { useIamUi } from './ui/context.tsx';
 import type { IamIconName } from './ui/icons.ts';
 
-export type IamRouteId = 'members' | 'roles' | 'entra' | 'entraConsent' | 'entraTest' | 'clients' | 'organizations' | 'organization';
+export type IamRouteId = 'members' | 'roles' | 'entra' | 'entraConsent' | 'entraTest' | 'clients' | 'access' | 'organizations' | 'organization';
 
 export interface IamRoute {
   id: IamRouteId;
@@ -42,7 +42,7 @@ export const tanstackParam = (name: string) => `$${name}`;
 
 /**
  * Routen mit den Pfaden und Schaltern der App (`paths`, `features` wie bei `IamProvider`): ohne `platform` keine
- * Organisationen, ohne `entra` keine Anmeldung über Microsoft Entra ID. `param` schreibt Parameter im Stil des Routers.
+ * Organisationen, ohne `entra` keine Anmeldung über Microsoft Entra ID, mit `acl: false` keine Seite «Zugriff». `param` schreibt Parameter im Stil des Routers.
  */
 export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatures = {}, o: { param?: (name: string) => string } = {}): IamRoute[] {
   const p = { ...DEFAULT_PATHS, ...paths };
@@ -55,10 +55,11 @@ export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatur
     { id: 'entraConsent', path: `${p.entra}/zustimmung`, need: null, get title() { return t('iam.entra.connectTitle'); }, icon: 'shield', nav: false, load: () => pages().then(m => ({ default: m.EntraConsentReturn })) },
     { id: 'entraTest', path: `${p.entra}/test`, need: null, get title() { return t('iam.entra.testTitle'); }, icon: 'shield', nav: false, load: () => pages().then(m => ({ default: m.EntraTestReturn })) },
     { id: 'clients', path: p.clients, need: { perm: 'members:admin' }, get title() { return t('iam.clients.title'); }, icon: 'key', nav: true, load: () => pages().then(m => ({ default: m.ClientsScreen })) },
+    { id: 'access', path: p.access, need: { perm: 'acl:read' }, get title() { return t('iam.acl.title'); }, icon: 'shield', nav: true, load: () => pages().then(m => ({ default: m.AccessScreen })) },
     { id: 'organizations', path: p.organizations, need: { platformAdmin: true }, get title() { return t('iam.orgs.title'); }, icon: 'building', nav: true, load: () => pages().then(m => ({ default: m.OrganizationsScreen })) },
     { id: 'organization', path: `${p.organizations}/${param('alias')}`, need: { platformAdmin: true }, get title() { return t('iam.orgs.one'); }, icon: 'building', nav: false, load: () => pages().then(m => ({ default: m.OrganizationScreen })) },
   ];
-  return all.filter(r => (features.platform !== false || !(r.need && 'platformAdmin' in r.need)) && (features.entra || !r.id.startsWith('entra')));
+  return all.filter(r => (features.platform !== false || !(r.need && 'platformAdmin' in r.need)) && (features.entra || !r.id.startsWith('entra')) && (features.acl !== false || r.id !== 'access'));
 }
 
 /** Routen mit den Standardpfaden. */

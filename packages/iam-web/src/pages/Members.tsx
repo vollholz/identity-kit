@@ -219,7 +219,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
               {rows.map(m => {
                 const [st, cls, why] = STATUS[m.status];
                 const inv = m.status === 'invited';
-                const fixed = !rolesManageable || (!platform && m.roles.includes(ADMIN)) || m.roles.some(k => !label[k]);
+                const fixed = !rolesManageable || (platform ? m.roles.some(k => !label[k]) : m.roles.includes(ADMIN));
                 return (
                   <tr key={m.id}>
                     <td><div className="iam-b">{m.name}{m.id === self ? <span className="iam-muted iam-small"> {t('iam.members.you')}</span> : null}</div><div className="iam-mono-s iam-muted">{m.email ?? m.username}</div></td>
@@ -454,9 +454,9 @@ function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable
   const { Dialog, Button, Icon, toast } = useIamUi();
   const authz = useAuthz();
   const fid = useId();
-  // Rollen, die diese Ansicht nicht kennt (eigene Rollen einer anderen Organisation in der Plattformansicht): nur ansehen,
-  // sonst gingen sie beim Speichern verloren
-  const foreign = member.roles.filter(k => !roles.some(r => r.key === k));
+  // Plattformansicht: Rollen, die sie nicht kennt, sind eigene Rollen dieser Organisation – nur ansehen, sonst gingen sie
+  // beim Speichern verloren. In der eigenen Organisation ist eine unbekannte Rolle gelöscht und fällt beim Speichern weg.
+  const foreign = platform ? member.roles.filter(k => !roles.some(r => r.key === k)) : [];
   const viewOnly = !rolesManageable || (!platform && member.roles.includes(ADMIN)) || foreign.length > 0;
   const [sel, setSel] = useState<Set<string>>(() => new Set(member.roles));
   const [confirming, setConfirming] = useState(false);

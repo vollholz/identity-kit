@@ -116,7 +116,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const { cfg } = iam;
   const prefix = o.apiPrefix ?? '/v1';
   const typeBase = o.problemTypeBase ?? `${cfg.publicBaseUrl}/probleme/`;
-  const isPublic = publicMatcher(o.publicPaths ?? []);
+  // Seite der Entra-Administration (Link ohne Sitzung): Schutz über Token, state und PKCE
+  const isPublic = publicMatcher([...(o.publicPaths ?? []), `${prefix}/entra/handover/*`]);
   const spanAttribute = o.spanAttribute ?? 'iam.tenant';
   const realm = iam.catalog.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };

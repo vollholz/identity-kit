@@ -29,7 +29,7 @@
  * Personen vorab hinzufügen: `search` sucht Personen im Tenant der Organisation; hinzufügen, verknüpfen und einladen
  * macht `AdminService.addFromEntra` mit `connectionOf`, `graph`, `linkAccount` und `removeFirstFactor`.
  */
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMAIN_RE, entraAddress, type AdminDeps, type AdminService, type Scope, type Work } from './admin.ts';
 import type { IamConfig } from './config.ts';
@@ -38,12 +38,25 @@ import { conflict, HttpError, invalid, notFound } from './errors.ts';
 import { EntraError, notLinkable, SEARCH_MIN, type ConsentApprover, type EntraGraph, type EntraOrganization, type EntraUser } from './graph.ts';
 import type { KcIdp, KcOrg, KcOrgDomain, KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
-import { listTenants } from './tenants.ts';
+import type { Principal } from './principal.ts';
+import { findTenant, listTenants, type TenantRow } from './tenants.ts';
 
 /** Ablauf der Erstanmeldung über den Anbieter: verweigert immer (Realm-Modul, `entra.tf`). */
 export const entraFirstLoginFlow = (product: string) => `${product}-entra-first-login`;
 /** Gültigkeit einer gestarteten Admin-Zustimmung. */
 const CONSENT_TTL_MS = 15 * 60_000;
+/** Längste Gültigkeit eines Links an die Entra-Administration. */
+const LINK_MAX_MINUTES = 24 * 60;
+const LINK_COLS = 'id, entra_tenant_id::text AS entra_tenant_id, platform, created_by::text AS created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, used_at, revoked_at, approver_name, error_reason, error_detail';
+interface LinkRow {
+  id: string; entra_tenant_id: string; platform: boolean; created_by: string; created_by_subject: string; created_by_name: string; created_by_tenant: string;
+  created_at: Date; expires_at: Date; used_at: Date | null; revoked_at: Date | null; approver_name: string | null; error_reason: string | null; error_detail: string | null;
+}
+/** Link an die Entra-Administration für die Liste der Organisation. */
+export interface ConsentLinkOut {
+  id: string; entraTenantId: string; createdByName: string; createdAt: Date; expiresAt: Date;
+  status: 'open' | 'expired' | 'revoked' | 'connected' | 'failed'; usedAt: Date | null; approverName: string | null; error: { reason: string; detail: string } | null;
+}
 /** Nach der Zustimmung braucht Entra einige Sekunden, bis die Rechte gelten. */
 const CONSENT_RETRY_MS = [0, 2_000, 4_000, 8_000];
 /** Erstfaktoren, die die automatische Weiterleitung zu Entra verhindern (Keycloak: OrganizationAuthenticator). */
@@ -54,6 +67,8 @@ export const consentPath = (cfg: Pick<IamConfig, 'entra'>) => `${cfg.entra.uiPat
 export const consentRedirectUri = (cfg: Pick<IamConfig, 'entra' | 'publicBaseUrl'>) => `${cfg.publicBaseUrl}${consentPath(cfg)}`;
 /** Pfad der Oberfläche, auf den die Testanmeldung zurückführt. */
 export const testPath = (cfg: Pick<IamConfig, 'entra'>) => `${cfg.entra.uiPath}/test`;
+/** Öffentliche Seite für den Link an die Entra-Administration (Token im Fragment). */
+export const handoverPath = (cfg: Pick<IamConfig, 'entra'>) => `${cfg.entra.uiPath}/freigabe`;
 /** Alias des n-ten Platzes. */
 export const slotAlias = (n: number) => `entra-${String(n).padStart(3, '0')}`;
 /** Redirect-URIs aller Plätze (Broker-Endpunkt von Keycloak) – in der Entra-App einzutragen. */
@@ -248,7 +263,7 @@ export class EntraService {
       `UPDATE ${this.S}.entra_consent SET used_at = now() WHERE state_hash = $1 AND used_at IS NULL AND expires_at > now() AND subject = $2 AND platform = $3
        RETURNING entra_tenant_id::text AS tid`, [hash(p.state), s.actor.subject, s.platform])).rows[0]);
     if (!row) throw gone();
-    try { return await this.proveAndConnect(s, org, row.tid, p); } catch (e) {
+    try { return (await this.proveAndConnect(s, org, row.tid, p)).result; } catch (e) {
       // Abgelehnt, nicht nachgewiesen oder Fehler bei Microsoft: im Protokoll der Organisation (der state ist verbraucht)
       if (e instanceof HttpError && e.status === 409 && ['consent-error', 'consent-unproven'].includes(String(e.extra.reason))) {
         await withTenant(this.deps.db, { tenantId }, tx => this.admin.write(tx, this.admin.actorOf(s), {
@@ -259,7 +274,7 @@ export class EntraService {
     }
   }
 
-  private async proveAndConnect(s: Scope, org: KcOrg, tid: string, p: { state: string; code?: string; error?: string; errorDescription?: string }): Promise<ConnectResult> {
+  private async proveAndConnect(s: Scope, org: KcOrg, tid: string, p: { state: string; code?: string; error?: string; errorDescription?: string }, audit: Record<string, unknown> = {}): Promise<{ result: ConnectResult; approver: ConsentApprover }> {
     const g = this.on();
     const row = { tid };
     if (p.error) {
@@ -282,7 +297,7 @@ export class EntraService {
         if (!(e instanceof EntraError) || e.status !== 409 || wait === this.retryMs.at(-1)) throw e;
       }
     }
-    return this.connect(s, org, eo!, approver);
+    return { result: await this.connect(s, org, eo!, approver, audit), approver };
   }
 
   /**
@@ -292,6 +307,148 @@ export class EntraService {
   private consentProof(state: string): { verifier: string; nonce: string } {
     const mac = (label: string) => createHmac('sha256', this.deps.cfg.entra.clientSecret ?? '').update(`${label}\0${state}`).digest('base64url');
     return { verifier: mac('pkce'), nonce: mac('nonce') };
+  }
+
+  // ---------------------------------------------------------------- Link an die Entra-Administration
+  /**
+   * Link für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf (Entra-Administration), ohne Sitzung in
+   * der App. Gleiche Prüfungen wie beim Start der Zustimmung; der Link ist an Organisation, Mandant und den verlangten
+   * Entra-Tenant gebunden, einmal einlösbar, widerrufbar und läuft ab (Standard 15 Minuten, höchstens 24 Stunden). Das
+   * Token steht im Fragment der Adresse (`<ENTRA_UI_PATH>/freigabe#<token>`, nie in Logs oder im Referer) und wird nur als
+   * SHA-256 gespeichert; vorne steht der Alias, damit die Einlösung den Mandanten findet.
+   */
+  async createConsentLink(s: Scope, input: { tenant: string; validMinutes?: number }): Promise<{ id: string; url: string; entraTenantId: string; expiresAt: Date }> {
+    const g = this.on();
+    const org = await this.admin.org(s.alias);
+    if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
+    const minutes = input.validMinutes ?? CONSENT_TTL_MS / 60_000;
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > LINK_MAX_MINUTES) throw invalid('Gültigkeit ungültig', [{ path: '/validMinutes', message: `5 bis ${LINK_MAX_MINUTES} Minuten` }]);
+    const tid = await g.resolveTenant(input.tenant);
+    if (!tid) throw invalid('Tenant nicht gefunden', [{ path: '/tenant', message: 'Tenant-ID (GUID) oder eine Domäne des Tenants angeben, z. B. contoso.onmicrosoft.com' }]);
+    const token = `${org.alias}.${randomBytes(32).toString('base64url')}`;
+    const tenantId = await this.admin.tenantFor(s, org);
+    const row = await withTenant(this.deps.db, { tenantId }, async tx => {
+      const existing = await this.connectionOf(tx);
+      if (existing && existing.entraTenantId !== tid) throw conflict('Die Organisation ist bereits mit einem anderen Entra-Tenant verbunden. Zuerst trennen.');
+      const r = (await tx.query<{ id: string; expires_at: Date }>(`INSERT INTO ${this.S}.entra_consent_link
+          (tenant_id, token_hash, entra_tenant_id, platform, created_by, created_by_subject, created_by_name, created_by_tenant, expires_at)
+        VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6, $7, now() + make_interval(mins => $8)) RETURNING id, expires_at`,
+      [hash(token), tid, s.platform, s.actor.principalId, s.actor.subject, s.actor.name.slice(0, 256), s.actor.tenantAlias, minutes])).rows[0]!;
+      await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_link_created', resourceType: 'tenant', resourceId: tenantId, data: { linkId: r.id, entraTenantId: tid, expiresAt: r.expires_at } });
+      return r;
+    });
+    return { id: row.id, url: `${this.deps.cfg.publicBaseUrl}${handoverPath(this.deps.cfg)}#${token}`, entraTenantId: tid, expiresAt: row.expires_at };
+  }
+
+  /** Links der Organisation, die neuesten zuerst (höchstens 20), mit Zustand und Fehler. */
+  async consentLinks(s: Scope): Promise<ConsentLinkOut[]> {
+    this.on();
+    const { tenantId } = await this.ctx(s);
+    const rows = await withTenant(this.deps.db, { tenantId }, async tx => (await tx.query<LinkRow & { expired: boolean }>(
+      `SELECT ${LINK_COLS}, expires_at <= now() AS expired FROM ${this.S}.entra_consent_link ORDER BY created_at DESC LIMIT 20`)).rows);
+    return rows.map(r => ({
+      id: r.id, entraTenantId: r.entra_tenant_id, createdByName: r.created_by_name, createdAt: r.created_at, expiresAt: r.expires_at,
+      status: r.revoked_at ? 'revoked' : r.used_at ? 'connected' : r.expired ? 'expired' : r.error_reason ? 'failed' : 'open',
+      usedAt: r.used_at, approverName: r.approver_name, error: r.error_reason ? { reason: r.error_reason, detail: r.error_detail ?? '' } : null,
+    }));
+  }
+
+  /** Link widerrufen; eingelöst 409, unbekannt 404. */
+  async revokeConsentLink(s: Scope, id: string): Promise<void> {
+    this.on();
+    const { tenantId } = await this.ctx(s);
+    await withTenant(this.deps.db, { tenantId }, async tx => {
+      const r = (await tx.query<{ used_at: Date | null; revoked_at: Date | null }>(`SELECT used_at, revoked_at FROM ${this.S}.entra_consent_link WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      if (!r) throw notFound('Link');
+      if (r.used_at) throw conflict('Der Link ist schon eingelöst.');
+      if (r.revoked_at) return;
+      await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now() WHERE id = $1`, [id]);
+      // offene Zustimmungen über diesen Link verfallen mit
+      await tx.query(`UPDATE ${this.S}.entra_consent SET expires_at = now() WHERE link_id = $1 AND used_at IS NULL`, [id]);
+      await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: tenantId, data: { linkId: id } });
+    });
+  }
+
+  /**
+   * Offener Link zum Token: Mandant über den Alias vorne im Token, dann unter RLS über den Hash. Unbekannt, abgelaufen,
+   * widerrufen, eingelöst oder Organisation gesperrt: immer dieselbe Antwort (404), nichts über den Grund.
+   */
+  private async openLink(token: string): Promise<{ tenant: TenantRow; link: LinkRow }> {
+    const gone = new HttpError(404, 'Link ungültig', 'Der Link ist abgelaufen, wurde widerrufen oder schon verwendet. Bitte bei der Administration der Organisation einen neuen Link anfordern.');
+    const alias = /^([a-z0-9][a-z0-9_-]{0,62})\.[A-Za-z0-9_-]{43}$/.exec(token)?.[1];
+    const tenant = alias ? await findTenant(this.deps.db, alias) : null;
+    if (!tenant || tenant.status !== 'active') throw gone;
+    const link = await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => (await tx.query<LinkRow>(
+      `SELECT ${LINK_COLS} FROM ${this.S}.entra_consent_link WHERE token_hash = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`, [hash(token)])).rows[0]);
+    if (!link) throw gone;
+    return { tenant, link };
+  }
+
+  /** Öffentlich: was die Seite zeigt – nur Name der Organisation, App und Ablauf. */
+  async handoverInfo(token: string): Promise<{ organization: string; product: string; expiresAt: Date }> {
+    this.on();
+    const { tenant, link } = await this.openLink(token);
+    return { organization: tenant.name, product: this.deps.catalog.product, expiresAt: link.expires_at };
+  }
+
+  /** Öffentlich: Zustimmung bei Microsoft starten (wie startConsent, `state` mit `h.`); wiederholbar, solange der Link offen ist. */
+  async handoverStart(token: string): Promise<{ url: string }> {
+    const g = this.on();
+    const { tenant, link } = await this.openLink(token);
+    const state = `h.${tenant.alias}.${randomBytes(32).toString('base64url')}`;
+    await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
+      await tx.query(`DELETE FROM ${this.S}.entra_consent WHERE expires_at < now()`);
+      await tx.query(`INSERT INTO ${this.S}.entra_consent (tenant_id, state_hash, entra_tenant_id, subject, platform, link_id, expires_at)
+        VALUES (app.tenant_id(), $1, $2, NULL, $3, $4, least(now() + make_interval(secs => $5), $6))`, [hash(state), link.entra_tenant_id, link.platform, link.id, CONSENT_TTL_MS / 1000, link.expires_at]);
+    });
+    const proof = this.consentProof(state);
+    return { url: g.consentUrl(link.entra_tenant_id, { state, redirectUri: consentRedirectUri(this.deps.cfg), nonce: proof.nonce, codeChallenge: createHash('sha256').update(proof.verifier).digest('base64url') }) };
+  }
+
+  /**
+   * Öffentlich: Rückkehr von Microsoft über einen Link. Gleicher Nachweis wie completeConsent; verbunden wird im Namen der
+   * Person, die den Link erzeugt hat (Akteur im Protokoll), mit der zustimmenden Person (`consentBy`) und `viaLink`.
+   * Der Link wird vor dem Nachweis belegt (zwei Rückkehren gleichzeitig: nur eine verbindet) und bei einem Fehlschlag
+   * mit dem Fehler wieder frei; der `state` ist dann verbraucht.
+   */
+  async handoverComplete(p: { state: string; code?: string; error?: string; errorDescription?: string }): Promise<{ organization: string; connected: true }> {
+    this.on();
+    const gone = new HttpError(404, 'Zustimmung nicht gefunden', 'Die Zustimmung ist abgelaufen oder wurde schon verwendet. Den Link erneut öffnen.');
+    const alias = /^h\.([a-z0-9][a-z0-9_-]{0,62})\./.exec(p.state)?.[1];
+    const tenant = alias ? await findTenant(this.deps.db, alias) : null;
+    if (!tenant || tenant.status !== 'active') throw gone;
+    const claimed = await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
+      const c = (await tx.query<{ tid: string; link_id: string }>(
+        `UPDATE ${this.S}.entra_consent SET used_at = now() WHERE state_hash = $1 AND used_at IS NULL AND expires_at > now() AND link_id IS NOT NULL
+         RETURNING entra_tenant_id::text AS tid, link_id`, [hash(p.state)])).rows[0];
+      if (!c) return null;
+      const link = (await tx.query<LinkRow>(`UPDATE ${this.S}.entra_consent_link SET used_at = now()
+          WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now() RETURNING ${LINK_COLS}`, [c.link_id])).rows[0];
+      return link ? { tid: c.tid, link } : null;
+    });
+    if (!claimed) throw gone;
+    const { link } = claimed;
+    // Akteur: die Person, die den Link erzeugt hat (ohne Token; Rechte prüfte die Erzeugung)
+    const actor: Principal = {
+      tenantId: tenant.id, tenantAlias: link.created_by_tenant, principalId: link.created_by, kind: 'user', subject: link.created_by_subject, name: link.created_by_name,
+      email: null, clientId: null, roles: [], groups: [], scopes: [], platformAdmin: link.platform, binding: 'none', token: '',
+    };
+    const s: Scope = { alias: tenant.alias, actor, platform: link.platform, source: 'api', correlationId: randomUUID() };
+    try {
+      const org = await this.admin.org(tenant.alias);
+      const { approver } = await this.proveAndConnect(s, org, claimed.tid, p, { viaLink: link.id, linkCreatedBy: link.created_by_name });
+      await withTenant(this.deps.db, { tenantId: tenant.id }, tx => tx.query(`UPDATE ${this.S}.entra_consent_link SET approver_name = $2, error_reason = NULL, error_detail = NULL WHERE id = $1`,
+        [link.id, (approver.name ?? approver.username ?? approver.oid).slice(0, 256)]));
+      return { organization: org.name, connected: true };
+    } catch (e) {
+      const known = e instanceof HttpError && e.status === 409;
+      await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
+        await tx.query(`UPDATE ${this.S}.entra_consent_link SET used_at = NULL, error_reason = $2, error_detail = $3 WHERE id = $1`,
+          [link.id, known ? String(e.extra.reason ?? 'conflict').slice(0, 64) : 'error', known ? (e.detail ?? e.title).slice(0, 1000) : 'Verbinden fehlgeschlagen']);
+        if (known) await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_failed', resourceType: 'tenant', resourceId: tenant.id, data: { entraTenantId: claimed.tid, reason: e.extra.reason ?? null, detail: e.detail ?? null, viaLink: link.id } });
+      }).catch(() => undefined);
+      throw e;
+    }
   }
 
   // ---------------------------------------------------------------- Bausteine
@@ -428,7 +585,7 @@ export class EntraService {
    * schon beim Aktivieren bzw. Hinzufügen der Domäne verloren). Scheitert ein Schritt, werden Organisation und ein neu
    * angelegter Anbieter zurückgesetzt; was bleibt, protokolliert locked() (`entra.connect_failed`).
    */
-  private async connect(s: Scope, org0: KcOrg, eo: EntraOrganization, approver: ConsentApprover | null = null): Promise<ConnectResult> {
+  private async connect(s: Scope, org0: KcOrg, eo: EntraOrganization, approver: ConsentApprover | null = null, audit: Record<string, unknown> = {}): Promise<ConnectResult> {
     const g = this.on();
     return this.admin.locked(s, org0, { action: 'entra.connect_failed', resourceType: 'tenant' }, async w => {
       const { tx } = w;
@@ -470,7 +627,7 @@ export class EntraService {
         const members = EntraService.report(plan);
         await w.log({ action: existing ? 'entra.reconnected' : 'entra.connected', resourceType: 'tenant', resourceId: w.tenantId, data: {
           entraTenantId: eo.id, entraName: eo.displayName, domains: bound, rejectedDomains: rejected, stage: c.stage, linked: members.filter(r => r.linked).length,
-          ...(approver ? { consentBy: approver } : {}),
+          ...(approver ? { consentBy: approver } : {}), ...audit,
           notLinked: members.filter(r => !r.linked).map(r => ({ email: r.email, reason: r.reason })),
         } });
         this.deps.resolver.forgetEntra();

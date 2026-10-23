@@ -13,13 +13,13 @@
  * antworten mit 503. Die Personensuche ist je Person auf 30 Anfragen pro Minute begrenzt, wenn die App
  * `@fastify/rate-limit` registriert (`config.rateLimit` der Route).
  */
-import { Type } from '@sinclair/typebox';
+import { Type, type TSchema } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AdminService, Scope } from '../admin.ts';
-import { consentPath } from '../entra.ts';
+import { consentPath, handoverPath } from '../entra.ts';
 import type { EntraService } from '../entra.ts';
 import { forbidden, HttpError } from '../errors.ts';
-import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, Deleted, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG = 'Verwaltung: Anmeldung über Microsoft Entra ID';
 const OFF_DETAIL = 'Die Verwaltung von Organisationen und Mitgliedern ist in dieser Instanz nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID). Bis dahin in der Keycloak-Konsole verwalten.';
@@ -77,6 +77,12 @@ const EntraResult = Type.Object({
   }), { description: 'Mitglieder mit Adresse in einer betroffenen Domäne; bei «Nur Entra» wurde ihr Passwort entfernt' }),
   rejectedDomains: Type.Array(Type.String(), { description: 'Verifizierte Domänen, die bereits einer anderen Organisation zugeordnet sind (welcher, bleibt verborgen)' }),
 });
+const ConsentLink = Type.Object({
+  id: Type.String({ format: 'uuid' }), entraTenantId: Type.String(), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
+  status: Type.Union(['open', 'expired', 'revoked', 'connected', 'failed'].map(x => Type.Literal(x))),
+  usedAt: Nullable(DateTime), approverName: Nullable(Type.String({ description: 'Person, die bei Microsoft zugestimmt hat' })),
+  error: Nullable(Type.Object({ reason: Type.String(), detail: Type.String() })),
+}, { $id: 'EntraConsentLink', title: 'EntraConsentLink' });
 const ConsentComplete = Type.Object({
   state: Type.String({ minLength: 10, maxLength: 200 }),
   code: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: 'Code der Anmeldung (Nachweis der Zustimmung)' })),
@@ -91,6 +97,7 @@ export const entraModule: IamModule = {
     const { iam, prefix } = ctx;
     if (!app.getSchema('Member')) throw new Error('Modul «entra» braucht das Modul «admin» (davor registriert)');
     app.addSchema(EntraConnection);
+    app.addSchema(ConsentLink);
 
     const on = (): { svc: AdminService; ent: EntraService } => {
       if (!iam.admin || !iam.entra) throw new HttpError(503, 'Verwaltung nicht eingerichtet', OFF_DETAIL);
@@ -204,6 +211,55 @@ export const entraModule: IamModule = {
     };
     entraRoutes(`${prefix}/admin/entra`, own, false);
     entraRoutes(`${prefix}/platform/organizations/:alias/entra`, byAlias, true);
+
+    // ---------------------------------------------------------------- Link an die Entra-Administration
+    const linkRoutes = (base: string, scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
+      const p = withAlias ? { params: AliasParams } : {};
+      app.post(`${base}/consent-links`, {
+        schema: routeSchema(ctx, 'POST', `${base}/consent-links`, {
+          tags: [TAG], summary: 'Verbinden: Link an die Entra-Administration erzeugen', ...p,
+          body: Type.Object({
+            tenant: Type.String({ minLength: 3, maxLength: 253, description: 'Tenant-ID (GUID) oder eine Domäne des Tenants' }),
+            validMinutes: Type.Optional(Type.Integer({ minimum: 5, maximum: 1440, description: 'Gültigkeit in Minuten (Standard 15, höchstens 24 Stunden)' })),
+          }, { additionalProperties: false }),
+          description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf: \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator»).`,
+          response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), url: Type.String(), entraTenantId: Type.String(), expiresAt: DateTime }) },
+        }),
+      }, async (req, reply) => { const sc = await scope(req); return reply.status(201).send(await on().ent.createConsentLink(sc, req.body as { tenant: string; validMinutes?: number })); });
+
+      app.get(`${base}/consent-links`, {
+        schema: routeSchema(ctx, 'GET', `${base}/consent-links`, {
+          tags: [TAG], summary: 'Verbinden: Links an die Entra-Administration', ...p,
+          description: 'Die neuesten 20 Links mit Zustand: `open`, `expired`, `revoked`, `connected` (mit zustimmender Person), `failed` (letzter Versuch mit Fehler, Link noch offen bis zum Ablauf).',
+          response: { 200: Type.Object({ items: Type.Array(Type.Ref('EntraConsentLink')) }) },
+        }),
+      }, async req => { const sc = await scope(req); return { items: await on().ent.consentLinks(sc) }; });
+
+      app.delete(`${base}/consent-links/:id`, {
+        schema: routeSchema(ctx, 'DELETE', `${base}/consent-links/:id`, {
+          tags: [TAG], summary: 'Verbinden: Link widerrufen', params: Type.Object({ ...(withAlias ? AliasParams.properties : {}), id: Type.String({ format: 'uuid' }) }),
+          description: 'Offene Zustimmungen über den Link verfallen mit. Schon eingelöst: 409.', response: Deleted,
+        }),
+      }, async (req, reply) => { const sc = await scope(req); await on().ent.revokeConsentLink(sc, (req.params as { id: string }).id); return reply.status(204).send(); });
+    };
+    linkRoutes(`${prefix}/admin/entra`, own, false);
+    linkRoutes(`${prefix}/platform/organizations/:alias/entra`, byAlias, true);
+
+    // Öffentlich (ohne Anmeldung, siehe plugin.ts): Seite der Entra-Administration. Je IP 20 Anfragen pro Minute; keine
+    // Daten ausser Name der Organisation und Produkt; nie zwischengespeichert
+    const handoverLimit = { max: 20, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-handover:${req.ip}` };
+    const publicRoute = (path: string, summary: string, description: string, body: TSchema, response: TSchema, fn: (b: any) => Promise<unknown>) =>
+      app.post(`${prefix}/entra/handover/${path}`, {
+        schema: routeSchema(ctx, 'POST', `${prefix}/entra/handover/${path}`, { tags: [TAG], summary, description, body, security: [], response: { 200: response } }),
+        config: { rateLimit: handoverLimit },
+      }, async (req, reply) => { reply.header('cache-control', 'no-store'); return fn(req.body); });
+    const Token = Type.Object({ token: Type.String({ minLength: 46, maxLength: 120, description: 'Token aus dem Fragment des Links' }) }, { additionalProperties: false });
+    publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation und Produkt für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
+      Token, Type.Object({ organization: Type.String(), product: Type.String(), expiresAt: DateTime }), b => on().ent.handoverInfo(b.token));
+    publicRoute('start', 'Link der Entra-Administration: Zustimmung starten', 'Ohne Anmeldung. Adresse der Zustimmung bei Microsoft (Code-Flow mit PKCE, `prompt=admin_consent`); Rückkehr auf dieselbe Seite wie beim eigenen Verbinden, `state` mit `h.`. Wiederholbar, solange der Link offen ist.',
+      Token, Type.Object({ url: Type.String() }), b => on().ent.handoverStart(b.token));
+    publicRoute('complete', 'Link der Entra-Administration: Rückkehr von Microsoft', 'Ohne Anmeldung. Gleicher Nachweis wie `…/consent/complete` (sonst 409 `consent-unproven` bzw. `consent-error`); verbindet im Namen der Person, die den Link erzeugt hat. Erfolg löst den Link ein; ein Fehlschlag verbraucht nur den `state`.',
+      ConsentComplete, Type.Object({ organization: Type.String(), connected: Type.Literal(true) }), b => on().ent.handoverComplete(b));
 
     // Testanmeldung: jede Person der Organisation, deren Sitzung über den Anbieter angemeldet ist (nicht nur org-admin)
     app.post(`${prefix}/admin/entra/test`, {

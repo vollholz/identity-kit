@@ -1,6 +1,6 @@
 /**
  * Beispielkatalog einer Notiz-App (Spezifikation 8, 15.2) für Tests der Bausteine und der Apps: reservierte Rechte und
- * Rollen (8.1) plus `note:*` und `folder:admin`, Ressourcenkette tenant → folder → note.
+ * Rollen (8.1) plus `note:*` und `folder:admin`, Ressourcenkette tenant → folder → note (Blatt).
  */
 import type { AuthzCatalog, Me } from '../contract.ts';
 
@@ -38,7 +38,8 @@ export const CATALOG: AuthzCatalog = {
     { key: 'notes:read', text: 'Organisation und Notizen lesen', permissions: ['tenant:read', 'note:read'] },
     { key: 'notes:write', text: 'Notizen ändern und löschen', permissions: ['note:write', 'note:delete'] },
   ],
-  resourceTypes: [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz' }],
+  // `leaf`: Blatt der Kette, dort keine Freigabe (Spezifikation 7.1)
+  resourceTypes: [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz', leaf: true }],
 };
 
 /** /auth/me einer Person mit zwei Organisationen (Organisation des Tabs: «Demo AG»). */

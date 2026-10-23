@@ -1,13 +1,14 @@
 /**
  * Testseite der Verwalten-Seiten: Navigation «Zugang» (IamNav), Seiten aus `iamRoutes` (mit Guard, per `load()`),
- * nachgebildete API mit Zustand (Einladen, Rollen setzen, eigene Rollen, Maschinen-Clients, Organisationen). Die Person
+ * nachgebildete API mit Zustand (Einladen, Rollen setzen, eigene Rollen, Maschinen-Clients, Zugriffsregeln, Organisationen),
+ * Ordner und Notizen über `staticResources`. Die Person
  * gehört zur Plattform-Administration. `?p=<id>` startet auf dieser Route (`organization` mit «muster»).
  */
 import { lazy, StrictMode, Suspense, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../src/styles.css';
-import { historyRouter, IamNav, IamProvider, makeIamRoutes, type ClientGrant, type EntraConnection, type Member, type Organization, type Role } from '../../../src/index.ts';
-import { CATALOG, json, ME, mockIamApi } from '../../../src/testing/index.tsx';
+import { historyRouter, IamNav, IamProvider, makeIamRoutes, type AclEntry, type ClientGrant, type EntraConnection, type Member, type Organization, type Role } from '../../../src/index.ts';
+import { CATALOG, json, ME, mockIamApi, staticResources } from '../../../src/testing/index.tsx';
 import './page.css';
 
 sessionStorage.removeItem('iam.tab.org');
@@ -35,6 +36,16 @@ let entra: EntraConnection = {
   connectedAt: ago(2), connectedBy: 'Anna Admin', refreshedAt: ago(1),
 };
 const entraMembers = [{ email: 'anna@demo.example', name: 'Anna Admin', linked: true, reason: null }, { email: 'carla@demo.example', name: 'Carla Check', linked: false, reason: 'In Entra ID nicht gefunden' }];
+const F1 = '00000000-0000-4000-8000-0000000000f1', F2 = '00000000-0000-4000-8000-0000000000f2', N1 = '00000000-0000-4000-8000-0000000000a1';
+const resources = staticResources({ folder: { [F1]: 'Projekte', [F2]: 'Archiv mit einem langen Ordnernamen' }, note: { [N1]: 'Protokoll' } }, { parents: { [`note:${N1}`]: { type: 'folder', id: F1 } } });
+const acl = (id: string, o: Partial<AclEntry>): AclEntry => ({ id, resourceType: 'folder', resourceId: F1, principalType: 'role', principalRef: 'editor', permission: 'note:write', effect: 'restrict', createdAt: ago(5), createdBy: 'p-anna', ...o });
+let aclEntries: AclEntry[] = [
+  acl('a1', {}),
+  acl('a2', { principalType: 'user', principalRef: 'p-m-carla', permission: 'note:delete', effect: 'grant' }),
+  acl('a3', { resourceType: 'tenant', resourceId: null, principalRef: 'viewer', permission: 'note:read', effect: 'deny' }),
+  acl('a4', { resourceId: F2, principalType: 'group', principalRef: '/orgs/demo/team-mit-einem-langen-gruppennamen', permission: 'audit:read' }),
+];
+const people = () => members.filter(m => m.principalId).map(m => ({ id: m.principalId!, kind: 'user', name: m.name, email: m.email, clientId: null, lastSeenAt: m.lastSeenAt }));
 const features = { entra: true };
 const routes = makeIamRoutes({}, features);
 const roles = () => ({
@@ -80,6 +91,23 @@ window.fetch = mockIamApi({
     return json(c, 201);
   },
   'DELETE /v1/admin/clients/neu-client': () => { clients = clients.filter(c => c.clientId !== 'neu-client'); return new Response(null, { status: 204 }); },
+  'GET /v1/acl': () => json({ items: aclEntries }),
+  'POST /v1/acl': async req => {
+    const e = acl(`a${aclEntries.length + 1}-${Date.now()}`, { ...await req.json() as Partial<AclEntry>, createdAt: new Date().toISOString() });
+    aclEntries = [...aclEntries, e];
+    return json(e, 201);
+  },
+  ...Object.fromEntries(['a1', 'a2', 'a3', 'a4'].map(id => [`DELETE /v1/acl/${id}`, () => { aclEntries = aclEntries.filter(e => e.id !== id); return new Response(null, { status: 204 }); }])),
+  'GET /v1/acl/effective': req => {
+    const roles = new URL(req.url).searchParams.getAll('roles');
+    const simulated = roles.length > 0;
+    return json({ principal: { id: 'p-anna', kind: 'user', name: 'Anna Admin', clientId: null }, simulated, source: simulated ? 'simulation' : 'token', roles: simulated ? roles : ME.roles, groups: [], scopes: [],
+      permissions: [], granted: [], resources: [{ resourceType: 'folder', resourceId: F1, permission: 'note:write', allowed: !simulated }, { resourceType: 'folder', resourceId: F2, permission: 'audit:read', allowed: true }] });
+  },
+  'GET /v1/people': req => {
+    const u = new URL(req.url), q = (u.searchParams.get('q') ?? '').toLowerCase(), ids = u.searchParams.getAll('ids');
+    return json({ items: people().filter(p => (ids.length ? ids.includes(p.id) : p.name.toLowerCase().includes(q))), nextCursor: null });
+  },
   'GET /v1/platform/organizations': () => json({ items: orgs }),
   ...Object.fromEntries(['demo', 'muster', 'neu'].flatMap(a => [
     [`GET /v1/platform/organizations/${a}`, () => json(orgs.find(o => o.alias === a))],
@@ -111,7 +139,7 @@ function Pages() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <IamProvider product="Notizen" features={features}>
+    <IamProvider product="Notizen" features={features} resources={resources}>
       <div className="admin">
         <aside><IamNav /></aside>
         <main className="admin-main"><Pages /></main>

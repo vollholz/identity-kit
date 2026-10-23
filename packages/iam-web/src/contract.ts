@@ -69,7 +69,8 @@ export interface CatalogRole { key: string; label: string; description: string; 
 export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
 /** Werkzeug des MCP-Dienstes (12.2) mit dem Recht und dem Scope, die es braucht. */
 export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean }
-export interface ResourceTypeInfo { key: string; label: string }
+/** `leaf`: Blatt der Kette, dort nie `grant` (7.1); fehlt, wenn der Server es nicht meldet. */
+export interface ResourceTypeInfo { key: string; label: string; leaf?: boolean }
 
 export interface AuthzCatalog {
   permissions: PermissionInfo[];

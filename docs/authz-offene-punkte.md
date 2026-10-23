@@ -40,7 +40,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 
 | # | Punkt | Herkunft | Entscheid |
 |---|---|---|---|
-| – | – | – | – |
+| O1 | Entra-Gruppen: Überlauf bei mehr als 200 Gruppen (Entra liefert dann keinen `groups`-Claim); ggf. Gruppen-Filter in der App-Registrierung oder Abfrage über Graph | Review #43 | offen, nach P1 |
 
 ## Verworfen
 

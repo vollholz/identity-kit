@@ -458,7 +458,10 @@ Eigener PR in vollholz/assets nach 0.1.0, Paket gepinnt (`"@vollholz/iam-web": "
    | `legacyTabKey` | `"assets.tab.org"` |
    | `components` | `{ Icon }` (Assets-Symbole), `toast` aus `ui/Toasts.tsx`; Knopf, Dialog, Menü, Tabelle aus dem Paket |
    | `roleGroups`, `roleIcons` | heutige `ROLE_GROUPS`, `ROLE_ICON` |
-   | `resources` | Schema, Typ (Kette Schema › Obertypen), Verbindung, Credential; `noGrant: ['object']` |
+   | `resources` | Schema, Typ (Kette Schema › Obertypen), Verbindung, Credential; `noGrant: ['object']` (solange der Katalog `leaf` nicht meldet) |
+   | `inviteRoles` | keine (Standard: Rolle mit den wenigsten Rechten ausser org-admin) |
+   | `groupRolePrefix` | keine (der Server meldet ihn in `/v1/admin/status`) |
+   | `entraConsentHosts` | keine (Standard `login.microsoftonline.com`) |
    | `people` | keine (Standard `/v1/people`) |
    | `onTenant` | `me => setPrefScope(me.person.subject, me.tenant?.id ?? null)` |
    | `onLogout` | `clearPersonalPrefs` |

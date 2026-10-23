@@ -19,6 +19,7 @@ const BANNED_TERMS = /Mandant|(?<!X-)Tenant\b|\bACL\b|Principal\b/;
 /** Anrede in der Sie-Form (Grossschreibung mitten im Satz oder am Anfang). */
 const SIE_FORM = /\b(Sie|Ihr|Ihre|Ihren|Ihrem|Ihrer|Ihres|Ihnen)\b/;
 /** Gewollte 3. Person, z. B. «Sie lässt sich nicht entfernen» (Organisation, Rolle) – mit Begründung eintragen. */
+// `iam.handover.*`: öffentliche Freigabe für die Entra-Administration der Kunden-IT, eine Person ausserhalb der App («Sie»)
 const SIE_EXCEPTIONS = new Set<string>([
   'iam.members.lastAdmin', // «Sie lässt sich nicht entfernen»: die Person mit der Rolle, keine Anrede (Wortlaut Assets)
 ]);
@@ -57,7 +58,7 @@ describe('Texte', () => {
   });
 
   it('de: Du-Form, kein ß, Begriffe nach 11.2', () => {
-    const bad = Object.entries(de).filter(([k, v]) => (SIE_FORM.test(v) && !SIE_EXCEPTIONS.has(k)) || v.includes('ß') || BANNED_TERMS.test(v));
+    const bad = Object.entries(de).filter(([k, v]) => (SIE_FORM.test(v) && !SIE_EXCEPTIONS.has(k) && !k.startsWith('iam.handover.')) || v.includes('ß') || BANNED_TERMS.test(v));
     expect(bad).toEqual([]);
   });
 

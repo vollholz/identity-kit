@@ -7,9 +7,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { ifMatch, iamFetch } from './client.ts';
 import type {
-  AdminStatus, ClientGrant, ClientGrantList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
+  AdminStatus, ClientGrant, ClientGrantList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
   EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Member, MemberList, Organization, OrganizationInput,
-  OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
+  HandoverInfo, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
 } from './contract.ts';
 import { useIamConfig } from './config.tsx';
 import { iamKeys } from './keys.ts';
@@ -105,8 +105,28 @@ export function entraApi(alias: string | null) {
     enforce: (notLinked: string[]) => iamFetch<EntraResult>(`${base}/enforce`, { method: 'POST', body: { notLinked } }),
     refresh: () => iamFetch<EntraResult>(`${base}/refresh`, { method: 'POST' }),
     disconnect: () => iamFetch<void>(base, { method: 'DELETE' }),
+    /** Links an die Entra-Administration: anlegen (Link mit Token, nur jetzt sichtbar), Liste, widerrufen. */
+    links: {
+      create: (body: ConsentLinkInput) => iamFetch<ConsentLinkCreated>(`${base}/consent-links`, { method: 'POST', body }),
+      list: (signal?: AbortSignal) => iamFetch<ConsentLinkList>(`${base}/consent-links`, { signal }).then(r => r.items),
+      revoke: (id: string) => iamFetch<void>(`${base}/consent-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
   };
 }
+
+export function useConsentLinks(alias: string | null, enabled = true) {
+  return useQuery({ queryKey: iamKeys.consentLinks(alias), enabled, queryFn: ({ signal }) => entraApi(alias).links.list(signal) });
+}
+
+/**
+ * Öffentliche Übergabe an die Entra-Administration (ohne Sitzung, ohne X-Tenant und CSRF, gleiche Herkunft): das Token
+ * nur im Body, nie in der Adresse.
+ */
+export const handoverApi = {
+  info: (token: string) => iamFetch<HandoverInfo>('/v1/entra/handover/info', { method: 'POST', body: { token }, anonymous: true }),
+  start: (token: string) => iamFetch<HandoverStart>('/v1/entra/handover/start', { method: 'POST', body: { token }, anonymous: true }),
+  complete: (body: EntraConsentReturn) => iamFetch<HandoverResult>('/v1/entra/handover/complete', { method: 'POST', body, anonymous: true }),
+};
 
 /** Testanmeldung festhalten (immer die eigene Organisation dieses Tabs; jede Person der Organisation). */
 export const entraTest = () => iamFetch<EntraConnection>('/v1/admin/entra/test', { method: 'POST' });

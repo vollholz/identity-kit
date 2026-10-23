@@ -7,7 +7,7 @@
 import { lazy, StrictMode, Suspense, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../src/styles.css';
-import { historyRouter, IamNav, IamProvider, makeIamRoutes, type AclEntry, type ClientGrant, type EntraConnection, type Member, type Organization, type Role } from '../../../src/index.ts';
+import { historyRouter, IamNav, IamProvider, makeIamRoutes, type AclEntry, type ClientGrant, type ConsentLink, type EntraConnection, type Member, type Organization, type Role } from '../../../src/index.ts';
 import { CATALOG, json, ME, mockIamApi, staticResources } from '../../../src/testing/index.tsx';
 import './page.css';
 
@@ -52,6 +52,11 @@ const tenantPerms = (rs: string[]) => [...new Set(CATALOG.roles.filter(r => rs.i
   .filter(p => r.key === 'org-admin' || !aclEntries.some(e => e.resourceType === 'tenant' && e.effect === 'deny' && e.principalType === 'role' && e.principalRef === r.key && e.permission === p))))];
 const people = () => members.filter(m => m.principalId).map(m => ({ id: m.principalId!, kind: 'user', name: m.name, email: m.email, clientId: null, lastSeenAt: m.lastSeenAt }));
 const features = { entra: true };
+// Link an die Entra-Administration: Token nur im Fragment; Microsoft leitet in den Tests auf ?p=handoverReturn zurück
+const HANDOVER_TOKEN = 'e2eHandoverToken_0123456789abcdef';
+let links: ConsentLink[] = [
+  { id: 'l-alt', entraTenantId: 'demoag.onmicrosoft.com', createdByName: 'Anna Admin', createdAt: ago(3), expiresAt: ago(2.9), status: 'failed', usedAt: ago(2.95), approverName: null, error: { reason: 'consent-unproven', detail: 'Die zustimmende Person ist keine Administration des Verzeichnisses.' } },
+];
 const routes = makeIamRoutes({}, features);
 const roles = () => ({
   items: [...CATALOG.roles.map(r => ({ ...r, custom: false, id: null, version: null, memberCount: members.filter(m => m.roles.includes(r.key)).length, createdAt: null, updatedAt: null })), ...custom],
@@ -113,6 +118,19 @@ window.fetch = mockIamApi({
     const u = new URL(req.url), q = (u.searchParams.get('q') ?? '').toLowerCase(), ids = u.searchParams.getAll('ids');
     return json({ items: people().filter(p => (ids.length ? ids.includes(p.id) : p.name.toLowerCase().includes(q))), nextCursor: null });
   },
+  'GET /v1/admin/entra/consent-links': () => json({ items: links }),
+  'POST /v1/admin/entra/consent-links': async req => {
+    const b = await req.json() as { tenant: string; validMinutes?: number };
+    const l: ConsentLink = { id: `l-${links.length}`, entraTenantId: b.tenant, createdByName: 'Anna Admin', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (b.validMinutes ?? 15) * 60_000).toISOString(), status: 'open', usedAt: null, approverName: null, error: null };
+    links = [l, ...links];
+    return json({ id: l.id, url: `${location.origin}/admin.html?p=handover#${HANDOVER_TOKEN}`, entraTenantId: l.entraTenantId, expiresAt: l.expiresAt }, 201);
+  },
+  'DELETE /v1/admin/entra/consent-links/l-1': () => { links = links.map(l => (l.id === 'l-1' ? { ...l, status: 'revoked' as const } : l)); return new Response(null, { status: 204 }); },
+  'POST /v1/entra/handover/info': async req => ((await req.json() as { token: string }).token === HANDOVER_TOKEN
+    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', expiresAt: new Date(Date.now() + 900_000).toISOString() })
+    : json({ title: 'Nicht gefunden', status: 404 }, 404)),
+  'POST /v1/entra/handover/start': () => json({ url: 'https://login.microsoftonline.com/demoag.onmicrosoft.com/oauth2/v2.0/authorize?state=h.demo.e2e' }),
+  'POST /v1/entra/handover/complete': () => json({ organization: 'Demo AG', connected: true }),
   'GET /v1/platform/organizations': () => json({ items: orgs }),
   ...Object.fromEntries(['demo', 'muster', 'neu'].flatMap(a => [
     [`GET /v1/platform/organizations/${a}`, () => json(orgs.find(o => o.alias === a))],
@@ -129,8 +147,11 @@ window.fetch = mockIamApi({
   },
 }, { me: ME }).fetch;
 
-const start = routes.find(r => r.id === new URLSearchParams(location.search).get('p')) ?? routes[0]!;
-history.replaceState(null, '', start.path.replace(':alias', 'muster'));
+const params = new URLSearchParams(location.search);
+const p = params.get('p');
+if (p === 'handover') history.replaceState(null, '', `/verwalten/anmeldung/freigabe${location.hash}`);
+else if (p === 'handoverReturn') { params.delete('p'); history.replaceState(null, '', `/verwalten/anmeldung/zustimmung?${params}`); }
+else history.replaceState(null, '', (routes.find(r => r.id === p) ?? routes[0]!).path.replace(':alias', 'muster'));
 
 /** Route zum Pfad; `:alias` passt auf einen Abschnitt (wie im Router der App). */
 const match = (path: string) => routes.find(r => new RegExp(`^${r.path.replace(/:[a-z]+/g, '[^/]+')}$`).test(path));

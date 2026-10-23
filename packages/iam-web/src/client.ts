@@ -129,6 +129,8 @@ export interface IamRequest {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Öffentlicher Aufruf ohne Sitzung: ohne Cookie, X-Tenant und X-CSRF-Token, 401/403 nicht an die Sitzung gemeldet. */
+  anonymous?: boolean;
 }
 
 /** Adresse mit Suchparametern. */
@@ -150,12 +152,12 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
   const method = req.method ?? 'GET';
   const url = sameOrigin(withQuery(path, req.query));
   const headers = new Headers(req.headers);
-  prepare(headers, method);
+  if (!req.anonymous) prepare(headers, method);
   if (req.body !== undefined) headers.set('Content-Type', 'application/json');
   let res: Response;
   try {
     res = await globalThis.fetch(url, {
-      method, headers, credentials: 'same-origin', signal: req.signal,
+      method, headers, credentials: req.anonymous ? 'omit' : 'same-origin', signal: req.signal,
       body: req.body === undefined ? undefined : JSON.stringify(req.body),
     });
   } catch (e) {
@@ -163,7 +165,7 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
     throw networkError(e);
   }
   if (!res.ok) {
-    reportStatus(res.status);
+    if (!req.anonymous) reportStatus(res.status);
     throw await errorFrom(res);
   }
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as T;

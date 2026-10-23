@@ -17,6 +17,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { entraApi, entraTest, useEntra } from '../admin.ts';
 import { authLink, isConsentUrl } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
+import { CONSENT_HOSTS, ENTRA_STATE } from '../entra.ts';
 import type { EntraConnection, EntraConsentReturn, EntraMember, EntraResult, EntraStatus } from '../contract.ts';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
@@ -28,6 +29,8 @@ import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { Confirm } from '../ui/Overlay.tsx';
 import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
+import { EntraHandoverReturn } from './EntraHandover.tsx';
+import { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 import { organizationPath } from './Organizations.tsx';
 
 /** Mitglieder aus einem 409 `confirm-not-linked` (die Liste hat sich geändert oder fehlt). */
@@ -36,10 +39,6 @@ const notLinkedOf = (e: unknown): EntraMember[] | null => {
   return p?.reason === 'confirm-not-linked' ? p.notLinked ?? [] : null;
 };
 const atDomains = (c: EntraConnection) => c.domains.map(d => `@${d}`).join(', ');
-/** Hosts für die Zustimmung bei Microsoft, wenn die App keine nennt (`entraConsentHosts`). */
-const CONSENT_HOSTS = ['login.microsoftonline.com'];
-/** `state` vom Server: `o.<alias>.<zufall>` (eigene Organisation) oder `p.<alias>.<zufall>` (Plattform-Administration). */
-const STATE = /^(o|p)\.([a-z0-9][a-z0-9_-]{0,62})\.[A-Za-z0-9_-]+$/;
 
 /** Seite der eigenen Organisation (Recht `members:admin` prüft der Guard der Route). */
 export function EntraPage() {
@@ -69,6 +68,8 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
   useIamText();
   const fid = useId();
   const [connecting, setConnecting] = useState(false);
+  // Link an die Entra-Administration: zustimmen darf oft nur die Kunden-IT, nicht die Organisations-Administration
+  const [linking, setLinking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [enforcing, setEnforcing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -91,8 +92,10 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
         {q.data?.enabled ? <><span className="iam-spacer" />{c
           ? <><Button icon="reset" busy={refresh.isPending} onClick={() => refresh.mutate()}>{t('iam.entra.refresh')}</Button>
             <Button icon="link" onClick={() => setConnecting(true)} title={t('iam.entra.reconsentHint')}>{t('iam.entra.reconsent')}</Button>
+            <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button>
             <Button variant="danger" icon="x" onClick={() => setDisconnecting(true)}>{t('iam.entra.disconnect')}</Button></>
-          : <Button variant="primary" icon="link" onClick={() => setConnecting(true)}>{t('iam.entra.connect')}</Button>}</> : null}
+          : <><Button variant="primary" icon="link" onClick={() => setConnecting(true)}>{t('iam.entra.connect')}</Button>
+            <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button></>}</> : null}
       </div>
       {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.enabled ? (
         <Empty icon="shield" title={t('iam.entra.off')}><p>{q.data.reason}</p></Empty>
@@ -105,7 +108,9 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
         </>
       )}
       {result ? <BindReport r={result} enforced={enforced} onClose={() => setResult(null)} /> : null}
+      {q.data?.enabled ? <ConsentLinkList alias={alias} orgLabel={orgLabel} /> : null}
       {connecting ? <ConnectDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} onClose={() => setConnecting(false)} /> : null}
+      {linking ? <ConsentLinkDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} onClose={() => setLinking(false)} /> : null}
       {enforcing && c ? <EnforceDialog alias={alias} orgLabel={orgLabel} c={c} onClose={() => setEnforcing(false)} onDone={async r => { setEnforcing(false); setResult(r); await done(r, t('iam.entra.enforced', { org: orgLabel })); }} /> : null}
       {editing && c ? <DomainsDialog alias={alias} orgLabel={orgLabel} c={c} onClose={() => setEditing(false)} onDone={async r => { setEditing(false); setResult(r.members.length ? r : null); await done(r, t('iam.entra.domainsSaved', { org: orgLabel })); }} /> : null}
       {disconnecting && c ? (
@@ -301,6 +306,14 @@ function DomainsDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string 
  * (kein API-Aufruf). Nach dem Senden verschwinden die Parameter aus der Adresse; nach einem Neuladen meldet die API 404.
  */
 export function EntraConsentReturn() {
+  const { router: { useSearch } } = useIamConfig();
+  const search = useSearch();
+  // `h.…`: Rückkehr eines Links an die Entra-Administration (ohne Sitzung); IamProvider zeigt sie sonst schon vorher
+  const [handover] = useState(() => ENTRA_STATE.exec(new URLSearchParams(search).get('state') ?? '')?.[1] === 'h');
+  return handover ? <EntraHandoverReturn /> : <SessionConsentReturn />;
+}
+
+function SessionConsentReturn() {
   const { router: { Link, useSearch, usePathname, navigate }, paths } = useIamConfig();
   const { me } = useIam();
   useIamText();
@@ -312,11 +325,11 @@ export function EntraConsentReturn() {
     const get = (k: string) => s.get(k) || undefined;
     const state = get('state'), code = get('code'), error = get('error');
     // Code-Flow: `code` weist die Zustimmung nach, bei Abbruch `error`; ohne beides keine Rückkehr von Microsoft
-    return state && STATE.test(state) && (code || error) ? {
+    return state && ENTRA_STATE.test(state) && (code || error) ? {
       state, ...(code ? { code } : {}), ...(error ? { error } : {}), ...(get('error_description') ? { errorDescription: get('error_description') } : {}),
     } : null;
   });
-  const [, kind, alias] = body ? STATE.exec(body.state)! : [];
+  const [, kind, alias] = body ? ENTRA_STATE.exec(body.state)! : [];
   const target = kind === 'p' ? alias! : null;
   const qc = useQueryClient();
   const complete = useMutation({ mutationFn: (b: EntraConsentReturn) => entraApi(target).complete(b), onSuccess: () => qc.invalidateQueries({ queryKey: iamKeys.entra(target) }) });

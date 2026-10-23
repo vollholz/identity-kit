@@ -13,10 +13,11 @@
  * Herkunft: vollholz/assets `web/src/auth/session.tsx`.
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, Fragment, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { authFetch, loginUrl, onForbidden, onSessionExpired, reportStatus, setCsrfToken, setTenant } from './client.ts';
 import { useIamConfig, type IamConfig } from './config.tsx';
 import type { Me, SwitchResult } from './contract.ts';
+import { publicEntraPage } from './entra.ts';
 import { iamKeys } from './keys.ts';
 import type { Permission } from './permissions.ts';
 import { ApiError, errorFrom } from './problem.ts';
@@ -116,14 +117,20 @@ function unavailableOrg(me: Me): { alias: string; name: string } | null {
   return !me.tenant && tab && tab.sub === me.person.subject ? { alias: tab.alias, name: tab.name ?? orgName(me, tab.alias) } : null;
 }
 
+/** Öffentliche Seiten der Entra-Freigabe: aus `./pages` nachgeladen, damit der Kern klein bleibt. */
+const HandoverPage = lazy(() => import('./pages/index.ts').then(m => ({ default: m.EntraHandoverPage })));
+const HandoverReturn = lazy(() => import('./pages/index.ts').then(m => ({ default: m.EntraHandoverReturn })));
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const config = useIamConfig();
   const { Dialog, Button, toast } = useIamUi();
   const qc = useQueryClient();
   // Öffentliche Seite nach dem Abmelden (post_logout_redirect_uri): ohne /auth/me, damit sie nicht gleich zur Anmeldung weiterleitet
   const [loggedOut] = useState(() => window.location.pathname === config.paths.loggedOut);
+  // Link an die Entra-Administration und seine Rückkehr: öffentlich, ohne Sitzung (nur mit features.entra)
+  const [entraPublic] = useState(() => (config.features.entra ? publicEntraPage(config.paths.entra, window.location) : null));
   const meQ = useQuery({
-    queryKey: iamKeys.me, queryFn: () => fetchMe(qc, config), enabled: !loggedOut,
+    queryKey: iamKeys.me, queryFn: () => fetchMe(qc, config), enabled: !loggedOut && !entraPublic,
     retry: (n, e) => !(e instanceof ApiError && e.status === 401) && n < 2, refetchOnWindowFocus: true, staleTime: 60_000,
   });
   const [expired, setExpired] = useState(false);
@@ -171,6 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<IamSession | null>(() => (meQ.data ? makeSession(meQ.data, switchOrg, logout) : null), [meQ.data, switchOrg, logout]);
 
   if (loggedOut) return <LoggedOut />;
+  if (entraPublic) return <Suspense fallback={<div className="iam-gate"><Loading /></div>}>{entraPublic === 'handover' ? <HandoverPage /> : <HandoverReturn />}</Suspense>;
   if (meQ.isPending) return <div className="iam-gate"><Loading label={t('iam.session.checking')} /></div>;
   if (meQ.error && !meQ.data) {
     if (meQ.error instanceof ApiError && meQ.error.status === 401) {

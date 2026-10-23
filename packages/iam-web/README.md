@@ -83,6 +83,19 @@ const router: IamRouter = {
 
 Die Rückkehrseiten von Microsoft (`<paths.entra>/zustimmung`, `/test`) haben keinen Guard; die API prüft selbst.
 
+### Link an die Entra-Administration (ab 0.2.0)
+
+Zustimmen darf bei Microsoft nur eine globale Administration oder eine Administration für privilegierte Rollen des
+Verzeichnisses – oft die Kunden-IT, nicht die Organisations-Administration der App. Unter «Anmeldung» erzeugt die
+Organisations-Administration deshalb einen Link mit Gültigkeit (15 Minuten bis 24 Stunden) und gibt ihn weiter; die
+Liste zeigt Status, Ablauf, Zustimmung und Fehler und erlaubt das Widerrufen offener Links.
+
+Der Link führt auf `<paths.entra>/freigabe#<token>`. `IamProvider` zeigt diese Seite und ihre Rückkehr von Microsoft
+(`<paths.entra>/zustimmung` mit `state` `h.…`) **ohne Sitzung** und ohne /auth/me (nur mit `features.entra`); die App
+braucht dafür keine eigene Route. Das Token kommt nur aus dem Fragment, verschwindet danach aus der Adresse und geht nur
+im Body an `/v1/entra/handover/*` (ohne Cookie, X-Tenant und CSRF). `paths.entra` muss zu `ENTRA_UI_PATH` des Servers
+passen.
+
 ## Adapter
 
 **`resources`** (nur mit Zugriffsregeln): Namen, Auswahl und Kette der Ressourcen der App.

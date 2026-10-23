@@ -198,6 +198,29 @@ export interface EntraConsentInput { tenant: string }
 export interface EntraConsentStart { entraTenantId: string; url: string }
 /** Rückkehr von Microsoft (Code-Flow): `code` weist die Zustimmung nach, bei Abbruch `error`. */
 export interface EntraConsentReturn { state: string; code?: string; error?: string; errorDescription?: string }
+/** Link an die Entra-Administration (Übergabe der Zustimmung an eine andere Person, ohne Sitzung). */
+export type ConsentLinkStatus = 'open' | 'expired' | 'revoked' | 'connected' | 'failed';
+export interface ConsentLink {
+  id: string;
+  entraTenantId: string;
+  createdByName: string;
+  createdAt: string;
+  expiresAt: string;
+  status: ConsentLinkStatus;
+  usedAt: string | null;
+  approverName: string | null;
+  error: { reason: string; detail: string } | null;
+}
+export interface ConsentLinkList { items: ConsentLink[] }
+/** `validMinutes` 5–1440, Standard 15. */
+export interface ConsentLinkInput { tenant: string; validMinutes?: number }
+/** `url`: `<PUBLIC_BASE_URL><ENTRA_UI_PATH>/freigabe#<token>`, das Token nur im Fragment. */
+export interface ConsentLinkCreated { id: string; url: string; entraTenantId: string; expiresAt: string }
+/** Öffentlich (`/v1/entra/handover/*`): Angaben zum Link für die Entra-Administration. */
+export interface HandoverInfo { organization: string; product: string; requestedBy: string; tenant: string; expiresAt: string }
+export interface HandoverStart { url: string }
+export interface HandoverResult { organization: string; connected: true }
+
 export interface EntraDomainsInput { domains: string[]; notLinked?: string[] }
 export interface EntraEnforceInput { notLinked?: string[] }
 

@@ -15,11 +15,11 @@ import { axeProblems } from './render.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
 
-const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, rolesManageable: true, roles: CATALOG.roles };
+const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, roles: CATALOG.roles };
 const PLATFORM = { ...STATUS, platformAdmin: true };
 const ORG: Organization = { id: 'kc-muster', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: ['muster.example'], tenant: { id: 't-muster', status: 'active', createdAt: new Date().toISOString() } };
 const DEMO_ORG: Organization = { ...ORG, id: 'kc-demo', alias: 'demo', name: 'Demo AG', domains: [] };
-const CARLA: Member = { id: 'm-carla', principalId: 'p3', username: 'carla', name: 'Carla Check', email: 'carla@muster.example', status: 'active', roles: ['editor'], lastSeenAt: null, createdAt: null, loginPath: null };
+const CARLA: Member = { id: 'm-carla', kind: 'user', principalId: 'p3', username: 'carla', name: 'Carla Check', email: 'carla@muster.example', status: 'active', roles: ['editor'], clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null };
 
 function setup(ui: ReactElement, routes: Record<string, MockHandler>, o: { path?: string; me?: Partial<Me> } = {}) {
   window.history.replaceState(null, '', o.path ?? '/verwalten/organisationen');
@@ -109,9 +109,12 @@ describe('Organisationen (Plattform-Administration)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Carla Check' }));
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' }));
     expect(await screen.findByRole('alertdialog', { name: 'Carla Check aus «Muster GmbH» entfernen?' })).toHaveTextContent('Zugang zu «Muster GmbH»');
-    // Mitglieder und Maschinen-Clients dieser Organisation (Plattformansicht)
+    // Mitglieder und Maschinen-Clients dieser Organisation in einer Liste (Plattformansicht)
     expect(screen.getByRole('table', { name: 'Mitglieder von Muster GmbH mit Rollen' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Freigegebene Maschinen-Clients' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Freigegebene Maschinen-Clients' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Abbrechen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Client freigeben' }));
+    expect(await screen.findByRole('dialog', { name: 'Maschinen-Client für «Muster GmbH» freigeben' })).toBeInTheDocument();
   });
 
   it('beide Namen aus Keycloak: die eigene Organisation mit Namen aus dem Token, nicht mit dem Alias', async () => {
@@ -167,23 +170,27 @@ describe('Organisationen (Plattform-Administration)', () => {
     expect(await calls.find(c => c.method === 'PATCH')!.clone().json()).toEqual({ name: 'Muster AG', domains: ['muster.example', 'muster.ch'], description: null });
   });
 
-  it('Rollen in der Plattformansicht: nur vordefinierte; Personen mit eigenen Rollen der Organisation nur ansehen', async () => {
-    const OWN_A = { key: 'c-nur-demo', label: 'Nur Demo', description: 'Eigene Rolle von Demo AG', permissions: ['tenant:read'], adminOnly: false, custom: true };
-    const BEN = { ...CARLA, id: 'm-ben', name: 'Ben Muster', email: 'ben@muster.example', roles: ['viewer', 'c-muster-pflege'] };
-    setup(<OrganizationScreen />, detail(ORG, {
-      'GET /v1/admin/status': () => json({ ...PLATFORM, roles: [...CATALOG.roles, OWN_A] }),
-      'GET /v1/platform/organizations/muster/members': () => json({ items: [CARLA, BEN] }),
-    }), { path: '/verwalten/organisationen/muster' });
-    // eigene Rolle der eigenen Organisation (Demo AG) wird für Muster GmbH nicht angeboten
+  it('Plattformansicht: org-admin vergeben, Freigabestufe ohne Obergrenze der eigenen; Client freigeben über die Plattform-API', async () => {
+    const { calls } = setup(<OrganizationScreen />, detail(ORG, {
+      'PUT /v1/platform/organizations/muster/clients/sync-1': () => json({}),
+    }), { path: '/verwalten/organisationen/muster', me: { clearance: 0 } });
     await userEvent.click(await screen.findByRole('button', { name: 'Rollen von Carla Check bearbeiten' }));
     const dlg = await screen.findByRole('dialog', { name: 'Rollen von Carla Check in «Muster GmbH»' });
-    expect(within(dlg).queryByText('Nur Demo')).toBeNull();
+    expect(within(dlg).getByRole('checkbox', { name: 'Organisations-Admin' })).toBeEnabled();
     await userEvent.click(within(dlg).getByRole('button', { name: 'Abbrechen' }));
-    // Ben hat eine eigene Rolle von Muster GmbH: nur ansehen, damit sie beim Speichern nicht verloren geht
-    await userEvent.click(screen.getByRole('button', { name: 'Rollen von Ben Muster ansehen' }));
-    const view = await screen.findByRole('dialog', { name: 'Rollen von Ben Muster in «Muster GmbH»' });
-    expect(within(view).getByRole('note')).toHaveTextContent('Eigene Rollen dieser Organisation (c-muster-pflege) kennt diese Ansicht nicht.');
-    expect(within(view).queryByRole('checkbox')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Carla Check' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
+    const lvl = await screen.findByRole('dialog', { name: 'Freigabestufe von Carla Check in «Muster GmbH»' });
+    expect(within(within(lvl).getByRole('combobox', { name: 'Freigabestufe' })).getByRole('option', { name: 'streng vertraulich' })).toBeEnabled();
+    expect(lvl).toHaveTextContent('Die Plattform-Administration setzt jede Stufe.');
+    await userEvent.click(within(lvl).getByRole('button', { name: 'Abbrechen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Client freigeben' }));
+    const c = await screen.findByRole('dialog', { name: 'Maschinen-Client für «Muster GmbH» freigeben' });
+    await userEvent.type(within(c).getByRole('textbox', { name: 'Client-ID' }), 'sync-1');
+    await userEvent.click(within(c).getByRole('checkbox', { name: 'Leser:in' }));
+    await userEvent.click(within(c).getByRole('button', { name: 'Freigeben' }));
+    expect(await screen.findByText('«sync-1» für «Muster GmbH» freigegeben')).toBeInTheDocument();
+    expect(calls.some(x => x.method === 'PUT' && new URL(x.url).pathname === '/v1/platform/organizations/muster/clients/sync-1')).toBe(true);
   });
 
   it('Pfad der Detailseite in der Schreibweise des Routers: `:alias` (Standard) oder `$alias` (TanStack); die Seite liest den Alias aus dem Pfad', async () => {

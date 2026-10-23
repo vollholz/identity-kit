@@ -3,14 +3,9 @@
  * für eigene Routen der App und dieselben mit Guard (`…Screen`), wie `iamRoutes` sie lädt.
  */
 export { MemberList, MembersPage, RolePicker, type MemberListProps, type RolePickerProps } from './Members.tsx';
-export { RolesPage } from './Roles.tsx';
-export { ClientList, ClientsPage, checkRightsHref, type ClientListProps } from './Clients.tsx';
 export { OrganizationPage, OrganizationsPage, organizationPath } from './Organizations.tsx';
 export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './Entra.tsx';
 export { EntraHandoverPage, EntraHandoverReturn } from './EntraHandover.tsx';
 export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { OwnAppDialog, OwnAppFields, OwnAppGuideSteps, ownAppErrorText, type OwnAppDraft } from './EntraOwnApp.tsx';
-export { AccessPage, useAccessSearch } from './Access.tsx';
-export { AddEntry, groupPathError } from './AddEntry.tsx';
-export { Check } from './Check.tsx';
-export { AccessScreen, ClientsScreen, EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
+export { EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen } from './screens.tsx';

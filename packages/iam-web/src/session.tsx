@@ -28,12 +28,12 @@ import { ErrorState, Loading } from './ui/states.tsx';
 
 export interface IamSession {
   me: Me;
-  /** Recht auf Ebene der Organisation (Rolle, ohne Einschränkung der ganzen Organisation). */
+  /** Recht an der Organisation (Rolle an `org`, `permissions`). */
   can(p: Permission): boolean;
   /**
-   * Recht irgendwo: auf Ebene der Organisation oder über eine Freigabe auf einzelnen Ressourcen (`grantedPermissions`).
-   * Für Navigation und Listen, die je Ressource filtern; Aktionen ohne Ressource (z. B. anlegen) prüfen mit `can`,
-   * Aktionen an einer Ressource mit deren `can` (`useResourceCan`).
+   * Recht irgendwo: an der Organisation oder an mindestens einem Ort (`somewhere`, Spezifikation 7.5). Für Navigation
+   * und Listen, die je Ressource filtern; Aktionen ohne Ressource (z. B. anlegen) prüfen mit `can`, Aktionen an einer
+   * Ressource mit deren `can` (`useResourceCan`).
    */
   canSomewhere(p: Permission): boolean;
   switchOrg(alias: string): Promise<void>;
@@ -53,11 +53,11 @@ export function orgName(me: Me, alias: string): string {
 export const tenantName = (me: Me): string => (me.tenant ? me.tenant.name || orgName(me, me.tenant.alias) : '');
 
 function makeSession(me: Me, switchOrg: IamSession['switchOrg'], logout: IamSession['logout']): IamSession {
-  const granted = me.grantedPermissions ?? [];
+  const somewhere = me.somewhere ?? [];
   return {
     me, switchOrg, logout, orgName: tenantName(me),
     can: p => me.permissions.includes(p),
-    canSomewhere: p => me.permissions.includes(p) || granted.includes(p),
+    canSomewhere: p => me.permissions.includes(p) || somewhere.includes(p),
   };
 }
 

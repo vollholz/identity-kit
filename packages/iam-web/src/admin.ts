@@ -1,31 +1,20 @@
 /**
- * Verwaltung (Spezifikation 9.2, 8.3): Status mit `platformAdmin`, Mitglieder und Rollen. Mitglieder-Aufrufe gibt es
- * zweimal: für die eigene Organisation (`/v1/admin/…`) und für eine beliebige Organisation der Plattform-Administration
- * (`/v1/platform/organizations/{alias}/…`, `alias`); die Oberfläche nutzt für beide dieselben Hooks. Herkunft:
- * vollholz/assets `web/src/api/admin.ts`, `api/roles.ts`.
+ * Verwaltung (Spezifikation 9.2, 9.6): Status mit `platformAdmin`, Mitglieder (Personen und Clients), Rollen an der
+ * Organisation, Freigabestufe und Maschinen-Clients. Die Aufrufe gibt es zweimal: für die eigene Organisation
+ * (`/v1/admin/…`) und für eine beliebige Organisation der Plattform-Administration (`/v1/platform/organizations/{alias}/…`,
+ * `alias`); die Oberfläche nutzt für beide dieselben Hooks. Herkunft: vollholz/assets `web/src/api/admin.ts`.
  */
 import { useQuery } from '@tanstack/react-query';
-import { ifMatch, iamFetch } from './client.ts';
+import { iamFetch } from './client.ts';
 import type {
-  AdminStatus, ClientGrant, ClientGrantList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
-  EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Member, MemberList, Organization, OrganizationInput,
-  EntraOwnAppInput, HandoverCredentialsInput, HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
+  AdminStatus, Client, ClientInput, ClientList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
+  EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Level, Member, MemberList, Organization, OrganizationInput,
+  EntraOwnAppInput, HandoverCredentialsInput, HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult,
 } from './contract.ts';
-import { useIamConfig } from './config.tsx';
 import { iamKeys } from './keys.ts';
 
 export function useAdminStatus(enabled = true) {
   return useQuery({ queryKey: iamKeys.adminStatus, enabled, staleTime: 5 * 60_000, queryFn: ({ signal }) => iamFetch<AdminStatus>('/v1/admin/status', { signal }) });
-}
-
-/**
- * Präfix der Rollengruppen in Keycloak für Hinweise und Beispiele («/orgs/<alias>/…»): vom Server
- * (`/v1/admin/status`), sonst `groupRolePrefix` der App, sonst `/orgs`; ohne «/» am Ende.
- */
-export function useGroupRolePrefix(): string {
-  const { groupRolePrefix } = useIamConfig();
-  const status = useAdminStatus();
-  return (status.data?.groupRolePrefix ?? groupRolePrefix ?? '/orgs').replace(/\/+$/, '');
 }
 
 /** Aufrufe für Mitglieder; `alias` = Organisation der Plattform-Administration, sonst die eigene. */
@@ -36,6 +25,8 @@ export function memberApi(alias: string | null) {
     list: (signal?: AbortSignal) => iamFetch<MemberList>(base, { signal }).then(r => r.items),
     invite: (body: InviteInput) => iamFetch<InviteResult>(base, { method: 'POST', body }),
     setRoles: (id: string, roles: string[]) => iamFetch<Member>(`${one(id)}/roles`, { method: 'PUT', body: { roles } }),
+    /** Freigabestufe einer Person (nie die eigene, nie über die eigene ohne Break-Glass, 9.1 Nr. 7). */
+    setClearance: (id: string, clearance: Level) => iamFetch<Member>(`${one(id)}/clearance`, { method: 'PUT', body: { clearance } }),
     remove: (id: string) => iamFetch<RemoveResult>(one(id), { method: 'DELETE' }),
     resend: (id: string) => iamFetch<ResendResult>(`${one(id)}/invitation`, { method: 'POST' }),
     /** Personen im Verzeichnis (Microsoft Entra ID) der Organisation suchen, ab 2 Zeichen (9.4). */
@@ -49,31 +40,23 @@ export function useMembers(alias: string | null, enabled = true) {
   return useQuery({ queryKey: iamKeys.members(alias), enabled, queryFn: ({ signal }) => memberApi(alias).list(signal) });
 }
 
-/** Eigene Rollen der Organisation (8.3); Ändern und Löschen mit If-Match aus der Version der Rolle. */
-export const roleApi = {
-  create: (body: RoleInput) => iamFetch<Role>('/v1/roles', { method: 'POST', body }),
-  update: (r: Pick<Role, 'key' | 'version'>, body: RolePatch) =>
-    iamFetch<Role>(`/v1/roles/${encodeURIComponent(r.key)}`, { method: 'PATCH', body, headers: ifMatch(r.version ?? 0) }),
-  remove: (r: Pick<Role, 'key' | 'version'>) =>
-    iamFetch<void>(`/v1/roles/${encodeURIComponent(r.key)}`, { method: 'DELETE', headers: ifMatch(r.version ?? 0) }),
-};
-
-/** Freigegebene Maschinen-Clients (9.3); `alias` = Organisation der Plattform-Administration, sonst die eigene. */
+/** Freigegebene Maschinen-Clients (9.6); `alias` = Organisation der Plattform-Administration, sonst die eigene. */
 export function clientApi(alias: string | null) {
   const base = alias ? `/v1/platform/organizations/${encodeURIComponent(alias)}/clients` : '/v1/admin/clients';
   const one = (clientId: string) => `${base}/${encodeURIComponent(clientId)}`;
   return {
-    list: (signal?: AbortSignal) => iamFetch<ClientGrantList>(base, { signal }).then(r => r.items),
-    grant: (clientId: string, description: string) => iamFetch<ClientGrant>(one(clientId), { method: 'PUT', body: { description } }),
+    list: (signal?: AbortSignal) => iamFetch<ClientList>(base, { signal }).then(r => r.items),
+    /** Freigeben bzw. ändern: Rollen an der Organisation (mindestens eine), Beschreibung, Freigabestufe. */
+    put: (clientId: string, body: ClientInput) => iamFetch<Client>(one(clientId), { method: 'PUT', body }),
     revoke: (clientId: string) => iamFetch<void>(one(clientId), { method: 'DELETE' }),
   };
 }
 
-export function useClientGrants(alias: string | null, enabled = true) {
+export function useClients(alias: string | null, enabled = true) {
   return useQuery({ queryKey: iamKeys.clients(alias), enabled, queryFn: ({ signal }) => clientApi(alias).list(signal) });
 }
 
-/** Organisationen der Plattform-Administration (9.5). */
+/** Organisationen der Plattform-Administration (9.2). */
 export const orgApi = {
   list: (signal?: AbortSignal) => iamFetch<OrganizationList>('/v1/platform/organizations', { signal }).then(r => r.items),
   get: (alias: string, signal?: AbortSignal) => iamFetch<Organization>(`/v1/platform/organizations/${encodeURIComponent(alias)}`, { signal }),

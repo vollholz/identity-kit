@@ -8,7 +8,7 @@ import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeAuthz, MissingRight, missingRightText, PLATFORM_ADMIN, RoleMatrix, type IamConfig } from '../src/index.ts';
+import { makeAuthz, MissingRight, missingPlaceText, missingRightText, PLATFORM_ADMIN, RoleMatrix, type IamConfig } from '../src/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam } from '../src/testing/index.tsx';
 
 beforeEach(() => vi.stubGlobal('fetch', mockIamApi().fetch));
@@ -25,7 +25,7 @@ describe('Fehlendes Recht', () => {
   });
 
   it('Recht nur bei org-admin: nur diese Rolle, vergeben von der Plattform-Administration', () => {
-    expect(missingRightText(authz, 'acl:admin')).toBe('Dafür fehlt dir das Recht «Zugriff verwalten». Es gehört nur zur Rolle «Organisations-Admin». Diese Rolle vergibt die Plattform-Administration.');
+    expect(missingRightText(authz, 'tenant:admin')).toBe('Dafür fehlt dir das Recht «Organisation verwalten». Es gehört nur zur Rolle «Organisations-Admin». Diese Rolle vergibt die Plattform-Administration.');
     expect(missingRightText(authz, 'members:admin')).toContain('nur zur Rolle «Organisations-Admin»');
   });
 
@@ -62,6 +62,24 @@ describe('Fehlendes Recht', () => {
     const text = screen.getByText(/^Dafür braucht es die Plattform-Administration\./);
     expect(text).toHaveAttribute('title', 'Realm-Rolle «platform-admin» in Keycloak');
     expect(text).not.toHaveTextContent('platform-admin');
+  });
+});
+
+describe('Fehlendes Recht am Ort und an der Vertraulichkeit', () => {
+  it('ergänzt «oder jemand gibt dir an … frei» mit den Rollen, die am Typ hängen dürfen; an der Organisation nicht', async () => {
+    const authz = makeAuthz(CATALOG);
+    expect(missingPlaceText(authz, 'note:write', 'note', 'Protokoll')).toBe('Oder jemand gibt dir an «Protokoll» die Rolle «Bearbeiter:in» frei.');
+    expect(missingPlaceText(authz, 'note:write', 'folder', 'Projekte')).toBe('Oder jemand gibt dir an «Projekte» eine der Rollen «Ordner-Admin» oder «Bearbeiter:in» frei.');
+    expect(missingPlaceText(authz, 'audit:read', 'folder', 'Projekte')).toBe('');
+    expect(missingPlaceText(authz, 'note:write', 'org', 'Demo AG')).toBe('');
+    renderIam(<MissingRight perm="note:write" place={{ type: 'note', label: 'Protokoll' }} />);
+    expect(await screen.findByText(/Rollen vergibt die Organisations-Administration\. Oder jemand gibt dir an «Protokoll» die Rolle «Bearbeiter:in» frei\.$/)).toBeInTheDocument();
+  });
+
+  it('scheitert es an der Vertraulichkeit: Stufe und eigene Freigabestufe statt Rollen', async () => {
+    render(<StaticIam me={{ clearance: 1 }}><MissingRight perm="note:read" classification={2} /><MissingRight perm="note:read" classification={1} lead="Zum Lesen" /></StaticIam>);
+    expect(await screen.findByText('Die Vertraulichkeit «streng vertraulich» übersteigt deine Freigabestufe «vertraulich».')).toBeInTheDocument();
+    expect(screen.getByText(/^Zum Lesen fehlt dir das Recht «Notizen lesen»/)).toBeInTheDocument();
   });
 });
 

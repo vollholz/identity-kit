@@ -1,7 +1,8 @@
 /**
- * Mitglieder: Liste (Status, Rollen, Filter nach Name, Rolle und Recht, Sortierung, einzeilige Aktionen mit Menü «Mehr»,
- * gesperrte Aktionen mit Grund), Einladen mit Rollen, Rückfragen mit Organisation und Folgen, abgeschaltete Verwaltung,
- * Enthaltensein aus den Rechten. Aus vollholz/assets `web/src/features/admin.test.tsx` (Mitglieder und Rollen) und
+ * Mitglieder: Liste von Personen und Clients (Art, Status, Rollen, Freigabestufe, «+n Orte», Filter nach Name, Art, Rolle
+ * und Recht, Sortierung, einzeilige Aktionen mit Menü «Mehr», gesperrte Aktionen mit Grund), Einladen mit Rollen, Client
+ * freigeben, Freigabestufe setzen, niemand gibt mehr, als er hat, Rückfragen mit Organisation und Folgen, abgeschaltete
+ * Verwaltung, Enthaltensein aus den Rechten. Aus vollholz/assets `web/src/features/admin.test.tsx` (Mitglieder und Rollen) und
  * `features/admin/members.test.tsx`, produktneutral (Notiz-App).
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -19,28 +20,31 @@ const ROLES: RoleInfo[] = CATALOG.roles;
 const N = CATALOG.permissions.length;
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
 const m = (id: string, name: string, roles: string[], o: Partial<Member> = {}): Member => ({
-  id: `00000000-0000-4000-8000-0000000000${id}`, principalId: `p${id}`, username: name.split(' ')[0]!.toLowerCase(), name,
-  email: `${name.split(' ')[0]!.toLowerCase()}@demo.example`, status: 'active', roles, lastSeenAt: ago(1), createdAt: null, loginPath: null, ...o,
+  id: `00000000-0000-4000-8000-0000000000${id}`, kind: 'user', principalId: `p${id}`, username: name.split(' ')[0]!.toLowerCase(), name,
+  email: `${name.split(' ')[0]!.toLowerCase()}@demo.example`, status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0,
+  lastSeenAt: ago(1), createdAt: null, loginPath: null, clientId: null, scopes: null, ...o,
 });
 const ANNA = m('a1', 'Anna Admin', ['org-admin'], { lastSeenAt: ago(0) });
-const NORA = m('b2', 'Nora Neu', ['viewer'], { principalId: null, username: 'nora@demo.example', status: 'invited', lastSeenAt: null, createdAt: ago(3) });
+const NORA = m('b2', 'Nora Neu', ['viewer'], { username: 'nora@demo.example', status: 'invited', lastSeenAt: null, createdAt: ago(3) });
 const CARLA = m('c3', 'Carla Check', ['editor', 'viewer'], { lastSeenAt: ago(2) });
 const OSKAR = m('d4', 'Oskar Org', ['org-admin'], { lastSeenAt: ago(5) });
 const ERIK = m('e5', 'Erik Extern', ['viewer'], { email: 'erik@partner.example', status: 'disabled', lastSeenAt: null });
-const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, rolesManageable: true, roles: ROLES };
+const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, roles: ROLES };
+const SYNC: Member = { ...m('s9', 'notiz-import', ['editor']), id: 'notiz-import', kind: 'client', username: 'service-account-notiz-import', email: null, clientId: 'notiz-import', scopes: ['notes:read'], lastSeenAt: ago(0.1) };
 const ADMIN_ME: Partial<Me> = { person: { subject: ANNA.id, name: 'Anna Admin', email: 'anna@demo.example' } };
 
 function setup(ui: ReactElement, routes: Record<string, MockHandler> = {}, me: Partial<Me> = ADMIN_ME) {
-  const api = mockIamApi(routes);
+  const api = mockIamApi({ 'GET /v1/admin/status': () => json(STATUS), ...routes });
   vi.stubGlobal('fetch', api.fetch);
   const r = render(<StaticIam me={me}>{ui}</StaticIam>);
   return { ...api, ...r };
 }
-const own = (o: { rolesManageable?: boolean } = {}) => <MemberList alias={null} roles={ROLES} platform={false} rolesManageable={o.rolesManageable ?? true} self={ANNA.id} orgLabel="Demo AG" />;
+const own = () => <MemberList />;
+const platformList = () => <MemberList alias="muster" platform orgLabel="Muster GmbH" />;
 const names = (table: HTMLElement) => within(table).getAllByRole('row').slice(1).map(r => r.querySelector('.iam-b')!.firstChild!.textContent);
 
 describe('Seite Mitglieder', () => {
-  it('ohne Recht: «Recht fehlt» statt Liste; abgeschaltet: klarer Hinweis, Technik nur unter «Technische Details»', async () => {
+  it('ohne Recht: «Recht fehlt» statt Liste; abgeschaltet: klarer Hinweis mit dem Grund des Servers', async () => {
     const off = { 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'Die Verwaltung ist nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID).' }) };
     const { unmount, calls } = setup(<MembersScreen />, off, { roles: ['viewer'], permissions: ['tenant:read', 'note:read'] });
     expect(await screen.findByText('Recht fehlt')).toBeInTheDocument();
@@ -49,33 +53,22 @@ describe('Seite Mitglieder', () => {
     setup(<MembersScreen />, off);
     expect(await screen.findByText('Verwaltung nicht eingerichtet')).toBeInTheDocument();
     expect(screen.getByText(/KEYCLOAK_MGMT_CLIENT_ID/)).toBeInTheDocument();
-    expect(screen.getByText(/verwaltet die Plattform-Administration Mitglieder und Rollen in Keycloak\./)).not.toHaveTextContent('/orgs/');
-    expect(screen.getByText('/orgs/demo/<rolle>').closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText(/Rollen und Freigaben bleiben in der App\./)).not.toHaveTextContent('/orgs/');
     expect(screen.queryByRole('button', { name: 'Person einladen' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Client freigeben' })).toBeNull();
   });
 
-  it('Hinweis auf die Gruppen folgt GROUP_ROLE_PREFIX: aus /v1/admin/status, sonst `groupRolePrefix` der App', async () => {
-    const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'aus' }) });
-    vi.stubGlobal('fetch', api.fetch);
-    const { unmount } = render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
-    expect(await screen.findByText('/mandanten/demo/<rolle>')).toBeInTheDocument();
-    unmount();
-    // Meldet der Server den Präfix (`/v1/admin/status`), gilt seiner
-    vi.stubGlobal('fetch', mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, enabled: false, reason: 'aus', groupRolePrefix: '/kunden' }) }).fetch);
-    render(<StaticIam me={ADMIN_ME} config={{ groupRolePrefix: '/mandanten/' }}><MembersScreen /></StaticIam>);
-    expect(await screen.findByText('/kunden/demo/<rolle>')).toBeInTheDocument();
-  });
-
-  it('listet Mitglieder mit Status, Rollen und «Zuletzt aktiv»; Hauptaktion im Seitenkopf; Name der Organisation', async () => {
-    setup(<MembersScreen />, { 'GET /v1/admin/status': () => json(STATUS), 'GET /v1/admin/members': () => json({ items: [ANNA, NORA, ERIK] }) });
+  it('listet Personen und Clients mit Art, Status, Rollen, Freigabestufe, Orten und «Zuletzt aktiv»; Hauptaktion im Seitenkopf', async () => {
+    setup(<MembersScreen />, { 'GET /v1/admin/members': () => json({ items: [ANNA, NORA, ERIK, { ...SYNC, clearance: 1 }] }) });
     const table = await screen.findByRole('table', { name: 'Mitglieder von Demo AG mit Rollen' });
     expect(screen.getByText(/Wer in «Demo AG» arbeitet/)).toBeInTheDocument();
     // Hauptaktion im Kopf der Seite (AdminHead), nicht im Abschnitt
     const head = screen.getByRole('heading', { level: 1, name: 'Mitglieder' }).closest('.iam-mh') as HTMLElement;
-    expect(within(head).getByRole('button', { name: 'Person einladen' })).toBeInTheDocument();
+    expect(within(head).getByRole('button', { name: 'Person einladen' })).toHaveClass('iam-primary');
+    expect(within(head).getByRole('button', { name: 'Client freigeben' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Person einladen' })).toHaveLength(1);
-    expect(screen.getByText('3 Personen, davon 1 eingeladen')).toBeInTheDocument();
-    expect(within(table).getAllByRole('columnheader').map(c => c.textContent)).toEqual(['Person', 'Status', 'Rollen', 'Zuletzt aktiv', 'Aktionen']);
+    expect(screen.getByText('3 Personen, davon 1 eingeladen, 1 Client')).toBeInTheDocument();
+    expect(within(table).getAllByRole('columnheader').map(c => c.textContent)).toEqual(['Name', 'Art', 'Status', 'Rollen', 'Freigabestufe', 'Orte', 'Zuletzt aktiv', 'Aktionen']);
     // Gestapelt unter 760 px; «Zuletzt aktiv» fällt dort weg
     expect(table).toHaveClass('iam-stack-tbl');
     expect(within(table).getByRole('columnheader', { name: 'Zuletzt aktiv' })).toHaveClass('iam-st-hide');
@@ -92,12 +85,25 @@ describe('Seite Mitglieder', () => {
     // deaktiviert im Verzeichnis heisst «deaktiviert» («gesperrt» nur für die Sperre einer Organisation)
     expect(within(rows[2]!).getByText('deaktiviert')).toHaveAttribute('title', 'Konto in Keycloak deaktiviert');
     expect(table).not.toHaveTextContent('gesperrt');
+    expect(rows[0]).toHaveTextContent('Person');
+    expect(rows[0]).toHaveTextContent('intern');
+    // Client: Art, Client-ID, Scopes aus dem letzten Token (Texte aus dem Katalog), Freigabestufe
+    expect(rows[3]).toHaveTextContent('Client');
+    expect(rows[3]).toHaveTextContent('notiz-import');
+    expect(rows[3]).toHaveTextContent('Scopes: Organisation und Notizen lesen');
+    expect(rows[3]).toHaveTextContent('vertraulich');
+    expect(within(rows[3]!).queryByText('(du)')).toBeNull();
     expect(screen.getByText(/Nur eine Person hat die Rolle «Organisations-Admin»/)).toBeInTheDocument();
     const box = screen.getByRole('searchbox', { name: 'Mitglieder filtern' });
     expect(box).toHaveAttribute('placeholder', 'Name oder E-Mail filtern');
     await userEvent.type(box, 'nora');
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     await userEvent.clear(box);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^Art:/ }), 'client');
+    expect(names(table)).toEqual(['notiz-import']);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^Art:/ }), 'user');
+    expect(names(table)).toEqual(['Anna Admin', 'Nora Neu', 'Erik Extern']);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^Art:/ }), '');
     await userEvent.type(box, 'niemand');
     expect(await screen.findByText('Keine Treffer')).toBeInTheDocument();
     expect(screen.getByText('Keine Person passt zu «niemand».')).toBeInTheDocument();
@@ -131,15 +137,15 @@ describe('Mitgliederliste: Filter, Sortierung, Rollenmatrix', () => {
     expect(names(table)).toEqual(['Anna Admin', 'Erik', 'Bea', 'Pia']);
   });
 
-  it('«Wer hat Recht X?»: Rechte gruppiert aus dem Katalog, Treffer über die Rollen, Hinweis auf Zugriffsregeln', async () => {
+  it('«Wer hat Recht X?»: Rechte gruppiert aus dem Katalog, Treffer über die Rollen, Hinweis auf Freigaben an Orten', async () => {
     const table = await list();
     const perm = screen.getByRole('combobox', { name: /^Recht:/ });
     await screen.findByRole('option', { name: 'Notizen ändern' });
     expect(perm.querySelector('optgroup[label="Notizen"]')).not.toBeNull();
-    expect(screen.queryByText(/Zugriffsregel/)).toBeNull();
+    expect(screen.queryByText(/Freigaben an einzelnen Orten/)).toBeNull();
     await userEvent.selectOptions(perm, 'note:write');
     expect(names(table)).toEqual(['Anna Admin', 'Erik']);
-    expect(screen.getByText(/Einschränkungen per Zugriffsregel sind hier nicht berücksichtigt/)).toHaveTextContent('«Notizen ändern»');
+    expect(screen.getByText(/Freigaben an einzelnen Orten sind hier nicht berücksichtigt/)).toHaveTextContent('«Notizen ändern»');
     await userEvent.selectOptions(perm, 'members:admin');
     expect(names(table)).toEqual(['Anna Admin']);
     // Rolle und Recht kombiniert, ohne Treffer: leerer Zustand mit «Filter zurücksetzen»
@@ -150,9 +156,9 @@ describe('Mitgliederliste: Filter, Sortierung, Rollenmatrix', () => {
     expect(perm).toHaveValue('');
   });
 
-  it('sortiert nach Person und «Zuletzt aktiv» (aria-sort), Standard in der Reihenfolge der API', async () => {
+  it('sortiert nach Name und «Zuletzt aktiv» (aria-sort), Standard in der Reihenfolge der API', async () => {
     const table = await list();
-    const person = within(table).getByRole('columnheader', { name: 'Person' });
+    const person = within(table).getByRole('columnheader', { name: 'Name' });
     const seen = within(table).getByRole('columnheader', { name: 'Zuletzt aktiv' });
     expect(person).toHaveAttribute('aria-sort', 'none');
     await userEvent.click(within(person).getByRole('button'));
@@ -213,8 +219,8 @@ describe('Aktionen je Person', () => {
     expect(more).toHaveAttribute('title', 'Mehr');
     await userEvent.click(more);
     const menu = await screen.findByRole('menu', { name: 'Aktionen für Nora Neu' });
-    expect(within(menu).getAllByRole('menuitem').map(i => i.getAttribute('aria-label'))).toEqual(['Einladung erneut senden', 'Einladung zurückziehen …']);
-    expect(within(menu).getByRole('menuitem', { name: 'Einladung erneut senden' })).toHaveFocus();
+    expect(within(menu).getAllByRole('menuitem').map(i => i.getAttribute('aria-label'))).toEqual(['Freigabestufe setzen …', 'Einladung erneut senden', 'Einladung zurückziehen …']);
+    expect(within(menu).getByRole('menuitem', { name: 'Freigabestufe setzen …' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).toBeNull();
     expect(more).toHaveFocus();
@@ -222,11 +228,11 @@ describe('Aktionen je Person', () => {
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Einladung erneut senden' }));
     expect(await screen.findByText('Einladung zu «Demo AG» an nora@demo.example erneut gesendet')).toBeInTheDocument();
     expect(calls.some(c => c.method === 'POST' && c.url.endsWith('/invitation'))).toBe(true);
-    // aktive Person: nur «Person entfernen …», frei
+    // aktive Person: Freigabestufe und «Person entfernen …», frei
     await userEvent.click(within(carla).getByRole('button', { name: 'Mehr zu Carla Check' }));
     const items = within(await screen.findByRole('menu')).getAllByRole('menuitem');
-    expect(items.map(i => i.getAttribute('aria-label'))).toEqual(['Person entfernen …']);
-    expect(items[0]).not.toHaveAttribute('aria-disabled');
+    expect(items.map(i => i.getAttribute('aria-label'))).toEqual(['Freigabestufe setzen …', 'Person entfernen …']);
+    expect(items[1]).not.toHaveAttribute('aria-disabled');
   });
 
   it('erneut senden ohne E-Mail-Versand: Meldung «nicht per E-Mail gesendet» statt «gesendet»', async () => {
@@ -242,7 +248,7 @@ describe('Aktionen je Person', () => {
 
   it('letzte aktive Person mit org-admin: offene Einladungen und deaktivierte zählen nicht (wie der Server)', async () => {
     const items = [ANNA, CARLA, { ...NORA, roles: ['org-admin'] }, { ...ERIK, roles: ['org-admin'] }];
-    setup(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
+    setup(platformList(), { 'GET /v1/platform/organizations/muster/members': () => json({ items }) }, { person: { subject: 'sub-plattform', name: 'Pia Plattform', email: null } });
     await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Anna Admin' }));
     const last = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' });
     expect(last).toHaveAttribute('aria-disabled', 'true');
@@ -269,7 +275,7 @@ describe('Aktionen je Person', () => {
 
   it('Plattform-Administration: letzter Organisations-Admin gesperrt mit Grund, mit zweitem Admin frei', async () => {
     let items = [ANNA, CARLA];
-    const platform = () => <MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />;
+    const platform = platformList;
     const { unmount } = setup(platform(), { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
     await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Anna Admin' }));
     const last = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' });
@@ -308,7 +314,7 @@ describe('Aktionen je Person', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Carla Check' }));
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' }));
     const c = await screen.findByRole('alertdialog', { name: 'Carla Check aus «Demo AG» entfernen?' });
-    expect(c).toHaveTextContent('Carla Check verliert Rollen und Zugang zu «Demo AG» – sofort hier, auf allen Servern spätestens nach 5 Minuten. Das Anmeldekonto und Mitgliedschaften in anderen Organisationen bleiben unverändert.');
+    expect(c).toHaveTextContent('Carla Check verliert Rollen, Freigaben an allen Orten und den Zugang zu «Demo AG» – sofort; bestehende Anmeldungen enden spätestens nach 5 Minuten. Das Anmeldekonto und Mitgliedschaften in anderen Organisationen bleiben unverändert.');
     await waitFor(() => expect(within(c).getByRole('button', { name: 'Abbrechen' })).toHaveFocus());
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
@@ -348,7 +354,7 @@ describe('Einladen', () => {
     expect(calls.some(c => c.method === 'POST')).toBe(false);
     await userEvent.type(within(dlg).getByRole('textbox', { name: 'E-Mail' }), '@demo.example');
     await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' }));
-    expect(within(dlg).getByText(`Darf 3 von ${N}`)).toBeInTheDocument();
+    expect(within(dlg).getByText(`Darf 4 von ${N}`)).toBeInTheDocument();
     expect(await axeProblems(dlg)).toEqual([]);
     await userEvent.click(within(dlg).getByRole('button', { name: 'Einladen' }));
     const done = await screen.findByRole('dialog', { name: 'Einladung erfasst' });
@@ -360,7 +366,7 @@ describe('Einladen', () => {
   });
 
   it('Vorgabe der App (`inviteRoles`) statt der Rolle mit den wenigsten Rechten', async () => {
-    const api = mockIamApi({ 'GET /v1/admin/members': () => json({ items: [ANNA] }) });
+    const api = mockIamApi({ 'GET /v1/admin/status': () => json(STATUS), 'GET /v1/admin/members': () => json({ items: [ANNA] }) });
     vi.stubGlobal('fetch', api.fetch);
     render(<StaticIam me={ADMIN_ME} config={{ inviteRoles: ['editor', 'gibt-es-nicht'] }}>{own()}</StaticIam>);
     await userEvent.click(await screen.findByRole('button', { name: 'Person einladen' }));
@@ -387,19 +393,12 @@ describe('Einladen', () => {
 
 describe('Review #18: Vorgaben, Cache, letzte Admin-Person', () => {
   const invite = async (ui: ReactElement, extra: Partial<IamConfig> = {}) => {
-    const api = mockIamApi({ 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [ANNA] }) });
+    const api = mockIamApi({ 'GET /v1/admin/status': () => json(STATUS), 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [ANNA] }) });
     vi.stubGlobal('fetch', api.fetch);
     render(<StaticIam me={ADMIN_ME} config={extra}>{ui}</StaticIam>);
     await userEvent.click(await screen.findByRole('button', { name: 'Person einladen' }));
     return screen.findByRole('dialog');
   };
-
-  it('Vorgabe ohne inviteRoles: nie eine eigene Rolle, auch wenn sie weniger Rechte hat', async () => {
-    const custom: RoleInfo = { key: 'c-protokoll', label: 'Protokoll', description: 'Nur Protokoll', permissions: ['audit:read'], adminOnly: false, custom: true };
-    const dlg = await invite(<MemberList alias={null} roles={[...ROLES, custom]} platform={false} rolesManageable self={ANNA.id} orgLabel="Demo AG" />);
-    expect(within(dlg).getByRole('checkbox', { name: 'Leser:in' })).toBeChecked();
-    expect(within(dlg).getByRole('checkbox', { name: 'Protokoll' })).not.toBeChecked();
-  });
 
   it('inviteRoles mit org-admin: ausserhalb der Plattformansicht nicht vorgewählt (sonst 403), in der Plattformansicht schon', async () => {
     const config = { inviteRoles: ['org-admin', 'editor'] };
@@ -407,12 +406,12 @@ describe('Review #18: Vorgaben, Cache, letzte Admin-Person', () => {
     expect(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' })).toBeChecked();
     expect(within(dlg).queryByText('Enthält alle anderen Rollen.')).toBeNull();
     cleanup();
-    const p = await invite(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, config);
+    const p = await invite(platformList(), config);
     expect(within(p).getByRole('checkbox', { name: 'Organisations-Admin' })).toBeChecked();
   });
 
-  it('nach dem Speichern: alle Mitgliederlisten neu geladen; gelöschte eigene Rolle wird nicht mitgeschickt', async () => {
-    const GONE = { ...CARLA, roles: ['editor', 'c-weg'] };
+  it('nach dem Speichern: alle Mitgliederlisten neu geladen; eine aus dem Modell entfernte Rolle wird nicht mitgeschickt', async () => {
+    const GONE = { ...CARLA, roles: ['editor', 'alt'] };
     const { calls } = setup(own(), {
       'GET /v1/admin/members': () => json({ items: [ANNA, GONE] }),
       [`PUT /v1/admin/members/${CARLA.id}/roles`]: () => json({ ...CARLA, roles: ['editor', 'viewer'] }),
@@ -429,11 +428,155 @@ describe('Review #18: Vorgaben, Cache, letzte Admin-Person', () => {
 
   it('deaktiviertes Konto mit org-admin ohne weitere aktive Admin-Person: Entfernen gesperrt (Plattform)', async () => {
     const items = [{ ...ERIK, roles: ['org-admin'] }, CARLA];
-    setup(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
+    setup(platformList(), { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
     await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Erik Extern' }));
     const item = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveAccessibleDescription(/^Letzter Organisations-Admin/);
+  });
+});
+
+describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
+  it('Client freigeben: Client-ID, Rollen (mindestens eine), Freigabestufe; PUT mit allen Feldern', async () => {
+    let items: Member[] = [ANNA];
+    const { calls } = setup(<MembersScreen />, {
+      'GET /v1/admin/members': () => json({ items }),
+      'PUT /v1/admin/clients/notiz-import': () => { items = [ANNA, SYNC]; return json({ clientId: 'notiz-import', principalId: 'ps9', description: 'Import', roles: ['viewer'], clearance: 1, places: 0, createdAt: ago(0), createdBy: 'Anna Admin', lastUsedAt: null, lastScopes: null }); },
+    });
+    await screen.findByRole('table', { name: /^Mitglieder/ });
+    await userEvent.click(screen.getByRole('button', { name: 'Client freigeben' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Maschinen-Client für «Demo AG» freigeben' });
+    await waitFor(() => expect(within(dlg).getByRole('textbox', { name: 'Client-ID' })).toHaveFocus());
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Freigeben' }));
+    expect(within(dlg).getByRole('textbox', { name: 'Client-ID' })).toHaveAttribute('aria-invalid', 'true');
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Mindestens eine Rolle wählen');
+    expect(calls.some(c => c.method === 'PUT')).toBe(false);
+    await userEvent.type(within(dlg).getByRole('textbox', { name: 'Client-ID' }), 'notiz-import');
+    await userEvent.type(within(dlg).getByRole('textbox', { name: 'Beschreibung' }), 'Import');
+    // Freigabestufe höchstens die eigene (ME: vertraulich)
+    const level = within(dlg).getByRole('combobox', { name: 'Freigabestufe' });
+    expect(within(level).getByRole('option', { name: /^streng vertraulich/ })).toBeDisabled();
+    await userEvent.selectOptions(level, '1');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Leser:in' }));
+    expect(await axeProblems(dlg)).toEqual([]);
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Freigeben' }));
+    expect(await screen.findByText('«notiz-import» für «Demo AG» freigegeben')).toBeInTheDocument();
+    expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: ['viewer'], description: 'Import', clearance: 1 });
+  });
+
+  it('Rollen eines Clients: Dialog mit Beschreibung aus GET /v1/admin/clients; Freigabe entziehen über «Mehr»', async () => {
+    const { calls } = setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, SYNC] }),
+      'GET /v1/admin/clients': () => json({ items: [{ clientId: 'notiz-import', principalId: 'ps9', description: 'Nächtlicher Import', roles: ['editor'], clearance: 0, places: 0, createdAt: ago(9), createdBy: null, lastUsedAt: ago(0.1), lastScopes: ['notes:read'] }] }),
+      'PUT /v1/admin/clients/notiz-import': () => json({}),
+      'DELETE /v1/admin/clients/notiz-import': () => new Response(null, { status: 204 }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Rollen von notiz-import bearbeiten' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Rollen von notiz-import in «Demo AG»' });
+    expect(within(dlg).getByRole('textbox', { name: 'Client-ID' })).toHaveAttribute('readonly');
+    await waitFor(() => expect(within(dlg).getByRole('textbox', { name: 'Beschreibung' })).toHaveValue('Nächtlicher Import'));
+    // Rechte-Übersicht mit den Scopes des letzten Tokens: erlaubt ist nur Rolle ∧ Scope
+    expect(await within(dlg).findByText(/nur mit Scope/)).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Prüfer:in' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: ['editor', 'auditor'], description: 'Nächtlicher Import', clearance: 0 });
+    await userEvent.click(screen.getByRole('button', { name: 'Mehr zu notiz-import' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabe entziehen …' }));
+    const c = await screen.findByRole('alertdialog', { name: 'Freigabe für «notiz-import» in «Demo AG» entziehen?' });
+    await userEvent.click(within(c).getByRole('button', { name: 'Entziehen' }));
+    expect(await screen.findByText('Freigabe für «notiz-import» in «Demo AG» entzogen')).toBeInTheDocument();
+  });
+
+  it('Freigabestufe: nie die eigene (gesperrt mit Grund), höchstens die eigene; PUT …/clearance', async () => {
+    const { calls } = setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, CARLA, { ...ERIK, clearance: 2 }] }),
+      [`PUT /v1/admin/members/${CARLA.id}/clearance`]: () => json({ ...CARLA, clearance: 1 }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Anna Admin' }));
+    const self = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' });
+    expect(self).toHaveAttribute('aria-disabled', 'true');
+    expect(self).toHaveAccessibleDescription('Deine eigene Freigabestufe setzt jemand anderes.');
+    await userEvent.keyboard('{Escape}');
+    // Bisherige Stufe über der eigenen: Speichern gesperrt mit Grund
+    await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Erik Extern' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
+    let dlg = await screen.findByRole('dialog', { name: 'Freigabestufe von Erik Extern in «Demo AG»' });
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('übersteigt deine eigene «vertraulich»');
+    expect(within(dlg).getByRole('button', { name: 'Speichern' })).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Abbrechen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Carla Check' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
+    dlg = await screen.findByRole('dialog', { name: 'Freigabestufe von Carla Check in «Demo AG»' });
+    const level = within(dlg).getByRole('combobox', { name: 'Freigabestufe' });
+    expect(level).toHaveValue('0');
+    expect(within(level).getByRole('option', { name: /^streng vertraulich – über deiner Freigabestufe$/ })).toBeDisabled();
+    await userEvent.selectOptions(level, '1');
+    expect(await axeProblems(dlg)).toEqual([]);
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    expect(await screen.findByText('Freigabestufe von Carla Check in «Demo AG»: «vertraulich»')).toBeInTheDocument();
+    expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ clearance: 1 });
+  });
+
+  it('«+n Orte»: Klick zeigt die Orte mit Rolle und Ablauf (GET /v1/access?subject=user:<id>), Pfeil öffnet den Ort', async () => {
+    const open = vi.fn();
+    const api = mockIamApi({
+      'GET /v1/admin/status': () => json(STATUS),
+      'GET /v1/admin/members': () => json({ items: [ANNA, { ...CARLA, places: 2 }] }),
+      'GET /v1/access': () => json({ items: [
+        { id: 't1', subject: { ref: `user:${CARLA.principalId}`, kind: 'user', name: 'Carla Check' }, relation: 'editor', place: { type: 'folder', id: 'f1' }, via: 'direct', expiresAt: null, createdAt: null, createdBy: null, removable: true },
+        { id: 't2', subject: { ref: `user:${CARLA.principalId}`, kind: 'user', name: 'Carla Check' }, relation: 'viewer', place: { type: 'note', id: 'n1' }, via: 'direct', expiresAt: '2030-06-30T21:59:59.000Z', createdAt: null, createdBy: null, removable: true },
+      ] }),
+    });
+    vi.stubGlobal('fetch', api.fetch);
+    const { staticResources } = await import('../src/testing/index.tsx');
+    render(<StaticIam me={ADMIN_ME} config={{ resources: staticResources({ folder: { f1: 'Projekte' } }, { open }) }}>{own()}</StaticIam>);
+    const table = await screen.findByRole('table', { name: /^Mitglieder/ });
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('–');
+    await userEvent.click(within(table).getByRole('button', { name: /^\+2 Orte ?, Orte von Carla Check anzeigen$/ }));
+    const dlg = await screen.findByRole('dialog', { name: 'Orte von Carla Check in «Demo AG»' });
+    const rows = within(await within(dlg).findByRole('table')).getAllByRole('row').slice(1);
+    expect(rows.map(r => r.textContent)).toEqual([expect.stringMatching(/^Ordner «Projekte»Rolle:Bearbeiter:inBis:–/), expect.stringMatching(/^Notiz \(nicht sichtbar\)Rolle:Leser:inBis:30\.06\.2030/)]);
+    expect(new URL(api.calls.find(c => new URL(c.url).pathname === '/v1/access')!.url).searchParams.get('subject')).toBe(`user:${CARLA.principalId}`);
+    await userEvent.click(within(rows[0]!).getByRole('button', { name: 'Zu Ordner «Projekte»' }));
+    expect(open).toHaveBeenCalledWith({ type: 'folder', id: 'f1' });
+    expect(await axeProblems(dlg)).toEqual([]);
+  });
+
+  it('ohne features.access keine Spalte «Orte»; in der Plattformansicht Zahl ohne Klick', async () => {
+    const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, platformAdmin: true }), 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [{ ...CARLA, places: 3 }] }) });
+    vi.stubGlobal('fetch', api.fetch);
+    const { unmount } = render(<StaticIam me={ADMIN_ME} config={{ features: { access: false } }}>{own()}</StaticIam>);
+    const table = await screen.findByRole('table', { name: /^Mitglieder/ });
+    expect(within(table).queryByRole('columnheader', { name: 'Orte' })).toBeNull();
+    unmount();
+    render(<StaticIam me={ADMIN_ME}>{platformList()}</StaticIam>);
+    const t2 = await screen.findByRole('table', { name: 'Mitglieder von Muster GmbH mit Rollen' });
+    expect(within(t2).getAllByRole('row')[1]).toHaveTextContent('+3 Orte');
+    expect(within(t2).queryByRole('button', { name: /Orte von/ })).toBeNull();
+  });
+
+  it('niemand gibt mehr, als er hat: Rollen mit Rechten, die ich nicht habe, gesperrt mit Grund; 403 exceeds-own mit fehlenden Rechten', async () => {
+    const me: Partial<Me> = { ...ADMIN_ME, roles: ['viewer'], permissions: ['tenant:read', 'note:read', 'members:admin'] };
+    setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, { ...CARLA, roles: ['editor'] }, { ...ERIK, roles: [] }] }),
+      [`PUT /v1/admin/members/${ERIK.id}/roles`]: () => json({ title: 'Verboten', status: 403, reason: 'exceeds-own', missing: ['note:write'] }, 403),
+    }, me);
+    await userEvent.click(await screen.findByRole('button', { name: 'Rollen von Carla Check bearbeiten' }));
+    let dlg = await screen.findByRole('dialog');
+    const editor = within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' });
+    expect(editor).toBeDisabled();
+    expect(editor).toBeChecked();
+    expect(editor).toHaveAccessibleDescription(/gesperrt – dir fehlen «Notizen ändern» und «Zugriff verwalten»/);
+    expect(within(dlg).getByText('Leser:in', { selector: '.iam-rp-l' }).closest('li')).toHaveTextContent('in Bearbeiter:in enthalten');
+    expect(within(dlg).getByRole('checkbox', { name: 'Prüfer:in' })).toBeDisabled();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Abbrechen' }));
+    // Der Server lehnt trotzdem ab (z. B. veraltete Rechte): Grund mit Labels im Dialog
+    await userEvent.click(screen.getByRole('button', { name: 'Rollen von Erik Extern bearbeiten' }));
+    dlg = await screen.findByRole('dialog');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Leser:in' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent('Niemand gibt mehr, als er hat: Dir fehlen hier «Notizen ändern».');
   });
 });
 

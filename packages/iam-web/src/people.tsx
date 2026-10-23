@@ -4,7 +4,8 @@
  * über `people`. `<PersonName>` sammelt die Einzelabfragen eines Augenblicks (z. B. einer Tabelle) zu einem Aufruf mit
  * höchstens 100 IDs; Suchtreffer füllen denselben Zwischenspeicher. Herkunft: vollholz/assets `web/src/api/people.ts`.
  */
-import { useQuery, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { iamFetch } from './client.ts';
 import { useIamConfig } from './config.tsx';
 import type { PersonList } from './contract.ts';
@@ -13,6 +14,7 @@ import { iamKeys } from './keys.ts';
 import { ApiError } from './problem.ts';
 import { t } from './texts/index.ts';
 import { useIamText } from './texts/react.tsx';
+import { usePicker } from './ui/Picker.tsx';
 
 /** `id` = Principal-ID in dieser Organisation. */
 export interface IamPerson { id: string; name: string; email: string | null }
@@ -25,7 +27,7 @@ export interface IamPeople {
 }
 
 const BATCH_MAX = 100;
-/** Principal-ID (UUID); eine Zugriffsregel kann eine Person auch über ihr Subject nennen. */
+/** Principal-ID (UUID) = Subjekt `user:<id>` einer Freigabe. */
 export const isPrincipalId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 const toPerson = (p: { id: string; name: string; email: string | null }): IamPerson => ({ id: p.id, name: p.name, email: p.email });
 
@@ -111,4 +113,25 @@ export function PersonName({ id }: { id: string }) {
   const q = usePerson(id);
   const name = q.data?.name ?? (q.error ? t('iam.person.unknown', { id: shortId(id) }) : shortId(id));
   return <span className="iam-person" title={q.data?.email ?? undefined} aria-busy={q.isPending || undefined}>{name}</span>;
+}
+
+/** Auswahl einer Person über die Suche im Personenverzeichnis (Name, E-Mail); Wert ist die Principal-ID. */
+export function PersonPick({ id, value, onChange, describedBy, invalid }: { id: string; value: string; onChange: (id: string) => void; describedBy?: string; invalid?: boolean }) {
+  const qc = useQueryClient();
+  const people = usePeople();
+  const btn = useRef<HTMLButtonElement>(null);
+  const picker = usePicker();
+  const open = () => btn.current && picker.open({
+    anchor: btn.current, title: t('iam.person.pick'), placeholder: t('iam.person.pickHint'), selected: value ? [value] : [], allowClear: true,
+    load: async q => (await searchPeople(qc, people, q, new AbortController().signal)).map(p => ({ value: p.id, label: p.name, sub: p.email ?? undefined, icon: 'user' as const })),
+    onPick: ([v]) => onChange(v ?? ''),
+  });
+  return (
+    <>
+      <button id={id} ref={btn} type="button" className="iam-inp iam-pickbtn" aria-haspopup="dialog" aria-describedby={describedBy} aria-invalid={invalid || undefined} onClick={open}>
+        {value ? <PersonName id={value} /> : <span className="iam-ph">{t('iam.person.search')}</span>}
+      </button>
+      {picker.node}
+    </>
+  );
 }

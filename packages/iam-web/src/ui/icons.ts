@@ -3,6 +3,7 @@
  * ersetzt sie über `components.Icon` und muss diese Namen kennen (`IamIconName`).
  */
 export const ICONS = {
+  arrow: "<path d=\"M5 12h14M13 6l6 6-6 6\"/>",
   building: "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"1\"/><path d=\"M9 7h.01M15 7h.01M9 11h.01M15 11h.01M9 15h.01M15 15h.01M10 21v-3h4v3\"/>",
   check: "<path d=\"M5 12l5 5 9-10\"/>",
   chev: "<path d=\"M9 6l6 6-6 6\"/>",
@@ -14,6 +15,7 @@ export const ICONS = {
   eye: "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
   inbox: "<path d=\"M3 13l3-8h12l3 8v6H3z\"/><path d=\"M3 13h5l1 3h6l1-3h5\"/>",
   key: "<circle cx=\"8\" cy=\"15\" r=\"4\"/><path d=\"M11 12l9-9M17 6l3 3M15 8l2 2\"/>",
+  lock: "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"1.5\"/><path d=\"M8 11V7a4 4 0 018 0v4\"/>",
   layers: "<path d=\"M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5\"/>",
   link: "<path d=\"M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1\"/>",
   more: "<circle cx=\"5\" cy=\"12\" r=\"1.2\"/><circle cx=\"12\" cy=\"12\" r=\"1.2\"/><circle cx=\"19\" cy=\"12\" r=\"1.2\"/>",

@@ -22,7 +22,7 @@ module "realm" {
   keycloak_base_path = var.keycloak_base_path
 
   catalog = {
-    roles  = { "org-admin" = "Organisations-Admin", editor = "Bearbeiter:in", viewer = "Leser:in" }
+    roles  = { editor = "Bearbeiter:in", viewer = "Leser:in" }
     scopes = ["${var.product}:read", "notes:write"]
   }
   theme_texts = {
@@ -39,6 +39,16 @@ module "realm" {
   mcp                     = var.switches
   mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]
   entra                   = var.switches
+
+  # Maschinen-Client für zwei Organisationen (System-Client); die Organisationen müssen in Keycloak nicht bestehen
+  machine_clients = var.switches ? {
+    "${var.product}-export" = {
+      organizations = ["acme", "zeta"]
+      roles         = ["viewer"]
+      scopes        = ["${var.product}:read"]
+      jwks          = file("${var.keys_dir}/${var.product}-m2m.json")
+    }
+  } : {}
 }
 
 output "issuer" {

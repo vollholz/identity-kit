@@ -12,10 +12,11 @@ dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), da
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 0.3.0 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 0.4.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 0.3.1 | GitHub Packages |
 | `@vollholz/iam-testkit` (Tests) | 0.4.0 | GitHub Packages |
-| `product-realm`, `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `<modul>-v0.1.0` |
+| `product-realm` (OpenTofu) | 0.2.0 | Git-Tag `product-realm-v0.2.0` |
+| `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `product-realm-bootstrap-v0.1.0` |
 
 ---
 
@@ -132,7 +133,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.1.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.2.0"
 
   product         = "notes"
   display_name    = "Notes"
@@ -150,7 +151,7 @@ Angewendet wird per eigenem Workflow `.github/workflows/keycloak.yml` als `notes
 Request prüft nur (fmt, validate, tflint, Tests); ein Push auf `main` (oder «Run workflow» mit `apply`) läuft
 Plan → Freigabe (Environment `production`) → Apply genau dieses Plans → Kontrollplan, der «No changes» zeigen muss.
 Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan` gehen auch lokal. Weitere Schalter
-(`smtp`, `m2m`, `mcp`, Texte): README des Moduls.
+(`smtp`, `m2m`, `mcp`, Texte) und Maschinen-Clients als Code (`machine_clients`, statt in der Konsole): README des Moduls.
 
 > Assets: `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `infra/keycloak/platform.ts` (schreibt
 > `platform.json` aus `model.platformJson()`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
@@ -188,7 +189,9 @@ export const model = defineModel({
 
 - `org-admin` (alle Rechte, `org` mit allen Rollen) und die reservierten Rechte (`tenant:read`, `members:admin`,
   `access:read`, `access:admin` …) und Gruppen ergänzt das Paket. Die Rollenbeschreibung nennt jede Rechtegruppe der
-  Rolle (hier «Notiz», «Zugriff»), sonst bricht `defineModel` ab.
+  Rolle (hier «Notiz», «Zugriff»), sonst bricht `defineModel` ab. Die App führt reservierte Rechte unter `permissions`
+  nicht auf; nur um Reihenfolge, Beschreibung oder `resources` zu bestimmen, nennt sie eines ohne Label und Gruppe
+  (z. B. `'access:admin': {}`, ebenso `{ key: 'access' }` unter `groups`).
 - Stufe «einfach»: `types` weglassen; dann gibt es nur Rollen an der Organisation und kein Panel «Zugriff».
 - `model.platformJson()` ergibt `infra/keycloak/platform.json` (nur Scopes, Schritt 3); nach jeder Änderung neu
   schreiben.

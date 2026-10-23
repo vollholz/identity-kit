@@ -405,6 +405,7 @@ export function defineModel<const P extends string, const R extends string, cons
 interface ModelInput<P extends string, R extends string, T extends string> {
   /** Technischer Name des Produkts (Lese-Scope `<product>:read`). */
   product: string;
+  /** Reservierte Rechte nur ohne label/group (Beschreibung, resources, Reihenfolge), 8.1. */
   permissions: Record<P, {
     label: string; group: string; description: string;
     /** Typen, an denen das Recht geprüft wird (immer mit `org`); Standard `['org']`. Bestimmt die Rechte von `owner`. */
@@ -640,8 +641,10 @@ Namen reserviert sind, weil die produktneutralen Bausteine sie brauchen.
 
 ### 8.1 Reservierte Namen
 
-Die App verwendet sie genau in dieser Bedeutung und nie für etwas anderes; Label und Gruppe sind fest, die
-**Beschreibung** darf die App anpassen. Fehlende ergänzt `defineModel`.
+Die App verwendet sie genau in dieser Bedeutung und nie für etwas anderes. Label und Gruppe sind fest und kommen aus
+dem Baukasten; die App lässt reservierte Rechte weg und nennt eines nur ohne Label und Gruppe, wenn sie Beschreibung,
+`resources` oder Stelle in der Reihenfolge bestimmen will (z. B. `'tenant:admin': { description: '…' }`, ebenso
+`{ key: 'access' }` unter `groups`). Fehlende ergänzt `defineModel`.
 
 | Art | Schlüssel | Label | Pflicht | Bedeutung |
 |---|---|---|---|---|
@@ -1261,11 +1264,11 @@ Konfiguration der App an.
 |---|---|---|---|---|---|---|
 | Oberfläche | Person | BFF, Code + PKCE, `private_key_jwt` | bleibt auf dem Server | `organization:*`, Wahl je Tab | Tupel ∧ Vertraulichkeit | Standard |
 | API für Personen (Skripte, CLI) | Person | öffentlicher Client, Code + PKCE (Loopback, RFC 8252), DPoP empfohlen | Bearer/DPoP, `aud = <produkt>-api` | `organization:*`, `X-Tenant` | Tupel ∧ Vertraulichkeit ∧ **Scope** | Schalter `person_api`; `azp` in `OIDC_PERSON_CLIENT_IDS`, scope-gebunden. **Neu:** In Assets erreichen Personen die API nur über BFF und MCP; Tokens eines anderen Clients gelten dort als Maschinen-Client |
-| Organisations-Client (M2M) | Maschine einer Organisation | Client Credentials, `private_key_jwt` | DPoP Pflicht (mTLS möglich), 5 min, kein Refresh | fester Claim mit einem Alias | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | Vorlage, Konsole; **Freigabe** durch `members:admin` ([12.1](#121-maschinen-clients-muss-sobald-die-api-für-maschinen-offen-ist)) |
-| System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | im Realm-Modul (`system_clients`), Freigabe je Mandant wie M2M; nie `members:admin`. **Neu:** In Assets ist ein Maschinen-Client an genau eine Organisation gebunden und wird von Hand angelegt |
+| Organisations-Client (M2M) | Maschine einer Organisation | Client Credentials, `private_key_jwt` | DPoP Pflicht (mTLS möglich), 5 min, kein Refresh | fester Claim mit einem Alias | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | Realm-Modul `machine_clients` (IaC der App, ohne Rollen); **Freigabe** durch `members:admin` ([12.1](#121-maschinen-clients-muss-sobald-die-api-für-maschinen-offen-ist)) |
+| System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min | Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | im Realm-Modul (`machine_clients` mit mehreren Organisationen), Freigabe je Mandant wie M2M; nie `members:admin` (in keinem Scope) |
 | App-zu-App | Dienst von Produkt B ruft API von Produkt A | wie System-Client im Realm von A | wie oben | wie System-Client | wie oben | System-Client in A; B verwahrt nur seinen privaten Schlüssel. Personen-Kontext über Realm-Grenzen nur mit Identity Brokering (offen) |
 | MCP | Person über KI-Host | öffentlicher MCP-Client, Code + PKCE; MCP-Dienst tauscht (RFC 8693) | `aud = <produkt>-mcp` → getauscht `<produkt>-api` | `X-Tenant` oder `?org=` | Tupel ∧ Vertraulichkeit ∧ Scope | Schalter `mcp` ([12.2](#122-mcp-dienst-kann)) |
-| MCP für Maschinen | Agent ohne Person | Client Credentials an den MCP-Dienst | wie M2M | wie M2M | wie M2M | wie Organisations-Client, Audience `<produkt>-mcp` |
+| MCP für Maschinen | Agent ohne Person | Client Credentials an den MCP-Dienst | wie M2M | wie M2M | wie M2M | **offen:** der MCP-Dienst tauscht keine sendergebundenen Tokens und nimmt nur die MCP-Hosts an; `machine_clients` legt deshalb keine Audience `<produkt>-mcp` an, Maschinen nutzen die REST-API |
 
 Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), keine Rechte ohne Scope
 (`members:admin`, `access:admin` nie; Rechteverwaltung über MCP und M2M gibt es nicht), Audit mit Client und Person, Ratenbegrenzung je Mandant und Principal, Tokens höchstens 5 min.
@@ -1274,15 +1277,18 @@ Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), k
 
 - OAuth 2 Client Credentials, ein Keycloak-Client je Integration und Organisation, `private_key_jwt` (Client-Geheimnis
   nur übergangsweise), DPoP-gebundene Tokens (alternativ mTLS), Access Token 5 min, keine Refresh-Tokens.
-- Einrichtung in der Keycloak-Konsole nach Vorlage: Service Account, *DPoP bound access tokens*, Audience
-  `<produkt>-api`, Hardcoded-Claim `organization = ["<alias>"]` (JSON), passende Rechte-Scopes (keine Client-Rollen),
-  Attribute `<produkt>.platform = true`, `<produkt>.m2m = true`.
+- Einrichtung als Code im Repository der App: Eingabe `machine_clients` des Realm-Moduls mit Organisationen, Scopes
+  und öffentlichem Schlüssel, **ohne Rollen** (Rollen sind Tupel, O4). Das Modul legt an: Service Account, *DPoP bound
+  access tokens*, Audience `<produkt>-api`, Hardcoded-Claim `organization = ["<alias>", …]` (JSON), Rechte-Scopes als
+  Standard-Scopes, Attribute `<produkt>.platform = true`, `<produkt>.m2m = true`. Freigegeben wird über Plan →
+  Freigabe → Apply wie der übrige Realm.
 - **Danach Freigabe** durch die Verwaltung der Organisation (`members:admin`) in der App: Rollen an `org`
   (`PUT /v1/admin/clients/{clientId}`, [9.6](#96-mitglieder-und-clients)), die Tupel `client:<id> <rolle> org` ergeben;
   ohne Tupel 403. Ein falscher Mapper öffnet so keine fremde Organisation. Freigaben an einzelnen Orten erhalten
   Clients nicht (A3).
-- Die App legt Maschinen-Clients (noch) nicht selbst an: dafür bräuchte `<produkt>-admin` `manage-clients` bzw.
-  `create-client`, womit sich beliebige Mapper (fremde Organisation, `platform-admin`) setzen liessen.
+- Die App legt Maschinen-Clients zur Laufzeit nicht selbst an: dafür bräuchte `<produkt>-admin` `manage-clients` bzw.
+  `create-client`, womit sich beliebige Mapper (fremde Organisation, `platform-admin`) setzen liessen. Angelegt werden sie
+  deshalb nur über das Realm-Modul (`<produkt>-iac`, Code-Review und Freigabe).
 
 ### 12.2 MCP-Dienst (KANN)
 
@@ -1407,7 +1413,7 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Teil | Inhalt | Kapitel |
 |---|---|---|
 | **Vertrag** (sprachneutral) | Claims, Header (`X-Tenant`, `X-CSRF-Token`, `DPoP`), Endpunkte `/auth/*`, `/v1/me`, `/v1/authz/catalog`, `/v1/access…`, `/v1/admin/*`, `/v1/break-glass`, `/v1/platform/*`, Fehlerformat (RFC 9457) und Texte, JSON-Schema des Katalogs, Modell (`defineModel`), Datenbankschema des IAM mit `authz_tuple` und Lesesicht | 4–11 |
-| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`, nur Scopes), `theme_texts`, `smtp`, Schalter `mcp`, `m2m`, `entra` (später `person_api`, `system_clients`, B4), `standard_texts` des Baukastens; dazu das Bootstrap-Modul `product-realm-bootstrap`. `kc.sh` und der `import`-Block gehören in die Vorlage | 2, 3 |
+| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`, nur Scopes), `theme_texts`, `smtp`, Schalter `mcp`, `m2m`, `entra`, Maschinen-Clients `machine_clients` (ohne Rollen; später `person_api`, B4), `standard_texts` des Baukastens; dazu das Bootstrap-Modul `product-realm-bootstrap`. `kc.sh` und der `import`-Block gehören in die Vorlage | 2, 3 |
 | **Backend-Paket** `@vollholz/iam` (Node 24, TypeScript, Fastify-Adapter) | Konfiguration, Token-Prüfung, Principal, BFF, `defineModel`, Tupel, Entscheidung, Lesesicht, `explain`/`whoHasAccess`, Verwaltung (Mitglieder, Clients, Freigaben, Freigabestufe), Break-Glass, Abgleich und Aufräumen (Worker-Job), MCP-Token-Austausch, Audit-Schnittstelle, SQL-Migrationen des IAM | 5–7, 9, 10, 12 |
 | **Frontend-Paket** `@vollholz/iam-web` (React) | Sitzung und `/auth/me`, Organisation je Tab, `useAuthz()`, `useResourceCan()`, `MissingRight`, Routen-Guard, Rechte-Übersicht, Rollenmatrix, «Meine Rechte», `AccessSheet`, `GrantDialog`, `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, Verwalten › Zugang (Mitglieder mit Clients, Anmeldung), Organisationen | 11 |
 | **Test-Kit** `@vollholz/iam-testkit` | Wegwerf-Datenbank, Keycloak-Nachbildung, Testpersonen, Prüfung fremder Clients im Realm, Isolations-Durchlauf über die Routenliste, RLS-Prüfung, Modellprüfung (`checkModel`), Standardfälle der Entscheidung, Konformitätstests des Vertrags (auch für Apps in anderen Sprachen) | 14 |
@@ -1427,6 +1433,7 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Freigaben an Orten | – | Tupel in `authz_tuple` | zur Laufzeit | `access:admin` am Ort, nie mehr als die eigenen Rechte |
 | Zuständigkeit (Kanten) | Fachmodell der App | Tabellen der App, gelesen über `ResourceModel.edges` | zur Laufzeit | Personen mit den Fachrechten |
 | Freigabestufe | – | `principal.clearance` | zur Laufzeit | `members:admin`; Break-Glass `org-admin` |
+| Maschinen-Clients (Konto, Scopes, Organisationen) | Repository der App | Realm-Modul `machine_clients` | mit dem Realm-Plan | Entwicklung bzw. Betrieb (Code-Review, Freigabe); Rollen über `/v1/admin/clients` |
 | Organisationen, Mitgliedschaften, Konten | – | Keycloak; Spiegel in `tenant` und `principal` | zur Laufzeit | Plattform-Administration bzw. `members:admin` in der App |
 | Gruppen aus Entra | IdP der Organisation | IdP-Mapper → Attribut `entra_groups` → Claim `groups`, nur als Subjekt `group:<entra-object-id>` | mit dem Token | Kunden-IT in Entra |
 | Ressourcen | Fachmodell der App | nur in der Datenbank der App | zur Laufzeit | Personen mit den Rechten |
@@ -1548,10 +1555,10 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | `create-realm` von `<produkt>-tofu` | fast Realm-Admin am eigenen Realm, dauerhaft; kann weitere Realms anlegen | Schlüssel nur lokal, Admin-Ereignisse im Realm `master` (identity) |
 | `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | identity › Bewusste Restrisiken |
 | Zwischenspeicher | Entfernen einer Person wirkt nach ≤ 5 min, Gruppen aus Entra mit dem nächsten Token; Tupel sofort (`acl_version`) | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |
-| Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen |
+| Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen | Verwaltung kann entfernen |
 | Gruppen aus Entra | mehr als 200 Gruppen: Entra liefert keinen `groups`-Claim (Überlauf) | O1 in authz-offene-punkte.md |
-| Break-Glass | `org-admin` kann sich jederzeit selbst bis 240 min auf Stufe 2 heben | Begründung Pflicht, Audit, Banner; Protokoll-Filter «Zugriff» | Verwaltung kann entfernen |
-| Maschinen-Clients | nur über die Keycloak-Konsole nach Vorlage | Freigabe in der App |
+| Break-Glass | `org-admin` kann sich jederzeit selbst bis 240 min auf Stufe 2 heben | Begründung Pflicht, Audit, Banner; Protokoll-Filter «Zugriff» |
+| Maschinen-Clients | nur als Code über das Realm-Modul (`machine_clients`), nicht zur Laufzeit aus der App | Freigabe in der App; Review des Repositorys |
 | Sicherheitsfunktionen der Datenbank | `resolve_tenant` und Plattform-Funktionen für die ganze Laufzeit-Rolle ausführbar (Schutz in der API) | kein beliebiges SQL (SQL-Injection geprüft); eigene Rolle als offener Punkt |
 | Organisation löschen | Alias könnte neu vergeben werden | sperren statt löschen; Bindung an `kc_org_id` |
 | Erste Anmeldung | Bindung einer leeren `kc_org_id` beim ersten Kontakt | bewusst (assets E11) |
@@ -1563,7 +1570,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | B1 | Wo liegt der Baukasten? | **entschieden 2026-10-22:** eigenes Repository `vollholz/identity-kit` (Vertrag, Modul, Pakete, Test-Kit, Vorlage); vollholz/identity bleibt Betrieb der Instanz und verweist darauf |
 | B2 | Verteilung | **entschieden 2026-10-22:** npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`) |
 | B3 | Frameworks | Backend zuerst nur Fastify, Frontend nur React; weitere Adapter erst bei Bedarf |
-| B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu sind nur `person_api` (Personen direkt an der API, ohne BFF/MCP) und `system_clients` (ein Client für mehrere Organisationen, per IaC); beide erst mit der ersten App, die sie braucht |
+| B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu ist nur noch `person_api` (Personen direkt an der API, ohne BFF/MCP), erst mit der ersten App, die ihn braucht. **Umgesetzt 2026-10-23:** Maschinen-Clients als Code (`machine_clients` in `product-realm` 0.2.0) für eine Organisation (Organisations-Client) oder mehrere (System-Client) |
 | A1 | Lese- und Schreibrecht je Typ | `TypeDef.read`/`write`, Pflicht bei `leaf` und `scope`; daraus `app.read_relations()`/`write_relations()` – Konzept nennt die Lesesicht nur für `object:read` |
 | A2 | Mehrere Blatt-Typen | höchstens einer je Modell; Lesesicht-Funktionen gelten für ihn |
 | A3 | Clients an Orten | Tupel `client:` nur an `org`, nur über `/v1/admin/clients` (CHECK und 422) – das Panel zeigt Clients nur über die Organisation |

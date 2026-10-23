@@ -32,6 +32,12 @@ const FOREIGN: { route: string; label: string; call: (i: Ids) => Call }[] = [
   { route: 'GET /v1/acl', label: 'Liste gefiltert nach Ressource von A', call: i => ({ method: 'GET', url: `/v1/acl?resourceType=folder&resourceId=${i.folder}` }) },
   { route: 'GET /v1/acl/effective', label: 'wirksame Rechte einer Person von A', call: i => ({ method: 'GET', url: `/v1/acl/effective?principal=${i.person}` }) },
   { route: 'GET /v1/acl/effective', label: 'wirksame Rechte eines Clients von A', call: i => ({ method: 'GET', url: `/v1/acl/effective?client=${i.client}` }) },
+  // Freigaben: B nennt die Client-ID von A (zuerst löschen, sonst gäbe das Freigeben danach eine Zeile in B)
+  { route: 'DELETE /v1/admin/clients/{clientId}', label: 'Freigabe des Clients von A entziehen', call: i => ({ method: 'DELETE', url: `/v1/admin/clients/${i.client}` }) },
+  { route: 'GET /v1/platform/organizations/{alias}/clients', label: 'Freigaben von A über die Plattform-Route', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/clients` }) },
+  { route: 'PUT /v1/platform/organizations/{alias}/clients/{clientId}', label: 'Client in A über die Plattform-Route freigeben', call: i => ({ method: 'PUT', url: `/v1/platform/organizations/${i.alias}/clients/${i.client}`, body: {} }) },
+  { route: 'DELETE /v1/platform/organizations/{alias}/clients/{clientId}', label: 'Freigabe in A über die Plattform-Route entziehen', call: i => ({ method: 'DELETE', url: `/v1/platform/organizations/${i.alias}/clients/${i.client}` }) },
+  { route: 'PUT /v1/admin/clients/{clientId}', label: 'Client-ID von A im eigenen Mandanten freigeben', call: i => ({ method: 'PUT', url: `/v1/admin/clients/${i.client}`, body: {} }) },
   { route: 'DELETE /v1/acl/{id}', label: 'Zugriffsregel von A löschen', call: i => ({ method: 'DELETE', url: `/v1/acl/${i.acl}` }) },
 ];
 
@@ -43,6 +49,7 @@ const LISTS: { route: string; url: string }[] = [
   { route: 'GET /v1/acl', url: '/v1/acl?principalRef=geheim-a-principal' },
   { route: 'GET /v1/acl/effective', url: '/v1/acl/effective' },
   { route: 'GET /v1/acl/effective', url: '/v1/acl/effective?roles=editor&groups=/orgs/acme/geheim' },
+  { route: 'GET /v1/admin/clients', url: '/v1/admin/clients' },
 ];
 
 /** Routen der Beispiel-App (Fachrouten, nicht Teil des Pakets) und öffentliche Beschreibung. */
@@ -78,6 +85,7 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     a.person = JSON.parse((await as('alice', { method: 'GET', url: '/v1/me' })).text).principal.id;
     assert.equal((await as('client', { method: 'GET', url: '/v1/me' })).status, 200);
     a.client = 'geheim-client';
+    a.alias = 'acme';
     ({ folder: a.folder!, note: a.note! } = await folderWithNote(t.runtime, A, 'GEHEIM-A Ordner'));
     const e = await as('alice', { method: 'POST', url: '/v1/acl', body: { resourceType: 'folder', resourceId: a.folder, principalType: 'user', principalRef: 'geheim-a-principal', permission: 'note:read', effect: 'deny' } });
     assert.equal(e.status, 201, e.text);
@@ -89,7 +97,7 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
   test('1. fremde IDs: gleiche Antwort wie eine unbekannte ID, ohne Daten von A', async () => {
     const problems: string[] = [];
     for (const f of FOREIGN) {
-      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : crypto.randomUUID()) });
+      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : k === 'alias' ? unknownKey('org') : crypto.randomUUID()) });
       const cf = f.call(foreign.ids), cu = f.call(unknown.ids);
       const rf = await as('gus', cf), ru = await as('gus', cu);
       for (const [r, c] of [[rf, cf], [ru, cu]] as const) { const u = unreached(r, c.method, f.route); if (u) problems.push(`${f.label}: ${u}`); }
@@ -102,6 +110,9 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     }
     assert.deepEqual(problems, []);
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.acl_entry WHERE id = $1', [a.acl])).rows[0].n, 1, 'Regel von A unverändert');
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.client_grant g JOIN notes.tenant t ON t.id = g.tenant_id WHERE t.alias = 'acme' AND g.client_id = 'geheim-client'")).rows[0].n, 1, 'Freigabe von A unverändert');
+    // Eigene Freigaben von B aus den Aufrufen (Eingaben von B) entfernen, damit die Listen in 2. nur Daten von B ohne Echo zeigen
+    await t.inspect.query("DELETE FROM notes.client_grant g USING notes.tenant t WHERE t.id = g.tenant_id AND t.alias = 'globex'");
   });
 
   test('2. Listen und Konto: nur Daten von B', async () => {

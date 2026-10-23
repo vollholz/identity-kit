@@ -4,7 +4,9 @@
  * Beschreibungen und Beschreibungen einzelner Felder, damit ihre OpenAPI-Beschreibung gleich bleibt.
  */
 import { Type, type TSchema } from '@sinclair/typebox';
-import type { FastifyInstance, FastifySchema } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifySchema } from 'fastify';
+import { forbidden } from '../errors.ts';
+import type { Principal } from '../principal.ts';
 import type { Iam } from '../iam.ts';
 
 export interface OpenApiOverrides {
@@ -36,6 +38,7 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Konto', description: 'Angemeldete Person oder Maschine, Mandant und Rechte (`/v1/me`).' },
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
+  { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
 ];
 
 /** Schema einer Route mit den Ersetzungen der App (Texte, Tags, Felder). */
@@ -84,4 +87,11 @@ export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
 export class Params {
   readonly values: unknown[] = [];
   add(v: unknown): string { this.values.push(v); return `$${this.values.length}`; }
+}
+
+/** Angemeldete Person (nicht Maschinen-Client, nicht über den MCP-Dienst), sonst 403: für die Verwaltung. */
+export function personOf(req: FastifyRequest): Principal {
+  const p = req.requirePrincipal();
+  if (p.kind !== 'user' || p.scopeBound) throw forbidden('Nur für angemeldete Personen.');
+  return p;
 }

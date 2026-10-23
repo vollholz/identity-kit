@@ -614,3 +614,16 @@ Audit-Trigger darauf warten.
   nimmt das Plugin nur mit Modul `bff` oder ausdrücklicher `sessions` an.
 - **Bekannte Grenze** (wie Assets, entschieden): Es gibt ein Login-Cookie je Browser; starten zwei Tabs gleichzeitig
   eine Anmeldung, gilt nur die zuletzt gestartete, die andere endet mit «Anmeldung abgelaufen».
+
+### 13.12 `keycloak`, `tenants`, Modul `clients` (Teil-PR 6a)
+
+- **`KeycloakAdmin(cfg, tokenEndpoint, fetch?, creds?)`** wie Assets (`private_key_jwt` bevorzugt, sonst Geheimnis;
+  Admin-URL aus `KEYCLOAK_MGMT_URL` oder dem Issuer; Listen seitenweise mit Obergrenze). Fehlermeldungen nennen statt
+  `npm run keycloak:setup` die Variablen und das Realm-Modul.
+- **`tenants`**: `listTenants`, `findTenant`, `createTenant`, `setTenantStatus`, `relinkTenant` mit `{ schema, audit }` als
+  erstem Parameter (Protokoll über den `AuditPort`). `findTenant` vergleicht den Alias nur ASCII klein geschrieben
+  (Assets: `lower()`, das in PostgreSQL das Kelvin-Zeichen zu «k» faltet). `purgeTenantData` bleibt in der App.
+- **Modul `clients`** wie Assets (`/v1/admin/clients…` mit `members:admin`, nur Personen; `/v1/platform/organizations/
+  :alias/clients…` nur platform-admin), standardmässig aktiv; Tag `Verwaltung: Maschinen-Clients`. `personOf(req)`
+  (nur Personen, nicht über MCP) ist exportiert und dient auch dem Modul `admin`.
+

@@ -27,5 +27,5 @@ output "service_account_user_ids" {
 
 output "machine_clients" {
   description = "Maschinen-Clients aus var.machine_clients: Organisationen, die sie in der App freigeben müssen (client_grant)."
-  value       = { for c, m in var.machine_clients : c => { organizations = sort(m.organizations), roles = sort(m.roles), scopes = sort(m.scopes) } }
+  value       = { for c, m in var.machine_clients : c => { organizations = sort(m.organizations), scopes = sort(m.scopes) } }
 }

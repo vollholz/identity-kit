@@ -1,8 +1,7 @@
 # OpenTofu-Module des Baukastens (modules/product-realm, modules/product-realm-bootstrap):
-#   Prüfen    fmt, validate, tflint, tofu test (Provider nachgebildet), Node-Tests (Texte, Hilfsskripte, moved-Liste),
+#   Prüfen    fmt, validate, tflint, tofu test (Provider nachgebildet), Node-Tests (Texte, Hilfsskripte),
 #             Typprüfung der Hilfsskripte – ohne Keycloak
-#   Keycloak  modules/test/keycloak.sh gegen Keycloak 26.8.1 im Docker: Assets (3a148ae) anlegen, mit dem Modul und den
-#             moved-Blöcken planen (nur Verschiebungen) und anwenden, dann «No changes»; frische Anlage mit allen und
+#   Keycloak  modules/test/keycloak.sh gegen Keycloak 26.8.1 im Docker: frische Anlage mit allen und
 #             ohne Schalter, zweiter Plan «No changes». Wegwerf-Instanz, Testschlüssel, keine Geheimnisse.
 # Versionen wie Assets (.github/workflows/keycloak.yml).
 name: Module
@@ -61,11 +60,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Typprüfung der Hilfsskripte
         run: npx tsc -p modules/tsconfig.json
-      - name: Node-Tests (Texte, Hilfsskripte, moved-Liste)
-        run: node --test --test-reporter=spec modules/product-realm/test/*.test.ts modules/test/*.test.ts
+      - name: Node-Tests (Texte, Hilfsskripte)
+        run: node --test --test-reporter=spec modules/product-realm/test/*.test.ts
 
   keycloak:
-    name: Keycloak 26.8.1 (gleiches Ergebnis wie Assets, frische Anlage)
+    name: Keycloak 26.8.1 (frische Anlage)
     needs: [check]
     runs-on: ubuntu-24.04
     timeout-minutes: 20

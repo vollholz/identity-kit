@@ -16,7 +16,6 @@ variables {
   display_name    = "Beispiel"
   public_base_url = "https://beispiel.example.ch/"
   catalog = {
-    roles  = { viewer = "Leser:in" }
     scopes = ["beispiel:read", "notes:write"]
   }
   theme_texts = {
@@ -61,16 +60,21 @@ run "ohne_schalter" {
   assert {
     condition = (length(keycloak_realm_client_policy_profile_policy.m2m_dpop) + length(keycloak_openid_client.mcp) + length(keycloak_openid_client.mcp_cli)
       + length(keycloak_openid_client_scope.mcp) + length(keycloak_authentication_flow.entra_first_login)
-    + length(keycloak_openid_client_service_account_role.manage_identity_providers) + length(keycloak_openid_user_session_note_protocol_mapper.identity_provider)) == 0
+      + length(keycloak_openid_client_service_account_role.manage_identity_providers) + length(keycloak_openid_user_session_note_protocol_mapper.identity_provider)
+    + length(keycloak_openid_user_attribute_protocol_mapper.entra_groups) + length(keycloak_realm_user_profile.entra)) == 0
     error_message = "Ohne Schalter weder M2M-Richtlinie noch MCP noch Entra"
   }
   assert {
-    condition     = keys(keycloak_openid_group_membership_protocol_mapper.groups) == ["platform"] && keys(keycloak_openid_audience_protocol_mapper.aud_api) == ["platform"]
-    error_message = "Mapper nur am BFF-Client"
+    condition     = keys(keycloak_openid_audience_protocol_mapper.aud_api) == ["platform"]
+    error_message = "aud-api nur am BFF-Client"
   }
   assert {
-    condition     = keys(keycloak_role.platform) == ["org-admin", "viewer"] && keycloak_role.platform["viewer"].description == "Leser:in" && keycloak_role.platform["org-admin"].description == "Organisations-Admin"
-    error_message = "Client-Rollen: org-admin aus dem Modul, die übrigen aus catalog.roles mit Beschreibung"
+    condition     = keycloak_role.platform_admin.name == "platform-admin"
+    error_message = "Realm-Rolle platform-admin; keine Client-Rollen, keine Gruppe /orgs mehr"
+  }
+  assert {
+    condition     = keys(keycloak_openid_client_authorization_permission.admin) == ["users"]
+    error_message = "FGAP v2 für <produkt>-admin nur auf Benutzer, nicht auf Gruppen"
   }
   assert {
     condition     = keycloak_openid_client_scope.permission["notes:write"].description == "Beispiel: notes:write"
@@ -118,6 +122,18 @@ run "alle_schalter" {
     }
   }
 
+  assert {
+    condition     = toset([for a in keycloak_realm_user_profile.entra[0].attribute : a.name]) == toset(["username", "email", "firstName", "lastName", "entra_groups"])
+    error_message = "User Profile: Standardattribute von Keycloak bleiben, dazu entra_groups"
+  }
+  assert {
+    condition     = one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).multi_valued && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].edit == toset(["admin"]) && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].view == toset(["admin"])
+    error_message = "entra_groups: mehrwertig, nur admin sieht und ändert"
+  }
+  assert {
+    condition     = keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].user_attribute == "entra_groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].claim_name == "groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].multivalued
+    error_message = "Mapper entra-groups: Benutzerattribut entra_groups (mehrwertig) → Claim groups am BFF-Client"
+  }
   assert {
     condition     = keycloak_openid_client.mcp[0].client_id == "beispiel-mcp" && keycloak_openid_client.mcp_cli[0].client_id == "beispiel-mcp-cli" && keycloak_openid_client_scope.mcp[0].name == "beispiel-mcp"
     error_message = "MCP-Clients und Scope <produkt>-mcp"
@@ -222,12 +238,11 @@ run "product_project_suite" {
   expect_failures = [var.product]
 }
 
-# org-admin legt das Modul an; im Katalog der App wäre es eine zweite Quelle
-run "katalog_mit_org_admin" {
+run "katalog_scope_ungueltig" {
   command = plan
 
   variables {
-    catalog = { roles = { "org-admin" = "Organisations-Admin", viewer = "Leser:in" }, scopes = [] }
+    catalog = { scopes = ["ohne-verb"] }
   }
 
   expect_failures = [var.catalog]
@@ -265,14 +280,12 @@ run "maschinen_clients" {
     machine_clients = {
       "acme-export" = {
         organizations = ["acme"]
-        roles         = ["viewer"]
         scopes        = ["beispiel:read"]
         jwks          = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"acme\"}]}"
       }
       "monitoring" = {
         description   = "System-Client des Betriebs"
         organizations = ["zeta", "acme"]
-        roles         = ["org-admin", "viewer"]
         scopes        = ["beispiel:read", "notes:write"]
         jwks          = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"mon\"}]}"
       }
@@ -294,10 +307,6 @@ run "maschinen_clients" {
     error_message = "Claim organization als JSON-Liste der Aliasse"
   }
   assert {
-    condition     = keys(keycloak_openid_client_service_account_role.machine) == ["acme-export/viewer", "monitoring/org-admin", "monitoring/viewer"]
-    error_message = "Client-Rollen je Client und Rolle"
-  }
-  assert {
     condition     = keycloak_openid_client_default_scopes.machine["acme-export"].default_scopes == toset(["profile", "email", "roles", "web-origins", "acr", "basic", "beispiel:read"]) && length(keycloak_openid_client_optional_scopes.machine["monitoring"].optional_scopes) == 0
     error_message = "Rechte-Scopes als Standard-Scopes, keine optionalen"
   }
@@ -316,24 +325,11 @@ run "maschinen_client_ohne_m2m" {
 
   variables {
     machine_clients = {
-      "acme-export" = { organizations = ["acme"], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+      "acme-export" = { organizations = ["acme"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
     }
   }
 
   expect_failures = [keycloak_openid_client.machine]
-}
-
-run "maschinen_client_fremde_rolle" {
-  command = plan
-
-  variables {
-    m2m = true
-    machine_clients = {
-      "acme-export" = { organizations = ["acme"], roles = ["c-eigene"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
-    }
-  }
-
-  expect_failures = [var.machine_clients]
 }
 
 run "maschinen_client_fremder_scope" {
@@ -342,7 +338,7 @@ run "maschinen_client_fremder_scope" {
   variables {
     m2m = true
     machine_clients = {
-      "acme-export" = { organizations = ["acme"], roles = ["viewer"], scopes = ["members:admin"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+      "acme-export" = { organizations = ["acme"], scopes = ["members:admin"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
     }
   }
 
@@ -355,7 +351,7 @@ run "maschinen_client_reservierte_id" {
   variables {
     m2m = true
     machine_clients = {
-      "beispiel-admin" = { organizations = ["acme"], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+      "beispiel-admin" = { organizations = ["acme"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
     }
   }
 
@@ -368,7 +364,7 @@ run "maschinen_client_ohne_organisation" {
   variables {
     m2m = true
     machine_clients = {
-      "acme-export" = { organizations = [], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+      "acme-export" = { organizations = [], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
     }
   }
 

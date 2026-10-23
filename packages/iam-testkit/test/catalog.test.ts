@@ -25,6 +25,11 @@ function catalog(): AuthzCatalog {
 describe('checkCatalog', () => {
   test('gültiger Katalog: keine Fehler, Lese-Scope als Warnung', () => {
     assert.deepEqual(checkCatalog(catalog(), { acl: true }), { errors: [], warnings: [] });
+    // Mit Voraussetzungen und vollständiger Aufgabe ebenso
+    const c = catalog();
+    c.permissions[7]!.requires = ['tenant:read', 'note:read'];
+    c.tasks = [{ key: 'bearbeiten', label: 'Notizen bearbeiten', description: 'Öffnen und ändern.', permissions: ['tenant:read', 'note:read', 'note:write'] }];
+    assert.deepEqual(checkCatalog(c, { acl: true }), { errors: [], warnings: [] });
     assert.deepEqual(checkCatalog(catalog(), { product: 'notes' }).warnings, []);
     assert.deepEqual(checkCatalog(catalog(), { product: 'kanban' }).warnings, ['Lese-Scope «kanban:read» fehlt']);
   });
@@ -50,6 +55,11 @@ describe('checkCatalog', () => {
     ['Ressourcentyp tenant fehlt', c => { c.resourceTypes = c.resourceTypes!.filter(t => t.key !== 'tenant'); for (const p of c.permissions) p.resources = p.resources.filter(r => r !== 'tenant'); }, 'Ressourcentyp «tenant» fehlt'],
     ['reservierte Gruppe falsches Label', c => { c.groups[3]!.label = 'Audit'; }, 'Gruppe «audit»: Label «Audit» statt «Protokoll»'],
     ['doppelte Rolle', c => { c.roles.push({ ...c.roles[1]! }); }, 'Rolle «editor» mehrfach'],
+    ['Voraussetzung unbekannt', c => { c.permissions[7]!.requires = ['note:x']; }, 'Recht «note:write»: Voraussetzung «note:x» nicht im Katalog'],
+    ['Voraussetzung auf sich selbst', c => { c.permissions[7]!.requires = ['note:write']; }, 'Recht «note:write»: setzt sich selbst voraus'],
+    ['Aufgabe mit Recht nur für org-admin', c => { c.permissions[4]!.adminOnly = true; c.tasks = [{ key: 'zugriff', label: 'Zugriff', description: 'x', permissions: ['acl:admin'] }]; }, 'Aufgabe «zugriff»: «acl:admin» hat nur org-admin'],
+    ['Aufgabe ohne Voraussetzungen', c => { c.permissions[7]!.requires = ['note:read']; c.tasks = [{ key: 'schreiben', label: 'Schreiben', description: 'x', permissions: ['note:write'] }]; }, 'Aufgabe «schreiben»: Voraussetzungen fehlen (note:read)'],
+    ['Aufgabe mit unbekanntem Recht', c => { c.tasks = [{ key: 'x', label: 'x', description: 'x', permissions: ['note:x'] }]; }, 'Aufgabe «x»: Recht «note:x» nicht im Katalog'],
   ];
   for (const [name, change, expected] of cases) {
     test(name, () => {

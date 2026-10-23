@@ -6,12 +6,17 @@
  * auch für Apps, die nicht mit dem Backend-Paket gebaut sind.
  */
 
-/** `personOnly`: nur für Personen, in keinem Scope (ab 0.2.0 geprüft, wenn vorhanden). */
-export interface CatalogPermission { key: string; label: string; group: string; description: string; resources: string[]; adminOnly?: boolean; personOnly?: boolean }
+/**
+ * `personOnly`: nur für Personen, in keinem Scope (ab 0.2.0 geprüft, wenn vorhanden). `requires`: Voraussetzungen der
+ * Oberfläche (ab 0.5.0 geprüft, wenn vorhanden).
+ */
+export interface CatalogPermission { key: string; label: string; group: string; description: string; resources: string[]; adminOnly?: boolean; personOnly?: boolean; requires?: string[] }
 /** `match`: Stichwort(e) als regulärer Ausdruck (Gross/klein egal), das die Beschreibung jeder Rolle mit Rechten der Gruppe enthält (ab 0.2.0). */
 export interface CatalogGroup { key: string; label: string; match?: string }
 export interface CatalogRole { key: string; label: string; description: string; permissions: string[]; adminOnly?: boolean }
 export interface CatalogScope { key: string; text: string; permissions: string[] }
+/** Aufgabe für den Rollendialog (ab 0.5.0 geprüft, wenn vorhanden). */
+export interface CatalogTask { key: string; label: string; description: string; permissions: string[] }
 /** Antwort von `GET /v1/authz/catalog` (weitere Felder wie `mcpTools` werden nicht geprüft). */
 export interface AuthzCatalog {
   permissions: CatalogPermission[];
@@ -19,6 +24,7 @@ export interface AuthzCatalog {
   roles: CatalogRole[];
   scopes: CatalogScope[];
   resourceTypes?: { key: string; label: string; leaf?: boolean }[];
+  tasks?: CatalogTask[];
 }
 
 /** Reservierte Rolle (Spezifikation Kap. 8.1). */
@@ -100,6 +106,26 @@ export function checkCatalog(c: AuthzCatalog, o: { product?: string; acl?: boole
     if (!s.permissions.length) errors.push(`Scope «${s.key}»: ohne Rechte`);
     for (const p of s.permissions) if (!perms.has(p)) errors.push(`Scope «${s.key}»: Recht «${p}» nicht im Katalog`);
     for (const p of s.permissions) if (perms.get(p)?.personOnly) errors.push(`Scope «${s.key}» enthält «${p}» (nur für Personen, in keinem Scope)`);
+  }
+  // Voraussetzungen der Oberfläche und Aufgaben (Rollendialog): nur bekannte Rechte, Aufgaben vollständig und ohne
+  // Rechte nur für org-admin (die keine eigene Rolle enthalten darf)
+  for (const p of c.permissions) {
+    for (const r of p.requires ?? []) {
+      if (r === p.key) errors.push(`Recht «${p.key}»: setzt sich selbst voraus`);
+      else if (!perms.has(r)) errors.push(`Recht «${p.key}»: Voraussetzung «${r}» nicht im Katalog`);
+    }
+  }
+  for (const t of c.tasks ?? []) {
+    if (!NAME_KEY.test(t.key)) errors.push(`Aufgabe «${t.key}»: Schlüssel nicht ${NAME_KEY}`);
+    if (!t.label?.trim()) errors.push(`Aufgabe «${t.key}»: Label fehlt`);
+    if (!t.description?.trim()) errors.push(`Aufgabe «${t.key}»: Beschreibung fehlt`);
+    if (!t.permissions.length) errors.push(`Aufgabe «${t.key}»: ohne Rechte`);
+    for (const p of t.permissions) {
+      if (!perms.has(p)) errors.push(`Aufgabe «${t.key}»: Recht «${p}» nicht im Katalog`);
+      else if (perms.get(p)!.adminOnly) errors.push(`Aufgabe «${t.key}»: «${p}» hat nur ${ADMIN_ROLE.key} (in keiner eigenen Rolle möglich)`);
+    }
+    const missing = [...new Set(t.permissions.flatMap(p => perms.get(p)?.requires ?? []))].filter(r => !t.permissions.includes(r));
+    if (missing.length) errors.push(`Aufgabe «${t.key}»: Voraussetzungen fehlen (${missing.join(', ')})`);
   }
   for (const t of c.resourceTypes ?? []) {
     if (!NAME_KEY.test(t.key)) errors.push(`Ressourcentyp «${t.key}»: Schlüssel nicht ${NAME_KEY}`);

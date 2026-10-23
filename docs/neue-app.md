@@ -12,9 +12,9 @@ dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), da
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 0.3.0 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 0.4.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 0.4.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests) | 0.4.0 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests) | 0.5.0 | GitHub Packages |
 | `product-realm`, `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `<modul>-v0.1.0` |
 
 ---
@@ -320,7 +320,7 @@ createRoot(root).render(
 
 ## 9. Tests, CI und Image
 
-Mit `@vollholz/iam-testkit` 0.4.0 (Spezifikation Kap. 14):
+Mit `@vollholz/iam-testkit` 0.5.0 (Spezifikation Kap. 14):
 
 - **Wegwerf-Datenbank** je Testdatei: `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })`.
 - **Katalog:** `checkCatalog(<Antwort von GET /v1/authz/catalog>, { product: 'notes', acl: true })` ergibt keine Fehler.

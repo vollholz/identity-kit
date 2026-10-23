@@ -20,6 +20,7 @@ export function authzCatalogSchema(catalog: Catalog) {
       resources: Type.Array(ResourceTypeT, { description: 'Ressourcentypen, auf denen ein ACL-Eintrag für dieses Recht wirkt' }),
       adminOnly: Type.Boolean({ description: 'Nur org-admin hat das Recht: nie freigebbar; Verbote und Beschränkungen wirken nur für Maschinen-Clients (Personen mit org-admin sind ausgenommen)' }),
       personOnly: Type.Optional(Type.Boolean({ description: 'Nur für Personen: in keinem Scope, also nie für Maschinen-Clients und MCP (fehlt sonst)' })),
+      requires: Type.Optional(Type.Array(PermissionT, { description: 'Rechte, ohne die die Oberfläche die Aktion nicht erreicht (Navigation, Seite, Auswahl); der Rollendialog warnt, wenn sie fehlen. Fehlt ohne Voraussetzungen' })),
     }), { description: 'Alle Rechte in fester Reihenfolge' }),
     groups: Type.Array(Type.Object({
       key: GroupKeyT, label: Type.String(),
@@ -36,6 +37,9 @@ export function authzCatalogSchema(catalog: Catalog) {
       scope: Nullable(Type.String({ description: `Scope, den das Recht im Token braucht; null beim Standard-Scope \`${catalog.product}:read\`` })),
       readOnly: Type.Boolean({ description: 'Werkzeug liest nur (`readOnlyHint`)' }),
     }), { description: 'Werkzeuge des MCP-Dienstes mit dem Recht, das sie brauchen (ohne `organisationen_auflisten`, das kein Recht braucht)' }),
+    tasks: Type.Optional(Type.Array(Type.Object({
+      key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(PermissionT),
+    }), { description: 'Aufgaben für den Rollendialog: Rechte, die zusammen einen Arbeitsablauf in der Oberfläche ergeben (fehlt ohne Aufgaben)' })),
   }, { title: 'AuthzCatalog' });
 }
 

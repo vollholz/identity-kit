@@ -12,7 +12,7 @@ export {
 export { schemaSnapshot, diffSnapshots, IAM_TABLES, IAM_FUNCTIONS, type SchemaSnapshot } from './schema.ts';
 export {
   defineCatalog, CatalogError, ADMIN_ROLE, ADMIN_LABEL, CUSTOM_ROLE_PREFIX, PLATFORM_ADMIN_ROLE, RESERVED_PERMISSIONS, RESERVED_GROUPS, isCustomRole,
-  type Catalog, type CatalogInput, type PermissionDef, type GroupDef, type RoleDef, type ResourceDef, type McpToolDef, type PermissionInfo, type AuthzCatalogJson,
+  type Catalog, type CatalogInput, type PermissionDef, type GroupDef, type RoleDef, type ResourceDef, type McpToolDef, type TaskDef, type PermissionInfo, type AuthzCatalogJson,
   type Register, type RegisteredPermission,
 } from './catalog.ts';
 export { OidcProvider, TokenVerifier, parseClientCert, normalizeHtu, type VerifiedToken, type VerifyOptions } from './tokens.ts';

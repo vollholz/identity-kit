@@ -120,6 +120,12 @@ describe('defineCatalog: Prüfungen (Abbruch mit allen Befunden)', () => {
     ['Fähigkeit mit unbekanntem Recht', i => ({ ...i, capabilities: { note: { delete: 'note:delete' } } }), /Fähigkeit note\.delete: Recht «note:delete» nicht im Katalog/],
     ['Fähigkeit auf unbekanntem Typ', i => ({ ...i, capabilities: { board: { write: 'note:write' } } }), /Fähigkeiten: Ressourcentyp «board» nicht im Katalog/],
     ['MCP-Werkzeug mit unbekanntem Recht', i => ({ ...i, mcpTools: { notiz_lesen: { title: 'Notiz lesen', permission: 'note:x', readOnly: true } } }), /MCP-Werkzeug «notiz_lesen»: Recht «note:x»/],
+    ['Voraussetzung unbekannt', i => ({ ...i, permissions: { ...i.permissions, 'note:write': { ...i.permissions['note:write'], requires: ['note:x'] } } }), /Recht «note:write»: Voraussetzung «note:x» nicht im Katalog/],
+    ['Voraussetzung auf sich selbst', i => ({ ...i, permissions: { ...i.permissions, 'note:write': { ...i.permissions['note:write'], requires: ['note:write'] } } }), /Recht «note:write»: setzt sich selbst voraus/],
+    ['Aufgabe mit Recht nur für org-admin', i => ({ ...i, tasks: { zugriff: { label: 'Zugriff', description: 'Regeln pflegen.', permissions: ['acl:read', 'acl:admin'] } } }), /Aufgabe «zugriff»: «acl:admin» hat nur org-admin/],
+    ['Aufgabe mit unbekanntem Recht', i => ({ ...i, tasks: { x: { label: 'x', description: 'x', permissions: ['note:x'] } } }), /Aufgabe «x»: Recht «note:x» nicht im Katalog/],
+    ['Aufgabe ohne ihre Voraussetzungen', i => ({ ...i, permissions: { ...i.permissions, 'note:write': { ...i.permissions['note:write'], requires: ['note:read'] } }, tasks: { schreiben: { label: 'Schreiben', description: 'Notizen ändern.', permissions: ['note:write'] } } }), /Aufgabe «schreiben»: Voraussetzungen fehlen \(note:read\)/],
+    ['Aufgabe ohne Label', i => ({ ...i, tasks: { x: { label: ' ', description: 'x', permissions: ['note:read'] } } }), /Aufgabe «x»: Label fehlt/],
   ];
   for (const [label, change, message] of cases) {
     test(label, () => {
@@ -147,6 +153,25 @@ describe('defineCatalog: Prüfungen (Abbruch mit allen Befunden)', () => {
       assert.ok(own.some(e => re.test(e)), `defineCatalog: ${re}`);
     }
   });
+});
+
+test('Voraussetzungen der Oberfläche und Aufgaben: in der Antwort nur wo gesetzt; vordefinierte Rolle ohne Voraussetzung als Hinweis', () => {
+  const i = notesInput();
+  const c = defineCatalog({
+    ...i,
+    permissions: { ...i.permissions, 'note:write': { ...i.permissions['note:write'], requires: ['tenant:read', 'note:read'] }, 'note:share': { ...i.permissions['note:share'], requires: ['note:read'] } },
+    roles: { ...i.roles, writer: { label: 'Schreiber:in', description: 'Ändert Notizen.', permissions: ['note:write'] } },
+    tasks: { bearbeiten: { label: 'Notizen bearbeiten', description: 'Notizen öffnen und ändern:', permissions: ['tenant:read', 'note:read', 'note:write'] } },
+  });
+  const j = c.toJSON();
+  assert.deepEqual(j.permissions.find(p => p.key === 'note:write')?.requires, ['tenant:read', 'note:read']);
+  assert.equal('requires' in j.permissions.find(p => p.key === 'note:read')!, false);
+  assert.deepEqual(j.tasks, [{ key: 'bearbeiten', label: 'Notizen bearbeiten', description: 'Notizen öffnen und ändern:', permissions: ['tenant:read', 'note:read', 'note:write'] }]);
+  assert.deepEqual(c.warnings.filter(w => w.startsWith('Rolle')), ['Rolle «writer»: «note:write» setzt in der Oberfläche «tenant:read», «note:read» voraus']);
+  // Ohne Angaben bleibt die Antwort wie bisher (kein `tasks`, kein `requires`)
+  const plain = notesCatalog.toJSON();
+  assert.equal('tasks' in plain, false);
+  assert.ok(plain.permissions.every(p => !('requires' in p)));
 });
 
 test('Assets ohne Stichwörter wäre nicht geprüft; mit falscher Beschreibung bricht defineCatalog ab', () => {

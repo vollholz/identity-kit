@@ -31,7 +31,15 @@ export interface PermissionDef<R extends string = string> {
   resources?: readonly R[];
   /** `false`: nur für Personen, in keinem Scope (Auflage 8; `members:admin` immer). */
   scope?: false;
+  /**
+   * Rechte, ohne die die Oberfläche die Aktion nicht erreicht (Navigation, Seite, Auswahl), z. B. `note:read` für
+   * `note:write`. Die Entscheidung prüft sie nicht; der Rollendialog warnt, wenn eine eigene Rolle sie nicht enthält.
+   */
+  requires?: readonly string[];
 }
+
+/** Aufgabe für den Rollendialog: Rechte, die zusammen einen Arbeitsablauf in der Oberfläche ergeben. */
+export interface TaskDef<P extends string = string> { label: string; description: string; permissions: readonly P[] }
 
 export interface GroupDef {
   key: string;
@@ -59,6 +67,8 @@ export interface CatalogInput<P extends string = string> {
   /** Fähigkeit → Recht je Ressourcentyp (Felder `can` der Antworten). */
   capabilities?: Record<string, Record<string, P | string>>;
   mcpTools?: Record<string, McpToolDef<P | string>>;
+  /** Aufgaben für eigene Rollen (nur Rechte, die eine eigene Rolle enthalten darf). */
+  tasks?: Record<string, TaskDef<P | string>>;
   features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean };
 }
 
@@ -85,16 +95,20 @@ export class CatalogError extends Error {
   constructor(errors: string[]) { super(`Rechtekatalog ungültig:\n  - ${errors.join('\n  - ')}`); this.errors = errors; }
 }
 
-export interface PermissionInfo { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly: boolean }
+export interface PermissionInfo { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly: boolean; requires: string[] }
 
-/** Antwort von `GET /v1/authz/catalog`. `match` und `personOnly` ergänzen den Katalog von Assets (nur wo gesetzt). */
+/**
+ * Antwort von `GET /v1/authz/catalog`. `match`, `personOnly`, `requires` und `tasks` ergänzen den Katalog von Assets
+ * (nur wo gesetzt).
+ */
 export interface AuthzCatalogJson {
-  permissions: ({ key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly?: true })[];
+  permissions: ({ key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly?: true; requires?: string[] })[];
   groups: { key: string; label: string; match?: string }[];
   roles: { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean }[];
   scopes: { key: string; text: string; permissions: string[] }[];
   resourceTypes: { key: string; label: string; leaf?: true }[];
   mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
+  tasks?: { key: string; label: string; description: string; permissions: string[] }[];
 }
 
 /** Stichwort einer Gruppe als regulärer Ausdruck (Gross/klein egal); Texte werden wörtlich gesucht. */
@@ -120,6 +134,8 @@ export interface Catalog<P extends string = string> {
   readonly acl: boolean;
   readonly capabilities: Readonly<Record<string, Readonly<Record<string, P>>>>;
   readonly mcpTools: Readonly<Record<string, McpToolDef<P>>>;
+  /** Aufgaben für den Rollendialog in Reihenfolge. */
+  readonly tasks: readonly { key: string; label: string; description: string; permissions: readonly P[] }[];
   /** Rechte, die nur org-admin hat (nie freigebbar, nie in eigenen Rollen). */
   readonly adminOnly: ReadonlySet<P>;
   /** Rechte, die eigene Rollen enthalten dürfen. */
@@ -217,9 +233,15 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     if (!resources.length) errors.push(`Recht «${k}»: ohne Ressourcentyp`);
     else if (!resources.includes('tenant')) errors.push(`Recht «${k}»: Ressourcentypen ohne «tenant»`);
     for (const r of resources) if (!typeKeys.has(r)) errors.push(`Recht «${k}»: Ressourcentyp «${r}» nicht im Katalog`);
-    info.set(k as Q, { key: k, label: d.label, group: d.group, description: d.description, resources, adminOnly: false, personOnly: d.scope === false || k === 'members:admin' });
+    info.set(k as Q, { key: k, label: d.label, group: d.group, description: d.description, resources, adminOnly: false, personOnly: d.scope === false || k === 'members:admin', requires: [...new Set(d.requires ?? [])] });
   }
   const isPermission = (v: string): v is Q => info.has(v as Q);
+  for (const i of info.values()) {
+    for (const r of i.requires) {
+      if (r === i.key) errors.push(`Recht «${i.key}»: setzt sich selbst voraus`);
+      else if (!isPermission(r)) errors.push(`Recht «${i.key}»: Voraussetzung «${r}» nicht im Katalog`);
+    }
+  }
 
   // ---------------------------------------------------------------- Rollen (org-admin zuerst, alle Rechte)
   const rolesIn = Object.entries(input.roles);
@@ -259,6 +281,31 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
   for (const p of adminOnly) info.get(p)!.adminOnly = true;
   const customRolePermissions = permissions.filter(p => !adminOnly.has(p));
   const customAllowed = new Set<string>(customRolePermissions);
+  // Vordefinierte Rollen ergeben vollständige Arbeitsabläufe: fehlende Voraussetzungen als Hinweis
+  for (const [key, r] of roles) {
+    const has = new Set<string>(r.permissions);
+    for (const p of r.permissions) {
+      const missing = info.get(p)!.requires.filter(x => !has.has(x));
+      if (missing.length) warnings.push(`Rolle «${key}»: «${p}» setzt in der Oberfläche ${missing.map(x => `«${x}»`).join(', ')} voraus`);
+    }
+  }
+
+  // ---------------------------------------------------------------- Aufgaben
+  const tasks: { key: string; label: string; description: string; permissions: readonly Q[] }[] = [];
+  for (const [key, x] of Object.entries(input.tasks ?? {})) {
+    if (!NAME_KEY.test(key)) errors.push(`Aufgabe «${key}»: Schlüssel nicht ${NAME_KEY}`);
+    if (!x.label?.trim()) errors.push(`Aufgabe «${key}»: Label fehlt`);
+    if (!x.description?.trim()) errors.push(`Aufgabe «${key}»: Beschreibung fehlt`);
+    if (!x.permissions.length) errors.push(`Aufgabe «${key}»: ohne Rechte`);
+    for (const p of x.permissions) {
+      if (!isPermission(p)) errors.push(`Aufgabe «${key}»: Recht «${p}» nicht im Katalog`);
+      else if (!customAllowed.has(p)) errors.push(`Aufgabe «${key}»: «${p}» hat nur ${ADMIN_ROLE} (in keiner eigenen Rolle möglich)`);
+    }
+    const perms = [...new Set(x.permissions.filter(isPermission))];
+    const missing = [...new Set(perms.flatMap(p => info.get(p)!.requires))].filter(r => !perms.includes(r as Q));
+    if (missing.length) errors.push(`Aufgabe «${key}»: Voraussetzungen fehlen (${missing.join(', ')})`);
+    tasks.push({ key, label: x.label, description: x.description, permissions: perms });
+  }
 
   // ---------------------------------------------------------------- Scopes
   const scopes = new Map<string, { text: string; permissions: readonly Q[] }>();
@@ -312,18 +359,19 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
 
   return {
     product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })), roles, scopes, resourceTypes, acl,
-    capabilities, mcpTools, adminOnly, customRolePermissions, warnings, isPermission,
+    capabilities, mcpTools, tasks, adminOnly, customRolePermissions, warnings, isPermission,
     permissionsForRoles, permissionsForScopes, scopeForPermission, permissionText,
     toJSON: () => ({
       permissions: permissions.map(k => {
         const i = info.get(k)!;
-        return { key: i.key, label: i.label, group: i.group, description: i.description, resources: i.resources, adminOnly: i.adminOnly, ...(i.personOnly ? { personOnly: true as const } : {}) };
+        return { key: i.key, label: i.label, group: i.group, description: i.description, resources: i.resources, adminOnly: i.adminOnly, ...(i.personOnly ? { personOnly: true as const } : {}), ...(i.requires.length ? { requires: [...i.requires] } : {}) };
       }),
       groups: groups.map(g => ({ key: g.key, label: g.label, ...(g.match ? { match: g.match.source } : {}) })),
       roles: [...roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...permissionsForRoles([key])], adminOnly: key === ADMIN_ROLE })),
       scopes: [...scopes].map(([key, s]) => ({ key, text: s.text, permissions: [...s.permissions] })),
       resourceTypes: resourceTypes.map(({ key, label, leaf }) => ({ key, label, ...(leaf ? { leaf: true as const } : {}) })),
       mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly })),
+      ...(tasks.length ? { tasks: tasks.map(x => ({ key: x.key, label: x.label, description: x.description, permissions: [...x.permissions] })) } : {}),
     }),
     platformJson: () => `${JSON.stringify({ roles: Object.fromEntries([...roles].map(([k, r]) => [k, r.label])), scopes: [...scopes.keys()] }, null, 2)}\n`,
   };

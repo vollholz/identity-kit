@@ -30,6 +30,9 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **0.5.0:** `checkCatalog` prüft `permissions[].requires` (bekannte Rechte, nie das Recht selbst) und `tasks`
+  (bekannte Rechte, keine nur für `org-admin`, Voraussetzungen enthalten) – dasselbe Urteil wie `defineCatalog` ab
+  `@vollholz/iam` 0.4.0.
 - **0.4.0:** `EntraFake.app(tenant, o)`: eigene App einer Organisation in ihrem Tenant (`FakeApp`: eigenes Geheimnis,
   erteilte Anwendungsberechtigungen als `roles` im Token, Graph prüft sie mit 403, `passwordCredentials` unter
   `/applications(appId='…')` nur im Heimat-Tenant und mit Application.Read.All; `consentedIn`: mandantenfähige App mit

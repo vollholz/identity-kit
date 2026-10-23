@@ -63,19 +63,10 @@ variable "iac_client_id" {
 # ---------- Rechtekatalog, Schlüssel, Texte
 
 variable "catalog" {
-  description = "Rollen und Scopes aus dem Rechtekatalog der App (Inhalt von infra/keycloak/platform.json): roles = { <rolle> = <Beschreibung> }, scopes = [<scope>, …]."
+  description = "Scopes aus dem Modell der App: scopes = [<scope>, …]. Rollen kennt Keycloak nicht (Rollen liegen in der App-Datenbank)."
   type = object({
-    roles  = map(string)
     scopes = list(string)
   })
-  validation {
-    condition     = contains(keys(var.catalog.roles), "org-admin")
-    error_message = "catalog.roles muss die reservierte Rolle org-admin enthalten (Spezifikation 8.1)."
-  }
-  validation {
-    condition     = alltrue([for r in keys(var.catalog.roles) : can(regex("^[a-z][a-z0-9-]*$", r)) && !startswith(r, "c-")])
-    error_message = "Rollen: ^[a-z][a-z0-9-]*$ und nicht mit c- (eigene Rollen der Organisation, Spezifikation 8.2/8.3)."
-  }
   validation {
     condition     = alltrue([for s in var.catalog.scopes : can(regex("^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$", s))])
     error_message = "Scopes: <bereich>:<verb> (Spezifikation 8.2)."

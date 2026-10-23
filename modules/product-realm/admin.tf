@@ -61,8 +61,8 @@ resource "keycloak_openid_client_service_account_role" "manage_realm" {
 }
 
 # ---------- Feingranulare Admin-Rechte v2 nur für <produkt>-admin (Realm: admin_permissions_enabled)
-# Richtlinie «nur dieser Client» und je eine Berechtigung über alle Benutzer bzw. alle Gruppen. Die App beschränkt
-# sich selbst auf /orgs/<alias>/<rolle> (Rechte auf /orgs gelten in v2 nicht für Untergruppen).
+# Richtlinie «nur dieser Client» und eine Berechtigung über alle Benutzer (Mitgliederverwaltung). Rechte auf Gruppen
+# gibt es nicht: Rollen liegen in der App-Datenbank.
 
 data "external" "admin_permissions" {
   program = ["node", "${path.module}/scripts/lookup.ts"]
@@ -81,8 +81,7 @@ resource "keycloak_openid_client_client_policy" "admin_service_account" {
 
 locals {
   admin_permissions = {
-    users  = { name = "${var.product}-admin: Benutzer", description = "Konten anlegen, einladen, entfernen; Gruppenmitgliedschaft setzen", type = "Users", scopes = ["view", "manage", "manage-group-membership"] }
-    groups = { name = "${var.product}-admin: Gruppen", description = "Rollengruppen /orgs/<alias>/<rolle> anlegen und Mitglieder setzen", type = "Groups", scopes = ["view", "view-members", "manage", "manage-membership"] }
+    users = { name = "${var.product}-admin: Benutzer", description = "Konten anlegen, einladen, entfernen; Mitgliedschaft in Organisationen", type = "Users", scopes = ["view", "manage", "manage-group-membership"] }
   }
   admin_scope_names = distinct(flatten([for p in local.admin_permissions : p.scopes]))
 }

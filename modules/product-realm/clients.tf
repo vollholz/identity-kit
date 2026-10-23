@@ -114,10 +114,10 @@ resource "keycloak_openid_client" "mcp_cli" {
   depends_on = [keycloak_realm_client_policy_profile_policy.code_flow]
 }
 
-# ---------- Mapper der Clients: Zielgruppe der API und Gruppen (Rollen über /orgs/<alias>/<rolle>)
+# ---------- Mapper der Clients: Zielgruppe der API und Gruppen aus Entra
 
 locals {
-  # Clients, die Tokens für Personen ausstellen (Gruppen, identity_provider) bzw. die API als Zielgruppe tragen
+  # Clients, die Tokens für Personen ausstellen (Entra-Gruppen, identity_provider) bzw. die API als Zielgruppe tragen
   person_clients = merge(
     { platform = keycloak_openid_client.platform.id },
     var.mcp ? { mcp = keycloak_openid_client.mcp[0].id, mcp_cli = keycloak_openid_client.mcp_cli[0].id } : {},
@@ -202,25 +202,10 @@ resource "keycloak_openid_client_optional_scopes" "mcp_cli" {
   optional_scopes = concat([for s in keycloak_openid_client_scope.permission : s.name], ["offline_access"])
 }
 
-# ---------- Rollen und Gruppen
+# ---------- Realm-Rolle (Rollen der App liegen in der App-Datenbank, nicht in Keycloak)
 
 resource "keycloak_role" "platform_admin" {
   realm_id    = local.realm
   name        = "platform-admin"
   description = "Plattform-Administration über alle Mandanten"
-}
-
-# Rollen des Rechtekatalogs als Client-Rollen von <produkt>-platform (ROLE_CLIENT_ID)
-resource "keycloak_role" "platform" {
-  for_each    = var.catalog.roles
-  realm_id    = local.realm
-  client_id   = keycloak_openid_client.platform.id
-  name        = each.key
-  description = each.value
-}
-
-# Gruppenbasis /orgs; darunter legt die App /orgs/<alias>/<rolle> an
-resource "keycloak_group" "orgs" {
-  realm_id = local.realm
-  name     = "orgs"
 }

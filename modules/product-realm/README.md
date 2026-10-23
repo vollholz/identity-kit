@@ -1,14 +1,14 @@
 # Modul product-realm
 
 OpenTofu-Modul für den Realm einer App auf **https://identity.project-suite.ch** (Keycloak 26.8.1): Realm-Einstellungen,
-Client-Richtlinien, Clients, Mapper, Scopes, Rollen aus dem Rechtekatalog, Rechte der Service Accounts, Texte. Jede App
+Client-Richtlinien, Clients, Mapper, Scopes, Rechte der Service Accounts, Texte. Jede App
 ruft es auf, statt IaC zu kopieren. Spezifikation [Kap. 2, 3, 12, 15](../../docs/spezifikation.md#3-realm-des-produkts).
 Herausgelöst aus vollholz/assets `infra/keycloak` (`3a148ae`); für Assets ergibt der Aufruf denselben Realm
 ([Nachweis](#nachweis)).
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version** in [`VERSION`](VERSION) (0.1.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (1.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -29,7 +29,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `product` | string | – | technischer Name `<produkt>` (`^[a-z][a-z0-9-]{1,30}[a-z0-9]$`); alle Namen folgen daraus (unten) |
 | `display_name` | string | – | Anzeigename `<Produkt>`: Realm, Theme, Namen der Clients, Texte der Scopes, SMTP-Absender, Betreff der Einladung |
 | `public_base_url` | string | – | Adresse der Oberfläche (`PUBLIC_BASE_URL`); daraus Redirect, Web-Origin, Logout-Adressen von `<produkt>-platform` |
-| `catalog` | object | – | Inhalt von `infra/keycloak/platform.json`: `roles = { <rolle> = <Beschreibung> }` (mit `org-admin`), `scopes = [<scope>, …]` |
+| `catalog` | object | – | Scopes aus dem Modell der App: `scopes = [<scope>, …]`. Rollen gibt es hier nicht mehr (Rollen liegen in der App-Datenbank) |
 | `jwks` | map(string) | – | öffentliche Schlüssel (Inhalt von `keys/<produkt>-<client>.json`) für `platform`, `admin`, `sync` und mit `mcp` auch `mcp`; je genau ein EC-P-256-Schlüssel mit `kid`, ohne privaten Teil |
 | `theme_texts` | map(map(string)) | `{}` | Werte des Themes `identity` je Sprache (`themeAccent…` nur `#RRGGBB`, `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`, kurze Login-Titel); überschreiben alle anderen Texte |
 | `localization` | map(map(string)) | `{}` | weitere Realm-Texte der App je Sprache; überschreiben die Standardtexte |
@@ -67,13 +67,13 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 | Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
 | Richtlinien | `<produkt>-code-flow` ✓, `<produkt>-confidential` ✓, `<produkt>-m2m-dpop` (`m2m`; Bedingung Attribut `<produkt>.m2m = true`) |
 | Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
-| Mapper | `aud-api` und `groups` an den Personen-Clients, `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
+| Mapper | `aud-api` und `groups` an den Personen-Clients (nur für Gruppen aus Entra, Subjekt `group:<name>`; kein Rollenbezug), `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
 | Scopes | je Scope des Katalogs ein Client-Scope «<Produkt>: <scope>» ✓; vollständige Listen der Standard- und optionalen Scopes je Client |
-| Rollen, Gruppen ✓ | Realm-Rolle `platform-admin`, Client-Rollen von `<produkt>-platform` aus `catalog.roles`, Gruppe `/orgs` |
-| Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» und «…: Gruppen» mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
+| Rollen ✓ | nur die Realm-Rolle `platform-admin`; keine Client-Rollen, keine Gruppe `/orgs` (Rollen der App: App-Datenbank) |
+| Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» (Mitgliederverwaltung; keine Rechte auf Gruppen) mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
 | Texte ✓ | eine Lokalisierung je Sprache: Standardtexte, dann `localization`, dann `theme_texts` |
 
-Assets (alle Schalter an, 17 Scopes, 7 Rollen): 68 Ressourcen. Ohne Schalter mit 2 Scopes und 3 Rollen: 29.
+Assets (alle Schalter an, 17 Scopes): 59 Ressourcen. Ohne Schalter mit 2 Scopes: 24. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
 
 ## Aufruf
 
@@ -109,7 +109,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.1.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v1.0.0"
 
   product            = "notes"
   display_name       = "Notes"
@@ -167,12 +167,15 @@ Eine App, deren Realm schon mit eigener IaC nach Assets-Muster läuft, stellt oh
 4. `kc.sh init` (Modul holen), `kc.sh plan`: nur Verschiebungen (`# … has moved to module.realm…`) und
    «Plan: 0 to add, 0 to change, 0 to destroy.» – OpenTofu meldet Verschiebungen nicht als «No changes» (Exit 2). Jede
    andere Zeile (`will be updated`, `must be replaced`, `will be created`) ist ein Unterschied und vor dem Apply zu klären.
+   Ab 1.0.0 neu und gewollt: Gelöscht werden die Client-Rollen von `<produkt>-platform`, die Gruppe `/orgs` und das
+   Gruppenrecht «`<produkt>-admin`: Gruppen» (Rollen liegen in der App-Datenbank); der Plan zeigt dafür `will be destroyed`.
 5. Apply nach Freigabe (schreibt nur den State), Kontrollplan: «No changes». Ebenso für `bootstrap/`.
 
 ### Assets
 
 Die Liste prüft `modules/test/keycloak.sh` gegen Keycloak 26.8.1 (`modules/test/roots/assets/moved.tf`); ein Test hält
-sie hier gleich.
+sie hier gleich. Für die Client-Rollen, die Gruppe `/orgs` und das Gruppenrecht gibt es seit 1.0.0 keinen `moved`-Block;
+sie entfallen mit dem Apply.
 
 `infra/keycloak/moved.tf` (Aufruf als `module "realm"` mit `m2m`, `mcp`, `entra` = `true`,
 `mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]`, `smtp = { host = "mail.infomaniak.com",
@@ -266,14 +269,6 @@ moved {
 moved {
   from = keycloak_role.platform_admin
   to   = module.realm.keycloak_role.platform_admin
-}
-moved {
-  from = keycloak_role.platform
-  to   = module.realm.keycloak_role.platform
-}
-moved {
-  from = keycloak_group.orgs
-  to   = module.realm.keycloak_group.orgs
 }
 
 # admin.tf (Schlüssel der Service Accounts: admin, sync statt der Client-ID)
@@ -404,6 +399,6 @@ Ergebnis in Keycloak gleich (Nachweis unten); anders ist nur der Aufbau:
 
 `keycloak.sh` legt in einer Wegwerf-Instanz Assets wie in Produktion an (`assets-tofu` nur mit `create-realm` →
 Bootstrap → `realm-admin` für `assets-iac` → `infra/keycloak` von `3a148ae` aus `modules/test/fixtures`), plant dann
-denselben State mit dem Modul und den `moved`-Blöcken (nur Verschiebungen), wendet sie an und plant erneut («No
+denselben State mit dem Modul und den `moved`-Blöcken (Verschiebungen; zusätzlich entfallen die Rollen, die Gruppe `/orgs` und das Gruppenrecht), wendet sie an und plant erneut («No
 changes»). Danach zwei frische Produkte mit beiden Modulen, einmal mit allen Schaltern, einmal ohne; der zweite Plan
 zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.

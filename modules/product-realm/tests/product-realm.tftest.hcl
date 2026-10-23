@@ -16,7 +16,6 @@ variables {
   display_name    = "Beispiel"
   public_base_url = "https://beispiel.example.ch/"
   catalog = {
-    roles  = { "org-admin" = "Organisations-Admin", viewer = "Leser:in" }
     scopes = ["beispiel:read", "notes:write"]
   }
   theme_texts = {
@@ -69,8 +68,12 @@ run "ohne_schalter" {
     error_message = "Mapper nur am BFF-Client"
   }
   assert {
-    condition     = keys(keycloak_role.platform) == ["org-admin", "viewer"] && keycloak_role.platform["viewer"].description == "Leser:in"
-    error_message = "Client-Rollen aus catalog.roles mit Beschreibung"
+    condition     = keycloak_role.platform_admin.name == "platform-admin"
+    error_message = "Realm-Rolle platform-admin; keine Client-Rollen, keine Gruppe /orgs mehr"
+  }
+  assert {
+    condition     = keys(keycloak_openid_client_authorization_permission.admin) == ["users"]
+    error_message = "FGAP v2 für <produkt>-admin nur auf Benutzer, nicht auf Gruppen"
   }
   assert {
     condition     = keycloak_openid_client_scope.permission["notes:write"].description == "Beispiel: notes:write"
@@ -222,11 +225,11 @@ run "product_project_suite" {
   expect_failures = [var.product]
 }
 
-run "katalog_ohne_org_admin" {
+run "katalog_scope_ungueltig" {
   command = plan
 
   variables {
-    catalog = { roles = { viewer = "Leser:in" }, scopes = [] }
+    catalog = { scopes = ["ohne-verb"] }
   }
 
   expect_failures = [var.catalog]

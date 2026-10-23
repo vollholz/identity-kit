@@ -22,7 +22,6 @@ module "realm" {
   keycloak_base_path = var.keycloak_base_path
 
   catalog = {
-    roles  = { "org-admin" = "Organisations-Admin", editor = "Bearbeiter:in", viewer = "Leser:in" }
     scopes = ["${var.product}:read", "notes:write"]
   }
   theme_texts = {

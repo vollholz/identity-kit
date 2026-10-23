@@ -83,16 +83,17 @@ expect_no_changes() { # <name> <verzeichnis> <log>
   printf '%s\t%s\n' "$3" "No changes" >>"$work/summary.tsv"
 }
 # Plan mit moved-Blöcken: OpenTofu meldet reine Verschiebungen als «Plan: 0 to add, 0 to change, 0 to destroy.» (Exit 2).
-# Verlangt: genau <anzahl> Verschiebungen und sonst nichts (keine Ressource anlegen, ändern, ersetzen, löschen; keine
-# Änderung an Outputs)
-expect_only_moves() { # <name> <verzeichnis> <log> <anzahl>
-  local rc=0 log="$work/logs/$3.txt" moved others
+# Verlangt: genau <anzahl> Verschiebungen, genau <loeschungen> Löschungen (ab product-realm 1.0.0: Client-Rollen, Gruppe
+# orgs, Gruppenrecht «groups») und sonst nichts (keine Ressource anlegen, ändern, ersetzen; keine Änderung an Outputs)
+expect_only_moves() { # <name> <verzeichnis> <log> <anzahl> [<loeschungen>]
+  local rc=0 log="$work/logs/$3.txt" moved others destroyed="${5:-0}" removed
   tf "$1" "$2" plan -no-color -detailed-exitcode >"$log" 2>&1 || rc=$?
   moved="$(grep -c '^  # .* has moved to ' "$log" || true)"
-  others="$(grep -E '^  # .* (will be|must be)|^Changes to Outputs' "$log" || true)"
-  if [ "$rc" = 1 ] || [ "$moved" != "$4" ] || [ -n "$others" ] || ! grep -q '^Plan: 0 to add, 0 to change, 0 to destroy\.' "$log"; then
+  others="$(grep -E '^  # .* (will be|must be)|^Changes to Outputs' "$log" | grep -v ' will be destroyed$' || true)"
+  removed="$(grep -E '^  # .* will be destroyed$' "$log" | grep -vE 'keycloak_role\.platform\[|keycloak_group\.orgs |authorization_permission\.admin\["groups"\]' || true)"
+  if [ "$rc" = 1 ] || [ "$moved" != "$4" ] || [ -n "$others" ] || [ -n "$removed" ] || ! grep -q "^Plan: 0 to add, 0 to change, $destroyed to destroy\\." "$log"; then
     cat "$log"
-    echo "FEHLER: $3 zeigt mehr als die $4 Verschiebungen (Exit $rc, $moved verschoben)" >&2
+    echo "FEHLER: $3 zeigt mehr als die $4 Verschiebungen und $destroyed Löschungen (Exit $rc, $moved verschoben)" >&2
     return 1
   fi
   grep -m 3 -E '^  # .* has moved to ' "$log"
@@ -144,8 +145,12 @@ expect_only_moves assets-module-bootstrap roots/assets-bootstrap "assets-modul-b
 step "Assets mit Modul: Realm (roots/assets, gleicher State)"
 as_iac assets
 tf_init assets-module roots/assets assets.tfstate
-# Jede Ressource im State (ohne Datenquellen) muss genau einmal verschoben werden
-expect_only_moves assets-module roots/assets "assets-modul-plan" "$(tf assets-fixture "$work/assets" state list | grep -vc '^data\.')"
+# Jede Ressource im State (ohne Datenquellen) muss genau einmal verschoben werden, ausser den Client-Rollen und der
+# Gruppe orgs (ohne moved-Block, werden gelöscht); das Gruppenrecht wird verschoben und dann gelöscht (Instanz «groups»)
+state="$(tf assets-fixture "$work/assets" state list)"
+roles="$(grep -c '^keycloak_role\.platform\[' <<<"$state" || true)"
+total="$(grep -vc '^data\.' <<<"$state")"
+expect_only_moves assets-module roots/assets "assets-modul-plan" "$((total - roles - 1))" "$((roles + 2))"
 
 step "Assets mit Modul: Verschiebungen anwenden, erneut planen"
 tf_apply assets-module roots/assets

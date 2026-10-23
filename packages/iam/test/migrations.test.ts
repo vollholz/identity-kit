@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { aclChecks, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { aclChecks, ASSETS_ADOPTION, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { diffSnapshots, schemaSnapshot } from '../src/schema.ts';
 import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
 
@@ -247,3 +248,69 @@ describe('iam_012: keine doppelten Zugriffsregeln', { skip }, () => {
     assert.equal((await t.inspect.query("SELECT relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.acl_entry'::regclass")).rows[0].f, true, 'FORCE RLS wieder an');
   });
 });
+
+describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', { skip }, () => {
+  /** Stand wie Assets bis 053: Grundlage unter eigenem Namen, Marke 049, dann 051–053 = iam_010–012. */
+  const assetsLike = (product = 'notes'): MigrationSource => {
+    const iam = iamMigrations({ product }).migrations;
+    const sql = (prefix: string) => iam.find(m => m.name.startsWith(prefix))!.sql;
+    return {
+      name: 'app',
+      migrations: [
+        ...iam.filter(m => m.name <= IAM_BASELINE).map(m => migration(m.name.replace(/^iam_/, '0'), m.sql)),
+        migration('049_tenant_roles.sql', 'SELECT 1;'),
+        migration('051_revoke_public_execute.sql', sql('iam_010_')),
+        migration('052_resolve_tenant_strict.sql', sql('iam_011_')),
+        migration('053_acl_unique.sql', sql('iam_012_')),
+      ],
+    };
+  };
+  const fullIam = productDb();
+  let full: Awaited<ReturnType<typeof fullIam.create>>;
+  before(async () => { full = await fullIam.create(); });
+  after(async () => { await full?.drop(); });
+
+  test('bestehende Datenbank bis 053: iam_001–008 und 010–012 eingetragen, nur iam_009 läuft; Schema wie frische Anlage', async () => {
+    const db = productDb({ iam: false, sources: [assetsLike()] });
+    const [old, t] = [await db.create(), await db.create()];
+    try {
+      // ohne Zuordnung: iam_012 scheitert am bestehenden Index (der Befund, der die Umstellung von Assets blockierte)
+      await assert.rejects(migrate(old.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
+      const r = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
+      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql']);
+      assert.deepEqual(r.adopted, [...iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name),
+        'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
+      assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(t.inspect, 'notes')), []);
+      const again = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
+      assert.deepEqual([again.applied, again.adopted], [[], []]);
+    } finally { await old.drop(); await t.drop(); }
+  });
+
+  test('frische Datenbank wie Assets: App bis 053, dann Übernahme und iam_009; Schema wie frische Anlage', async () => {
+    const db = productDb({ iam: false, sources: [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })] });
+    const f = await db.create();
+    try {
+      const rows = (await f.inspect.query<{ name: string }>("SELECT name FROM public.schema_migrations WHERE name LIKE 'iam_%' ORDER BY name")).rows.map(r => r.name);
+      assert.deepEqual(rows, iamMigrations({ product: 'notes' }).migrations.map(m => m.name));
+      assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(f.inspect, 'notes')), []);
+    } finally { await f.drop(); }
+  });
+
+  test('Zuordnung ohne angewendete Migration der App oder ohne Objekte: Abbruch, nichts eingetragen', async () => {
+    const base = assetsLike();
+    // 053 fehlt als Migration, die Marke after ist 052: Zuordnung verlangt 053
+    const short = productDb({ iam: false, sources: [{ ...base, migrations: base.migrations.slice(0, -1) }] });
+    const s = await short.create();
+    try {
+      await assert.rejects(migrate(s.adminUrl, [iamMigrations({ product: 'notes', adopted: { ...ASSETS_ADOPTION, after: '052_resolve_tenant_strict.sql' } })]), (e: Error) => {
+        assert.match(e.message, /Migration 053_acl_unique\.sql \(für iam_012_acl_unique\.sql\) ist nicht angewendet/);
+        assert.match(e.message, /iam_012_acl_unique\.sql: eindeutiger Index notes\.acl_entry_unique fehlt/);
+        return true;
+      });
+      assert.equal((await s.inspect.query("SELECT count(*)::int AS n FROM public.schema_migrations WHERE name LIKE 'iam_%'")).rows[0].n, 0);
+    } finally { await s.drop(); }
+    assert.throws(() => iamMigrations({ product: 'notes', adopted: { after: 'x', map: { 'x.sql': 'iam_099_gibt_es_nicht.sql' } } }), /gibt es nicht/);
+    assert.throws(() => iamMigrations({ product: 'notes', adopted: { after: 'x', map: { 'x.sql': IAM_BASELINE } } }), /Grundlage/);
+  });
+});
+

@@ -307,7 +307,14 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
   FORCE und die Policy `tenant_isolation` für `<ident>_app` mit `app.tenant_id()`; `tenant` hat `tenant_self`; keine
   IAM-Tabelle gibt PUBLIC Rechte; die SECURITY-DEFINER-Funktionen haben `search_path=<schema>, pg_temp`. Die
   Bedingungen zu Ressourcentypen stellt danach der Abgleich her (6.2). Sonst bricht er ab und trägt nichts ein
-  (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
+  (Auflage 4).
+- **Spätere Entsprechungen (0.1.1):** Assets hat 051–053 schon angewendet (= `iam_010`–`iam_012`). Mit `after: '049…'`
+  liefe `iam_012` danach erneut und scheiterte am bestehenden Index `acl_entry_unique`. `adopted.map` ordnet sie zu;
+  `ASSETS_ADOPTION` = `{ after: '053_acl_unique.sql', map: { '051…': 'iam_010…', '052…': 'iam_011…', '053…': 'iam_012…' } }`.
+  Eingetragen wird nur, wenn die Migration der App angewendet ist und die Objekte bestehen (`laterObjectProblem`: kein
+  EXECUTE für PUBLIC, `resolve_tenant` mit strenger Prüfung, eindeutiger Index). In Assets läuft dann nur `iam_009`.
+  `iam_010`–`iam_012` bleiben unverändert: idempotent umgeschrieben änderten sie ihre Prüfsummen, und jede Datenbank,
+  die 0.1.0 schon angewendet hat, bräche ab.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
   001–053 (`4a3574d`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
   Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010`–`iam_012` (= Assets 051–053) mit den Parametern von Assets muss für alle
@@ -429,7 +436,7 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 5. Module `auth` (ohne `ui.ts`), `admin`, ACL-Teil von `catalog/governance.ts` entfallen zugunsten der Module des
    Pakets; Worker und MCP-Dienst nutzen `MemberSync` bzw. `TokenExchanger`.
 6. Migrationen: `migrate(…, [dirMigrations('db/migrations'), iamMigrations({ product: 'assets', resourceTypes: […],
-   leafTypes: ['object'], adopted: { after: '049_tenant_roles.sql' } })])`; `iam_009` läuft normal. Gleichheit nach
+   leafTypes: ['object'], adopted: ASSETS_ADOPTION })])`; nur `iam_009` läuft (6.4). Gleichheit nach
    [6.4](#64-übernahme-in-assets) prüft schon die CI des Pakets.
 7. Tests von Assets, die in das Paket gewandert sind, bleiben in Assets **zusätzlich** bestehen, bis die Umstellung
    gemerged ist; danach entfernt Assets nur Duplikate, nie Prüfungen der Fachrouten oder des eigenen Katalogs.

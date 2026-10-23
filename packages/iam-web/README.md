@@ -14,12 +14,13 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@0.2.0
+npm i -E @vollholz/iam-web@0.3.0
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
 `@vollholz/iam` (BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft; ab iam-web 0.2.0 mit `@vollholz/iam`
-0.2.0 oder neuer (Link an die Entra-Administration).
+0.2.0 oder neuer (Link an die Entra-Administration), für die eigene App-Registrierung (iam-web 0.3.0) mit
+`@vollholz/iam` 0.3.0 oder neuer. Mit älteren Servern bleibt es bei der Zustimmung zur App der Plattform.
 
 | Import | Inhalt |
 |---|---|
@@ -110,6 +111,25 @@ passen.
 - **Neuladen der Rückkehr:** Nach dem Abschluss entfernt die Rückkehrseite `code` und `state` aus der Adresse. Lädt die
   Person die Seite danach neu, fehlt der `state`, und `<paths.entra>/zustimmung` braucht wie jede andere Seite die
   Sitzung (Weiterleitung zur Anmeldung). Die Meldung «Verbunden – Sie können dieses Fenster schliessen» steht vorher.
+
+### Eigene App-Registrierung (ab 0.3.0)
+
+Meldet der Server `methods.ownApp` (iam 0.3.0), verbindet die Organisation Microsoft Entra ID über eine eigene
+App-Registrierung in ihrem Verzeichnis statt über die App der Plattform. Ohne `methods.platformApp` gibt es kein «Mit
+Entra ID verbinden» mehr; angeboten wird, was der Server meldet (ältere Server ohne `methods`: nur die Zustimmung).
+
+- **Eigene App verbinden:** Der Dialog führt Schritt für Schritt durch die App-Registrierung (nur dieses Verzeichnis,
+  Plattform «Web» mit der Umleitungs-URI des Servers, Berechtigungen von Microsoft Graph mit Administratorzustimmung,
+  Secret) und nimmt Verzeichnis-ID, Anwendungs-ID und Secret entgegen (`PUT …/entra/app`). Fehler wie falsches Secret,
+  fehlende Berechtigungen oder Zustimmung erscheinen mit eigenem Text.
+- **Secret wechseln:** Bei der eigenen App zeigt «Anmeldung» den Ablauf des Secrets mit Warnung (bald fällig,
+  abgelaufen); «Secret wechseln …» nimmt nur das neue Secret.
+- **Link «Credentials eintragen»:** «Link an die Entra-Administration senden» erzeugt im Modus der eigenen App einen
+  Link, über den die Kunden-IT die App-Registrierung anlegt und die Angaben selbst einträgt – ohne Konto in der App,
+  mit derselben Anleitung («Sie»). Für das Token gilt dasselbe wie in 0.2.0 (Fragment sofort weg, nur im Body, nie in
+  `returnTo`); das Secret geht nur im Body an `/v1/entra/handover/credentials` und erscheint nie wieder.
+
+`OwnAppDialog`, `OwnAppGuideSteps`, `OwnAppFields` und `ownAppErrorText` stehen unter `./pages` auch einzeln bereit.
 
 ## Adapter
 

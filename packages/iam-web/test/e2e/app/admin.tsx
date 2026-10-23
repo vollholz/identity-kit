@@ -52,6 +52,18 @@ const tenantPerms = (rs: string[]) => [...new Set(CATALOG.roles.filter(r => rs.i
   .filter(p => r.key === 'org-admin' || !aclEntries.some(e => e.resourceType === 'tenant' && e.effect === 'deny' && e.principalType === 'role' && e.principalRef === r.key && e.permission === p))))];
 const people = () => members.filter(m => m.principalId).map(m => ({ id: m.principalId!, kind: 'user', name: m.name, email: m.email, clientId: null, lastSeenAt: m.lastSeenAt }));
 const features = { entra: true };
+// `?own=1`: Server ohne App der Plattform, nur eigene App-Registrierung (ab iam 0.3.0)
+const ownMode = new URLSearchParams(location.search).get('own') === '1';
+const OWN_GUIDE = {
+  redirectUri: 'https://login.notizen.example/realms/notizen/broker/entra-demo/endpoint',
+  permissions: [
+    { name: 'User.Read.All', type: 'Application', why: 'Personen der Domänen lesen und verknüpfen' },
+    { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses' },
+    { name: 'openid', type: 'Delegated', why: 'Anmeldung' },
+  ],
+};
+let ownConn: EntraConnection | null = null;
+const APP_TOKEN = 'demo.e2eCredentialsToken_0123456789abcdefABCDEFG';
 // Link an die Entra-Administration: Token nur im Fragment; Microsoft leitet in den Tests auf ?p=handoverReturn zurück
 const HANDOVER_TOKEN = 'demo.e2eHandoverToken_0123456789abcdefABCDEFGHIJ';
 let links: ConsentLink[] = [
@@ -80,7 +92,14 @@ const api = mockIamApi({
     members = members.map(x => (x.id === idOf(req) ? { ...x, roles: r } : x));
     return json(members.find(x => x.id === idOf(req)));
   }])),
-  'GET /v1/admin/entra': () => json({ enabled: true, reason: null, connection: entra }),
+  'GET /v1/admin/entra': () => json(ownMode
+    ? { enabled: true, reason: null, connection: ownConn, methods: { platformApp: false, ownApp: true }, ownApp: OWN_GUIDE }
+    : { enabled: true, reason: null, connection: entra }),
+  'PUT /v1/admin/entra/app': async req => {
+    const b = await req.json() as { entraTenantId: string; clientId: string };
+    ownConn = { ...entra, entraTenantId: b.entraTenantId, testedAt: null, testedBy: null, method: 'own', clientId: b.clientId, secretExpiresAt: new Date(Date.now() + 20 * 86_400_000).toISOString(), secretExpiresSoon: true };
+    return json({ connection: ownConn, members: entraMembers, rejectedDomains: [] });
+  },
   'GET /v1/admin/entra/preview': () => json({ members: entraMembers }),
   'POST /v1/admin/entra/enforce': () => { entra = { ...entra, stage: 'enforced', enforcedAt: new Date().toISOString(), enforcedBy: 'Anna Admin' }; return json({ connection: entra, members: entraMembers, rejectedDomains: [] }); },
   'GET /v1/platform/organizations/muster/entra': () => json({ enabled: true, reason: null, connection: null }),
@@ -121,15 +140,24 @@ const api = mockIamApi({
   },
   'GET /v1/admin/entra/consent-links': () => json({ items: links }),
   'POST /v1/admin/entra/consent-links': async req => {
-    const b = await req.json() as { tenant: string; validMinutes?: number };
+    const b = await req.json() as { tenant: string; validMinutes?: number; kind?: 'consent' | 'credentials' };
     const l: ConsentLink = { id: `l-${links.length}`, entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', createdByName: 'Anna Admin', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (b.validMinutes ?? 15) * 60_000).toISOString(), status: 'open', usedAt: null, approverName: null, error: null };
     links = [l, ...links];
-    return json({ id: l.id, url: `${location.origin}/admin.html?p=handover#${HANDOVER_TOKEN}`, entraTenantId: l.entraTenantId, expiresAt: l.expiresAt }, 201);
+    if (b.kind === 'credentials') l.kind = 'credentials';
+    return json({ id: l.id, url: `${location.origin}/admin.html?p=handover#${b.kind === 'credentials' ? APP_TOKEN : HANDOVER_TOKEN}`, entraTenantId: l.entraTenantId, expiresAt: l.expiresAt }, 201);
   },
   'DELETE /v1/admin/entra/consent-links/l-1': () => { links = links.map(l => (l.id === 'l-1' ? { ...l, status: 'revoked' as const } : l)); return new Response(null, { status: 204 }); },
-  'POST /v1/entra/handover/info': async req => ((await req.json() as { token: string }).token === HANDOVER_TOKEN
+  'POST /v1/entra/handover/info': async req => { const { token } = await req.json() as { token: string }; return token === APP_TOKEN
+    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString(), kind: 'credentials', ...OWN_GUIDE })
+    : token === HANDOVER_TOKEN
     ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString() })
-    : json({ title: 'Nicht gefunden', status: 404 }, 404)),
+    : json({ title: 'Nicht gefunden', status: 404 }, 404); },
+  'POST /v1/entra/handover/credentials': async req => {
+    const b = await req.json() as { token: string; clientSecret: string };
+    return b.token !== APP_TOKEN ? json({ title: 'Nicht gefunden', status: 404 }, 404)
+      : b.clientSecret === 'falsch' ? json({ title: 'Ungültig', status: 422, detail: 'invalid_client', reason: 'invalid-client' }, 422)
+      : json({ organization: 'Demo AG', connected: true });
+  },
   'POST /v1/entra/handover/start': () => json({ url: 'https://login.microsoftonline.com/demoag.onmicrosoft.com/oauth2/v2.0/authorize?state=h.demo.e2e' }),
   'POST /v1/entra/handover/complete': () => json({ organization: 'Demo AG', connected: true }),
   'GET /v1/platform/organizations': () => json({ items: orgs }),

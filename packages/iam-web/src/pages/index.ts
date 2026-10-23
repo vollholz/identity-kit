@@ -7,6 +7,8 @@ export { RolesPage } from './Roles.tsx';
 export { ClientList, ClientsPage, checkRightsHref, type ClientListProps } from './Clients.tsx';
 export { OrganizationPage, OrganizationsPage, organizationPath } from './Organizations.tsx';
 export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './Entra.tsx';
+export { EntraHandoverPage, EntraHandoverReturn } from './EntraHandover.tsx';
+export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { AccessPage, useAccessSearch } from './Access.tsx';
 export { AddEntry, groupPathError } from './AddEntry.tsx';
 export { Check } from './Check.tsx';

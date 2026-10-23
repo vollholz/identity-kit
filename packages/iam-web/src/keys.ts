@@ -11,6 +11,7 @@ export const iamKeys = {
   members: (alias: string | null) => ['iam', 'admin', 'members', alias ?? '_own'] as const,
   clients: (alias: string | null) => ['iam', 'admin', 'clients', alias ?? '_own'] as const,
   entra: (alias: string | null) => ['iam', 'admin', 'entra', alias ?? '_own'] as const,
+  consentLinks: (alias: string | null) => ['iam', 'admin', 'entra', alias ?? '_own', 'links'] as const,
   orgs: ['iam', 'admin', 'orgs'] as const,
   org: (alias: string) => ['iam', 'admin', 'orgs', alias] as const,
   acl: ['iam', 'acl'] as const,

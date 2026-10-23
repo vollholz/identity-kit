@@ -6,6 +6,7 @@
  * - Fehler als `ApiError` (problem+json); 401 meldet einen Sitzungsablauf, 403 lässt die Sitzung prüfen, ob die
  *   Organisation des Tabs noch verfügbar ist – auch für eigene Clients der App (`iamMiddleware`, `reportStatus`)
  */
+import { safeHash } from './entra.ts';
 import { ApiError, errorFrom, networkError } from './problem.ts';
 
 let csrfToken: string | null = null;
@@ -59,7 +60,8 @@ export const origin: string = typeof window !== 'undefined' && window.location?.
 export const ifMatch = (versionOrEtag: number | string): Record<string, string> =>
   ({ 'If-Match': typeof versionOrEtag === 'number' ? `W/"${versionOrEtag}"` : versionOrEtag });
 
-const here = () => (typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}${window.location.hash}`);
+// Fragment nur, wenn es kein Token des Links an die Entra-Administration sein kann (returnTo landet in Logs)
+const here = () => (typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}${safeHash(window.location)}`);
 
 /** Pfad innerhalb dieser App: beginnt mit «/», nicht mit «//», «/\» oder «/@» (keine andere Herkunft, 5.2). */
 export const isLocalPath = (p: string): boolean => p.startsWith('/') && !/^\/[/\\@]/.test(p);
@@ -129,6 +131,8 @@ export interface IamRequest {
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Öffentlicher Aufruf ohne Sitzung: ohne Cookie, X-Tenant und X-CSRF-Token, 401/403 nicht an die Sitzung gemeldet. */
+  anonymous?: boolean;
 }
 
 /** Adresse mit Suchparametern. */
@@ -150,12 +154,13 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
   const method = req.method ?? 'GET';
   const url = sameOrigin(withQuery(path, req.query));
   const headers = new Headers(req.headers);
-  prepare(headers, method);
+  if (!req.anonymous) prepare(headers, method);
+  else if (!headers.has('Accept')) headers.set('Accept', 'application/json, application/problem+json');
   if (req.body !== undefined) headers.set('Content-Type', 'application/json');
   let res: Response;
   try {
     res = await globalThis.fetch(url, {
-      method, headers, credentials: 'same-origin', signal: req.signal,
+      method, headers, credentials: req.anonymous ? 'omit' : 'same-origin', signal: req.signal,
       body: req.body === undefined ? undefined : JSON.stringify(req.body),
     });
   } catch (e) {
@@ -163,7 +168,7 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
     throw networkError(e);
   }
   if (!res.ok) {
-    reportStatus(res.status);
+    if (!req.anonymous) reportStatus(res.status);
     throw await errorFrom(res);
   }
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as T;

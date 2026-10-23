@@ -9,7 +9,7 @@
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ACL_EFFECTS, type AclEffect, type TenantAccess } from '../access.ts';
-import { ADMIN_ROLE, type Catalog } from '../catalog.ts';
+import { ADMIN_ROLE, isCustomRole, type Catalog } from '../catalog.ts';
 import type { Tx } from '../db.ts';
 import { invalid, notFound } from '../errors.ts';
 import type { Iam } from '../iam.ts';
@@ -118,6 +118,13 @@ export const aclModule: IamModule = {
       // Existenz mit voller Lesesicht (Entwurf 13.3): sonst wäre eine für die Person verborgene Ressource «unbekannt»
       const e = await iam.fullTx(p, async tx => {
         if (b.resourceId && !(await resources.exists(tx, { type: b.resourceType, id: b.resourceId }))) throw notFound(`Ressource ${b.resourceType}`);
+        // Eigene Rolle (direkt oder als Gruppe dieser Organisation) in derselben Transaktion prüfen und sperren: sonst
+        // bliebe ein Eintrag für eine gleichzeitig gelöschte Rolle stehen (Rollenliste oben aus dem Zwischenspeicher)
+        const own = `${root}${p.tenantAlias}/`;
+        const custom = b.principalType === 'role' ? b.principalRef : b.principalType === 'group' && b.principalRef.startsWith(own) ? b.principalRef.slice(own.length) : null;
+        if (custom && isCustomRole(custom) && !(await tx.query(`SELECT 1 FROM ${iam.schema}.tenant_role WHERE key = $1 AND deleted_at IS NULL FOR SHARE`, [custom])).rowCount) {
+          throw invalid('Der ACL-Eintrag würde nie wirken.', [{ path: '/principalRef', message: `Unbekannte Rolle «${custom}»` }]);
+        }
         // Verwalten auf der Ressource selbst: ein Verbot von acl:admin auf X sperrt die Zugriffsregeln von X und darunter
         if (b.resourceId) await req.need('acl:admin', { type: b.resourceType, id: b.resourceId });
         // Keine Duplikate (Spezifikation Kap. 7.1; gleichzeitig: eindeutiger Index aus iam_012 → 409)

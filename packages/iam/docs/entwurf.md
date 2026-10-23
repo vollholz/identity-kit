@@ -325,7 +325,7 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
 | `bff` | `/auth/login`, `/auth/entra/:idp`, `/auth/callback`, `/auth/me`, `/auth/switch`, `/auth/logout`, `/auth/backchannel-logout`; `SessionBridge` | `OIDC_BFF_CLIENT_ID` + Schlüssel | `modules/auth/{index,bff,sealer}.ts` |
 | `acl` | `GET/POST /v1/acl`, `DELETE /v1/acl/:id`, `GET /v1/acl/effective` (echt und Simulation) | `resources` | `catalog/governance.ts`, `member-access.ts` |
 | `admin` | `/v1/admin/status`, `/v1/admin/members…`, `/v1/platform/organizations…` | `KEYCLOAK_MGMT_CLIENT_ID` (sonst 503 nach 9.1 Nr. 11) | `modules/admin/{index,service,sync}.ts`, `ops/tenants.ts` |
-| `roles` | `GET/POST /v1/roles`, `GET/PATCH/DELETE /v1/roles/:key` | immer lesbar; Ändern mit Verwaltung | `modules/admin/roles.ts` |
+| `roles` | `GET/POST /v1/roles`, `GET/PATCH/DELETE /v1/roles/:key` | immer lesbar und änderbar; Gruppen und Anzahl Personen nur mit Verwaltung | `modules/admin/roles.ts` |
 | `people` | `GET /v1/people`, `GET /v1/people/:id` (Personenverzeichnis, Vertrag der Oberflächen-Bausteine) | Option `people.permissions` (Standard: Fachrechte von `<produkt>:read`, `acl:read`) | `modules/catalog/people.ts` |
 | `clients` | `/v1/admin/clients…`, `/v1/platform/organizations/:alias/clients…` | ohne Verwaltungs-Client nutzbar | `modules/admin/clients.ts` |
 | `entra` (KANN) | `/v1/admin/entra…`, `/v1/platform/organizations/:alias/entra…`, `/v1/platform/entra/refresh` | `ENTRA_CLIENT_ID` + Verwaltung | `modules/admin/{entra,graph}.ts` |
@@ -689,8 +689,10 @@ Audit-Trigger darauf warten.
 
 - **Modul `roles`** (`src/http/roles.ts`, aus Assets `modules/admin/roles.ts`): `GET/POST /v1/roles`,
   `GET/PATCH/DELETE /v1/roles/:key` mit `If-Match` (412), Grabstein (`deleted_at`, Schlüssel nie wieder vergeben),
-  Löschen entfernt zuerst die Gruppe in Keycloak (über `iam.admin`, wenn eingerichtet), dann die ACL-Einträge der
-  Rolle. Lesen mit `tenant:read`, Ändern nur Personen mit `members:admin`; Rechte eigener Rollen aus
+  Anlegen, Ändern und Löschen unter der Sperre `admin:<alias>` (Zeile mit `FOR UPDATE`), damit `If-Match` auch bei
+  gleichzeitigen Anfragen gilt. Löschen prüft unter dieser Sperre, entfernt dann die Gruppe in Keycloak (über
+  `iam.admin`, wenn eingerichtet) und die ACL-Einträge der Rolle und ihrer Gruppe `<prefix>/<alias>/<key>` (je Eintrag
+  `acl.changed`). Lesen mit `tenant:read`, Ändern nur Personen mit `members:admin`; Rechte eigener Rollen aus
   `customRolePermissions` des Katalogs (Schema mit den Rechten der App als `enum`). Standardmässig aktiv, Tag
   `Verwaltung: Rollen`. Liste und Rolle im selben Format wie `…/platform/organizations/{alias}/roles` (`roleList`).
 - **Modul `people`** (`src/http/people.ts`, aus Assets `modules/catalog/people.ts`): Liste mit Suche, Cursor und
@@ -698,7 +700,9 @@ Audit-Trigger darauf warten.
   Verwaltende) und letzten Zugriff (nur `acl:read` oder `tenant:admin`) wie Assets. Recht: eines aus der Plugin-Option
   `people.permissions` irgendwo (`canSomewhere`); Standard (`defaultPeoplePermissions`) die Fachrechte des Lese-Scopes
   `<produkt>:read` ohne reservierte, dazu `acl:read` (Spez. 9.2 «lesendes Fachrecht bzw. acl:read»). Assets übergibt
-  `['object:read']` (dort heute nur dieses Recht). Standardmässig aktiv, Tag `Personen`.
+  `['object:read']` (dort heute nur dieses Recht). Standardmässig aktiv, Tag `Personen`; öffnet ohne Option kein Recht
+  das Verzeichnis, fehlt das Modul mit Warnung (nur ausdrücklich in `modules` ein Fehler). Unbekannte Rechte in
+  `people.permissions` sind ein Fehler beim Start, vorbehaltene (z. B. `tenant:read`, hat jedes Mitglied) eine Warnung.
 - **Bausteine** in `routes.ts`: `Limit`, `Cursor`, `NextCursor`, `encodeCursor`, `decodeCursor`, `likePattern`, `etag`,
   `ifMatchVersion` (aus Assets `http/route-kit.ts`).
 - **Fehlerantworten je Route** (`registerProblemSchemas`): Der Hook ergänzte bisher das Antwortobjekt der Route selbst;
@@ -708,10 +712,19 @@ Audit-Trigger darauf warten.
 - **Rollenänderungen ohne Ereignis** (wie Assets, entschieden): Kein Zwischenspeicher hält die Rechte einer Rolle über
   eine Änderung hinaus – die Entscheidung lädt neu, sobald `acl_version` steigt (Trigger auf `tenant_role` und
   `acl_entry`, auch für andere Instanzen; Test mit zweiter Instanz), der Resolver hält nur die Rollen aus dem Token,
-  die Schlüssel eigener Rollen der Verwaltung leert `forgetRoles` (andere Instanzen nach 60 s, betrifft nur das Prüfen
-  beim Vergeben).
+  die Schlüssel eigener Rollen der Verwaltung leert `forgetRoles`. Beim Vergeben (Einladen, Rollen setzen) prüft die
+  Verwaltung die Rollen unter der Sperre `admin:<alias>` erneut ohne Zwischenspeicher; sonst legte eine andere Instanz
+  die Gruppe einer gelöschten Rolle neu an. `POST /v1/acl` sperrt eine eigene Rolle (direkt oder als Gruppe) in der
+  Transaktion (`FOR SHARE`).
 - **Review zu #24, E und F**: Aliase in Keycloak, die sich nur in der Gross-/Kleinschreibung unterscheiden, ergeben
   409 `ambiguous-alias` statt stillschweigend der letzten. Anlegen einer Organisation mit dem Alias einer früher
   gelöschten: Rollengruppen `<prefix>/<alias>/<rolle>` (vordefinierte Rollen) mit Personen → 409
   `leftover-role-groups`, leere werden übernommen. Spez. 9.3: Einladen löst keinen Abgleich aus (Eingeladene erst nach
   Annahme im Verzeichnis); präzisiert statt `syncNow` nach dem Einladen.
+- **Review zu #25**: Client-Rollen `c-…` eines Service Accounts zählen nie (Spez. 8.3: Clients nur vordefinierte
+  Rollen). Mehrstufiges `GROUP_ROLE_PREFIX` (`/kunden/orgs`): jede fehlende Stufe einzeln angelegt (der `KeycloakFake`
+  lehnt Namen mit «/» jetzt ab). Cursor von `GET /v1/people` mit echter UUID-Prüfung (422 statt 500).
+- **Hinweis für den Katalog** (später `docs/backend.md`): Eigene Rollen dürfen jedes Recht aus
+  `customRolePermissions`, es gibt keine Teilmengenregel. Wer `members:admin` über eine vordefinierte Rolle ohne
+  org-admin hat, kann eine eigene Rolle mit allen diesen Rechten anlegen und sich selbst geben. `members:admin` also
+  nur Rollen geben, denen alle `customRolePermissions` zustehen dürfen.

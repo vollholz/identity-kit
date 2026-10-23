@@ -9,8 +9,10 @@
  *   Mitglieder und Rollen verwalten oder Zugriffsregeln ändern und so die Grenze zu org-admin umgehen.
  * - Der technische Name (`c-…`) entsteht aus dem Namen und ändert sich nie; er ist der Name der Keycloak-Gruppe
  *   `<prefix>/<alias>/<key>`, über die die Rolle vergeben wird (Modul `admin`), und die Rolle in ACL-Einträgen.
- * - Löschen entfernt zuerst die Gruppe in Keycloak (alle verlieren die Rolle), dann die ACL-Einträge der Rolle; die Rolle
- *   selbst bleibt als Grabstein (`deleted_at`), ihr technischer Name wird nie wieder vergeben. Noch gültige Tokens
+ * - Ändern unter der Sperre der Organisation (`admin:<alias>`, Zeile mit FOR UPDATE), damit If-Match auch bei
+ *   gleichzeitigen Anfragen gilt.
+ * - Löschen entfernt zuerst die Gruppe in Keycloak (alle verlieren die Rolle), dann die ACL-Einträge der Rolle und ihrer
+ *   Gruppe (mit `acl.changed`); die Rolle selbst bleibt als Grabstein (`deleted_at`), ihr technischer Name wird nie wieder vergeben. Noch gültige Tokens
  *   früherer Mitglieder tragen die Gruppe weiter im Claim; mit neuem Schlüssel erben sie so nie eine spätere Rolle.
  * Braucht keinen Verwaltungs-Client: ohne ihn keine Gruppen in Keycloak und keine Anzahl Personen.
  */
@@ -20,6 +22,7 @@ import { MAX_CUSTOM_ROLES, roleList, TENANT_ROLE_COLS, type TenantRoleRow } from
 import { ADMIN_ROLE, CUSTOM_ROLE_PREFIX } from '../catalog.ts';
 import type { Tx } from '../db.ts';
 import { conflict, HttpError, invalid, notFound } from '../errors.ts';
+import { lockKey } from '../locks.ts';
 import { RoleListSchema, RoleSchema } from './admin.ts';
 import { Deleted, etag, ifMatchVersion, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
@@ -64,11 +67,20 @@ export const rolesModule: IamModule = {
       try { return await svc.roleMemberCounts(p.tenantAlias); } catch { return null; }
     };
     const one = (r: TenantRoleRow, c: Map<string, number> | null) => roleList(catalog, [r], c).items.at(-1)!;
-    const load = async (tx: Tx, key: string) => {
-      const r = (await tx.query<TenantRoleRow>(`${SELECT} AND key = $1`, [key])).rows[0];
+    const load = async (tx: Tx, key: string, lock = false) => {
+      const r = (await tx.query<TenantRoleRow>(`${SELECT} AND key = $1${lock ? ' FOR UPDATE' : ''}`, [key])).rows[0];
       if (!r) throw notFound(`Rolle «${key}»`);
       return r;
     };
+    /**
+     * Änderungen an Rollen laufen unter der Sperre der Organisation (wie die Verwaltung, die Rollen vergibt): sonst
+     * überholten sich gleichzeitige Änderungen (If-Match), oder eine Gruppe in Keycloak verschwände für eine Rolle, die
+     * eine gleichzeitige Änderung schon wieder anders sieht.
+     */
+    const locked = <T>(req: FastifyRequest, alias: string, fn: (tx: Tx) => Promise<T>) => req.tx(async tx => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey.admin(alias)]);
+      return fn(tx);
+    });
     const builtinGuard = (key: string) => {
       const b = catalog.roles.get(key);
       if (b) throw conflict(`«${b.label}» ist eine vordefinierte Rolle und lässt sich nicht ändern oder löschen. Eine eigene Rolle mit diesen Rechten als Ausgangspunkt anlegen.`, { reason: 'builtin-role' });
@@ -127,7 +139,7 @@ export const rolesModule: IamModule = {
     }, async (req, reply) => {
       const p = await manager(req);
       const b = req.body as { label: string; description?: string; permissions: string[] };
-      const r = await req.tx(async tx => {
+      const r = await locked(req, p.tenantAlias, async tx => {
         await check(tx, b, null);
         if (Number((await tx.query<{ n: string }>(`SELECT count(*) AS n FROM ${S}.tenant_role WHERE deleted_at IS NULL`)).rows[0]!.n) >= MAX_CUSTOM_ROLES) {
           throw conflict(`Höchstens ${MAX_CUSTOM_ROLES} eigene Rollen je Organisation. Eine nicht mehr benutzte Rolle löschen.`, { reason: 'too-many-roles' });
@@ -161,14 +173,14 @@ export const rolesModule: IamModule = {
       const { key } = req.params as { key: string };
       builtinGuard(key);
       const expected = ifMatchVersion(req.headers['if-match']);
-      const r = await req.tx(async tx => {
-        const cur = await load(tx, key);
+      const r = await locked(req, p.tenantAlias, async tx => {
+        const cur = await load(tx, key, true);
         versionGuard(cur, expected);
         await check(tx, { label: b.label, permissions: b.permissions }, cur.id);
         const next = { label: b.label?.trim() ?? cur.label, description: b.description?.trim() ?? cur.description, permissions: b.permissions ? ordered(b.permissions) : cur.permissions };
         const added = next.permissions.filter(x => !cur.permissions.includes(x)), removed = cur.permissions.filter(x => !next.permissions.includes(x));
         const row = (await tx.query<TenantRoleRow>(`UPDATE ${S}.tenant_role SET label = $2, description = $3, permissions = $4, version = version + 1, updated_at = now(), updated_by = $5
-          WHERE id = $1 RETURNING ${TENANT_ROLE_COLS}`, [cur.id, next.label, next.description, next.permissions, p.principalId])).rows[0]!;
+          WHERE id = $1 AND deleted_at IS NULL RETURNING ${TENANT_ROLE_COLS}`, [cur.id, next.label, next.description, next.permissions, p.principalId])).rows[0]!;
         await req.audit(tx, { action: 'role.updated', resourceType: 'role', resourceId: row.id, data: { key, label: row.label, ...(row.label !== cur.label ? { previousLabel: cur.label } : {}), added, removed } });
         return row;
       });
@@ -187,16 +199,23 @@ export const rolesModule: IamModule = {
       const { key } = req.params as { key: string };
       builtinGuard(key);
       const expected = ifMatchVersion(req.headers['if-match']);
-      const cur = await req.tx(tx => load(tx, key));
-      versionGuard(cur, expected);
-      // Zuerst Keycloak: scheitert danach die Datenbank, bleibt nur eine Rolle ohne Personen zurück, nie eine verwaiste Gruppe
-      const members = svc && iam.cfg.tenancy.roleSource !== 'client' ? await svc.deleteRoleGroup(p.tenantAlias, key) : 0;
-      await req.tx(async tx => {
-        const r = await load(tx, key);
+      const prefixPath = `${iam.cfg.tenancy.groupRolePrefix}/${p.tenantAlias}/${key}`;
+      await locked(req, p.tenantAlias, async tx => {
+        const r = await load(tx, key, true);
         versionGuard(r, expected);
-        const acl = (await tx.query(`DELETE FROM ${S}.acl_entry WHERE principal_type = 'role' AND principal_ref = $1`, [key])).rowCount ?? 0;
+        // Gruppe in Keycloak erst unter Sperre und nach der Prüfung: scheitert danach die Datenbank, bleibt nur eine Rolle
+        // ohne Personen zurück, nie eine verwaiste Gruppe
+        const members = svc && iam.cfg.tenancy.roleSource !== 'client' ? await svc.deleteRoleGroup(p.tenantAlias, key) : 0;
+        // Zugriffsregeln auf die Rolle und auf ihre Gruppe (`<prefix>/<alias>/<key>`): beide wirkten sonst weiter, die Gruppe
+        // in noch gültigen Tokens früherer Mitglieder
+        const acl = (await tx.query<{ id: string; resource_type: string; resource_id: string | null; principal_type: string; principal_ref: string; permission: string; effect: string }>(
+          `DELETE FROM ${S}.acl_entry WHERE (principal_type = 'role' AND principal_ref = $1) OR (principal_type = 'group' AND principal_ref = $2)
+           RETURNING id, resource_type, resource_id, principal_type, principal_ref, permission, effect`, [key, prefixPath])).rows;
+        for (const e of acl) {
+          await iam.events?.(tx, 'acl.changed', e.resource_id, { action: 'acl.deleted', resourceType: e.resource_type, resourceId: e.resource_id, aclId: e.id, principalType: e.principal_type, principalRef: e.principal_ref, permission: e.permission, effect: e.effect, reason: 'role.deleted' });
+        }
         await tx.query(`UPDATE ${S}.tenant_role SET deleted_at = now(), version = version + 1, updated_at = now(), updated_by = $2 WHERE id = $1`, [r.id, p.principalId]);
-        await req.audit(tx, { action: 'role.deleted', resourceType: 'role', resourceId: r.id, data: { key, label: r.label, permissions: r.permissions, members, aclEntries: acl } });
+        await req.audit(tx, { action: 'role.deleted', resourceType: 'role', resourceId: r.id, data: { key, label: r.label, permissions: r.permissions, members, aclEntries: acl.length } });
       });
       changed(p.tenantAlias, p.tenantId);
       return reply.status(204).send(null);

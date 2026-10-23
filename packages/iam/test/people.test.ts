@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { defaultPeoplePermissions } from '../src/http/people.ts';
-import { assetsCatalog, notesCatalog } from './support/catalogs.ts';
+import { defineCatalog } from '../src/catalog.ts';
+import { assetsCatalog, notesCatalog, notesInput } from './support/catalogs.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
 
@@ -117,6 +118,10 @@ describe('Personenverzeichnis', { skip }, () => {
     assert.equal((await call('dora', 'GET', `/v1/people?limit=1&q=a&cursor=${encodeURIComponent(first.nextCursor)}`)).status, 422, 'andere Suche');
     assert.equal((await call('svc', 'GET', `/v1/people?limit=1&cursor=${encodeURIComponent(first.nextCursor)}`)).status, 422, 'andere Sicht (ohne E-Mail)');
     assert.equal((await call('dora', 'GET', '/v1/people?cursor=kaputt')).status, 422);
+    // Opaker Cursor mit 36 erlaubten Zeichen, aber keiner UUID: 422 statt Fehler der Datenbank
+    const c = JSON.parse(Buffer.from(first.nextCursor, 'base64url').toString());
+    const forged = Buffer.from(JSON.stringify({ ...c, id: '-'.repeat(36) })).toString('base64url');
+    assert.equal((await call('dora', 'GET', `/v1/people?limit=1&cursor=${forged}`)).status, 422);
   });
 
   test('Mandantentrennung: Personen anderer Mandanten unsichtbar (RLS)', async () => {
@@ -138,12 +143,22 @@ describe('Personenverzeichnis', { skip }, () => {
     assert.equal((await call('admin', 'GET', `/v1/people?${many}`)).status, 422, 'höchstens 100');
   });
 
-  test('Option people.permissions: eigenes Recht öffnet das Verzeichnis; unbekannte Rechte zählen nicht', async () => {
+  test('Option people.permissions: eigenes Recht öffnet das Verzeichnis; unbekannte Rechte melden einen Fehler beim Start', async () => {
     const own = await notesApp({ db: t.runtime, issuer: idp.issuer, plugin: { people: { permissions: ['note:write'] } } });
     try {
       assert.equal((await call('dora', 'GET', '/v1/people', own)).status, 403, 'viewer ohne note:write');
       assert.equal((await call('carla', 'GET', '/v1/people', own)).status, 200);
     } finally { await own.app.close(); }
-    await assert.rejects(notesApp({ db: t.runtime, issuer: idp.issuer, plugin: { people: { permissions: ['gibt:es-nicht' as never] } } }), /kein Recht öffnet/);
+    await assert.rejects(notesApp({ db: t.runtime, issuer: idp.issuer, plugin: { people: { permissions: ['note:write', 'gibt:es-nicht' as never] } } }), /unbekannte Rechte in people.permissions: gibt:es-nicht/);
+  });
+
+  test('Ohne Recht, das das Verzeichnis öffnet: App startet ohne Modul people; ausdrücklich verlangt ein Fehler', async () => {
+    const input = notesInput();
+    const permissions = Object.fromEntries(Object.entries(input.permissions).map(([k, { resources: _, ...v }]) => [k, v]));
+    const catalog = defineCatalog({ ...input, permissions, resources: undefined, capabilities: undefined, scopes: { 'notes:write': input.scopes['notes:write'] } });
+    assert.deepEqual(defaultPeoplePermissions(catalog), []);
+    const x = await notesApp({ db: t.runtime, issuer: idp.issuer, catalog });
+    try { assert.equal((await call('dora', 'GET', '/v1/people', x)).status, 404); } finally { await x.app.close(); }
+    await assert.rejects(notesApp({ db: t.runtime, issuer: idp.issuer, catalog, plugin: { modules: ['account', 'people'] } }), /kein Recht öffnet/);
   });
 });

@@ -261,9 +261,13 @@ export class AdminService {
     const byRole = new Map<string, KcGroup>();
     let parent = await this.kc.groupByPath(this.rolePath(alias));
     if (!parent && create) {
-      let root = await this.kc.groupByPath(this.prefix);
-      if (!root) root = { id: await this.kc.createGroup(null, this.prefix.slice(1)), name: this.prefix.slice(1), path: this.prefix };
-      parent = { id: await this.kc.createGroup(root.id, alias), name: alias, path: this.rolePath(alias) };
+      // Präfix mit mehreren Stufen (`/apps/notes`): jede fehlende Stufe einzeln anlegen
+      let rootId: string | null = null, path = '';
+      for (const name of this.prefix.slice(1).split('/')) {
+        path += `/${name}`;
+        rootId = (await this.kc.groupByPath(path))?.id ?? await this.kc.createGroup(rootId, name);
+      }
+      parent = { id: await this.kc.createGroup(rootId, alias), name: alias, path: this.rolePath(alias) };
     }
     if (parent) {
       for (const role of keys) {
@@ -366,6 +370,15 @@ export class AdminService {
     const unknown = roles.filter(r => !known.has(r));
     if (unknown.length) throw invalid(`Unbekannte Rolle: ${unknown.join(', ')}`, unknown.map(r => ({ path: '/roles', message: `«${r}» ist keine Rolle dieser Organisation` })));
     if (roles.length && !this.rolesManageable) throw conflict('Rollen kommen aus Client-Rollen von Keycloak (ROLE_SOURCE=client) und lassen sich hier nicht verwalten.');
+  }
+
+  /**
+   * Unter der Sperre der Organisation (hält auch das Löschen einer Rolle): Rollen erneut prüfen, eigene Rollen und ihre
+   * Gruppen ungecacht. Sonst legte roleGroups(…, true) die Gruppe einer auf einer anderen Instanz gelöschten Rolle neu an.
+   */
+  private async recheckRoles(s: Scope, org: KcOrg, roles: string[]) {
+    this.forgetRoles(org.alias);
+    await this.checkRoles({ ...s, alias: org.alias }, roles);
   }
 
   private requireAdminChange(s: Scope) {
@@ -476,6 +489,7 @@ export class AdminService {
     const name = [input.firstName, input.lastName].map(x => x?.trim()).filter(Boolean).join(' ') || email;
     return this.padded(() => this.locked(s, org, { action: 'member.invite_failed', resourceType: 'member', resourceId: null }, async w => {
       const { tx, log } = w;
+      await this.recheckRoles(s, org, roles);
       if ((await tx.query(`SELECT 1 FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND lower(email) = $1`, [email])).rowCount) throw conflict('Diese Adresse ist bereits eingeladen. Einladung in der Liste erneut senden.');
       // «Nur Entra» für die Domäne aktiv: kein Konto mit Passwort; Personen kommen über Entra ID dazu (Modul entra)
       if ((await tx.query(`SELECT 1 FROM ${this.S}.entra_connection WHERE stage = 'enforced' AND $1 = ANY (domains)`, [email.split('@')[1]])).rowCount) {
@@ -672,6 +686,7 @@ export class AdminService {
     if (!this.rolesManageable) throw conflict('Rollen kommen aus Client-Rollen von Keycloak (ROLE_SOURCE=client) und lassen sich hier nicht verwalten.');
     const org = await this.org(s.alias);
     await this.locked(s, org, { action: 'member.roles_change_failed', resourceType: 'member', resourceId: id }, async ({ tx, log, done }) => {
+      await this.recheckRoles(s, org, roles);
       const t = await this.target(tx, org, id);
       const current = await this.rolesOf(org.alias, t.userId);
       const add = roles.filter(r => !current.includes(r)), del = current.filter(r => !roles.includes(r));

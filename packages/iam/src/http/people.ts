@@ -59,7 +59,14 @@ export const peopleModule: IamModule = {
     const { iam, prefix } = ctx;
     const { catalog } = iam;
     const S = iam.schema;
-    const perms = (ctx.people?.permissions ?? defaultPeoplePermissions(catalog)).filter(p => catalog.isPermission(p));
+    const own = ctx.people?.permissions;
+    // Eigene Liste: Tippfehler beim Start melden statt still ein Recht weniger; vorbehaltene Rechte (z. B. tenant:read)
+    // hat jedes Mitglied, das Verzeichnis wäre damit für alle offen
+    const unknown = (own ?? []).filter(p => !catalog.isPermission(p));
+    if (unknown.length) throw new Error(`Modul «people»: unbekannte Rechte in people.permissions: ${unknown.join(', ')}`);
+    const reserved = (own ?? []).filter(p => Object.hasOwn(RESERVED_PERMISSIONS, p));
+    if (reserved.length) app.log.warn(`Modul «people»: vorbehaltene Rechte in people.permissions (${reserved.join(', ')}) öffnen das Verzeichnis für fast alle`);
+    const perms = (own ?? defaultPeoplePermissions(catalog)).filter(p => catalog.isPermission(p));
     if (!perms.length) throw new Error('Modul «people»: kein Recht öffnet das Verzeichnis (Option people.permissions oder Lese-Scope <produkt>:read)');
     app.addSchema(Person);
 
@@ -99,7 +106,7 @@ export const peopleModule: IamModule = {
         return { items: rows.map(r => out(r, vis)), nextCursor: null };
       }
       const fingerprint = `${kind}:${vis.email ? 'e' : ''}${q.q ? `:${createHash('sha256').update(q.q).digest('base64url').slice(0, 12)}` : ''}`;
-      const cur = decodeCursor<{ f: string; v: string; id: string }>(q.cursor, c => c.f === fingerprint && typeof c.v === 'string' && typeof c.id === 'string' && /^[0-9a-f-]{36}$/i.test(c.id));
+      const cur = decodeCursor<{ f: string; v: string; id: string }>(q.cursor, c => c.f === fingerprint && typeof c.v === 'string' && typeof c.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.id));
       const P = new Params(), where = [`kind = ${P.add(kind)}`, 'removed_at IS NULL'];
       if (q.q) {
         const like = P.add(likePattern(q.q));

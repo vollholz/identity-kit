@@ -301,6 +301,7 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
         link({ id: 'l6', status: 'in-progress' }),
         link({ id: 'l7', status: 'revoked', error: { reason: 'disconnected', detail: 'disconnected' } }),
         link({ id: 'l8', status: 'revoked' }),
+        link({ id: 'l8b', status: 'revoked', error: { reason: 'superseded', detail: 'superseded' } }),
         link({ id: 'l9', status: 'claimed' as ConsentLink['status'] }),
         link({ id: 'l10', status: 'failed', error: { reason: 'conflict', detail: 'Schon mit einem anderen Verzeichnis verbunden.' } }),
         link({ id: 'l11', status: 'failed', error: { reason: 'error', detail: ' ' } }),
@@ -308,7 +309,8 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
       'DELETE /v1/admin/entra/consent-links/l1': () => (fail ? problem(409, 'Schon eingelöst.') : new Response(null, { status: 204 })),
     });
     const table = await screen.findByRole('table', { name: /Links an die Entra-Administration/ });
-    expect(within(table).getAllByRole('row')).toHaveLength(12);
+    expect(within(table).getAllByRole('row')).toHaveLength(13);
+    expect(table).toHaveTextContent('Automatisch widerrufen: Die eigene App-Registrierung ist inzwischen eingetragen.');
     expect(table).toHaveTextContent('Automatisch widerrufen: Die Verbindung mit Microsoft wurde getrennt.');
     expect(within(table).getAllByText('in Arbeit')).toHaveLength(1);
     expect(table).toHaveTextContent('unbekannt (claimed)');
@@ -316,9 +318,9 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
     expect(table).toHaveTextContent('Nicht nachgewiesen: Die zustimmende Person hat im Microsoft-Verzeichnis keine Administrationsrolle');
     expect(table).not.toHaveTextContent('Keine Administration des Verzeichnisses.');
     expect(table).toHaveTextContent('Schon mit einem anderen Verzeichnis verbunden.');
-    expect(within(table).getAllByRole('row')[11]!.querySelector('.iam-ferr')).toBeNull();
+    expect(within(table).getAllByRole('row')[12]!.querySelector('.iam-ferr')).toBeNull();
     expect(table).toHaveTextContent('Automatisch widerrufen: Die Person, die den Link erzeugt hat, darf die Mitglieder nicht mehr verwalten.');
-    expect(table).not.toHaveTextContent(/creator-lost-access|disconnected/);
+    expect(table).not.toHaveTextContent(/creator-lost-access|disconnected|superseded/);
     expect(table).toHaveTextContent('verbunden');
     expect(table).toHaveTextContent('Zugestimmt von Iris IT');
     // open (l1), failed (l3, l10, l11) und in-progress (l6): noch einlösbar und zählen zum Limit

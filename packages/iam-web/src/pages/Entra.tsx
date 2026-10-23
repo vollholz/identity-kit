@@ -31,6 +31,7 @@ import { Confirm } from '../ui/Overlay.tsx';
 import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
 import { EntraHandoverReturn } from './EntraHandover.tsx';
 import { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
+import { OwnAppDialog } from './EntraOwnApp.tsx';
 import { organizationPath } from './Organizations.tsx';
 
 /** Mitglieder aus einem 409 `confirm-not-linked` (die Liste hat sich geändert oder fehlt). */
@@ -56,7 +57,7 @@ export function EntraPage() {
 /** Status, Verbinden, Testanmeldung, «Nur Entra», Domänen, Aktualisieren und Trennen (eigene Organisation oder per Plattform). */
 export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLabel: string }) {
   const q = useEntra(alias);
-  const { paths } = useIamConfig();
+  const { paths, product } = useIamConfig();
   // Rückkehrpfade des Servers (ENTRA_UI_PATH) müssen zu `paths.entra` passen, sonst kommt die Rückkehr nie an
   useEffect(() => {
     const d = q.data;
@@ -68,6 +69,8 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
   useIamText();
   const fid = useId();
   const [connecting, setConnecting] = useState(false);
+  // Eigene App-Registrierung verbinden bzw. ihr Secret wechseln
+  const [owning, setOwning] = useState(false);
   // Link an die Entra-Administration: zustimmen darf oft nur die Kunden-IT, nicht die Organisations-Administration
   const [linking, setLinking] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -85,22 +88,34 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
   const disconnect = useMutation({ mutationFn: () => api.disconnect(), onSuccess: async () => { setDisconnecting(false); setResult(null); await done(null, t('iam.entra.disconnected', { org: orgLabel })); } });
   const c = q.data?.connection ?? null;
   const enforced = c?.stage === 'enforced';
+  // Angebotene Wege; ältere Server (ohne `methods`) nur mit der App der Plattform (`enabled`)
+  const methods = q.data?.methods ?? { platformApp: !!q.data?.enabled, ownApp: false };
+  const guide = methods.ownApp ? q.data?.ownApp ?? null : null;
+  const own = c?.method === 'own';
+  // `enabled` betrifft ab iam 0.3.0 nur die App der Plattform: Verwalten geht auch mit der eigenen App
+  const available = methods.platformApp || methods.ownApp || !!c;
+  const linkKinds = [...(methods.platformApp && !own ? ['consent' as const] : []), ...(guide ? ['credentials' as const] : [])];
   return (
     <section aria-labelledby={`${fid}-h`}>
       <div className="iam-sec-h iam-wrap"><h2 id={`${fid}-h`}>{t('iam.entra.title')}</h2>
         {c ? <span className={`iam-pill iam-sm ${c.status !== 'active' ? 'iam-st-warn' : enforced ? 'iam-st-ok' : 'iam-st-idle'}`}>{t(c.status !== 'active' ? 'iam.entra.state.error' : enforced ? 'iam.entra.state.enforced' : 'iam.entra.state.pending')}</span> : null}
-        {q.data?.enabled ? <><span className="iam-spacer" />{c
+        {available ? <><span className="iam-spacer" />{c
           ? <><Button icon="reset" busy={refresh.isPending} onClick={() => refresh.mutate()}>{t('iam.entra.refresh')}</Button>
-            <Button icon="link" onClick={() => setConnecting(true)} title={t('iam.entra.reconsentHint')}>{t('iam.entra.reconsent')}</Button>
-            <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button>
+            {own
+              ? (guide ? <Button icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.rotate')}</Button> : null)
+              : <>{methods.platformApp ? <Button icon="link" onClick={() => setConnecting(true)} title={t('iam.entra.reconsentHint')}>{t('iam.entra.reconsent')}</Button> : null}
+                {guide ? <Button icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.open')}</Button> : null}</>}
+            {linkKinds.length ? <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button> : null}
             <Button variant="danger" icon="x" onClick={() => setDisconnecting(true)}>{t('iam.entra.disconnect')}</Button></>
-          : <><Button variant="primary" icon="link" onClick={() => setConnecting(true)}>{t('iam.entra.connect')}</Button>
-            <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button></>}</> : null}
+          : <>{methods.platformApp ? <Button variant="primary" icon="link" onClick={() => setConnecting(true)}>{t('iam.entra.connect')}</Button> : null}
+            {guide ? <Button variant={methods.platformApp ? undefined : 'primary'} icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.open')}</Button> : null}
+            {linkKinds.length ? <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button> : null}</>}</> : null}
       </div>
-      {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.enabled ? (
-        <Empty icon="shield" title={t('iam.entra.off')}><p>{q.data.reason}</p></Empty>
+      {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !available ? (
+        <Empty icon="shield" title={t('iam.entra.off')}>{/* Ab iam 0.3.0 zuerst die Ursache der eigenen App (reason betrifft nur die App der Plattform) */}
+          {[...new Set([q.data.methods ? q.data.ownAppReason : null, q.data.reason].filter(Boolean))].map(r => <p key={r}>{r}</p>)}</Empty>
       ) : !c ? (
-        <Empty icon="shield" title={t('iam.entra.none.title')}><p>{t('iam.entra.none.text', { org: orgLabel })}</p></Empty>
+        <Empty icon="shield" title={t('iam.entra.none.title')}><p>{t(methods.platformApp ? 'iam.entra.none.text' : 'iam.entra.none.textOwn', { org: orgLabel })}</p></Empty>
       ) : (
         <>
           <ConnectionView c={c} onEdit={() => setEditing(true)} />
@@ -108,9 +123,13 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
         </>
       )}
       {result ? <BindReport r={result} enforced={enforced} onClose={() => setResult(null)} /> : null}
-      {q.data?.enabled ? <ConsentLinkList alias={alias} orgLabel={orgLabel} /> : null}
+      {available ? <ConsentLinkList alias={alias} orgLabel={orgLabel} /> : null}
       {connecting ? <ConnectDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} onClose={() => setConnecting(false)} /> : null}
-      {linking ? <ConsentLinkDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} onClose={() => setLinking(false)} /> : null}
+      {linking && linkKinds.length ? <ConsentLinkDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} kinds={linkKinds} onClose={() => setLinking(false)} /> : null}
+      {owning && guide ? (
+        <OwnAppDialog alias={alias} orgLabel={orgLabel} product={product} guide={guide} connection={c} onClose={() => setOwning(false)}
+          onDone={async r => { setOwning(false); setResult(own ? null : r); await done(r, t(own ? 'iam.ownApp.rotated' : 'iam.ownApp.connected', { org: orgLabel })); }} />
+      ) : null}
       {enforcing && c ? <EnforceDialog alias={alias} orgLabel={orgLabel} c={c} onClose={() => setEnforcing(false)} onDone={async r => { setEnforcing(false); setResult(r); await done(r, t('iam.entra.enforced', { org: orgLabel })); }} /> : null}
       {editing && c ? <DomainsDialog alias={alias} orgLabel={orgLabel} c={c} onClose={() => setEditing(false)} onDone={async r => { setEditing(false); setResult(r.members.length ? r : null); await done(r, t('iam.entra.domainsSaved', { org: orgLabel })); }} /> : null}
       {disconnecting && c ? (
@@ -139,10 +158,29 @@ function ConnectionView({ c, onEdit }: { c: EntraConnection; onEdit: () => void 
         <span className="iam-muted iam-small">{t(c.stage === 'enforced' ? 'iam.entra.domains.enforced' : 'iam.entra.domains.pending')}</span>
         {' '}<button type="button" className="iam-linkbtn" onClick={onEdit}>{c.availableDomains.length ? t('iam.entra.pickDomainsMore', { n: c.availableDomains.length }) : t('iam.entra.pickDomains')}</button>
       </dd>
+      {c.method ? <><dt>{t('iam.entra.method')}</dt><dd>{t(c.method === 'own' ? 'iam.entra.method.own' : 'iam.entra.method.platform')}{c.clientId ? <> <span className="iam-mono-s iam-muted">{c.clientId}</span></> : null}</dd></> : null}
+      {c.method === 'own' ? <SecretExpiry c={c} /> : null}
       <dt>{t('iam.entra.connected')}</dt><dd title={fmtDateTime(c.connectedAt)}>{relTime(c.connectedAt)} · {c.connectedBy}</dd>
       <dt>{t('iam.entra.refreshedAt')}</dt><dd title={fmtDateTime(c.refreshedAt)}>{relTime(c.refreshedAt)}</dd>
       {c.lastError ? <><dt>{t('iam.entra.error')}</dt><dd className="iam-ferr"><Icon name="warn" className="iam-ico" />{c.lastError}</dd></> : null}
     </dl>
+  );
+}
+
+/** Ablauf des Secrets der eigenen App mit Warnung (bald fällig oder abgelaufen). */
+function SecretExpiry({ c }: { c: EntraConnection }) {
+  const { Icon } = useIamUi();
+  const at = c.secretExpiresAt ?? null;
+  const expired = !!at && Date.parse(at) <= Date.now();
+  const warn = expired ? 'iam.entra.secretExpired' : c.secretExpiresSoon ? 'iam.entra.secretSoon' : null;
+  return (
+    <>
+      <dt>{t('iam.entra.secretExpires')}</dt>
+      <dd>
+        {at ? <span>{fmtDateTime(at)} ({relTime(at)})</span> : <span className="iam-muted">{t('iam.entra.secretUnknown')}</span>}
+        {warn ? <div className={expired ? 'iam-ferr' : 'iam-warnbox'} role="status"><Icon name="warn" className="iam-ico" /><span>{t(warn)}</span></div> : null}
+      </dd>
+    </>
   );
 }
 

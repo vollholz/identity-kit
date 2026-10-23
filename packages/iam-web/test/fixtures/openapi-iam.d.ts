@@ -911,6 +911,12 @@ export interface paths {
                             reason: string | null;
                             /** @description Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`) */
                             testPath: string;
+                            methods: {
+                                platformApp: boolean;
+                                ownApp: boolean;
+                            };
+                            ownAppReason: string | null;
+                            ownApp: components["schemas"]["EntraOwnAppGuide"] | null;
                         };
                     };
                 };
@@ -3572,6 +3578,12 @@ export interface paths {
                             reason: string | null;
                             /** @description Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`) */
                             testPath: string;
+                            methods: {
+                                platformApp: boolean;
+                                ownApp: boolean;
+                            };
+                            ownAppReason: string | null;
+                            ownApp: components["schemas"]["EntraOwnAppGuide"] | null;
                         };
                     };
                 };
@@ -5952,6 +5964,8 @@ export interface paths {
                     "application/json": {
                         tenant: string;
                         validMinutes?: number;
+                        /** @enum {string} */
+                        kind?: "consent" | "credentials";
                     };
                 };
             };
@@ -5969,6 +5983,8 @@ export interface paths {
                             entraTenantId: string;
                             /** Format: date-time */
                             expiresAt: string;
+                            /** @enum {string} */
+                            kind: "consent" | "credentials";
                         };
                     };
                 };
@@ -6236,6 +6252,9 @@ export interface paths {
                             /** Format: date-time */
                             expiresAt: string;
                             notice: string;
+                            /** @enum {string} */
+                            kind: "consent" | "credentials";
+                            ownApp: components["schemas"]["EntraOwnAppGuide"] | null;
                         };
                     };
                 };
@@ -6446,6 +6465,8 @@ export interface paths {
                     "application/json": {
                         tenant: string;
                         validMinutes?: number;
+                        /** @enum {string} */
+                        kind?: "consent" | "credentials";
                     };
                 };
             };
@@ -6463,6 +6484,8 @@ export interface paths {
                             entraTenantId: string;
                             /** Format: date-time */
                             expiresAt: string;
+                            /** @enum {string} */
+                            kind: "consent" | "credentials";
                         };
                     };
                 };
@@ -6613,6 +6636,337 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/entra/app": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        tenant: string;
+                        clientId: string;
+                        clientSecret: string;
+                        secretExpiresAt?: string | null;
+                    };
+                };
+            };
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            connection: components["schemas"]["EntraConnection"];
+                            members: {
+                                email: string;
+                                linked: boolean;
+                                name: string;
+                                reason: string | null;
+                                passwordKept?: string;
+                            }[];
+                            rejectedDomains: string[];
+                        };
+                    };
+                };
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrganizationChoice"];
+                    };
+                };
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ValidationProblem"];
+                    };
+                };
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/platform/organizations/{alias}/entra/app": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alias: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        tenant: string;
+                        clientId: string;
+                        clientSecret: string;
+                        secretExpiresAt?: string | null;
+                    };
+                };
+            };
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            connection: components["schemas"]["EntraConnection"];
+                            members: {
+                                email: string;
+                                linked: boolean;
+                                name: string;
+                                reason: string | null;
+                                passwordKept?: string;
+                            }[];
+                            rejectedDomains: string[];
+                        };
+                    };
+                };
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrganizationChoice"];
+                    };
+                };
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ValidationProblem"];
+                    };
+                };
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/entra/handover/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        token: string;
+                        clientId: string;
+                        clientSecret: string;
+                        secretExpiresAt?: string | null;
+                    };
+                };
+            };
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organization: string;
+                            /** @constant */
+                            connected: true;
+                        };
+                    };
+                };
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ValidationProblem"];
+                    };
+                };
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6649,6 +7003,12 @@ export interface components {
             testLoginPath: string;
             testedAt: string | null;
             testedBy: string | null;
+            /** @enum {string} */
+            method: "platform" | "own";
+            clientId: string | null;
+            secretExpiresAt: string | null;
+            secretExpiresSoon: boolean;
+            redirectUri: string;
         };
         /** Member */
         Member: {
@@ -6759,6 +7119,18 @@ export interface components {
                 reason: string;
                 detail: string;
             } | null;
+            /** @enum {string} */
+            kind: "consent" | "credentials";
+        };
+        EntraOwnAppGuide: {
+            redirectUri: string;
+            permissions: {
+                name: string;
+                /** @enum {string} */
+                type: "Application" | "Delegated";
+                why: string;
+                optional: boolean;
+            }[];
         };
     };
     responses: never;

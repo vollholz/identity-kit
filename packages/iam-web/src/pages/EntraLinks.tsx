@@ -7,7 +7,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { entraApi, useConsentLinks } from '../admin.ts';
-import type { ConsentLink, ConsentLinkCreated, ConsentLinkStatus } from '../contract.ts';
+import type { ConsentLink, ConsentLinkCreated, ConsentLinkKind, ConsentLinkStatus } from '../contract.ts';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { ApiError } from '../problem.ts';
@@ -32,21 +32,29 @@ const REVOCABLE = new Set<string>(['open', 'in-progress', 'failed']);
 /** Gründe mit eigenem Text statt der Meldung des Servers (Zustimmung gescheitert; automatisch widerrufen). */
 const REASON_TEXT: Record<string, IamTextKey> = {
   'consent-unproven': 'iam.entraLink.reason.unproven', 'consent-error': 'iam.entraLink.reason.declined',
-  'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected',
+  'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected', superseded: 'iam.entraLink.superseded',
 };
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 
-/** Dialog: Verzeichnis und Gültigkeit, danach der Link zum Kopieren (nur jetzt sichtbar). */
-export function ConsentLinkDialog({ alias, orgLabel, tenant: fixed, onClose }: { alias: string | null; orgLabel: string; tenant?: string; onClose: () => void }) {
+/**
+ * Dialog: Art des Links (falls mehrere angeboten), Verzeichnis und Gültigkeit, danach der Link zum Kopieren (nur jetzt
+ * sichtbar). `kinds`: angebotene Arten, die erste ist vorgewählt; `kind` geht nur an Server ab iam 0.3.0 (die
+ * «credentials» anbieten bzw. mehr als eine Art), ältere lehnen das Feld ab.
+ */
+export function ConsentLinkDialog({ alias, orgLabel, tenant: fixed, kinds = ['consent'], onClose }: {
+  alias: string | null; orgLabel: string; tenant?: string; kinds?: readonly ConsentLinkKind[]; onClose: () => void;
+}) {
   const { Dialog, Button, Icon, toast } = useIamUi();
   useIamText();
   const fid = useId();
   const qc = useQueryClient();
   const [tenant, setTenant] = useState(fixed ?? '');
   const [minutes, setMinutes] = useState<number>(15);
+  const [kind, setKind] = useState<ConsentLinkKind>(kinds[0] ?? 'consent');
+  const sendKind = kind === 'credentials' || kinds.length > 1;
   const [created, setCreated] = useState<ConsentLinkCreated | null>(null);
   const create = useMutation({
-    mutationFn: () => entraApi(alias).links.create({ tenant: tenant.trim(), validMinutes: minutes }),
+    mutationFn: () => entraApi(alias).links.create({ tenant: tenant.trim(), validMinutes: minutes, ...(sendKind ? { kind } : {}) }),
     onSuccess: async r => { setCreated(r); await qc.invalidateQueries({ queryKey: iamKeys.consentLinks(alias) }); },
   });
   const copy = (url: string) => { void navigator.clipboard?.writeText(url).then(() => toast.show(t('iam.entraLink.copied')), () => undefined); };
@@ -66,7 +74,12 @@ export function ConsentLinkDialog({ alias, orgLabel, tenant: fixed, onClose }: {
   return (
     <Dialog title={t('iam.entraLink.title', { org: orgLabel })} onClose={onClose} onSubmit={() => { if (tenant.trim()) create.mutate(); }} width={600}
       footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" icon="send" disabled={!tenant.trim()} busy={create.isPending}>{t('iam.entraLink.create')}</Button></>}>
-      <p>{t('iam.entraLink.intro')}</p>
+      {kinds.length > 1 ? (
+        <fieldset className="iam-opt-list"><legend>{t('iam.entraLink.kind')}</legend>
+          {kinds.map(k => <label key={k} className="iam-chk"><input type="radio" name={`${fid}-kind`} value={k} checked={kind === k} onChange={() => setKind(k)} /> {t(`iam.entraLink.kind.${k}`)}</label>)}
+        </fieldset>
+      ) : null}
+      <p>{t(kind === 'credentials' ? 'iam.entraLink.introCredentials' : 'iam.entraLink.intro')}</p>
       <div className="iam-form iam-compact">
         <label htmlFor={`${fid}-t`}>{t('iam.entra.directory')}</label>
         <input id={`${fid}-t`} className="iam-inp iam-mono-s" value={tenant} onChange={e => setTenant(e.target.value)} readOnly={!!fixed} required autoComplete="off" data-autofocus
@@ -112,7 +125,7 @@ export function ConsentLinkList({ alias, orgLabel }: { alias: string | null; org
           <tbody>
             {q.data.map(l => (
               <tr key={l.id}>
-                <td className="iam-mono-s">{l.entraTenantId}</td>
+                <td><span className="iam-mono-s">{l.entraTenantId}</span>{l.kind === 'credentials' ? <div className="iam-muted iam-small">{t('iam.entraLink.kind.credentials')}</div> : null}</td>
                 <td>
                   <span className={`iam-pill iam-sm ${known(l.status) ? STATUS_PILL[l.status] : 'iam-st-off'}`}>{statusText(l.status)}</span>
                   {l.status === 'connected' && l.approverName ? <div className="iam-muted iam-small">{t('iam.entraLink.approvedBy', { name: l.approverName, when: l.usedAt ? relTime(l.usedAt) : '' })}</div> : null}

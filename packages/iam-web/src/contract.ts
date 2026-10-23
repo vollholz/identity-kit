@@ -187,9 +187,38 @@ export interface EntraConnection {
   enforcedBy: string | null;
   refreshedAt: string;
   lastError: string | null;
+  /** Ab iam 0.3.0: über die Plattform-App (`platform`) oder die eigene App-Registrierung der Organisation (`own`). */
+  method?: EntraMethod;
+  /** Eigene App: Client-ID der App-Registrierung. */
+  clientId?: string | null;
+  /** Umleitungs-URI des Anbieters dieser Verbindung. */
+  redirectUri?: string;
+  /** Eigene App: Ablauf des Secrets (falls bekannt); `secretExpiresSoon` ab 30 Tagen davor und wenn abgelaufen. */
+  secretExpiresAt?: string | null;
+  secretExpiresSoon?: boolean;
 }
-/** `consentPath`, `testPath`: Rückkehrpfade des Servers (ENTRA_UI_PATH), müssen zu `paths.entra` passen; ältere Server ohne. */
-export interface EntraStatus { enabled: boolean; reason: string | null; connection: EntraConnection | null; consentPath?: string; testPath?: string }
+export type EntraMethod = 'platform' | 'own';
+/** Berechtigung der eigenen App-Registrierung (Microsoft Graph); `optional`: z. B. damit der Server den Ablauf des Secrets liest. */
+export interface EntraPermission { name: string; type: 'Application' | 'Delegated'; why: string; optional?: boolean }
+/** Anleitung für die eigene App-Registrierung: Redirect-URI und Berechtigungen, vom Server. */
+export interface EntraOwnAppGuide { redirectUri: string; permissions: EntraPermission[] }
+/**
+ * Eigene App-Registrierung verbinden bzw. Secret wechseln: `tenant` Verzeichnis-ID oder Domäne (bei bestehender
+ * Verbindung gleich), `secretExpiresAt` nur nötig, wenn der Server den Ablauf nicht selbst lesen kann.
+ */
+export interface EntraOwnAppInput { tenant: string; clientId: string; clientSecret: string; secretExpiresAt?: string | null }
+/**
+ * `consentPath`, `testPath`: Rückkehrpfade des Servers (ENTRA_UI_PATH), müssen zu `paths.entra` passen; ältere Server ohne.
+ * Ab iam 0.3.0 `methods`: angebotene Wege (Zustimmung zur Plattform-App, eigene App-Registrierung) und `ownApp` mit der
+ * Anleitung. Ältere Server ohne `methods` bieten nur die Plattform-App.
+ */
+export interface EntraStatus {
+  enabled: boolean; reason: string | null; connection: EntraConnection | null; consentPath?: string; testPath?: string;
+  methods?: { platformApp: boolean; ownApp: boolean };
+  /** Warum die eigene App nicht angeboten wird (z. B. fehlende Verschlüsselung auf dem Server). */
+  ownAppReason?: string | null;
+  ownApp?: EntraOwnAppGuide | null;
+}
 /** `passwordKept`: warum Passwort und Passkey bei «Nur Entra» bleiben (z. B. Konto der Plattform-Administration). */
 export interface EntraMember { name: string; email: string; linked: boolean; reason: string | null; passwordKept?: string }
 export interface EntraResult { connection: EntraConnection; members: EntraMember[]; rejectedDomains: string[] }
@@ -214,18 +243,29 @@ export interface ConsentLink {
   usedAt: string | null;
   approverName: string | null;
   error: { reason: string; detail: string } | null;
+  /** Ab iam 0.3.0; ohne: `consent`. */
+  kind?: ConsentLinkKind;
 }
 export interface ConsentLinkList { items: ConsentLink[] }
 /** `validMinutes` 5–1440, Standard 15. */
-export interface ConsentLinkInput { tenant: string; validMinutes?: number }
+/** `kind` ab iam 0.3.0: `consent` (bei Microsoft zustimmen) oder `credentials` (eigene App-Registrierung eintragen). */
+export type ConsentLinkKind = 'consent' | 'credentials';
+export interface ConsentLinkInput { tenant: string; validMinutes?: number; kind?: ConsentLinkKind }
 /** `url`: `<PUBLIC_BASE_URL><ENTRA_UI_PATH>/freigabe#<token>`, das Token nur im Fragment. */
-export interface ConsentLinkCreated { id: string; url: string; entraTenantId: string; expiresAt: string }
+export interface ConsentLinkCreated { id: string; url: string; entraTenantId: string; expiresAt: string; kind?: ConsentLinkKind }
 /**
  * Öffentlich (`/v1/entra/handover/*`): Angaben zum Link für die Entra-Administration. `notice`: Hinweis des Servers
  * (z. B. dass verifizierte Domänen an die Organisation gehen), anzeigen.
  */
 export interface HandoverToken { token: string }
-export interface HandoverInfo { organization: string; product: string; requestedBy: string; tenant: string; entraTenantId: string; notice: string; expiresAt: string }
+export interface HandoverInfo {
+  organization: string; product: string; requestedBy: string; tenant: string; entraTenantId: string; notice: string; expiresAt: string;
+  /** Ab iam 0.3.0; ohne: `consent`. Bei `credentials` die Anleitung der eigenen App-Registrierung (`ownApp`). */
+  kind?: ConsentLinkKind;
+  ownApp?: EntraOwnAppGuide | null;
+}
+/** Eigene App-Registrierung über den Link eintragen (öffentlich, Token nur im Body; das Verzeichnis gibt der Link vor). */
+export interface HandoverCredentialsInput { token: string; clientId: string; clientSecret: string; secretExpiresAt?: string | null }
 export interface HandoverStart { url: string }
 export interface HandoverResult { organization: string; connected: true }
 

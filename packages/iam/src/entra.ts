@@ -38,7 +38,7 @@ import { conflict, HttpError, invalid, notFound } from './errors.ts';
 import { EntraError, notLinkable, SEARCH_MIN, type ConsentApprover, type EntraGraph, type EntraOrganization, type EntraUser } from './graph.ts';
 import type { KcIdp, KcOrg, KcOrgDomain, KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
-import type { Principal } from './principal.ts';
+import { asciiLower, type Principal } from './principal.ts';
 import { findTenant, listTenants, type TenantRow } from './tenants.ts';
 
 /** Ablauf der Erstanmeldung über den Anbieter: verweigert immer (Realm-Modul, `entra.tf`). */
@@ -241,7 +241,7 @@ export class EntraService {
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     const tid = await g.resolveTenant(input.tenant);
     if (!tid) throw invalid('Tenant nicht gefunden', [{ path: '/tenant', message: 'Tenant-ID (GUID) oder eine Domäne des Tenants angeben, z. B. contoso.onmicrosoft.com' }]);
-    const state = `${s.platform ? 'p' : 'o'}.${org.alias}.${randomBytes(32).toString('base64url')}`;
+    const state = `${s.platform ? 'p' : 'o'}.${asciiLower(org.alias)}.${randomBytes(32).toString('base64url')}`;
     const tenantId = await this.admin.tenantFor(s, org);
     await withTenant(this.deps.db, { tenantId }, async tx => {
       const existing = await this.connectionOf(tx);
@@ -265,7 +265,7 @@ export class EntraService {
     this.on();
     const { org, tenantId } = await this.ctx(s);
     const gone = () => new HttpError(404, 'Zustimmung nicht gefunden', 'Die Zustimmung ist abgelaufen, wurde schon verwendet oder gehört nicht zu dieser Organisation. Bitte neu verbinden.');
-    if (p.state.split('.')[1] !== org.alias) throw gone();
+    if (p.state.split('.')[1] !== asciiLower(org.alias)) throw gone();
     const row = await withTenant(this.deps.db, { tenantId }, async tx => (await tx.query<{ tid: string }>(
       `UPDATE ${this.S}.entra_consent SET used_at = now() WHERE state_hash = $1 AND used_at IS NULL AND expires_at > now() AND subject = $2 AND platform = $3
        RETURNING entra_tenant_id::text AS tid`, [hash(p.state), s.actor.subject, s.platform])).rows[0]);
@@ -332,7 +332,8 @@ export class EntraService {
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > LINK_MAX_MINUTES) throw invalid('Gültigkeit ungültig', [{ path: '/validMinutes', message: `5 bis ${LINK_MAX_MINUTES} Minuten` }]);
     const tid = await g.resolveTenant(input.tenant);
     if (!tid) throw invalid('Tenant nicht gefunden', [{ path: '/tenant', message: 'Tenant-ID (GUID) oder eine Domäne des Tenants angeben, z. B. contoso.onmicrosoft.com' }]);
-    const token = `${org.alias}.${randomBytes(32).toString('base64url')}`;
+    // Kanonischer Alias (klein, wie der Mandant): Keycloak kann ihn mit Grossbuchstaben führen, das Token-Muster nicht
+    const token = `${asciiLower(org.alias)}.${randomBytes(32).toString('base64url')}`;
     const tenantId = await this.admin.tenantFor(s, org);
     const row = await withTenant(this.deps.db, { tenantId }, async tx => {
       const existing = await this.connectionOf(tx);

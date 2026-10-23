@@ -31,8 +31,8 @@ wird](#was-produktneutral-wird)).
 
 | Import | Inhalt | Warum getrennt |
 |---|---|---|
-| `@vollholz/iam-web` | `IamProvider`, Hooks, Rechte-Bausteine, Routen-Guard, Kontomenü, Grundkomponenten | Kern, den jede Seite der App braucht |
-| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Maschinen-Clients, Anmeldung, Zugriff, Organisationen) und `iamRoutes` | Die App lädt sie per `lazy()` nach; der Kern bleibt klein |
+| `@vollholz/iam-web` | `IamProvider`, Hooks, Rechte-Bausteine, Routen-Guard, Kontomenü, Grundkomponenten, `iamRoutes` und `IamNav` | Kern, den jede Seite der App braucht; die Routen liegen hier, damit Router und Navigation der App die Seiten nicht mitladen |
+| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …) | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein |
 | `@vollholz/iam-web/testing` | `StaticIam` (feste Sitzung ohne Server), `mockIamApi` (fetch-Ersatz für `/auth/*` und `/v1/…` des Vertrags), Beispiel-`Me` und Beispielkatalog | Tests der App ohne eigene Nachbildung (heute `web/src/test/utils.tsx` in Assets) |
 | `@vollholz/iam-web/styles.css` | Struktur und Aussehen aus `--iam-*` | Einmal in der App importieren |
 
@@ -172,16 +172,20 @@ Aus `@vollholz/iam-web/pages`; jede Seite prüft ihr Recht selbst nicht, das mac
 | `AccessPage` | `/verwalten/zugriff` | `acl:read` | `features/acl/*` |
 | `OrganizationsPage`, `OrganizationPage` | `/verwalten/organisationen[/:alias]` | Plattform-Administration (`RequiresPlatformAdmin`) | `Organizations.tsx` |
 
-Dazu `iamRoutes`: Liste aller Seiten, aus der die App ihre Routen und ihre Navigation erzeugt, und `<IamNav>` als
-fertige Gruppe «Zugang» (Mitglieder, Rollen, Anmeldung, Maschinen-Clients, Zugriff, Organisationen – je nach Recht und
-`features`):
+Dazu im Kern `iamRoutes`: Liste aller Seiten, aus der die App ihre Routen und ihre Navigation erzeugt (Standardpfade;
+mit eigenen Pfaden `makeIamRoutes(paths)`), `useIamNav()` mit den erlaubten Einträgen und `active` für eine eigene
+Leiste der App (Assets: `Rail.tsx`) und `<IamNav>` als fertige Gruppe «Zugang» (Mitglieder, Rollen, Anmeldung,
+Maschinen-Clients, Zugriff, Organisationen – je nach Recht und `features`). `load()` importiert den Einstieg `./pages`
+dynamisch; ein Bundler der App macht daraus einen eigenen Teil. Umgesetzt sind bisher Mitglieder und Rollen (PR 4),
+die übrigen Seiten kommen mit PR 5 und 6 dazu.
 
 ```ts
 interface IamRoute {
   id: 'members' | 'roles' | 'clients' | 'entra' | 'entraConsent' | 'entraTest' | 'access' | 'organizations' | 'organization';
   path: string;                                  // aus `paths`
   need: { perm: Permission } | { platformAdmin: true } | null;   // null: die API prüft (Rückkehrseiten von Entra)
-  title: string; icon: IamIconName; nav: boolean; // nav: erscheint in IamNav
+  readonly title: string;                        // in der Sprache der Texte (beim Lesen)
+  icon: IamIconName; nav: boolean;               // nav: erscheint in IamNav
   load: () => Promise<{ default: ComponentType }>;// Seite mit Guard
 }
 ```
@@ -417,7 +421,7 @@ Jeder PR mit Tests, `typecheck`, `build`, `test` grün; Version `0.1.0` und `pri
 | 2c | Provider und Sitzung | `IamProvider` (Gates, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`), Router-Adapter mit Standard, `useIam`, `useAuthz` (Sprache, `roleGroups`, `roleGroupProblems`), `useRoles`, `useResourceCan`, `useIamFetch`, `Can`, `iamKeys`, `testing` (`StaticIam`, `mockIamApi`, Beispielkatalog) | `auth/session`, `auth/organisation`, `auth/authz`, Router, Testhilfen; Browser: Zustände der Sitzung mit axe |
 | 3 | Rechte-Bausteine | `Requires`, `RequiresPlatformAdmin` (brauchen `NoPermission`), `useAdminStatus`, `AdminHead`, `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in Assets** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
 | 4 | Mitglieder und Rollen | `MembersPage`, `RolesPage`, `iamRoutes`, `IamNav` | `members`, `roles-page`, `roles-dialog`, Teile von `admin.test`, E2E Einladen/Rollen |
-| 5 | Maschinen-Clients, Anmeldung, Organisationen | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage` | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
+| 5 | Maschinen-Clients, Anmeldung, Organisationen | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage`; in `MembersPage` «Person hinzufügen» aus Entra ID (mit `features.entra`) | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
 | 6 | Zugriff | `AccessPage` (Regeln, Dialog mit Vorschau, «Rechte prüfen»), `AclHint`, `resources`- und `people`-Adapter, `PersonName` | `acl.test` (40 Fälle), E2E Zugriffsregel |
 | 7 | Freigabe 0.1.0 | README (Einbinden, Beispiel), Migrationshinweis für Assets, CI-Schritt E2E, `private` entfernen → Release veröffentlicht `0.1.0` | `npm pack` enthält `dist`, `styles.css`, Typen |
 

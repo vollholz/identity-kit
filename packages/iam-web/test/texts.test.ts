@@ -19,7 +19,9 @@ const BANNED_TERMS = /Mandant|(?<!X-)Tenant\b|\bACL\b|Principal\b/;
 /** Anrede in der Sie-Form (Grossschreibung mitten im Satz oder am Anfang). */
 const SIE_FORM = /\b(Sie|Ihr|Ihre|Ihren|Ihrem|Ihrer|Ihres|Ihnen)\b/;
 /** Gewollte 3. Person, z. B. «Sie lässt sich nicht entfernen» (Organisation, Rolle) – mit Begründung eintragen. */
-const SIE_EXCEPTIONS = new Set<string>([]);
+const SIE_EXCEPTIONS = new Set<string>([
+  'iam.members.lastAdmin', // «Sie lässt sich nicht entfernen»: die Person mit der Rolle, keine Anrede (Wortlaut Assets)
+]);
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
 

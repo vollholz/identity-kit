@@ -802,16 +802,20 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   Geheimnis bzw. App im selben Tenant; Stufe und Domänen bleiben. Anbieter `entra-app-<alias>` (kein Platz): die
   Redirect-URI steht vorab fest; `GET …/entra` liefert `methods` (`ownApp`, `platformApp`), `ownApp` (Redirect-URI,
   Berechtigungen mit Grund: delegiert `User.Read`, Anwendung `Organization.Read.All`, `User.Read.All`, `Application.Read.All`
-  für den Nachweis der Registrierung und den Ablauf des Geheimnisses) und an der Verbindung
+  für den Nachweis der Registrierung und den Ablauf des Geheimnisses, `GroupMember.Read.All` für Gruppen in Freigaben) und an der Verbindung
   `method`, `clientId`, `secretExpiresAt`, `secretExpiresSoon` (30 Tage). Das Geheimnis liegt verschlüsselt
   (ENCRYPTION_KEYS, AAD an Mandant und App) in der Datenbank und in Keycloak, nie in Antworten oder im Protokoll.
-  Personensuche, Vorschau, «Nur Entra» und Aktualisieren laufen mit der App der Verbindung.
+  Personensuche, Gruppensuche, Vorschau, «Nur Entra» und Aktualisieren laufen mit der App der Verbindung.
+  `GroupMember.Read.All` gehört zur Zustimmungsprüfung (`missing-permissions`); fehlt es bei einer bestehenden
+  Verbindung, antwortet nur die Gruppensuche mit 409 `entra-consent-missing` (mit Hinweis auf die Berechtigung).
 - **App der Plattform (optional):** Eine mandantenfähige App in Entra ID je Produkt (`ENTRA_CLIENT_ID`); Kunden stimmen
   beim Verbinden zu. Ohne `ENTRA_CLIENT_ID` antworten die Zustimmung und Links mit Zustimmung mit 409
   `platform-app-disabled`; eine mit eigener App verbundene Organisation wechselt nur über Trennen (409 `own-app`).
   Berechtigungen in Microsoft Graph (minimal, nach den Aufrufen der App): Anwendung `Organization.Read.All`
   (`GET /organization`: Tenant und verifizierte Domänen), Anwendung `User.Read.All` (`GET /users` mit `$filter` bzw.
-  `$search`, `GET /users/{id}`), delegiert `User.Read` (Keycloak liest bei der Anmeldung `/me`). Dazu Verzeichnisrollen im
+  `$search`, `GET /users/{id}`), Anwendung `GroupMember.Read.All` (`GET /groups` mit `$search` bzw. `$filter`,
+  `GET /groups/{id}`: Gruppen suchen und Namen auflösen, [9.5](#95-zugriff-v1access)), delegiert `User.Read` (Keycloak
+  liest bei der Anmeldung `/me`). Dazu Verzeichnisrollen im
   Gruppen-Claim (`groupMembershipClaims` mit `DirectoryRole`) für den Nachweis der Zustimmung (`wids`).
   Je Organisation ein Identity Provider `entra-NNN` aus einem Pool von Redirect-URIs (`ENTRA_IDP_SLOTS`), mit der
   Organisation und ihren Domänen verbunden (Keycloak ≥ 26.8). `<produkt>-admin` braucht dafür
@@ -947,10 +951,11 @@ Ressource unbekannt, in fremder Organisation oder für mich nicht lesbar: 404. N
 die Oberfläche löst sie über `IamResources` auf ([11.4](#114-bausteine-und-schnittstelle-zur-app)).
 
 **Gruppen aus Entra suchen** (A4): `GET /v1/access/groups?q=&ids=` – `access:admin` irgendwo, nur mit Entra-Verbindung
-(sonst 409 `entra-not-connected`); sucht über die Graph-Anbindung der Verbindung (`q` ab 2 Zeichen, höchstens 50) bzw.
+(sonst 409 `entra-not-connected`; ohne erteilte Anwendungsberechtigung `GroupMember.Read.All` 409
+`entra-consent-missing` mit Hinweis); sucht über die Graph-Anbindung der Verbindung (`q` ab 2 Zeichen, höchstens 50) bzw.
 löst `ids` (bis 100) auf. Antwort 200 `{ items: { id: string; name: string }[] }` (`id` = Objekt-ID, Subjekt
 `group:<id>`). Namen werden je Mandant zwischengespeichert (auch für `AccessEntry.subject.name`); eine Organisation hat
-höchstens eine Entra-Verbindung, Objekt-IDs sind eindeutig. Überlauf bei mehr als 200 Gruppen: O1. Berechtigung in Graph für die Gruppensuche: A25.
+höchstens eine Entra-Verbindung, Objekt-IDs sind eindeutig. Überlauf bei mehr als 200 Gruppen: O1. Berechtigung in Graph: `GroupMember.Read.All` (A25, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)).
 
 **Warum?**
 
@@ -1607,7 +1612,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | A21 | Rechte von `<produkt>-admin` | **entschieden 2026-10-23:** ohne FGAP *Groups* und `manage-group-membership` (bestätigt in #44) |
 | A22 | Ablauf ändern | **entschieden 2026-10-23:** `PATCH /v1/access/{id}`, Audit `access.granted` mit `previousExpiresAt` |
 | A23 | Orte einer Person | **entschieden 2026-10-23:** `GET /v1/access?subject=me` bzw. `subject=<subjekt>` (`members:admin`) |
-| A25 | Graph-Berechtigung für Gruppen | **offen:** Gruppen suchen und Namen auflösen braucht in Graph `Group.Read.All` (Anwendung) bzw. `GroupMember.Read.All`; die eigene App der Organisation hat heute nur `User.Read`, `Organization.Read.All`, `User.Read.All`, `Application.Read.All` (9.4). Ergänzen in Anleitung und Prüfung (`missing-permissions`) oder Gruppen nur per Objekt-ID? |
+| A25 | Graph-Berechtigung für Gruppen | **entschieden 2026-10-23:** Anwendungsberechtigung `GroupMember.Read.All` (schwächer als `Group.Read.All`) in Anleitung, Zustimmungsprüfung und 9.4; fehlt sie, 409 `entra-consent-missing` bei `GET /v1/access/groups` |
 | A24 | Rollen an `org` über `/v1/access` | **entschieden 2026-10-23:** erlaubt für Personen, Gruppen, «Alle Mitglieder» mit denselben Regeln; Audit `access.granted` |
 
 Offen und nicht Teil dieser Spezifikation: Identity Brokering zwischen Produkten (Single Sign-on über Realms),

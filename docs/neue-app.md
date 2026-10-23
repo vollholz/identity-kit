@@ -420,7 +420,8 @@ Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). Rollen stehen nic
 Kunden-Organisation verbindet sich selbst mit einer **eigenen App-Registrierung** in ihrem Tenant: unter Verwalten ›
 Anmeldung «Eigene App verbinden» oder über den Link «Credentials eintragen» an die Kunden-IT. Die Oberfläche zeigt die
 Anleitung (Umleitungs-URI `<OIDC_ISSUER_URL>/broker/entra-app-<alias>/endpoint`, Berechtigungen `User.Read` delegiert,
-`Organization.Read.All`, `User.Read.All`, `Application.Read.All` als Anwendung mit Administratorzustimmung,
+`Organization.Read.All`, `User.Read.All`, `Application.Read.All`, `GroupMember.Read.All` (Gruppen in Freigaben) als
+Anwendung mit Administratorzustimmung,
 geheimer Clientschlüssel). Voraussetzungen der App: `entra = true` im Realm (Schritt 3), `ENCRYPTION_KEYS`,
 Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 [backend.md › Betrieb](../packages/iam/docs/backend.md#8-betrieb).

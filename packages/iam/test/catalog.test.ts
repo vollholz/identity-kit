@@ -66,7 +66,7 @@ describe('defineCatalog: Ergänzungen und Reihenfolge', () => {
     assert.deepEqual(j.groups.map(g => g.key), ['tenant', 'notes', 'members', 'access']);
     assert.deepEqual(j.roles.map(r => r.key), ['org-admin', 'editor', 'viewer']);
     assert.deepEqual(j.roles[0]!.permissions, j.permissions.map(p => p.key));
-    assert.equal(j.roles[0]!.description, 'Verwaltet die Organisation vollständig: Organisation, Notizen, Mitglieder und Rollen, Zugriff. Enthält alle anderen Rollen.');
+    assert.equal(j.roles[0]!.description, 'Verwaltet die Organisation vollständig: Organisation, Notizen, Mitglieder und Rollen und Zugriff. Enthält alle anderen Rollen.');
     assert.deepEqual(j.resourceTypes, [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz', leaf: true }], 'Blatt ausgeliefert (resourceTypes[].leaf)');
     assert.deepEqual(notesCatalog.resourceTypes.filter(t => t.leaf).map(t => t.key), ['note']);
     assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'members:admin']);
@@ -178,7 +178,7 @@ test('erzeugte Beschreibung von org-admin ohne Stichwort einer Gruppe: klare Mel
 });
 
 test('reservierte Rechte und Gruppen ohne Label und Gruppe: Werte aus dem Baukasten, Reihenfolge der App', () => {
-  const c = defineCatalog<'note:read' | 'acl:read' | 'members:admin' | 'acl:admin'>({
+  const c = defineCatalog({
     product: 'notes',
     permissions: {
       'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.' },
@@ -203,4 +203,15 @@ test('eigene Rechte und Gruppen brauchen Label, Gruppe und Beschreibung', () => 
   const i = notesInput();
   const errors = errorsOf({ ...i, permissions: { ...i.permissions, 'note:other': {} }, groups: [...i.groups, { key: 'extra' }] });
   for (const m of [/Recht «note:other»: Label fehlt/, /Recht «note:other»: Beschreibung fehlt/, /Recht «note:other»: Gruppe fehlt/, /Gruppe «extra»: Label fehlt/]) assert.ok(errors.some(e => m.test(e)), `${m} in ${errors.join(' | ')}`);
+});
+
+test('erzeugte Beschreibung von org-admin: Rechtegruppen in Anzeigereihenfolge, zuletzt mit «und»', () => {
+  const c = defineCatalog({
+    product: 'notes',
+    permissions: { 'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.' }, 'acl:read': {} },
+    groups: [{ key: 'access' }, { key: 'notes', label: 'Notizen', match: 'notiz' }],
+    roles: { viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['note:read'] } },
+    resources: { note: { label: 'Notiz' } },
+  });
+  assert.equal(c.roles.get(ADMIN_ROLE)!.description, 'Verwaltet die Organisation vollständig: Organisation, Zugriff, Notizen und Mitglieder und Rollen. Enthält alle anderen Rollen.');
 });

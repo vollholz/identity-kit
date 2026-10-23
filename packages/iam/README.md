@@ -17,6 +17,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
   (das Realm-Modul `product-realm` ≥ 0.2.0 legt die Rolle an; **brechend**: zusammen mit dem Modul anheben),
   `iam-org-bootstrap` ergänzt die Gruppe `org-admin` selbst. Reservierte Rechte und Gruppen darf die App ohne Label und
   Gruppe aufführen (nur Reihenfolge, Beschreibung, Ressourcentypen); Label und Gruppe kommen aus dem Baukasten.
+  Rollen, Scopes, Fähigkeiten und MCP-Werkzeuge bestimmen den Typ der Rechte nicht mehr mit (`NoInfer`). Die erzeugte
+  Beschreibung von `org-admin` nennt die Rechtegruppen in Anzeigereihenfolge («A, B und C»).
 - **0.3.0:** Entra mit eigener App der Organisation (`PUT …/entra/app`, Migration `iam_014`): Tenant, Anwendungs-ID
   und Geheimnis der Kunden-App, geprüft bei Microsoft vor dem Speichern, Geheimnis verschlüsselt (`ENCRYPTION_KEYS`,
   Rotation `rewrapEntraSecrets`), Anbieter `entra-app-<alias>`, Ablauf des Geheimnisses mit Warnung. Link

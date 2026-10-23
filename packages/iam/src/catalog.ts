@@ -60,13 +60,13 @@ export interface CatalogInput<P extends string = string> {
   permissions: Record<P, PermissionDef>;
   groups: readonly GroupDef[];
   /** Vordefinierte Rollen; `org-admin` darf mit Beschreibung dabei sein (Rechte bekommt es immer alle). */
-  roles: Record<string, RoleDef<P | string>>;
-  scopes?: Record<string, { text: string; permissions: readonly (P | string)[] }>;
+  roles: Record<string, RoleDef<NoInfer<P> | string>>;
+  scopes?: Record<string, { text: string; permissions: readonly (NoInfer<P> | string)[] }>;
   /** Ressourcentypen der Zugriffsregeln (ohne oder mit `tenant`); fehlt es, gibt es keine Zugriffsregeln (Kap. 8.2). */
   resources?: Record<string, ResourceDef>;
   /** Fähigkeit → Recht je Ressourcentyp (Felder `can` der Antworten). */
-  capabilities?: Record<string, Record<string, P | string>>;
-  mcpTools?: Record<string, McpToolDef<P | string>>;
+  capabilities?: Record<string, Record<string, NoInfer<P> | string>>;
+  mcpTools?: Record<string, McpToolDef<NoInfer<P> | string>>;
   features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean };
 }
 
@@ -243,8 +243,13 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     const missing = permissions.filter(p => !adminIn.permissions.includes(p));
     if (adminIn.permissions.length && missing.length) errors.push(`Rolle «${ADMIN_ROLE}» hat nicht alle Rechte (fehlen: ${missing.join(', ')}); Rechte weglassen, dann ergänzt sie der Katalog`);
   }
-  const groupNames = (perms: readonly string[]) => [...new Set(perms.map(p => info.get(p as Q)?.group).filter(Boolean))].map(g => groups.find(x => x.key === g)?.label ?? g);
-  const adminDescription = adminIn?.description ?? `Verwaltet die Organisation vollständig: ${groupNames(permissions).join(', ')}. Enthält alle anderen Rollen.`;
+  // Labels der Rechtegruppen in Anzeigereihenfolge, das letzte mit «und»: «A, B und C»
+  const groupNames = (perms: readonly string[]) => {
+    const used = new Set(perms.map(p => info.get(p as Q)?.group));
+    const labels = groups.filter(g => used.has(g.key)).map(g => g.label);
+    return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} und ${labels.at(-1)}` : labels.join('');
+  };
+  const adminDescription = adminIn?.description ?? `Verwaltet die Organisation vollständig: ${groupNames(permissions)}. Enthält alle anderen Rollen.`;
   const roles = new Map<string, { label: string; description: string; permissions: readonly Q[] }>();
   roles.set(ADMIN_ROLE, { label: ADMIN_LABEL, description: adminDescription, permissions: [...permissions] });
   for (const [key, r] of rolesIn) {

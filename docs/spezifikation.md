@@ -202,7 +202,7 @@ Mapper:
 | Mapper | An | Konfiguration |
 |---|---|---|
 | Audience `aud-api` | `-platform` (und `-mcp`) | `included_client_audience = <produkt>-api`, Access Token und Introspektion, nicht ID-Token |
-| Gruppen `groups` | `-platform` (und MCP-Clients) | Claim `groups` nur für Gruppen aus Entra ID (Subjekt `group:<name>`, [7.4](#74-tupel)), Access Token, Userinfo, Introspektion; keine Rollen (A4) |
+| Gruppen `groups` | `-platform` (und MCP-Clients) | Benutzerattribut `entra_groups` (mehrwertig) → Claim `groups` (Objekt-IDs der Entra-Gruppen, Subjekt `group:<entra-object-id>`, [7.4](#74-tupel)), Access Token, Userinfo, Introspektion; keine Rollen, keine Keycloak-Gruppen |
 | Organisation | eingebauter Scope `organization` | `oidc-organization-membership-mapper` mit `addOrganizationId = true`, `multivalued = true`, `jsonType.label = JSON`, Access/ID/Userinfo/Introspektion: Claim `{"<alias>": {"id": "<kc-org-id>"}}` |
 
 Den Organisations-Mapper legt Keycloak beim Anlegen des Realms selbst an; der Provider kann ihn nicht übernehmen.
@@ -222,7 +222,7 @@ den Realm.
 |---|---|
 | Realm-Rolle `platform-admin` | Plattform-Administration über alle Mandanten; vergibt nur eine Keycloak-Administration bzw. `iam-org-bootstrap` |
 | Rollen des Modells | **nicht in Keycloak** (D6): keine Client-Rollen an `<produkt>-platform`, keine Gruppe `/orgs`, keine Rollengruppen, kein Mapper für Rollen. Rollen sind Tupel in der Datenbank der App ([7.4](#74-tupel)) |
-| Gruppen | nur aus Entra ID der Organisation (IdP-Mapper) im Claim `groups`; Subjekt `group:<name>` in Freigaben. Die App legt keine Gruppen an |
+| Gruppen | nur aus Entra ID der Organisation: je Entra-Anbieter ein IdP-Mapper `entra-groups` (`oidc-user-attribute-idp-mapper`, Claim `groups` → Attribut `entra_groups`, Sync-Modus `FORCE`), angelegt von der App mit dem Anbieter ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); Attribut `entra_groups` im User-Profile des Realms (nur Admin, mehrwertig). Die App legt keine Keycloak-Gruppen an. Ohne Entra gibt es keine Gruppen |
 
 ### 3.6 Rechte-Scopes
 
@@ -340,7 +340,7 @@ kommen aus Tupeln.
 | Organisation | aus dem Claim `TENANT_CLAIM` (Liste von Aliassen, Objekt `{alias: {id}}` oder Zeichenkette); Wahl nach [Kapitel 4](#4-mandanten). Fehler: keine Organisation → 403 (mit Hinweis auf den Scope), nicht im Token → 403, mehrere ohne Wahl → 400 mit eigener Liste |
 | Person oder Maschine | Person nur, wenn `azp` in `OIDC_PERSON_CLIENT_IDS` (Standard: BFF- und MCP-Client) und kein Service Account (`service-account-…` bzw. `client_id` ohne Personenmerkmale). Alles andere ist Maschinen-Client |
 | Rollen | aus Tupeln des gewählten Mandanten ([7.4](#74-tupel)); Client-Rollen (`resource_access`) und Rollengruppen werden nicht gelesen |
-| Gruppen | Claim `GROUPS_CLAIM`, nur als Subjekte `group:<name>` (A4) |
+| Gruppen | Claim `GROUPS_CLAIM` (Objekt-IDs aus Entra), nur als Subjekte `group:<entra-object-id>` |
 | Freigabe | Maschinen-Clients nur mit mindestens einem nicht abgelaufenen Tupel `client:<principal-id> <rolle> org` im Mandanten, sonst 403 «Client nicht freigegeben» mit Hinweis auf die Freigabe. Über Token Exchange zählt der ursprüngliche Client, nicht `azp` |
 | Plattform | `platformAdmin` = Realm-Rolle `PLATFORM_ADMIN_ROLE` |
 | Scope-Grenze | `scopeBound` für Maschinen-Clients und Zugriffe über den MCP-Dienst |
@@ -435,6 +435,8 @@ interface TypeDef<P extends string, R extends string, T extends string> {
   self?: T;
   /** Rollen, die hier hängen dürfen; `'*'` nur bei `org`. */
   roles: readonly R[] | '*';
+  /** Beziehungen ohne Rechte, die hier hängen dürfen (Assets: `['member']` an Objekten = Einheiten). */
+  relations?: readonly 'member'[];
   /** Blatt: kein Typ hat es als `parent`; Lesesicht über `app.read_types()` ([7.6](#76-lesesicht-je-anfrage)). */
   leaf?: true;
   /** Ressource trägt eine Vertraulichkeit (0..2); Regel 3 in 7.5. */
@@ -463,7 +465,7 @@ Beispiel (Stufe «mittel», [neue-app.md](neue-app.md#4-modell-und-ressourcen)) 
 | M5 | `roles` eines Typs nur Rollen des Modells; `'*'` nur bei `org`; `org-admin` nur an `org` |
 | M6 | `leaf`: kein Typ hat ihn als `parent`; höchstens **ein** Blatt-Typ je Modell (A2) |
 | M7 | `scope`, `leaf`: `read` gesetzt; `scope` zusätzlich `write`; `read` und `write` stehen in `resources` ihrer Rechte für diesen Typ |
-| M8 | Hat ein Typ `read`, enthält jede Rolle, die dort hängen darf, dieses Recht (damit ein Tupel an einer Ressource immer Lesen ergibt, 7.6) (A1) |
+| M8 | `relations` (Beziehungen ohne Rechte) sind keine Rollenschlüssel; zulässig sind nur reservierte (`member`); der Typ `edges.unit` hat `member` in `relations` |
 | M9 | `owner` nicht an `org`; `classified` nicht an `org` |
 | M10 | `members:admin` und `access:admin` in keinem Scope; Rechte mit `scope: false` in keinem Scope; jeder Scope hat Text und Rechte |
 | M11 | `capabilities` nur für Typen des Modells und Rechte des Modells; `mcpTools` nur Rechte des Modells, mit Titel |
@@ -472,7 +474,7 @@ Beispiel (Stufe «mittel», [neue-app.md](neue-app.md#4-modell-und-ressourcen)) 
 Ergebnis `Model` (Nachfolger von `Catalog`, gleiche Hilfen): `product`, `permissions`, `info`, `groups`, `roles`,
 `scopes`, `types` (Kette, Rollen je Ort, Schalter), `classifications`, `capabilities`, `mcpTools`, `adminOnly`,
 `warnings`, `isPermission`, `permissionsForRoles(roles)`, `permissionsForScopes(scopes)`, `scopeForPermission`,
-`permissionText`, `relationsAt(type)` (Rollen plus `member`/`owner`, wo zulässig), `rolesWith(permission)`, `toJSON()`
+`permissionText`, `relationsAt(type)` (Rollen, `relations` und `owner`, wo zulässig), `rolesWith(permission)`, `toJSON()`
 (= `GET /v1/authz/catalog`, [9.5](#95-zugriff-v1access)), `platformJson()` (nur `{ "scopes": [...] }`). Typregistrierung:
 `declare module '@vollholz/iam' { interface Register { model: typeof model } }`.
 
@@ -484,13 +486,13 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
 |---|---|---|
 | `user:<principal-id>` | Person (`principal.id` in diesem Mandanten) | Mitglieder (Rollen an `org`), `POST /v1/access` |
 | `client:<principal-id>` | Maschinen-Client; **nur an `org`** (A3) | `PUT /v1/admin/clients/{clientId}` |
-| `group:<name>` | Gruppe aus Entra ID im Claim `GROUPS_CLAIM`, Name wie im Claim (A4) | `POST /v1/access` |
+| `group:<entra-object-id>` | Gruppe aus Entra ID (Objekt-ID im Claim `GROUPS_CLAIM`); Anzeigename über die Graph-Anbindung der Entra-Verbindung | `POST /v1/access` |
 | `org:members` | alle Principals der Organisation («Alle Mitglieder») (A5) | `POST /v1/access` |
 
 | Relation | Wo | Rechte |
 |---|---|---|
 | Rolle des Modells | Typen, deren `roles` sie nennt | Rechte der Rolle |
-| `member` («Mitglied», reserviert) | Typ, der in `ResourceModel.edges.unit` als Einheit genannt ist (A6) | keine direkten; macht zuständig (Regel 2) |
+| `member` («Mitglied», reserviert) | Typen mit `member` in `relations` (Einheit, `ResourceModel.edges.unit`) | keine, auch nicht an der Einheit selbst; macht zuständig (Regel 2) |
 | `owner` («Besitzer:in», reserviert) | Typen mit `owner` | alle Rechte, deren `resources` den Typ enthalten (A7) |
 
 - `object_id` ist leer genau bei `org`. Höchstens ein Tupel je (Subjekt, Relation, Ort); `expires_at` optional, in der
@@ -518,7 +520,7 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
 6. **Client freigegeben** (nur `kind = client`): mindestens ein nicht abgelaufenes Tupel `client:<id> <rolle> org`; sonst
    403 «Client nicht freigegeben» schon beim Auflösen des Principals ([6.2](#62-principal)).
 
-- `subjects(p)` = `user:<id>` bzw. `client:<id>`, `group:<name>` je Gruppe im Token, `org:members`.
+- `subjects(p)` = `user:<id>` bzw. `client:<id>`, `group:<entra-object-id>` je Gruppe im Token, `org:members`.
 - `clearance(p)` = `max(principal.clearance, principal.clearance_boost)`, solange `clearance_until > now()`, sonst
   `principal.clearance`.
 - **Recht irgendwo** (`canSomewhere`, `needSomewhere`): 1, 2 oder 4 ergibt `perm` an mindestens einem Ort, ∧ 5. Damit
@@ -549,6 +551,7 @@ Einstellung: leeres Array, `false` bzw. `0`). `dbContext` der App entfällt.
 | `app.write_types` | `app.write_types()` | `uuid[]` | wie `read_types` für `write` |
 | `app.write_units` | `app.write_units()` | `uuid[]` | `units(p)`; leer, wenn 5 `write` nicht deckt |
 | `app.org_permissions` | `app.read_all_of(permission text)` | `boolean` | Recht gilt an `org` (∩ Scope); für Typen mit Tupeln ausser dem Blatt (A10) |
+| `app.read_relations`, `app.write_relations` | `app.read_relations()`, `app.write_relations()` | `text[]` | Rollen, die `read` bzw. `write` des Blatts enthalten (aus dem Modell, konstant je App); nie `member` |
 | – | `app.has_tuple(object_type text, object_id uuid, relations text[] DEFAULT NULL)` | `boolean` | nicht abgelaufenes Tupel eines Subjekts aus `app.subjects()` an dieser Ressource (mit `relations`: nur diese Relationen) |
 
 Alle Mengen sind mit 5 (Scope) geschnitten. Für interne Prüfungen (`exists`, `hints`, `classification`) setzt der
@@ -558,12 +561,12 @@ Name oder Wert an die Person zurück. Policies der App (RESTRICTIVE, zusätzlich
 ```sql
 -- Blatt (Assets: object)
 USING (classification <= app.clearance() AND (
-  app.read_all() OR type_id = ANY (app.read_types()) OR app.has_tuple('object', id)
+  app.read_all() OR type_id = ANY (app.read_types()) OR app.has_tuple('object', id, app.read_relations())
   OR EXISTS (/* Kante mit grants <> 'none' */ … WHERE r.from_id = object.id AND r.to_id = ANY (app.read_units()))))
 WITH CHECK (classification <= app.clearance() AND (
-  app.write_all() OR type_id = ANY (app.write_types()) OR app.has_tuple('object', id, ARRAY['editor'])
+  app.write_all() OR type_id = ANY (app.write_types()) OR app.has_tuple('object', id, app.write_relations())
   OR EXISTS (/* Kante mit grants = 'edit' */ … AND r.to_id = ANY (app.write_units()))))
--- weitere Ressource mit Tupeln (Assets: view, report): Rolle an org über das Recht der App, sonst Tupel
+-- weitere Ressource mit Tupeln (Assets: view, report, dashboard): Rolle an org über das Recht der App, sonst Tupel
 USING (app.read_all_of('view:read') OR app.has_tuple('view', id))
 ```
 
@@ -589,7 +592,7 @@ interface ResourceModel<S = unknown> {
   classification?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, 0 | 1 | 2>>;
   /** Pflicht bei Typen mit scope: Zuständigkeit als SQL der App (volle Sicht, Parameter $1 uuid[]). */
   edges?: {
-    /** Typ der Einheiten; dort ist die Relation `member` zulässig. */
+    /** Typ der Einheiten; hat `member` in `relations`. */
     unit: string;
     /** Direkt untergeordnete Einheiten von $1 über Kanten mit inherits_scope; Spalte `id uuid`. */
     children: string;
@@ -609,7 +612,7 @@ oder `chain` asynchron wird: A11.
 |---|---|
 | Stufen | `0` intern (Standard), `1` vertraulich, `2` streng vertraulich; Labels aus `classifications` |
 | Ressource | Spalte der App (Assets: `object.classification smallint NOT NULL DEFAULT 0`, Vorgabe `object_type.default_classification`); Policy `classification <= app.clearance()` |
-| Person, Client | `principal.clearance` (Standard 0), gesetzt über `PUT /v1/admin/members/{id}/clearance` bzw. `PUT /v1/admin/clients/{clientId}` mit `members:admin`, höchstens die eigene Freigabestufe (A12) |
+| Person, Client | `principal.clearance` (Standard 0), gesetzt über `PUT /v1/admin/members/{id}/clearance` bzw. `PUT /v1/admin/clients/{clientId}` mit `members:admin`: **nie für sich selbst und nie über die eigene Freigabestufe** (wirksam ohne Break-Glass). Die erste Person einer Organisation erhält Stufe 2 von der Plattform-Administration; die eigene Stufe heben geht nur über Break-Glass |
 | Stufe an einer Ressource setzen | Endpunkt der App; verlangt `write` des Typs und `clearance(p) ≥` neue **und** bisherige Stufe (niemand klassifiziert über die eigene Stufe hinaus); Audit `object.classified` (`from`, `to`). Hilfe des Baukastens: `req.needClearance(level)` → 403 mit Grund `clearance` (A14) |
 | Break-Glass | `POST /v1/break-glass {reason, minutes}` ([9.7](#97-break-glass-v1break-glass)): nur Personen mit Tupel `org-admin` an `org`; setzt `clearance_boost = 2`, `clearance_until = now() + minutes` (1–240); keine Verlängerung ausser durch neuen Aufruf; `DELETE /v1/break-glass` beendet; Audit `break_glass.started`, `break_glass.ended`; Banner in der Oberfläche |
 
@@ -643,7 +646,7 @@ Die App verwendet sie genau in dieser Bedeutung und nie für etwas anderes; Labe
 | Art | Schlüssel | Label | Pflicht | Bedeutung |
 |---|---|---|---|---|
 | Rolle | `org-admin` | Organisations-Admin | MUSS | `permissions: '*'`, nur an `org`; vergibt und entzieht nur `platform-admin`; die letzte aktive Person mit ihr bleibt ([9.1](#91-regeln)); steht zuerst |
-| Relation | `member` | Mitglied | MUSS mit `scope` | macht zuständig ([7.4](#74-tupel)) |
+| Relation | `member` | Mitglied | MUSS mit `scope` (in `relations` der Einheit) | Beziehung ohne Rechte, macht zuständig ([7.4](#74-tupel)) |
 | Relation | `owner` | Besitzer:in | MUSS mit `owner` | alle Rechte der Ressource ([7.4](#74-tupel)) |
 | Recht | `tenant:read` | Organisation lesen | MUSS | Name und Einstellungen der Organisation sehen |
 | Recht | `tenant:admin` | Organisation verwalten | MUSS, wenn die Organisation Einstellungen hat | Name und Einstellungen ändern |
@@ -705,7 +708,8 @@ Freigaben und Break-Glass gilt allein dieses Kapitel.
    `last-admin`), auch nicht durch die Plattform-Administration; niemand entfernt sich selbst.
 7. **Niemand gibt mehr, als er hat** ([7.5](#75-entscheidung)): Rolle vergeben, entziehen oder ihren Ablauf ändern nur,
    wenn jedes Recht der Rolle für die handelnde Person am Ort gilt; sonst 403 `exceeds-own` mit `missing` (Rechte).
-   Freigabestufe setzen höchstens bis zur eigenen (403 `exceeds-own`) (A12).
+   Freigabestufe: nie für sich selbst (403 `self`), nie über die eigene ohne Break-Glass (403 `exceeds-own`); für die
+   Plattform-Administration gilt die Obergrenze nicht.
 8. Änderungen derselben Organisation laufen nacheinander (Advisory-Lock in PostgreSQL).
 9. Jede Änderung im Audit des betroffenen Mandanten in derselben Transaktion ([9.8](#98-audit-aktionen)). Scheitert
    Keycloak nach erfolgten Schritten: eigener Eintrag `…_failed` mit den Schritten; neu angelegte Konten werden wieder
@@ -802,7 +806,8 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   Gruppen-Claim (`groupMembershipClaims` mit `DirectoryRole`) für den Nachweis der Zustimmung (`wids`).
   Je Organisation ein Identity Provider `entra-NNN` aus einem Pool von Redirect-URIs (`ENTRA_IDP_SLOTS`), mit der
   Organisation und ihren Domänen verbunden (Keycloak ≥ 26.8). `<produkt>-admin` braucht dafür
-  `manage-identity-providers`; Mapper an Anbietern legt die App nie an.
+  `manage-identity-providers`; an jedem Anbieter legt die App genau einen Mapper an: `entra-groups`
+  (`oidc-user-attribute-idp-mapper`, Claim `groups` → Attribut `entra_groups`, `FORCE`; [3.5](#35-rollen-und-gruppen)), sonst keine.
 - Ablauf zweistufig: verbinden (`pending`, Passwörter gelten weiter) → Testanmeldung über den Anbieter → «Nur Entra»
   (`enforced`) mit bestätigter Liste der Personen, die die Anmeldung verlieren. Nur verifizierte Domänen, die keine
   andere Organisation hat; Gastkonten nie verknüpfen. `state` 15 min, einmalig, an Person, Organisation und Tenant
@@ -888,7 +893,7 @@ interface AuthzCatalog {
   types: {                       // ersetzt resourceTypes; org zuerst
     key: string; label: string; parent: string | null; self?: true;
     roles: string[];             // Rollen, die hier hängen dürfen (org: alle)
-    relations: string[];         // roles plus 'member' / 'owner', wo zulässig
+    relations: string[];         // roles plus Beziehungen ohne Rechte ('member') und 'owner', wo zulässig
     leaf?: true; classified?: true; owner?: true; scope?: { relation: string };
     read?: string; write?: string;
   }[];
@@ -915,9 +920,9 @@ interface AccessList {
 interface AccessEntry {
   id: string | null;             // Tupel-ID; null bei Zuständigkeit
   subject: {
-    ref: string;                 // 'user:<id>' | 'client:<id>' | 'group:<name>' | 'org:members'
+    ref: string;                 // 'user:<id>' | 'client:<id>' | 'group:<entra-object-id>' | 'org:members'
     kind: 'user' | 'client' | 'group' | 'members';
-    name: string;                // Name der Person bzw. des Clients, Gruppenname, «Alle Mitglieder»
+    name: string;                // Name der Person bzw. des Clients, Anzeigename der Gruppe (Graph, sonst Objekt-ID), «Alle Mitglieder»
     scopes?: string[] | null;    // nur Clients: Scopes im letzten Token
   };
   relation: string;              // Rolle, 'member' oder 'owner'
@@ -945,7 +950,7 @@ interface Explain {
   reasons: {                     // alle Wege, die das Recht ergeben (Regeln 1, 2, 4); leer, wenn keiner
     via: 'direct' | 'inherited' | 'scope' | 'owner';
     relation: string; place: ResourceRef; tupleId: string | null;
-    matched: string;             // welches Subjekt passt, z. B. 'group:abt-x' oder 'org:members'
+    matched: string;             // welches Subjekt passt, z. B. 'group:<entra-object-id>' oder 'org:members'
     unit?: { ref: ResourceRef; relation: string; grants: 'read' | 'edit' };
   }[];
   blocked:                       // was trotz Weg verhindert; null, wenn allowed oder kein Weg
@@ -1004,7 +1009,7 @@ interface Client {
 | `GET /v1/admin/members` | – | 200 `{ items: Member[] }` – Personen **und** freigegebene Clients | 503 ohne Verwaltung |
 | `POST /v1/admin/members` | wie bisher (`email`, Name, `roles`, `sendEmail`) | 202 `{ result: 'invitation-sent', … }` | 403 `exceeds-own`, `platform-admin-only`; 422 |
 | `PUT /v1/admin/members/{id}/roles` | `{ roles: string[] }` (Rollen an org, vollständige Liste) | 200 `Member` | 403 `exceeds-own`, `platform-admin-only`; 404; 409 `last-admin`; 422 `roles` |
-| `PUT /v1/admin/members/{id}/clearance` | `{ clearance: Level }` | 200 `Member` | 403 `exceeds-own`; 404; 422 |
+| `PUT /v1/admin/members/{id}/clearance` | `{ clearance: Level }` | 200 `Member` | 403 `exceeds-own`, `self`; 404; 422 |
 | `DELETE /v1/admin/members/{id}` | – | wie bisher (`accountDeleted`); löscht alle Tupel der Person | 404; 409 `last-admin`, `self` |
 | `POST /v1/admin/members/{id}/invitation` | – | 200 `{ emailSent: boolean }` | 404 |
 | `GET /v1/admin/clients` | – | 200 `{ items: Client[] }` | – |
@@ -1083,8 +1088,8 @@ Entfallen: `acl_entry`, `tenant_role`, `client_grant` (und ihre Trigger, Funktio
 CREATE TABLE <produkt>.authz_tuple (
   tenant_id   uuid NOT NULL REFERENCES <produkt>.tenant (id),
   id          uuid NOT NULL DEFAULT gen_random_uuid(),
-  subject     text NOT NULL,          -- 'user:<uuid>' | 'client:<uuid>' | 'group:<name>' | 'org:members'
-  relation    text NOT NULL,          -- Rolle des Modells, 'member', 'owner'
+  subject     text NOT NULL,          -- 'user:<uuid>' | 'client:<uuid>' | 'group:<entra-object-id>' | 'org:members'
+  relation    text NOT NULL,          -- Rolle des Modells, Beziehung ohne Rechte ('member'), 'owner'
   object_type text NOT NULL,          -- Typ des Modells
   object_id   uuid,                   -- leer genau bei 'org'
   expires_at  timestamptz,
@@ -1092,8 +1097,7 @@ CREATE TABLE <produkt>.authz_tuple (
   created_by  uuid,                   -- principal.id; leer bei Plattform-Administration und System
   PRIMARY KEY (tenant_id, id),
   CONSTRAINT authz_tuple_subject_check CHECK (
-    subject ~ '^(user|client):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    OR subject ~ '^group:[^[:cntrl:]]{1,255}$' OR subject = 'org:members'),
+    subject ~ '^(user|client|group):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR subject = 'org:members'),
   CONSTRAINT authz_tuple_org_check CHECK ((object_type = 'org') = (object_id IS NULL)),
   CONSTRAINT authz_tuple_client_check CHECK (subject NOT LIKE 'client:%' OR object_type = 'org'),
   CONSTRAINT authz_tuple_relation_check CHECK (relation IN (…)),        -- syncModelChecks
@@ -1120,7 +1124,7 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
   auch die Lesesicht ([7.6](#76-lesesicht-je-anfrage)).
 - Funktionen der Lesesicht (`app.subjects()`, `app.clearance()`, `app.read_all()`, `app.read_types()`,
   `app.read_units()`, `app.write_all()`, `app.write_types()`, `app.write_units()`, `app.read_all_of(text)`,
-  `app.has_tuple(text, uuid, text[])`): `STABLE`, `SECURITY INVOKER`, `search_path` fest, EXECUTE nur für `_app`.
+  `app.read_relations()`, `app.write_relations()`, `app.has_tuple(text, uuid, text[])`): `STABLE`, `SECURITY INVOKER`, `search_path` fest, EXECUTE nur für `_app`.
 - `app.secure_tenant_tables()` läuft nach **jeder** Migration: jede Tabelle mit `tenant_id` erhält ENABLE + FORCE RLS,
   Richtlinie `tenant_isolation` (`USING` und `WITH CHECK` `tenant_id = app.tenant_id()`) und die Rechte für `_app`.
 - Fremdschlüssel zusammengesetzt (`tenant_id, …`): eine fremde ID verhält sich wie eine unbekannte.
@@ -1200,8 +1204,8 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
 
 - «Über» nennt den Ort (`via`, `place`, `unit`); der Pfeil ruft `resources.open(place)`. Einträge mit `removable`
   lassen sich ändern (Ablauf, `PATCH`) und entfernen; geerbte nur am Ursprung.
-- «Freigeben» (`GrantDialog`): Person (Personenverzeichnis), Gruppe aus Entra (Name als Text, A4) oder «Alle
-  Mitglieder»; Rolle nur aus `grantable`; Ablaufdatum optional. Clients nicht (nur über Mitglieder).
+- «Freigeben» (`GrantDialog`): Person (Personenverzeichnis), Gruppe aus Entra (nur mit Entra-Verbindung; Auswahl: A4)
+  oder «Alle Mitglieder»; Rolle nur aus `grantable`; Ablaufdatum optional. Clients nicht (nur über Mitglieder).
 - Bei Ressourcen mit `owner` ist «Für alle Mitglieder» die erste Zeile (Schalter = Tupel `org:members <read-Rolle>`;
   welche Rolle: A7).
 
@@ -1311,7 +1315,7 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `OIDC_PERSON_CLIENT_IDS` | BFF + MCP | `azp`, deren Tokens als Person gelten |
 | `TENANT_CLAIM` | `organization` | |
 | `TENANT_AUTO_PROVISION` | `true` | |
-| `GROUPS_CLAIM` | `groups` | Gruppen aus Entra ID als Subjekte `group:<name>` |
+| `GROUPS_CLAIM` | `groups` | Gruppen aus Entra ID (Objekt-IDs) als Subjekte `group:<entra-object-id>` |
 | `PLATFORM_ADMIN_ROLE` | `platform-admin` | |
 | `KEYCLOAK_MGMT_CLIENT_ID` | — | `<produkt>-admin`; leer = Verwaltung aus |
 | `KEYCLOAK_MGMT_PRIVATE_KEY` (geheim) | — | nur API |
@@ -1377,15 +1381,15 @@ Pflichttests (Kit: `packages/*/test`, Konformität über `@vollholz/iam-testkit`
 | `multi-org` | Person in A und B: Rollen (Tupel) nur der gewählten Organisation, Gruppen, Freigaben, Freigabestufe, Break-Glass nur in A, Wahl, Austritt, Client-Freigabe, Alias neu vergeben |
 | `rls` | jede Tabelle mit `tenant_id` hat FORCE RLS und `tenant_isolation` (auch `authz_tuple`); kein PUBLIC-EXECUTE (auch Funktionen der Lesesicht); fremder Mandant sieht nichts |
 | `model` | `checkModel`: Regeln M1–M12 ([7.3](#73-modell-der-app-definemodel)), reservierte Namen ([8.1](#81-reservierte-namen)), `platform.json` = `model.platformJson()` |
-| `access` | Entscheidung nach [7.5](#75-entscheidung): Rolle an `org`, am Ort, Vererbung über `parent` und `self`, Blatt-Tupel; Zuständigkeit (`grants` read/edit, `inherits_scope`, Tiefe 16, Kreis); Besitz; Klassifizierung (auch `org-admin` scheitert); Break-Glass (Stufe, Ende, Ablauf); Ablauf von Tupeln (zählt nicht, Aufräumen, `access.expired`); Scope-Grenze für jeden Weg; Client ohne Tupel an `org` → 403; `canSomewhere`; Zwischenspeicher nach `acl_version` |
+| `access` | Entscheidung nach [7.5](#75-entscheidung): Rolle an `org`, am Ort, Vererbung über `parent` und `self`, Blatt-Tupel (nur Rollen mit `read`, nie `member`); Gruppen-Subjekte aus `entra_groups`; Zuständigkeit (`grants` read/edit, `inherits_scope`, Tiefe 16, Kreis); Besitz; Klassifizierung (auch `org-admin` scheitert); Break-Glass (Stufe, Ende, Ablauf); Ablauf von Tupeln (zählt nicht, Aufräumen, `access.expired`); Scope-Grenze für jeden Weg; Client ohne Tupel an `org` → 403; `canSomewhere`; Zwischenspeicher nach `acl_version` |
 | `read-view` | Lesesicht = `can`: für ein Modell mit allen Wegen liefert eine Liste unter RLS genau die Ressourcen mit `can(read)`, Schreiben unter `WITH CHECK` genau die mit `can(write)` |
-| `access-http` | Formen aus [9.5](#95-zugriff-v1access); Regeln [9.1](#91-regeln) Nr. 5–7: niemand gibt mehr, als er hat (POST, PATCH, DELETE, Mitglieder, Clients, Freigabestufe), `org-admin` nur `platform-admin`, letzter Admin, Duplikat, 422 je Feld; 404 für nicht lesbare Ressourcen; `explain` gibt für andere nur mit `access:read` Auskunft |
+| `access-http` | Formen aus [9.5](#95-zugriff-v1access); Regeln [9.1](#91-regeln) Nr. 5–7: niemand gibt mehr, als er hat (POST, PATCH, DELETE, Mitglieder, Clients, Freigabestufe nie für sich selbst), `org-admin` nur `platform-admin`, letzter Admin, Duplikat, 422 je Feld; 404 für nicht lesbare Ressourcen; `explain` gibt für andere nur mit `access:read` Auskunft |
 | `admin` | Regeln aus [9.1](#91-regeln) inkl. gleicher Antwort beim Einladen, Clients in der Liste, Tupel beim Entfernen gelöscht, Audit `…_failed` |
 | `break-glass` | nur Personen mit `org-admin`, 1–240 min, Neubeginn, Ende, Banner-Daten in `/auth/me`, Audit |
 | `auth` / `unit` | Token-Prüfung (Typ, Bindung, DPoP, mTLS), Person/Client, Alias ASCII, Subjekte aus dem Token |
 | `bff` | Code-Flow, Fixation, `returnTo`, CSRF, Erneuerung parallel, Austritt, Backchannel-Logout, Wechsel, `/auth/me` nach 9.5 |
 | `capabilities` | `can` je Ressource, ETag mit Zugriffsstand |
-| `infra-keycloak` / Modul | keine Client-Rollen, keine Gruppe `/orgs`, kein Rollen-Mapper, keine FGAP-Gruppenrechte; Scopes aus `platform.json`; Lokalisierung (Schlüssel, Platzhalter, Du-Form); `kc.sh plan` «No changes» |
+| `infra-keycloak` / Modul | keine Client-Rollen, keine Gruppe `/orgs`, kein Rollen-Mapper, keine FGAP-Gruppenrechte; Attribut `entra_groups` im User-Profile, Mapper Attribut → Claim `groups`; Scopes aus `platform.json`; Lokalisierung (Schlüssel, Platzhalter, Du-Form); `kc.sh plan` «No changes» |
 | Oberfläche | Typ `Permission` = Katalog; Organisation je Tab; `AccessSheet`, `GrantDialog` (nur `grantable`), `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, `Members` (Personen und Clients, Freigabestufe, Orte), `RightsOverview` (Status `role`/`place`/`scope`); 390 px, hell/dunkel, axe ohne serious/critical |
 | E2E | Anmeldung, Einladen, Rollen, Freigabe am Ort und am Blatt, Zuständigkeit, Klassifizierung, Break-Glass, Organisation je Tab (gegen lokalen Keycloak) |
 
@@ -1424,7 +1428,7 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Zuständigkeit (Kanten) | Fachmodell der App | Tabellen der App, gelesen über `ResourceModel.edges` | zur Laufzeit | Personen mit den Fachrechten |
 | Freigabestufe | – | `principal.clearance` | zur Laufzeit | `members:admin`; Break-Glass `org-admin` |
 | Organisationen, Mitgliedschaften, Konten | – | Keycloak; Spiegel in `tenant` und `principal` | zur Laufzeit | Plattform-Administration bzw. `members:admin` in der App |
-| Gruppen aus Entra | IdP der Organisation | Claim `groups`, nur als Subjekt `group:<name>` | mit dem Token | Kunden-IT in Entra |
+| Gruppen aus Entra | IdP der Organisation | IdP-Mapper → Attribut `entra_groups` → Claim `groups`, nur als Subjekt `group:<entra-object-id>` | mit dem Token | Kunden-IT in Entra |
 | Ressourcen | Fachmodell der App | nur in der Datenbank der App | zur Laufzeit | Personen mit den Rechten |
 
 Folgerungen:
@@ -1545,7 +1549,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | identity › Bewusste Restrisiken |
 | Zwischenspeicher | Entfernen einer Person wirkt nach ≤ 5 min, Gruppen aus Entra mit dem nächsten Token; Tupel sofort (`acl_version`) | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |
 | Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen |
-| Gruppen aus Entra | Name im Claim ist das Subjekt; gleiche Namen aus verschiedenen Anbietern sind nicht unterscheidbar | Tupel je Mandant; A4 |
+| Gruppen aus Entra | mehr als 200 Gruppen: Entra liefert keinen `groups`-Claim (Überlauf) | O1 in authz-offene-punkte.md |
 | Break-Glass | `org-admin` kann sich jederzeit selbst bis 240 min auf Stufe 2 heben | Begründung Pflicht, Audit, Banner; Protokoll-Filter «Zugriff» | Verwaltung kann entfernen |
 | Maschinen-Clients | nur über die Keycloak-Konsole nach Vorlage | Freigabe in der App |
 | Sicherheitsfunktionen der Datenbank | `resolve_tenant` und Plattform-Funktionen für die ganze Laufzeit-Rolle ausführbar (Schutz in der API) | kein beliebiges SQL (SQL-Injection geprüft); eigene Rolle als offener Punkt |
@@ -1560,18 +1564,18 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | B2 | Verteilung | **entschieden 2026-10-22:** npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`) |
 | B3 | Frameworks | Backend zuerst nur Fastify, Frontend nur React; weitere Adapter erst bei Bedarf |
 | B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu sind nur `person_api` (Personen direkt an der API, ohne BFF/MCP) und `system_clients` (ein Client für mehrere Organisationen, per IaC); beide erst mit der ersten App, die sie braucht |
-| A1 | Lese- und Schreibrecht je Typ | `TypeDef.read`/`write`, Pflicht bei `leaf` und `scope`; jede Rolle an einem Typ mit `read` enthält es (M8) – Konzept nennt die Lesesicht nur für `object:read` |
+| A1 | Lese- und Schreibrecht je Typ | `TypeDef.read`/`write`, Pflicht bei `leaf` und `scope`; daraus `app.read_relations()`/`write_relations()` – Konzept nennt die Lesesicht nur für `object:read` |
 | A2 | Mehrere Blatt-Typen | höchstens einer je Modell; Lesesicht-Funktionen gelten für ihn |
 | A3 | Clients an Orten | Tupel `client:` nur an `org`, nur über `/v1/admin/clients` (CHECK und 422) – das Panel zeigt Clients nur über die Organisation |
-| A4 | Gruppen aus Entra | Subjekt = Name wie im Claim; Eingabe im `GrantDialog` als Text (kein Gruppenverzeichnis); offen: Mapper `groups` im Realm-Modul behalten, Name oder Pfad, Kollision gleicher Namen verschiedener Anbieter (Präfix je Anbieter?) |
+| A4 | Gruppen aus Entra im `GrantDialog` | Subjekt `group:<entra-object-id>` ist entschieden (Konzept 4.4); offen: Auswahl über einen neuen Endpunkt der Gruppensuche in Graph (z. B. `GET /v1/admin/entra/groups?q=`, braucht `Group.Read.All`?) oder Eingabe der Objekt-ID; Anzeigename in `GET /v1/access` über Graph mit Zwischenspeicher |
 | A5 | `org:members` und Clients | gehört nach Konzept 3.3 zu den Subjekten jedes Principals, also auch von Clients; soll «Alle Mitglieder» Clients ausschliessen? |
-| A6 | Relation `member` | reserviert, zulässig am Typ `edges.unit`, keine Rechte; im Konzept nur als Beispiel |
-| A7 | Relation `owner` | Tupel `user:<id> owner <typ> <id>`, legt die App beim Anlegen an; Rechte = alle Rechte mit dem Typ in `resources`; nicht über `/v1/access` vergebbar? Übertragen? Welche Rolle setzt «Für alle Mitglieder» (Assets: `viewer`)? |
+| A6 | Relation `member` | entschieden (Konzept 3.2, `types[].relations`); offen nur: weitere Beziehungen ohne Rechte zulassen oder nur `member` (Vertrag: nur `member`) |
+| A7 | Relation `owner` | Tupel `user:<id> owner <typ> <id>`, legt die App beim Anlegen an (Assets: Ansicht, Report, Dashboard); Rechte = alle Rechte mit dem Typ in `resources`; nicht über `/v1/access` vergebbar? Übertragen? Welche Rolle setzt «Für alle Mitglieder» (Assets: `viewer`)? |
 | A8 | Aufräumen | im Worker mit dem Abgleich; Ende eines Break-Glass durch Ablauf als `break_glass.ended` mit `expired: true` |
 | A9 | Plattform-Administration | von «niemand gibt mehr, als er hat» ausgenommen (hat im Mandanten keine Rollen); die Regel gilt auch für Entziehen und Ablauf ändern |
 | A10 | Lesesicht weiterer Typen | `app.write_all()`, `app.read_all_of(permission)` mit Einstellung `app.org_permissions` für Typen mit Tupeln ausser dem Blatt (Ansicht, Report) – im Konzept nicht benannt |
 | A11 | `ResourceModel` | `load`/`version` bleiben für eine synchrone `chain`; Konzept nennt nur `chain`, `exists`, `hints`, `edges`; dazu `classification()` für klassifizierte Typen |
-| A12 | Freigabestufe setzen | höchstens bis zur eigenen (wie beim Klassifizieren); Klassifizieren verlangt Stufe ≥ neue und bisherige |
+| A12 | Klassifizieren | Freigabestufe setzen ist entschieden (Konzept 3.5); offen: Klassifizieren verlangt Stufe ≥ neue **und** bisherige (Konzept nennt nur die neue) |
 | A13 | `access:read` | neu reserviert für «Wer hat Zugriff?» und «Warum?» über andere; Konzept nennt nur `access:admin`. Alternative: `access:admin` genügt für beides |
 | A14 | `req.needClearance` | Hilfe für den Endpunkt der App zum Klassifizieren |
 | A15 | `org-admin` mit Ablauf | nicht erlaubt (422), damit «letzter Admin» nicht durch Ablauf unterlaufen wird |

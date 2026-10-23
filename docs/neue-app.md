@@ -210,7 +210,7 @@ export const resources: ResourceModel<Map<string, string>> = {
 
 ```sql
 CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT USING (
-  app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id));
+  app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id, app.read_relations()));
 ```
 
 - Nur Typen direkt unter der Organisation: `flatResources({ tables: { folder: 'notes.folder' } })`.

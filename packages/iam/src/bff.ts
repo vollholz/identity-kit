@@ -13,7 +13,7 @@ import { createHash, createPrivateKey, randomBytes, timingSafeEqual } from 'node
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { importPKCS8, jwtVerify, type CryptoKey } from 'jose';
 import * as client from 'openid-client';
-import { ConfigError, type IamConfig } from './config.ts';
+import { checkProduct, ConfigError, type IamConfig } from './config.ts';
 import { Sealer } from './crypto.ts';
 import { schemaName, withTx, type Db, type Tx } from './db.ts';
 import { HttpError } from './errors.ts';
@@ -140,6 +140,8 @@ export class Bff implements SessionBridge {
     this.cleanupIntervalMs = o.cleanupIntervalMs ?? 5 * 60_000;
     this.prod = cfg.mode === 'production';
     const prefix = this.prod ? '__Host-' : '';
+    // Name des Produkts im Cookie-Namen: nur das Muster der Produkte (sonst ConfigError beim Start, nicht 500 beim Login)
+    checkProduct(o.product);
     this.cookieName = `${prefix}${o.product}_sid`;
     this.loginCookieName = `${prefix}${o.product}_login`;
     if (!cfg.session.secrets.length) throw new ConfigError('SESSION_SECRET fehlt – ohne Schlüssel keine Anmeldung über die Oberfläche.');
@@ -358,8 +360,15 @@ export class Bff implements SessionBridge {
   async switchOrg(s: Session, org: string): Promise<boolean> {
     const alias = orgAlias(org);
     if (!alias || !this.orgsOf(s.data.accessToken).includes(alias)) return false;
-    await this.save(s.id, { ...s.data, org: alias });
-    return true;
+    // Frisch und gesperrt lesen, nur `org` ändern: sonst schriebe ein Wechsel ein inzwischen rotiertes Refresh Token zurück
+    return withTx(this.db, async tx => {
+      const row = (await tx.query<{ data: Buffer }>(`SELECT data FROM ${this.schema}.session WHERE id = $1 FOR UPDATE`, [s.id])).rows[0];
+      if (!row) return false;
+      const data = JSON.parse(this.sealer.open(row.data, s.id).toString('utf8')) as SessionData;
+      if (!data.orgs.includes(alias)) return false;
+      await tx.query(`UPDATE ${this.schema}.session SET data = $2 WHERE id = $1`, [s.id, this.sealer.seal(JSON.stringify({ ...data, org: alias }), s.id)]);
+      return true;
+    });
   }
 
   /**
@@ -389,10 +398,6 @@ export class Bff implements SessionBridge {
   private async nameIn(tx: Tx, tenantId: string): Promise<string | null> {
     await tx.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     return (await tx.query<{ name: string }>(`SELECT name FROM ${this.schema}.tenant WHERE id = $1`, [tenantId])).rows[0]?.name ?? null;
-  }
-
-  private async save(id: string, data: SessionData) {
-    await this.db.query(`UPDATE ${this.schema}.session SET data = $2 WHERE id = $1`, [id, this.sealer.seal(JSON.stringify(data), id)]);
   }
 
   // ---------------------------------------------------------------- Abmeldung
@@ -425,15 +430,22 @@ export class Bff implements SessionBridge {
       throw new HttpError(400, 'Logout-Token ungültig', (e as Error).message);
     }
     const events = p.events as Record<string, unknown> | undefined;
-    if (!events || typeof events[BCL_EVENT] !== 'object') throw new HttpError(400, 'Logout-Token ungültig', 'Ereignis backchannel-logout fehlt.');
+    if (!events || typeof events !== 'object' || typeof events[BCL_EVENT] !== 'object' || events[BCL_EVENT] === null) throw new HttpError(400, 'Logout-Token ungültig', 'Ereignis backchannel-logout fehlt.');
     if (p.nonce !== undefined) throw new HttpError(400, 'Logout-Token ungültig', 'nonce ist nicht erlaubt.');
     const sid = typeof p.sid === 'string' ? p.sid : null, sub = typeof p.sub === 'string' ? p.sub : null;
     if (!sid && !sub) throw new HttpError(400, 'Logout-Token ungültig', 'sid oder sub fehlt.');
-    if (!(await this.replay.claim(`bcl:${String(p.jti)}`, 20 * 60_000))) throw new HttpError(400, 'Logout-Token ungültig', 'Token wurde bereits verwendet.');
-    const r = sid
-      ? await this.db.query(`DELETE FROM ${this.schema}.session WHERE idp_sid = $1 AND ($2::text IS NULL OR subject = $2)`, [sid, sub])
-      : await this.db.query(`DELETE FROM ${this.schema}.session WHERE subject = $1`, [sub]);
-    return r.rowCount ?? 0;
+    const jti = `bcl:${String(p.jti)}`;
+    if (!(await this.replay.claim(jti, 20 * 60_000))) throw new HttpError(400, 'Logout-Token ungültig', 'Token wurde bereits verwendet.');
+    try {
+      const r = sid
+        ? await this.db.query(`DELETE FROM ${this.schema}.session WHERE idp_sid = $1 AND ($2::text IS NULL OR subject = $2)`, [sid, sub])
+        : await this.db.query(`DELETE FROM ${this.schema}.session WHERE subject = $1`, [sub]);
+      return r.rowCount ?? 0;
+    } catch (e) {
+      // Nicht abgemeldet: Keycloak darf es wiederholen
+      await this.replay.release?.(jti).catch(() => undefined);
+      throw e;
+    }
   }
 
   // ---------------------------------------------------------------- Aufräumen

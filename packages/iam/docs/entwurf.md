@@ -607,4 +607,10 @@ Audit-Trigger darauf warten.
   (405), `POST /auth/switch`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/backchannel-logout` (versteckt); Tag
   `Anmeldung (Oberfläche)`. Die Beschreibung von `/auth/me` nennt Freigaben «auf einzelnen Ressourcen» (Assets setzt
   seinen Text über `openapi`). Die Auslieferung der Oberfläche (`/`, `/abgemeldet`, CSP) bleibt in der App.
-
+- **Prüfung von #19** (Hauptsession): `switchOrg` liest die Sitzung frisch und gesperrt und ändert nur `org` (sonst
+  schriebe ein Wechsel ein von einer anderen Instanz rotiertes Refresh Token zurück); der Name des Produkts im Cookie
+  wird beim Start geprüft (`checkProduct`); beim Backchannel-Logout muss `events[…backchannel-logout]` ein Objekt sein,
+  und scheitert das Löschen, gibt `ReplayStore.release` die `jti` wieder frei (Keycloak wiederholt). Sitzungscookies
+  nimmt das Plugin nur mit Modul `bff` oder ausdrücklicher `sessions` an.
+- **Bekannte Grenze** (wie Assets, entschieden): Es gibt ein Login-Cookie je Browser; starten zwei Tabs gleichzeitig
+  eine Anmeldung, gilt nur die zuletzt gestartete, die andere endet mit «Anmeldung abgelaufen».

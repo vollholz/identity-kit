@@ -43,7 +43,7 @@ export interface IamPluginOptions {
   apiPrefix?: string;
   /** Pfade ohne Anmeldung, `*` am Ende für ein Präfix (Assets: `/v1/openapi.json`, `/v1/docs`, `/v1/docs/*`). */
   publicPaths?: string[];
-  /** Sitzung der Oberfläche; Standard `iam.bff`. */
+  /** Sitzung der Oberfläche; Standard `iam.bff`, wenn das Modul `bff` aktiv ist. */
   sessions?: SessionBridge;
   /** Tags, Zusammenfassungen und Beschreibungen der Routen des Pakets (Entwurf 13.4). */
   openapi?: OpenApiOverrides;
@@ -109,7 +109,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
   const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), ...(iam.bff ? ['bff'] : [])] as IamModuleName[]);
-  const sessions = o.sessions ?? iam.bff ?? undefined;
+  // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
+  const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
 
   await checkCookies(app, cfg.session.secrets);

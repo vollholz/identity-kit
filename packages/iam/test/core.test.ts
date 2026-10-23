@@ -54,6 +54,8 @@ test('Replay-Schutz im Speicher', async () => {
   const r = new MemoryReplayStore();
   assert.equal(await r.claim('a', 1000), true);
   assert.equal(await r.claim('a', 1000), false);
+  await r.release('a');
+  assert.equal(await r.claim('a', 1000), true, 'nach release wieder frei');
   assert.equal(await r.claim('b', 0), true);
   await new Promise(res => setTimeout(res, 5));
   assert.equal(await r.claim('b', 1000), true);
@@ -92,6 +94,8 @@ describe('Datenbank: Zustand, Kontext, Audit', { skip }, () => {
     assert.equal(await r.claim('dpop:x:2', 1), true);
     await new Promise(res => setTimeout(res, 10));
     assert.equal(await r.claim('dpop:x:2', 60_000), true, 'abgelaufen = wieder frei');
+    await r.release('dpop:x:1');
+    assert.equal(await new PgReplayStore(t.runtime, 'notes').claim('dpop:x:1', 60_000), true, 'nach release wieder frei');
   });
 
   test('Rate-Limit-Speicher: zählt je Schlüssel und Route, beginnt nach dem Fenster neu; Bereinigung', async () => {

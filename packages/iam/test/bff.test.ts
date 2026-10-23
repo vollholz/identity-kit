@@ -9,7 +9,10 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, test } from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from 'jose';
-import { decodeClaims, safeReturnTo, scopesFor, type SessionData } from '../src/bff.ts';
+import cookie from '@fastify/cookie';
+import Fastify from 'fastify';
+import { Bff, decodeClaims, safeReturnTo, scopesFor, type Session, type SessionData } from '../src/bff.ts';
+import { MemoryReplayStore } from '../src/state.ts';
 import { pgAudit } from '../src/audit.ts';
 import { ConfigError } from '../src/config.ts';
 import { Sealer } from '../src/crypto.ts';
@@ -17,7 +20,6 @@ import { IAM_API_TAGS } from '../src/http/routes.ts';
 import { createIam } from '../src/iam.ts';
 import { notesCatalog } from './support/catalogs.ts';
 import { testConfig } from './support/config.ts';
-import type { Bff } from '../src/bff.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
@@ -167,6 +169,29 @@ describe('BFF-Bausteine', () => {
     assert.equal(createIam({ ...base, cfg, bff: false }).bff, null, 'abgeschaltet (MCP-Dienst)');
   });
 
+  test('Produktname im Cookie: nur nach dem Muster der Produkte, sonst ConfigError beim Start', () => {
+    const cfg = testConfig('http://idp.test/realms/notes', { OIDC_BFF_CLIENT_SECRET: 'x', SESSION_SECRET: 's'.repeat(32) });
+    for (const product of ['Notes', 'no;tes', 'a b', 'x'.repeat(42)]) {
+      assert.throws(() => new Bff(cfg, null as never, null as never, { schema: 'notes', product, log: { warn() {}, error() {} } }), ConfigError, product);
+    }
+  });
+
+  test('NODE_ENV=production: Cookies mit __Host- und Secure, ENCRYPTION_KEYS Pflicht', async () => {
+    const env = { NODE_ENV: 'production', OIDC_BFF_CLIENT_SECRET: 'x', SESSION_SECRET: 's'.repeat(32) };
+    assert.throws(() => testConfig('https://idp.test/realms/notes', env), /ENCRYPTION_KEYS fehlt/, 'Konfiguration');
+    const cfg = testConfig('https://idp.test/realms/notes', { ...env, ENCRYPTION_KEYS: `k1:${randomBytes(32).toString('base64')}` });
+    assert.throws(() => new Bff({ ...cfg, encryptionKeys: [] }, null as never, null as never, { schema: 'notes', product: 'notes' }), /ENCRYPTION_KEYS fehlt/, 'auch ohne Konfigurationsprüfung');
+    const prod = new Bff(cfg, null as never, null as never, { schema: 'notes', product: 'notes' });
+    assert.deepEqual([prod.cookieName, prod.loginCookieName], ['__Host-notes_sid', '__Host-notes_login']);
+    const app = Fastify();
+    await app.register(cookie, { secret: cfg.session.secrets });
+    app.get('/', async (_req, reply) => { (prod as unknown as { setSessionCookie(r: unknown, sid: string): void }).setSessionCookie(reply, 'abc'); return 'ok'; });
+    try {
+      const c = (await app.inject({ url: '/' })).cookies.find(x => x.name === '__Host-notes_sid')!;
+      assert.deepEqual([c.secure, c.httpOnly, c.path, c.sameSite, c.domain], [true, true, '/', 'Lax', undefined], '__Host- verlangt Secure, Path=/ und keine Domain');
+    } finally { await app.close(); }
+  });
+
   test('Scopes: organization wird immer zu organization:* (alle Organisationen der Person, E1)', () => {
     assert.equal(scopesFor('openid profile email organization'), 'openid profile email organization:*');
     assert.equal(scopesFor('openid organization:acme profile'), 'openid organization:* profile');
@@ -182,6 +207,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   let t: Awaited<ReturnType<typeof db.create>>, op: MockOp, n: NotesApp, bff: Bff, sealer: Sealer;
   let offset = 0;
   let app: NotesApp['app'];
+  let env: Record<string, string>;
 
   before(async () => {
     t = await db.create();
@@ -190,7 +216,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     sealer = new Sealer([{ id: 'k1', key }]);
     n = await notesApp({
       db: t.runtime, issuer: op.issuer,
-      env: { OIDC_BFF_CLIENT_SECRET: CLIENT_SECRET, SESSION_SECRET: randomBytes(32).toString('hex'), ENCRYPTION_KEYS: `k1:${key.toString('base64')}`, SESSION_TTL: '8h', SESSION_IDLE_TIMEOUT: '30m' },
+      env: (env = { OIDC_BFF_CLIENT_SECRET: CLIENT_SECRET, SESSION_SECRET: randomBytes(32).toString('hex'), ENCRYPTION_KEYS: `k1:${key.toString('base64')}`, SESSION_TTL: '8h', SESSION_IDLE_TIMEOUT: '30m' }),
       bff: { now: () => Date.now() + offset, log: { warn() {}, error() {} } },
       after: a => {
         a.post('/v1/echo', async req => ({ ok: true, tenant: req.principal?.tenantAlias, source: req.source }));
@@ -640,5 +666,51 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.equal((await authMe(cookie, 'globex')).tenant, null, 'globex auch nicht per X-Tenant');
     assert.equal((await switchTo(cookie, { org: 'globex' })).statusCode, 403, 'kein Wechsel mehr angeboten');
     assert.equal((await authMe(cookie, 'initech')).tenant.alias, 'initech', 'neue Mitgliedschaft ohne neue Anmeldung');
+  });
+
+  test('Wechsel schreibt ein inzwischen rotiertes Refresh Token nicht zurück (andere Instanz)', async () => {
+    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    const { cookie } = await login();
+    const id = sessionId(cookie);
+    const stale = { id, csrf: '', data: await readSession(cookie), createdAt: 0, expiresAt: 0, lastSeenAt: 0 } satisfies Session;
+    await editSession(cookie, d => ({ ...d, refreshToken: 'rotiert-von-instanz-b' }));
+    assert.equal(await bff.switchOrg(stale, 'globex'), true);
+    const now = await readSession(cookie);
+    assert.deepEqual([now.org, now.refreshToken], ['globex', 'rotiert-von-instanz-b']);
+  });
+
+  test('Backchannel-Logout: events[backchannel-logout] muss ein Objekt sein (nicht null)', async () => {
+    const sub = randomUUID();
+    op.user = userClaims({ sub, org: 'acme' });
+    const a = await login();
+    const r = await app.inject({ method: 'POST', url: '/auth/backchannel-logout', headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: `logout_token=${await op.logoutToken({ sub, events: { [BCL_EVENT]: null } })}` });
+    assert.deepEqual([r.statusCode, r.json().error], [400, 'invalid_request']);
+    assert.equal((await me(a.cookie)).statusCode, 200, 'Sitzung bleibt');
+  });
+
+  test('Backchannel-Logout: scheitert das Löschen, darf Keycloak denselben Logout-Token wiederholen', async () => {
+    let fail = true;
+    const db = { query: async (sql: string, params?: unknown[]) => { if (fail && sql.startsWith('DELETE')) { fail = false; throw new Error('Verbindung verloren'); } return t.runtime.query(sql, params); } };
+    const replay = new MemoryReplayStore();
+    const b = new Bff(n.iam.cfg, db as never, n.iam.verifier.provider, { schema: 'notes', product: 'notes', replay, log: { warn() {}, error() {} } });
+    const sub = randomUUID();
+    op.user = userClaims({ sub, org: 'acme' });
+    const a = await login();
+    const tok = await op.logoutToken({ sub });
+    await assert.rejects(b.backchannelLogout(tok), /Verbindung verloren/);
+    assert.equal((await me(a.cookie)).statusCode, 200, 'noch angemeldet');
+    assert.equal(await b.backchannelLogout(tok), 1, 'Wiederholung gilt');
+    assert.equal((await me(a.cookie)).statusCode, 401);
+    await assert.rejects(b.backchannelLogout(tok), /bereits verwendet/, 'danach Replay-Schutz');
+  });
+
+  test('Sitzungscookies nur mit Modul bff (z. B. nicht im MCP-Dienst)', async () => {
+    const { cookie } = await login();
+    const mcp = await notesApp({ db: t.runtime, issuer: op.issuer, env, plugin: { modules: ['account', 'acl'] } });
+    try {
+      assert.ok(mcp.iam.bff, 'BFF gebaut, aber Modul nicht aktiv');
+      assert.equal((await mcp.app.inject({ url: '/v1/me', cookies: { notes_sid: cookie } })).statusCode, 401);
+      assert.equal((await me(cookie)).statusCode, 200, 'in der App mit Modul bff angemeldet');
+    } finally { await mcp.app.close(); }
   });
 });

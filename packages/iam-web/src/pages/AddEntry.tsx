@@ -17,6 +17,7 @@ import { useIamConfig } from '../config.tsx';
 import type { AclEntry, AclPrincipalType } from '../contract.ts';
 import { iamKeys } from '../keys.ts';
 import { ADMIN_ROLE, type Permission } from '../permissions.ts';
+import { isPrincipalId } from '../people.tsx';
 import { ApiError } from '../problem.ts';
 import { useIam } from '../session.tsx';
 import { t, tn, type IamTextKey } from '../texts/index.ts';
@@ -80,30 +81,34 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
   const [bundle, setBundle] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
   const perms = fitting(d);
-  const leafNow = res.leaves.includes(d.resourceType);
+  const leafNow = res.noGrant.includes(d.resourceType);
   const bundleRole = bundle ? roles.find(r => r.key === bundle) : undefined;
-  // Rechte der Rolle, die auf diesem Ressourcentyp als Freigabe wirken
-  const bundlePerms = bundleRole ? perms.filter(p => bundleRole.permissions.includes(p.key)).map(p => p.key) : [];
+  // Rechte der Rolle, die auf diesem Ressourcentyp als Freigabe wirken; ohne die, die eine gewählte Rolle (Wer) schon hat
+  const targetRole = d.principalType === 'role' ? c?.roles.find(r => r.key === d.principalRef) : undefined;
+  const bundleFit = bundleRole ? perms.filter(p => bundleRole.permissions.includes(p.key)).map(p => p.key) : [];
+  const bundlePerms = bundleFit.filter(p => !targetRole?.permissions.includes(p));
   const ridNow = d.resourceType === 'tenant' ? null : d.resourceId || null;
   const isExisting = (p: string, effect: string) => entries.some(e => e.resourceType === d.resourceType && (e.resourceId ?? null) === ridNow && e.principalType === d.principalType
     && e.principalRef === d.principalRef && e.permission === p && effectOf(e) === effect);
   const toSave = bundleRole && d.effect === 'grant' ? bundlePerms.filter(p => !isExisting(p, 'grant')) : [d.permission];
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), qc.invalidateQueries({ queryKey: iamKeys.me })]);
   const save = useMutation({
     mutationFn: async () => {
       for (const permission of toSave) {
         await aclApi.create({ resourceType: d.resourceType, resourceId: ridNow, principalType: d.principalType, principalRef: d.principalRef, permission: permission as Permission, effect: d.effect });
       }
     },
-    onSuccess: async () => { await qc.invalidateQueries({ queryKey: iamKeys.acl }); toast.show(tn('iam.acl.added', toSave.length, { org })); onClose(); },
+    // Zugriffsregeln wirken sofort, auch auf die eigenen Rechte (/auth/me)
+    onSuccess: async () => { await refresh(); toast.show(tn('iam.acl.added', toSave.length, { org })); onClose(); },
     // Teilweise gespeichert (Rolle im Bereich): Liste aktualisieren, Fehler bleibt im Dialog
-    onError: () => void qc.invalidateQueries({ queryKey: iamKeys.acl }),
+    onError: () => void refresh(),
   });
   const keepPerm = (next: Draft) => {
     const fits = fitting(next);
-    return { ...next, permission: fits.some(p => p.key === next.permission) ? next.permission : fits[0]?.key ?? next.permission };
+    return { ...next, permission: fits.some(p => p.key === next.permission) ? next.permission : fits[0]?.key ?? '' };
   };
   const setType = (resourceType: string) => {
-    const leaf = res.leaves.includes(resourceType);
+    const leaf = res.noGrant.includes(resourceType);
     if (leaf) setBundle(null);
     setD(keepPerm({ ...d, resourceType, resourceId: '', effect: leaf && d.effect === 'grant' ? 'restrict' : d.effect }));
   };
@@ -118,18 +123,21 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
   const groupErr = d.principalType === 'group' ? groupPathError(d.principalRef) : null;
   const refErr = (tried && groupErr) || fe('/principalRef');
   const missing = tried && !d.principalRef ? t('iam.acl.required') : null;
-  const resErr = (tried && d.resourceType !== 'tenant' && !d.resourceId ? t('iam.acl.choose') : null) || fe('/resourceId');
+  // Ohne Adapter: ID als Eingabe, vor dem Absenden als UUID geprüft
+  const badId = !resources && d.resourceType !== 'tenant' && !!d.resourceId && !isPrincipalId(d.resourceId);
+  const resErr = (tried && d.resourceType !== 'tenant' && !d.resourceId ? t('iam.acl.choose') : null) || (tried && badId ? t('iam.acl.resourceIdInvalid') : null) || fe('/resourceId');
   const permErr = fe('/permission');
   const shown = new Set(['/principalRef', '/resourceId', '/permission']);
-  const rest = save.error && !fieldErrs.some(f => shown.has(f.path));
+  // Fehler ohne eigenes Feld immer in der Box (auch neben Feldfehlern)
+  const rest = !!save.error && (!fieldErrs.length || fieldErrs.some(f => !shown.has(f.path)));
 
-  const ready = c && d.principalRef && d.permission && (d.resourceType === 'tenant' || d.resourceId) && !groupErr && (!bundle || bundlePerms.length > 0);
+  const ready = c && d.principalRef && (d.permission || bundle) && (d.resourceType === 'tenant' || d.resourceId) && !badId && !groupErr && (!bundle || bundlePerms.length > 0);
   const exists = bundleRole ? bundlePerms.length > 0 && toSave.length === 0 : isExisting(d.permission, d.effect);
   const above = (resources?.useChain ?? noChain)(d.resourceType, ridNow) ?? [];
   const chain: ResStep[] = [{ type: 'tenant', id: null }, ...(d.resourceType === 'tenant' ? [] : [...above.map(s => ({ type: s.type, id: s.id })), { type: d.resourceType, id: ridNow }])];
   const draft: AclLike = { ...d, resourceId: ridNow };
   const resourceName = res.name(d.resourceType, ridNow);
-  const preview = ready && !bundleRole ? previewEntry({ draft, entries, chain, catalog: c, resourceName, who, leaves: res.leaves }) : null;
+  const preview = ready && !bundleRole ? previewEntry({ draft, entries, chain, catalog: c, resourceName, who, leaves: res.noGrant }) : null;
   const plural = d.principalType === 'role' || d.principalType === 'group';
   const prLabel = d.principalType === 'role' ? t('iam.acl.pr.role') : d.principalType === 'group' ? t('iam.acl.pr.group') : d.principalType === 'client' ? t('iam.acl.pr.client') : t('iam.acl.pr.user');
   const groupExample = `${groupRolePrefix}/${me.tenant?.alias ?? '<alias>'}`;
@@ -137,7 +145,7 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
   const submit = () => {
     setTried(true);
     // Fehlende Angabe: Fokus auf das erste betroffene Feld
-    const first = d.resourceType !== 'tenant' && !d.resourceId ? ids.rid : !d.principalRef || groupErr ? ids.pr : null;
+    const first = d.resourceType !== 'tenant' && (!d.resourceId || badId) ? ids.rid : !d.principalRef || groupErr ? ids.pr : null;
     if (first) { document.getElementById(first)?.focus(); return; }
     if (ready && !exists) save.mutate();
   };
@@ -175,7 +183,7 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
             const blocked = x === 'grant' && leafNow;
             return (
               <button key={x} type="button" aria-pressed={d.effect === x} onClick={() => setEffect(x)} aria-disabled={blocked || undefined}
-                title={blocked ? t('iam.acl.why.leaf', { type: authz.resourceLabel(d.resourceType) }) : effectText(x, 'hint')}>{effectText(x, 'label')}</button>
+                title={blocked ? t(res.leafKnown ? 'iam.acl.why.leaf' : 'iam.acl.why.leafUnknown', { type: authz.resourceLabel(d.resourceType) }) : effectText(x, 'hint')}>{effectText(x, 'label')}</button>
             );
           })}
         </div>
@@ -192,7 +200,8 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
           <select id={ids.bundle} className="iam-inp" value={bundle} onChange={e => setBundle(e.target.value)}>{roles.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}</select>
           <span className="iam-span2 iam-muted iam-small">{bundlePerms.length
             ? tn('iam.acl.bundle.perms', bundlePerms.length, { perms: bundlePerms.map(perm).join(', ') })
-            : t('iam.acl.bundle.none', { type: authz.resourceLabel(d.resourceType) })}</span>
+            : bundleFit.length && targetRole ? t('iam.acl.bundle.already', { role: targetRole.label })
+              : t('iam.acl.bundle.none', { type: authz.resourceLabel(d.resourceType) })}</span>
         </div>
       ) : (
         <div className="iam-field"><label htmlFor={ids.perm}>{t('iam.acl.perm')}</label>
@@ -204,13 +213,14 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
       )}
       {exists ? <div className="iam-errbox" role="alert">{t(bundleRole ? 'iam.acl.exists.bundle' : 'iam.acl.exists')}</div> : bundleRole && ready ? (
         <div className="iam-card iam-pad" role="status" aria-label={t('iam.acl.preview')}>
-          <p><b>{t('iam.acl.preview')}:</b> {tn('iam.acl.preview.bundle', plural ? 2 : 1, { where: whereText(c, d.resourceType, resourceName), who: who(draft), role: bundleRole.label, below: belowText(d.resourceType, res.leaves), perms: bundlePerms.map(perm).join(', ') })}</p>
+          <p><b>{t('iam.acl.preview')}:</b> {tn('iam.acl.preview.bundle', plural ? 2 : 1, { where: whereText(c, d.resourceType, resourceName), who: who(draft), role: bundleRole.label, below: belowText(d.resourceType, res.noGrant), perms: bundlePerms.map(perm).join(', ') })}</p>
           <p className="iam-muted iam-small">{toSave.length === bundlePerms.length ? tn('iam.acl.preview.bundleAll', toSave.length) : t('iam.acl.preview.bundleSome', { new: tn('iam.acl.preview.bundleNew', toSave.length), old: tn('iam.acl.preview.bundleOld', bundlePerms.length - toSave.length) })} {t('iam.acl.preview.still')}</p>
         </div>
       ) : preview ? (
         <div className="iam-card iam-pad" role="status" aria-label={t('iam.acl.preview')}>
           <p><b>{t('iam.acl.preview')}:</b> {preview.sentence}</p>
           {preview.unchanged && d.effect !== 'grant' ? <p>{t('iam.acl.preview.unchanged')}</p> : null}
+          {preview.unchanged && d.effect === 'grant' && d.principalType === 'role' ? <p>{t('iam.acl.preview.unchangedGrant')}</p> : null}
           {preview.others > 0 ? <p className="iam-muted iam-small">{tn('iam.acl.preview.others', preview.others)}</p> : null}
           {d.effect !== 'grant' || d.principalType === 'role' ? (
             <ul className="iam-plain-list" aria-label={t('iam.acl.preview.roles')}>

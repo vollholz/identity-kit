@@ -61,7 +61,7 @@ Drei Fragen an die Engine, alle in SQL beantwortbar:
 | 5 Scopes schränken nur ein; Programm mit Admin-Rolle nicht ausgenommen | Richtig, heute schon so. | Keine. |
 | 6 Organisation harte Grenze (RLS), Admins nicht ausgenommen, Break-Glass | Richtig. Ohne Verbote und Beschränkungen gibt es nur eine Sache, an der ein org-admin scheitern kann: die Klassifizierung. Break-Glass ist deshalb nur **eine** Funktion: Freigabestufe zeitlich begrenzt auf die höchste Stufe heben, mit Begründung, im Protokoll, mit Banner. | Keine weitere Ausnahme. |
 | Engine in Postgres: Tupel-Tabelle + materialisierte Mitgliedschaften + `EXISTS` + Konsistenzmarke | Richtig. Materialisierung aber nicht als Tabelle, sondern **je Anfrage**: die Menge der Subjekte (ich, meine Gruppen, meine Organisationseinheiten transitiv) und die Menge der lesbaren Container werden einmal berechnet und als Session-Einstellungen gesetzt, wie heute `app.read_types`. Konsistenzmarke = `tenant.acl_version` (Trigger auf der Tupel-Tabelle), wie heute. | Keine materialisierte Tabelle (kein Refresh-Problem, keine Stale-Daten). |
-| UX: Freigabe-Panel, Folgen beim Ändern, verborgene Nachbarn, Lebenszyklus (Ablauf, Anfrage, Rezertifizierung), SCIM | Freigabe-Panel und «Warum/Wer»: Kern. Ablaufdatum: günstig (eine Spalte `expires_at`). **Folgen-Vorschau, Zugriffsanfragen, Genehmigung, Rezertifizierung, verborgene Nachbarn: nicht Teil des Vorhabens** (Abschnitt 9). SCIM: Keycloak 26 hat keinen SCIM-Server; Gruppen kommen wie heute aus Entra (IdP-Mapper) als `groups`-Claim. | Lebenszyklus auf `expires_at` begrenzt. |
+| UX: Freigabe-Panel, Folgen beim Ändern, verborgene Nachbarn, Lebenszyklus (Ablauf, Anfrage, Rezertifizierung), SCIM | Freigabe-Panel und «Warum/Wer»: Kern. Ablaufdatum: günstig (eine Spalte `expires_at`). **Folgen-Vorschau, Zugriffsanfragen, Genehmigung, Rezertifizierung, verborgene Nachbarn: nicht Teil des Vorhabens** (Abschnitt 9). SCIM: Keycloak 26 hat keinen SCIM-Server; Gruppen kommen aus Entra über einen neuen IdP-Mapper (4.4). | Lebenszyklus auf `expires_at` begrenzt. |
 | Vokabular: Rolle, Ort, Zuständigkeit, Vertraulichkeit | Übernommen, plus **Freigabe** (ein Tupel, das jemand im Panel anlegt). | – |
 
 ## 3. Das Modell
@@ -85,8 +85,8 @@ Entfallen: «Zugriffsregel», «Verbieten», «Beschränken auf», «eigene Roll
 ```
 authz_tuple(tenant_id, subject, relation, object_type, object_id, expires_at, created_at, created_by)
 
-  subject     'user:<principal-id>' | 'client:<principal-id>' | 'group:<name>' | 'org:members'
-  relation    Rollenname des Modells (editor, viewer, …) oder Fachbeziehung (member, owned_by)
+  subject     'user:<principal-id>' | 'client:<principal-id>' | 'group:<entra-object-id>' | 'org:members'
+  relation    Rollenname des Modells (editor, viewer, …) oder Beziehung ohne Rechte aus `types[].relations` (member)
   object_type Ressourcentyp des Modells ('org', 'schema', 'type', 'object', 'connection', 'credential', 'view', 'report')
   object_id   uuid, NULL genau bei 'org'
 ```
@@ -120,12 +120,14 @@ export const model = defineModel({
     schema:     { parent: 'org',    roles: ['schema-admin', 'editor', 'viewer', 'reviewer'] },
     type:       { parent: 'schema', roles: ['editor', 'viewer', 'reviewer'], self: 'type' /* parent_id */ },
     object:     { parent: 'type',   roles: ['editor', 'viewer'], leaf: true,
+                  relations: ['member'],                                 // Fachbeziehung ohne Rechte: Mitglied einer Einheit
                   classified: true,
                   scope: { via: 'reference', relation: 'owned_by' } },   // Zuständigkeit über markierte Referenzen
     connection: { parent: 'org', roles: ['integration-admin', 'viewer'] },
     credential: { parent: 'org', roles: ['integration-admin'] },
     view:       { parent: 'org', roles: ['editor', 'viewer'], owner: true },
     report:     { parent: 'org', roles: ['editor', 'viewer'], owner: true },
+    dashboard:  { parent: 'org', roles: ['editor', 'viewer'], owner: true },
   },
 });
 ```
@@ -157,6 +159,7 @@ Je Anfrage (unter `withTenant`, in derselben Transaktion) berechnet der Baukaste
 | `app.read_types` | `uuid[]` der Typen mit `object:read` (Rolle an Org, Schema, Typ oder Vorfahr) | wie heute |
 | `app.read_units` | `uuid[]` der Organisationseinheiten im Zuständigkeitsbereich (transitiv, rekursive CTE, Tiefe ≤ 16) | Objekte, die über markierte Referenzen dazugehören |
 | `app.clearance` | `0..2` | Policy `classification <= app.clearance()` |
+| `app.read_relations`, `app.write_relations` | `text[]` der Rollen, die `object:read` bzw. `object:write` enthalten (aus dem Modell, konstant je App) | Blatt-Tupel zählen nur mit passender Rolle; `member` nie |
 
 RLS-Policy für Objekte (RESTRICTIVE, zusätzlich zu `tenant_isolation`):
 
@@ -167,7 +170,9 @@ USING (
     app.read_all()
     OR type_id = ANY (app.read_types())
     OR EXISTS (SELECT 1 FROM assets.authz_tuple t WHERE t.tenant_id = object.tenant_id AND t.object_type = 'object'
-               AND t.object_id = object.id AND t.subject = ANY (app.subjects()) AND (t.expires_at IS NULL OR t.expires_at > now()))
+               AND t.object_id = object.id AND t.subject = ANY (app.subjects())
+               AND t.relation = ANY (app.read_relations())          -- nur Rollen, die object:read enthalten, nie 'member'
+               AND (t.expires_at IS NULL OR t.expires_at > now()))
     OR EXISTS (SELECT 1 FROM assets.object_reference r JOIN assets.reference_type rt ON …
                WHERE r.from_id = object.id AND rt.grants <> 'none' AND r.to_id = ANY (app.read_units()))
   )
@@ -184,7 +189,7 @@ Zählern und Schreibpfad-Sichtbarkeit: Die Datenbank liefert nur, was lesbar ist
 |---|---|
 | Stufen | `0` intern (Standard), `1` vertraulich, `2` streng vertraulich; Labels im Baukasten, App kann umbenennen |
 | Objekt | `object.classification smallint NOT NULL DEFAULT 0`; Vorgabe je Typ `object_type.default_classification` |
-| Person / Client | `principal.clearance smallint NOT NULL DEFAULT 0`; setzt `members:admin` in der Mitgliederliste |
+| Person / Client | `principal.clearance smallint NOT NULL DEFAULT 0`; setzt `members:admin` in der Mitgliederliste, **nie für sich selbst und nie über die eigene Freigabestufe** (wirksam ohne Break-Glass); die erste Person einer Organisation erhält Stufe 2 von der Plattform-Administration. Eigene Stufe heben geht nur über Break-Glass |
 | Setzen der Stufe am Objekt | `object:write` und eigene Freigabestufe ≥ neue Stufe (niemand klassifiziert über die eigene Stufe hinaus) |
 | Break-Glass | `POST /v1/break-glass {reason, minutes ≤ 240}` nur für `org-admin`-Personen: `principal.clearance_until`, `clearance_boost = 2`; Audit `break_glass.started` / `.ended`; Banner in der Oberfläche; keine Verlängerung ohne neuen Aufruf |
 
@@ -240,7 +245,14 @@ Ansichten, Reports) enthalten – das legt das Modell der App fest.
 
 Entfällt: Client-Rollen von `<p>-platform`, Gruppe `/orgs`, Mapper `groups` für Rollen, FGAP-Rechte auf Gruppen für
 `<p>-admin`, `catalog.roles` als Variable, `platformJson().roles`. Bleibt: Clients, Scopes (aus dem Modell), Organisationen,
-`platform-admin`, Entra, Richtlinien. Der `groups`-Claim bleibt nur für Gruppen aus Entra (Subjekt `group:<name>`).
+`platform-admin`, Entra, Richtlinien.
+
+**Neu: Gruppen aus Entra.** Heute transportiert kein Mapper Entra-Gruppen (der `groups`-Mapper in `clients.tf` liefert
+nur Keycloak-Gruppen und entfällt). Der Baukasten legt je Entra-IdP einen Mapper an, der den Claim `groups` des
+Entra-Tokens (Objekt-IDs) in das Benutzerattribut `entra_groups` übernimmt (Sync-Modus `FORCE`), und am Client
+`<p>-platform` einen Mapper Benutzerattribut → Claim `groups`. Subjekt `group:<entra-object-id>`; Anzeigename im
+Panel über die bestehende Graph-Anbindung (`EntraGraph`). Ohne Entra gibt es keine Gruppen: Freigaben gehen an Personen,
+Clients, «Alle Mitglieder» oder – in Assets – an Organisationseinheiten (Mitglieder).
 
 Repository `identity`: **keine Änderung** (betreibt Keycloak, kennt kein Produkt).
 
@@ -261,6 +273,7 @@ Gruppen aus Entra: mit dem nächsten Token (≤ 5 min). Entfernen einer Person: 
 | Objekt | editor, viewer | – (Blatt) |
 | Verbindung, Credential | integration-admin, viewer (Credential nur integration-admin) | – |
 | Ansicht, Report, Dashboard | editor, viewer; `owner` | – |
+| Objekt (nur Organisationseinheit) | zusätzlich Beziehung `member` (ohne Rechte am Objekt selbst) | Zuständigkeit für zugehörige Objekte |
 
 Zuständigkeit: Jeder Referenztyp im Schema trägt zwei Schalter, sichtbar als Satz im Schema-Editor:
 

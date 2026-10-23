@@ -60,7 +60,7 @@ const OWN_GUIDE = {
     { name: 'User.Read', type: 'Delegated', why: 'Anmeldung', optional: false },
     { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses', optional: false },
     { name: 'User.Read.All', type: 'Application', why: 'Personen der Domänen lesen und verknüpfen', optional: false },
-    { name: 'Application.Read.All', type: 'Application', why: 'Ablauf des Secrets lesen', optional: true },
+    { name: 'Application.Read.All', type: 'Application', why: 'Registrierung im Verzeichnis nachweisen, Ablauf des Secrets lesen', optional: false },
   ],
 };
 let ownConn: EntraConnection | null = null;

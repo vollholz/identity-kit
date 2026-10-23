@@ -25,6 +25,7 @@ const REASON: Record<string, IamTextKey> = {
   'invalid-secret': 'iam.ownApp.err.invalidSecret',
   'secret-expired': 'iam.ownApp.err.secretExpired',
   'wrong-tenant': 'iam.ownApp.err.wrongDirectory',
+  'app-not-registered-in-tenant': 'iam.ownApp.err.notRegistered',
   'invalid-client': 'iam.ownApp.err.invalidClient',
   'missing-permissions': 'iam.ownApp.err.missingPermissions',
   'tenant-not-found': 'iam.ownApp.err.notFound',

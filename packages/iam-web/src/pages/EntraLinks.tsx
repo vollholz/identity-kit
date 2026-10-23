@@ -32,7 +32,7 @@ const REVOCABLE = new Set<string>(['open', 'in-progress', 'failed']);
 /** Gründe mit eigenem Text statt der Meldung des Servers (Zustimmung gescheitert; automatisch widerrufen). */
 const REASON_TEXT: Record<string, IamTextKey> = {
   'consent-unproven': 'iam.entraLink.reason.unproven', 'consent-error': 'iam.entraLink.reason.declined',
-  'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected',
+  'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected', superseded: 'iam.entraLink.superseded',
 };
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 

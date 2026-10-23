@@ -23,7 +23,8 @@ const GUIDE = {
   permissions: [
     { name: 'User.Read', type: 'Delegated' as const, why: 'Anmeldung', optional: false },
     { name: 'User.Read.All', type: 'Application' as const, why: 'Personen der Domänen lesen und verknüpfen', optional: false },
-    { name: 'Application.Read.All', type: 'Application' as const, why: 'Ablauf des Secrets lesen', optional: true },
+    { name: 'Application.Read.All', type: 'Application' as const, why: 'Registrierung im Verzeichnis nachweisen, Ablauf des Secrets lesen', optional: false },
+    { name: 'Directory.Read.All', type: 'Application' as const, why: 'Nur für Tests: optional', optional: true },
   ],
 };
 const problem = (status: number, detail: string, extra: Record<string, unknown> = {}) => json({ type: 'about:blank', title: 'Fehler', status, detail, ...extra }, status);
@@ -117,9 +118,9 @@ describe('Eigene App verbinden', () => {
     expect(perms).toHaveTextContent('User.Read.All');
     expect(perms).toHaveTextContent('Anwendung');
     expect(perms).toHaveTextContent('Delegiert');
-    expect(within(perms).getByText('Application.Read.All').closest('li')).toHaveTextContent('optional');
-    expect(within(perms).getByText('User.Read.All').closest('li')).not.toHaveTextContent('optional');
-    expect(guide).toHaveTextContent('Nur Konten in diesem Organisationsverzeichnis');
+    expect(within(perms).getByText('Directory.Read.All').closest('li')!.querySelector('.iam-st-off')).toHaveTextContent('optional');
+    expect(within(perms).getByText('Application.Read.All').closest('li')!.querySelector('.iam-st-off')).toBeNull();
+    expect(guide).toHaveTextContent('zwingend «Nur Konten in diesem Organisationsverzeichnis». Eine App eines Herstellers');
     expect(guide).toHaveTextContent('Administratorzustimmung erteilen');
     const go = within(dlg).getByRole('button', { name: 'Verbinden' });
     expect(go).toBeDisabled();
@@ -146,6 +147,7 @@ describe('Eigene App verbinden', () => {
     [409, { reason: 'invalid-secret' }, 'Microsoft lehnt das Secret ab. Häufig wurde die «Geheimnis-ID» statt des «Werts» kopiert.'],
     [409, { reason: 'secret-expired' }, 'Das Secret ist bei Microsoft abgelaufen.'],
     [409, { reason: 'wrong-tenant' }, 'keine App mit dieser Anwendungs-ID'],
+    [409, { reason: 'app-not-registered-in-tenant' }, 'Die App ist in diesem Microsoft-Verzeichnis nicht registriert'],
     [409, { reason: 'invalid-client' }, 'Microsoft lehnt die Anmeldung der App ab.'],
     [409, { reason: 'missing-permissions', missing: ['User.Read.All', 'Organization.Read.All'] }, 'fehlen Berechtigungen oder die Administratorzustimmung dafür: User.Read.All, Organization.Read.All.'],
     [409, { reason: 'domains-taken' }, 'gehören bereits einer anderen Organisation'],

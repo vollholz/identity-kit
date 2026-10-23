@@ -1,12 +1,12 @@
 /**
- * Rechtekatalog: Labels und Rollen aus dem Katalog, Sprache im Abruf und im Schlüssel, eigene Rollen der Organisation,
- * Gruppen der Rollen (V3). Aus vollholz/assets `web/src/auth/authz.test.tsx`, produktneutral (Notiz-App).
+ * Rechtekatalog: Labels und Rollen aus dem Katalog, Orte und Stufen der Vertraulichkeit, Sprache im Abruf und im
+ * Schlüssel, Gruppen der Rollen (V3). Aus vollholz/assets `web/src/auth/authz.test.tsx`, produktneutral (Notiz-App).
  */
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Can, groupRoles, makeAuthz, roleGroupProblems, useAuthz, useResourceCan, withCustomRoles, type IamConfig, type Role } from '../src/index.ts';
-import { CATALOG, json, mockIamApi, StaticIam } from '../src/testing/index.tsx';
+import { Can, groupRoles, makeAuthz, roleGroupProblems, useAccessFeature, useAuthz, useIam, useResourceCan, type IamConfig } from '../src/index.ts';
+import { CATALOG, mockIamApi, StaticIam } from '../src/testing/index.tsx';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,19 +18,29 @@ describe('Rechtekatalog', () => {
     expect(a.permLabel('note:write')).toBe('Notizen ändern');
     expect(a.roleLabel('folder-admin')).toBe('Ordner-Admin');
     expect(a.scopeText('notes:write')).toBe('Notizen ändern und löschen');
-    expect(a.resourceLabel('folder')).toBe('Ordner');
-    expect(a.permission('acl:admin')?.adminOnly).toBe(true);
+    expect(a.typeLabel('folder')).toBe('Ordner');
+    expect(a.type('note')).toMatchObject({ leaf: true, classified: true, owner: true });
+    expect(a.permission('members:admin')?.adminOnly).toBe(true);
+    expect(a.relationLabel('member')).toBe('Mitglied');
+    expect(a.relationLabel('owner')).toBe('Besitzer:in');
+    expect(a.relationLabel('viewer')).toBe('Leser:in');
+    expect(a.classificationLabel(2)).toBe('streng vertraulich');
+    expect(a.hasPlaces).toBe(true);
     const empty = makeAuthz(undefined);
     expect(empty.permLabel('note:write')).toBe('note:write');
     expect(empty.roleLabel('editor')).toBe('editor');
     expect(empty.rolesWith('note:write')).toEqual([]);
     expect(empty.scopeText('notes:write')).toBe('');
+    expect(empty.typeLabel('org')).toBe('Organisation');
+    expect(empty.classificationLabel(1)).toBe('vertraulich');
+    expect(empty.hasPlaces).toBe(false);
+    expect(makeAuthz({ ...CATALOG, types: [CATALOG.types[0]!] }).hasPlaces).toBe(false);
   });
 
   it('rolesWith: Rollen mit dem Recht, org-admin zuletzt', () => {
     const a = makeAuthz(CATALOG);
     expect(a.rolesWith('note:write').map(r => r.key)).toEqual(['folder-admin', 'editor', 'org-admin']);
-    expect(a.rolesWith('acl:admin').map(r => r.label)).toEqual(['Organisations-Admin']);
+    expect(a.rolesWith('members:admin').map(r => r.label)).toEqual(['Organisations-Admin']);
     expect(a.rolesWith('gibt:es-nicht')).toEqual([]);
   });
 
@@ -46,34 +56,22 @@ describe('Rechtekatalog', () => {
   });
 });
 
-describe('Eigene Rollen der Organisation', () => {
-  const own: Role = { key: 'c-redaktion', label: 'Redaktion', description: 'Pflegt Notizen', permissions: ['note:read', 'note:write'], custom: true, adminOnly: false, id: 'x', version: 1, memberCount: null, createdAt: null, updatedAt: null };
-
-  it('nach den vordefinierten im Katalog: Label und «Rollen mit Recht» kennen sie; Gruppe «Eigene Rollen»', () => {
-    const a = makeAuthz(withCustomRoles(CATALOG, [own]));
-    expect(a.roleLabel('c-redaktion')).toBe('Redaktion');
-    expect(a.rolesWith('note:write').map(r => r.key)).toContain('c-redaktion');
-    expect(a.rolesWith('note:write').at(-1)!.key).toBe('org-admin');
-    const groups = a.groupRoles(a.catalog!.roles);
-    expect(groups.map(g => [g.key, g.label])).toEqual([['org', 'Gesamte Organisation'], ['custom', 'Eigene Rollen'], ['other', 'Rollen']]);
-    expect(groups[1]!.roles.map(r => r.key)).toEqual(['c-redaktion']);
-    expect(withCustomRoles(CATALOG, [])).toBe(CATALOG);
+describe('Rechte irgendwo und Orte', () => {
+  it('canSomewhere nimmt somewhere aus /auth/me, can nur die Rechte an der Organisation', () => {
+    function Probe() { const { can, canSomewhere } = useIam(); return <p>{`${can('note:write')} ${canSomewhere('note:write')} ${canSomewhere('audit:read')}`}</p>; }
+    render(<StaticIam me={{ roles: [], permissions: ['tenant:read'], somewhere: ['tenant:read', 'note:write'] }}><Probe /></StaticIam>);
+    expect(screen.getByText('false true false')).toBeInTheDocument();
   });
 
-  it('ohne tenant:read auf Ebene der Organisation (Rechte nur über Freigaben): kein Abruf von /v1/roles', async () => {
-    const api = mockIamApi();
-    vi.stubGlobal('fetch', api.fetch);
-    const wrapper = ({ children }: { children: ReactNode }) => <StaticIam me={{ roles: [], permissions: [], grantedPermissions: ['note:read'] }}>{children}</StaticIam>;
-    const { result } = renderHook(() => useAuthz(), { wrapper });
-    await waitFor(() => expect(result.current.catalog).toBeDefined());
-    expect(api.calls.map(c => new URL(c.url).pathname)).not.toContain('/v1/roles');
-  });
-
-  it('useAuthz lädt sie aus /v1/roles; ohne Antwort bleibt der Schlüssel', async () => {
-    vi.stubGlobal('fetch', mockIamApi({ 'GET /v1/roles': () => json({ items: [own], maxCustom: 50, customPermissions: [] }) }).fetch);
-    const { result } = renderHook(() => useAuthz(), { wrapper: wrap() });
-    await waitFor(() => expect(result.current.roleLabel('c-redaktion')).toBe('Redaktion'));
-    expect(makeAuthz(CATALOG).roleLabel('c-redaktion')).toBe('c-redaktion');
+  it('useAccessFeature: features.access, sonst ob das Modell Orte ausser org hat', async () => {
+    vi.stubGlobal('fetch', mockIamApi().fetch);
+    const r1 = renderHook(() => useAccessFeature(), { wrapper: wrap() });
+    await waitFor(() => expect(r1.result.current).toBe(true));
+    const r2 = renderHook(() => useAccessFeature(), { wrapper: wrap({ features: { access: false } }) });
+    expect(r2.result.current).toBe(false);
+    vi.stubGlobal('fetch', mockIamApi({}, { catalog: { ...CATALOG, types: [CATALOG.types[0]!] } }).fetch);
+    const r3 = renderHook(() => useAccessFeature(), { wrapper: wrap() });
+    await waitFor(() => expect(r3.result.current).toBe(false));
   });
 });
 
@@ -95,13 +93,11 @@ describe('Gruppen der Rollen (roleGroups, V3)', () => {
     expect(groupRoles([{ key: 'editor' }], [])).toEqual([{ key: 'other', label: 'Rollen', roles: [{ key: 'editor' }] }]);
   });
 
-  it('roleGroupProblems: alle Schlüssel im Katalog, keine doppelt, keine eigenen Rollen', () => {
+  it('roleGroupProblems: alle Schlüssel im Katalog, keine doppelt', () => {
     expect(roleGroupProblems(roleGroups, CATALOG)).toEqual([]);
-    expect(roleGroupProblems([...roleGroups, { key: 'x', label: 'X', roles: ['editor', 'schema-admin', 'c-redaktion'] }], CATALOG)).toEqual([
+    expect(roleGroupProblems([...roleGroups, { key: 'x', label: 'X', roles: ['editor', 'schema-admin'] }], CATALOG)).toEqual([
       'Rolle «editor» steht in mehreren Gruppen',
       'Gruppe «x»: Rolle «schema-admin» gibt es im Katalog nicht',
-      'Gruppe «x»: Rolle «c-redaktion» gibt es im Katalog nicht',
-      'Gruppe «x»: eigene Rolle «c-redaktion» gehört nicht in roleGroups',
     ]);
   });
 });

@@ -2,31 +2,13 @@
 import { Requires, RequiresPlatformAdmin } from '../rights/Requires.tsx';
 import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
-import { AccessPage } from './Access.tsx';
-import { ClientsPage } from './Clients.tsx';
 import { EntraPage } from './Entra.tsx';
 import { MembersPage } from './Members.tsx';
 import { OrganizationPage, OrganizationsPage } from './Organizations.tsx';
-import { RolesPage } from './Roles.tsx';
 
 export function MembersScreen() {
   useIamText();
   return <Requires perm="members:admin" title={t('iam.members.title')} icon="users"><MembersPage /></Requires>;
-}
-
-export function RolesScreen() {
-  useIamText();
-  // GET /v1/roles braucht tenant:read auf Ebene der Organisation; ohne «Recht fehlt» statt eines 403
-  return (
-    <Requires perm="members:admin" title={t('iam.rolesPage.title')} icon="tag">
-      <Requires perm="tenant:read" somewhere={false} title={t('iam.rolesPage.title')} icon="tag"><RolesPage /></Requires>
-    </Requires>
-  );
-}
-
-export function ClientsScreen() {
-  useIamText();
-  return <Requires perm="members:admin" title={t('iam.clients.title')} icon="key"><ClientsPage /></Requires>;
 }
 
 /** Organisationen prüfen die Plattform-Administration selbst (Status mit `platformAdmin`, ohne «Recht fehlt»). */
@@ -43,9 +25,4 @@ export function OrganizationScreen() {
 export function EntraScreen() {
   useIamText();
   return <Requires perm="members:admin" title={t('iam.entra.title')} icon="shield"><EntraPage /></Requires>;
-}
-
-export function AccessScreen() {
-  useIamText();
-  return <Requires perm="acl:read" title={t('iam.acl.title')} icon="shield"><AccessPage /></Requires>;
 }

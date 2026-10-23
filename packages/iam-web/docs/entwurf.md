@@ -3,6 +3,13 @@
 Stand 2026-10-22 · Status: **freigegeben** (identity-kit#4, mit Auflagen; nachgeführt im ersten Umsetzungs-PR) · Spezifikation: [Kap. 11](../../../docs/spezifikation.md#11-oberfläche),
 [15.2](../../../docs/spezifikation.md#152-schnittstelle-zur-app) · Referenz: vollholz/assets `3a148ae`, `web/`
 
+> **Stand 1.0.0 (Authz neu, 2026-10-23):** Dieser Entwurf beschreibt 0.x. Mit 1.0.0 gilt für Rechte, Zugriff,
+> Vertraulichkeit, Break-Glass und Mitglieder allein die [Spezifikation](../../../docs/spezifikation.md) Kap. 7, 9 und 11:
+> Zugriffsregeln (`AccessPage`, `AclHint`, `acl/*`), die Seiten «Rollen» und «Maschinen-Clients», eigene Rollen und
+> der alte `resources`-Adapter (`pick`, `useChain`, `noGrant`) entfallen; neu sind `AccessSheet`, `GrantDialog`,
+> `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner` und Mitglieder mit Clients (README › Zugriff). Übrige
+> Abschnitte (Provider, Theming, Texte, Barrierefreiheit, Build) gelten weiter.
+
 Das Paket bringt Anmeldung, Organisation je Tab, Rechte-Bausteine und die Verwalten-Seiten des Baukastens in jede
 React-App. Die App liefert nur Design-Tokens, Texte (Überschreibungen, weitere Sprachen), ihren Katalog (über die API)
 und – falls sie Zugriffsregeln nutzt – die Auflösung ihrer Ressourcen. Alles andere kommt aus dem Paket, ohne Kopien.

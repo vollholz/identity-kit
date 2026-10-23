@@ -26,7 +26,8 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await axe(page), `Menü ${width}`).toEqual([]);
       await page.getByRole('menuitem', { name: 'Meine Rollen und Rechte' }).click();
       const dlg = page.getByRole('dialog', { name: 'Meine Rollen und Rechte' });
-      await expect(dlg.getByText('Darf 7 von 10')).toBeVisible();
+      await expect(dlg.getByText('Darf 7 von 9')).toBeVisible();
+      await expect(dlg.getByRole('list', { name: 'Rollen an Orten' })).toContainText('Ordner-AdminOrdner «Projekte»');
       await dlg.getByText('Rollen vergleichen').click();
       expect(await axe(page), `Dialog ${width}`).toEqual([]);
       expect(await noHorizontalScroll(page), `Dialog ${width}`).toBe(true);
@@ -46,7 +47,7 @@ test('Kontomenü und «Meine Rollen und Rechte» per Tastatur', async ({ page })
   await page.keyboard.press('Enter');
   const dlg = page.getByRole('dialog', { name: 'Meine Rollen und Rechte' });
   await expect(dlg.getByRole('button', { name: 'Schliessen' })).toBeFocused();
-  await expect(dlg.getByText('Zusätzlich in einzelnen Bereichen freigegeben: «Zugriff verwalten».')).toBeVisible();
+  await expect(dlg.getByText('Ordner verwalten', { exact: true }).locator('xpath=ancestor::li[1]')).toContainText('nur an einzelnen Orten');
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveCount(0);
   await expect(account).toBeFocused();

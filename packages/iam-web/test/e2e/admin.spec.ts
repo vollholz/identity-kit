@@ -1,6 +1,7 @@
 /**
- * Verwalten-Seiten Mitglieder und Rollen im Browser: axe hell und dunkel, 390 px ohne waagrechtes Scrollen (Liste
- * gestapelt, Dialoge), Einladen und Rollen setzen per Tastatur, eigene Rolle anlegen, Navigation «Zugang».
+ * Verwalten-Seiten im Browser: Mitglieder (Personen und Clients, Freigabestufe, «+n Orte»), Organisationen und Anmeldung;
+ * axe hell und dunkel, 390 px ohne waagrechtes Scrollen (Liste gestapelt, Dialoge), Einladen, Rollen setzen, Client
+ * freigeben und Freigabestufe per Tastatur, Navigation «Zugang» ohne «Rollen», «Zugriff» und «Maschinen-Clients».
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -11,13 +12,17 @@ const axe = async (page: Page) => (await new AxeBuilder({ page }).withTags(TAGS)
 const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`Mitglieder und Rollen: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
+  test(`Mitglieder: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
+    // viele Dialoge × zwei Breiten mit axe: unter paralleler Last länger als der Standard
+    test.slow();
     await page.emulateMedia({ colorScheme: scheme });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html');
       const table = page.getByRole('table', { name: 'Mitglieder von Demo AG mit Rollen' });
       await expect(table).toBeVisible();
+      await expect(table).toContainText('notiz-import');
+      await expect(page.getByRole('navigation', { name: 'Zugang' }).getByRole('link')).toHaveText(['Mitglieder', 'Anmeldung (Microsoft Entra ID)', 'Organisationen']);
       await page.getByText('Rollen und Rechte').click();
       expect(await axe(page), `Liste ${width}`).toEqual([]);
       expect(await noHorizontalScroll(page), `Liste ${width}`).toBe(true);
@@ -37,7 +42,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Rollen von Carla Check bearbeiten' }).click();
       const roles = page.getByRole('dialog', { name: 'Rollen von Carla Check in «Demo AG»' });
       await roles.getByText('Prüfer:in', { exact: true }).click();
-      await expect(roles.getByText(/^\+ 2 Rechte/)).toBeVisible();
+      await expect(roles.getByText(/^\+ 1 Recht/)).toBeVisible();
       expect(await axe(page), `Rollendialog ${width}`).toEqual([]);
       expect(await noHorizontalScroll(page), `Rollendialog ${width}`).toBe(true);
       await page.keyboard.press('Escape');
@@ -49,18 +54,29 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await noHorizontalScroll(page), `Ansehen ${width}`).toBe(true);
       await page.keyboard.press('Escape');
 
-      await page.getByRole('navigation', { name: 'Zugang' }).getByRole('link', { name: 'Rollen' }).click();
-      const builtin = page.getByRole('region', { name: 'Vordefinierte Rollen' });
-      await expect(builtin).toBeVisible();
-      await builtin.getByRole('button', { name: 'Rechte von Bearbeiter:in' }).click();
-      expect(await axe(page), `Rollen ${width}`).toEqual([]);
-      expect(await noHorizontalScroll(page), `Rollen ${width}`).toBe(true);
-      await page.getByRole('button', { name: 'Rolle erstellen' }).first().click();
-      const create = page.getByRole('dialog', { name: 'Rolle in «Demo AG» erstellen' });
-      await create.getByRole('button', { name: 'Rolle erstellen' }).click();
-      await expect(create.getByText('Namen angeben')).toBeVisible();
-      expect(await axe(page), `Rolle erstellen ${width}`).toEqual([]);
-      expect(await noHorizontalScroll(page), `Rolle erstellen ${width}`).toBe(true);
+      await page.getByRole('button', { name: 'Client freigeben' }).first().click();
+      const grant = page.getByRole('dialog', { name: 'Maschinen-Client für «Demo AG» freigeben' });
+      await grant.getByRole('button', { name: 'Freigeben' }).click();
+      await expect(grant.getByRole('textbox', { name: 'Client-ID' })).toHaveAttribute('aria-invalid', 'true');
+      expect(await axe(page), `Client freigeben ${width}`).toEqual([]);
+      expect(await noHorizontalScroll(page), `Client freigeben ${width}`).toBe(true);
+      await page.keyboard.press('Escape');
+
+      await page.getByRole('button', { name: 'Mehr zu Carla Check' }).click();
+      await page.getByRole('menuitem', { name: 'Freigabestufe setzen …' }).click();
+      const level = page.getByRole('dialog', { name: 'Freigabestufe von Carla Check in «Demo AG»' });
+      await expect(level.getByRole('combobox', { name: 'Freigabestufe' })).toBeVisible();
+      expect(await axe(page), `Freigabestufe ${width}`).toEqual([]);
+      expect(await noHorizontalScroll(page), `Freigabestufe ${width}`).toBe(true);
+      await page.keyboard.press('Escape');
+
+      await page.getByRole('button', { name: /^\+2 Orte ?, Orte von Carla Check anzeigen$/ }).click();
+      const places = page.getByRole('dialog', { name: 'Orte von Carla Check in «Demo AG»' });
+      await expect(places.getByRole('table')).toContainText('Ordner «Projekte»');
+      await expect(places.getByRole('table')).toContainText('Notiz «Protokoll»');
+      expect(await axe(page), `Orte ${width}`).toEqual([]);
+      expect(await noHorizontalScroll(page), `Orte ${width}`).toBe(true);
+      await page.keyboard.press('Escape');
     }
   });
 }
@@ -76,13 +92,13 @@ test('Person per Tastatur einladen (über «Per E-Mail einladen»): Fokus im Dia
   const dlg = page.getByRole('dialog', { name: 'Person zu «Demo AG» einladen' });
   await expect(dlg.getByRole('textbox', { name: 'E-Mail' })).toBeFocused();
   await page.keyboard.type('paul@demo.example');
-  // Tab durch Vorname und Nachname zu den Rollen; Leser:in ist vorgewählt
+  // Leser:in ist vorgewählt
   await expect(dlg.getByRole('checkbox', { name: 'Leser:in' })).toBeChecked();
   const editor = dlg.getByRole('checkbox', { name: 'Bearbeiter:in' });
   await editor.focus();
   await page.keyboard.press('Space');
   await expect(editor).toBeChecked();
-  await expect(dlg.getByText('Darf 3 von 10')).toBeVisible();
+  await expect(dlg.getByText('Darf 4 von 9')).toBeVisible();
   await dlg.getByRole('textbox', { name: 'E-Mail' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText('Einladung zu «Demo AG» an paul@demo.example versendet')).toBeVisible();
@@ -110,46 +126,70 @@ test('Rollen per Tastatur setzen: «Speichern» mit Enter, Fokus zurück auf den
   await expect(open).toBeFocused();
 });
 
-test('eigene Rolle anlegen mit Vorlage; danach in der Liste und im Rollendialog der Mitglieder', async ({ page }) => {
-  await page.goto('/admin.html?p=roles');
-  const folder = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Ordner-Admin' }) });
-  await folder.getByRole('button', { name: 'Mehr zu Ordner-Admin' }).click();
-  await page.getByRole('menuitem', { name: 'Als Vorlage für eigene Rolle …' }).click();
-  const dlg = page.getByRole('dialog', { name: 'Rolle in «Demo AG» erstellen' });
-  await dlg.getByRole('textbox', { name: 'Name' }).fill('Ordnerpflege');
-  await dlg.getByRole('checkbox', { name: 'Notizen löschen' }).uncheck();
-  await dlg.getByRole('button', { name: 'Rolle erstellen' }).click();
-  await expect(page.getByText('Rolle «Ordnerpflege» in «Demo AG» erstellt')).toBeVisible();
-  const own = page.getByRole('region', { name: 'Eigene Rollen' });
-  await expect(own.getByRole('heading', { name: 'Ordnerpflege' })).toBeVisible();
-  await expect(own).toContainText('5 Rechte · 0 Personen · c-ordnerpflege');
+test('Maschinen-Client per Tastatur freigeben (Rolle, Freigabestufe) und die Freigabe über das Menü entziehen', async ({ page }) => {
+  await page.goto('/admin.html');
+  await expect(page.getByRole('table', { name: /^Mitglieder/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Client freigeben' }).first().focus();
+  await page.keyboard.press('Enter');
+  const dlg = page.getByRole('dialog', { name: 'Maschinen-Client für «Demo AG» freigeben' });
+  await expect(dlg.getByRole('textbox', { name: 'Client-ID' })).toBeFocused();
+  await page.keyboard.type('notiz-2');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('Zweiter Import');
+  await page.keyboard.press('Tab');
+  await expect(dlg.getByRole('combobox', { name: 'Freigabestufe' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await dlg.getByRole('checkbox', { name: 'Leser:in' }).focus();
+  await page.keyboard.press('Space');
+  await dlg.getByRole('textbox', { name: 'Beschreibung' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('«notiz-2» für «Demo AG» freigegeben')).toBeVisible();
+  const row = page.getByRole('row', { name: /notiz-2/ });
+  await expect(row).toContainText('Client');
+  await expect(row).toContainText('vertraulich');
+  const more = page.getByRole('button', { name: 'Mehr zu notiz-2' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Freigabestufe setzen …' })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('menuitem', { name: 'Freigabe entziehen …' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const confirm = page.getByRole('alertdialog', { name: 'Freigabe für «notiz-2» in «Demo AG» entziehen?' });
+  await expect(confirm.getByRole('button', { name: 'Abbrechen' })).toBeFocused();
+  await confirm.getByRole('button', { name: 'Entziehen' }).click();
+  await expect(page.getByText('Freigabe für «notiz-2» in «Demo AG» entzogen')).toBeVisible();
+  await expect(page.getByRole('row', { name: /notiz-2/ })).toHaveCount(0);
+});
 
-  await page.getByRole('navigation', { name: 'Zugang' }).getByRole('link', { name: 'Mitglieder' }).click();
-  await expect(page.getByRole('navigation', { name: 'Zugang' }).getByRole('link', { name: 'Mitglieder' })).toHaveAttribute('aria-current', 'page');
-  await page.getByRole('button', { name: 'Rollen von Carla Check bearbeiten' }).click();
-  const roles = page.getByRole('dialog', { name: 'Rollen von Carla Check in «Demo AG»' });
-  await expect(roles.getByRole('group', { name: 'Eigene Rollen' })).toContainText('Ordnerpflege');
+test('Freigabestufe per Tastatur: die eigene gesperrt mit Grund, über der eigenen nicht wählbar; gespeichert in der Liste', async ({ page }) => {
+  await page.goto('/admin.html');
+  await page.getByRole('button', { name: 'Mehr zu Anna Admin' }).click();
+  const self = page.getByRole('menuitem', { name: 'Freigabestufe setzen …' });
+  await expect(self).toHaveAttribute('aria-disabled', 'true');
+  await expect(self).toContainText('Deine eigene Freigabestufe setzt jemand anderes.');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Mehr zu Carla Check' }).focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  const dlg = page.getByRole('dialog', { name: 'Freigabestufe von Carla Check in «Demo AG»' });
+  const level = dlg.getByRole('combobox', { name: 'Freigabestufe' });
+  await expect(level).toBeFocused();
+  await expect(level.getByRole('option', { name: /^streng vertraulich/ })).toBeDisabled();
+  await level.selectOption('1');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await expect(dlg.getByRole('button', { name: 'Speichern' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Freigabestufe von Carla Check in «Demo AG»: «vertraulich»')).toBeVisible();
+  await expect(page.getByRole('row', { name: /Carla Check/ })).toContainText('Freigabestufe:vertraulich');
 });
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`Maschinen-Clients und Organisationen: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
+  test(`Organisationen: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto('/admin.html?p=clients');
-      await expect(page.getByRole('table', { name: 'Freigegebene Maschinen-Clients von Demo AG' })).toBeVisible();
-      await page.getByRole('button', { name: /Rechte anzeigen\s?, notiz-import$/ }).click();
-      expect(await axe(page), `Clients ${width}`).toEqual([]);
-      expect(await noHorizontalScroll(page), `Clients ${width}`).toBe(true);
-      await page.getByRole('button', { name: 'Maschinen-Client freigeben' }).first().click();
-      const grant = page.getByRole('dialog', { name: 'Maschinen-Client für «Demo AG» freigeben' });
-      await grant.getByRole('button', { name: 'Freigeben' }).click();
-      await expect(grant.getByRole('textbox', { name: 'Client-ID' })).toHaveAttribute('aria-invalid', 'true');
-      expect(await axe(page), `Freigeben ${width}`).toEqual([]);
-      expect(await noHorizontalScroll(page), `Freigeben ${width}`).toBe(true);
-      await page.keyboard.press('Escape');
-
-      await page.getByRole('navigation', { name: 'Zugang' }).getByRole('link', { name: 'Organisationen' }).click();
+      await page.goto('/admin.html?p=organizations');
       await expect(page.getByRole('table', { name: 'Organisationen' })).toBeVisible();
       expect(await axe(page), `Organisationen ${width}`).toEqual([]);
       expect(await noHorizontalScroll(page), `Organisationen ${width}`).toBe(true);
@@ -172,31 +212,6 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   });
 }
-
-test('Maschinen-Client per Tastatur freigeben und Freigabe über das Menü entziehen', async ({ page }) => {
-  await page.goto('/admin.html?p=clients');
-  await expect(page.getByRole('table', { name: /^Freigegebene Maschinen-Clients/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Maschinen-Client freigeben' }).first().focus();
-  await page.keyboard.press('Enter');
-  const dlg = page.getByRole('dialog', { name: 'Maschinen-Client für «Demo AG» freigeben' });
-  await expect(dlg.getByRole('textbox', { name: 'Client-ID' })).toBeFocused();
-  await page.keyboard.type('notiz-2');
-  await page.keyboard.press('Tab');
-  await page.keyboard.type('Zweiter Import');
-  await page.keyboard.press('Enter');
-  await expect(page.getByText('«notiz-2» für «Demo AG» freigegeben')).toBeVisible();
-  await expect(page.getByRole('row', { name: /notiz-2/ })).toContainText('Zweiter Import');
-  const more = page.getByRole('button', { name: 'Mehr zu neu-client' });
-  await more.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('menuitem', { name: 'Freigabe entziehen …' })).toBeFocused();
-  await page.keyboard.press('Enter');
-  const confirm = page.getByRole('alertdialog', { name: 'Freigabe für «neu-client» in «Demo AG» entziehen?' });
-  await expect(confirm.getByRole('button', { name: 'Abbrechen' })).toBeFocused();
-  await confirm.getByRole('button', { name: 'Entziehen' }).click();
-  await expect(page.getByText('Freigabe für «neu-client» in «Demo AG» entzogen')).toBeVisible();
-  await expect(page.getByRole('row', { name: /neu-client/ })).toHaveCount(0);
-});
 
 test('Organisation sperren und entsperren; die eigene Organisation bleibt gesperrt mit Grund', async ({ page }) => {
   await page.goto('/admin.html?p=organization');

@@ -1,14 +1,14 @@
 /**
  * Testhilfen für Apps mit @vollholz/iam-web (Import `@vollholz/iam-web/testing`), unabhängig vom Test-Runner:
  * - `StaticIam`: Provider mit fester Sitzung ohne Server (Konfiguration, Texte, Grundkomponenten, QueryClient)
- * - `mockIamApi`: fetch-Ersatz mit Antworten je «METHOD /pfad» und Standardantworten für /auth/me, Katalog und Rollen
- * - `CATALOG`, `ME`: Beispielkatalog und Person (Notiz-App)
- * - `staticResources`: Adapter `resources` aus festen Namen und Eltern (Zugriffsregeln ohne Daten der App)
+ * - `mockIamApi`: fetch-Ersatz mit Antworten je «METHOD /pfad» und Standardantworten für /auth/me und den Katalog
+ * - `CATALOG`, `ME`: Beispielmodell und Person (Notiz-App)
+ * - `staticResources`: Adapter `resources` aus festen Namen (Orte ohne Daten der App)
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
 import { DEFAULT_PATHS, IamConfigProvider, type IamConfig, type IamResources } from '../config.tsx';
-import type { AuthzCatalog, Me, RoleList } from '../contract.ts';
+import type { AuthzCatalog, Me, ResourceRef } from '../contract.ts';
 import { historyRouter } from '../router.tsx';
 import { StaticSession } from '../session.tsx';
 import { configureTexts, type IamLocale, type IamTexts } from '../texts/index.ts';
@@ -19,6 +19,7 @@ import { CATALOG, ME } from './catalog.ts';
 export { CATALOG, ME };
 
 export interface StaticIamProps {
+  /** Abweichungen von `ME`; ohne `somewhere` gilt `permissions` (bzw. `ME.somewhere`). */
   me?: Partial<Me>;
   config?: Partial<IamConfig>;
   components?: Partial<IamComponents>;
@@ -33,7 +34,8 @@ export interface StaticIamProps {
 export function StaticIam({ me, config, components, queryClient, locale = 'de', texts, children }: StaticIamProps) {
   const [qc] = useState(() => queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }));
   const value = useMemo<IamConfig>(() => ({ product: 'Notizen', paths: DEFAULT_PATHS, features: {}, router: historyRouter, ...config }), [config]);
-  const fixed = useMemo<Me>(() => ({ ...ME, ...me }), [me]);
+  // Ohne eigenes `somewhere` gelten die übergebenen Rechte an der Organisation auch als «irgendwo» (Obermenge, 9.5)
+  const fixed = useMemo<Me>(() => ({ ...ME, ...me, somewhere: me?.somewhere ?? me?.permissions ?? ME.somewhere }), [me]);
   const textState = useMemo(() => { configureTexts({ locale, texts: texts ?? {} }); return { locale, version: Date.now() }; }, [locale, texts]);
   return (
     <QueryClientProvider client={qc}>
@@ -60,19 +62,14 @@ export interface MockIamApi {
 }
 
 /**
- * Nachbildung des Vertrags: Antworten je «METHOD /pfad» (ohne Suchtext); `GET /auth/me`, `GET /v1/authz/catalog` und
- * `GET /v1/roles` antworten ohne Angabe mit `ME`, `CATALOG` und den Rollen des Katalogs. Unbekannte Pfade: 404.
+ * Nachbildung des Vertrags: Antworten je «METHOD /pfad» (ohne Suchtext); `GET /auth/me` und `GET /v1/authz/catalog`
+ * antworten ohne Angabe mit `ME` und `CATALOG`. Unbekannte Pfade: 404.
  */
 export function mockIamApi(routes: Record<string, MockHandler> = {}, o: { me?: Me; catalog?: AuthzCatalog } = {}): MockIamApi {
   const catalog = o.catalog ?? CATALOG;
-  const roles: RoleList = {
-    items: catalog.roles.map(r => ({ ...r, custom: false, id: null, memberCount: null, version: null, createdAt: null, updatedAt: null })),
-    customPermissions: catalog.permissions.filter(p => !p.adminOnly).map(p => p.key), maxCustom: 50,
-  };
   const all: Record<string, MockHandler> = {
     'GET /auth/me': () => json(o.me ?? ME),
     'GET /v1/authz/catalog': () => json(catalog),
-    'GET /v1/roles': () => json(roles),
     ...routes,
   };
   const calls: Request[] = [];
@@ -88,30 +85,12 @@ export function mockIamApi(routes: Record<string, MockHandler> = {}, o: { me?: M
 }
 
 /**
- * Adapter `resources` aus festen Daten: `names[type][id] = Name`, `parents['type:id'] = { type, id }` (Stufe darüber,
- * ohne tenant). Unbekannte IDs eines Typs mit Namen gelten als unbekannt (`known: false`), andere Typen als nicht prüfbar.
+ * Adapter `resources` aus festen Daten: `names[type][id] = Name`; unbekannte Orte gelten als nicht sichtbar. `open`
+ * erhält den Ort beim Klick auf einen Pfeil (ohne: keine Pfeile).
  */
-export function staticResources(names: Record<string, Record<string, string>>, o: { parents?: Record<string, { type: string; id: string }>; noGrant?: string[] } = {}): IamResources {
-  const chain = (type: string, id: string) => {
-    const out: { type: string; id: string; label: string }[] = [];
-    const seen = new Set([`${type}:${id}`]);
-    const parent = (k: string) => (o.parents && Object.hasOwn(o.parents, k) ? o.parents[k] : undefined);
-    // Zyklus in `parents` (Testdaten): abbrechen statt endlos laufen
-    for (let p = parent(`${type}:${id}`); p && !seen.has(`${p.type}:${p.id}`); p = parent(`${p.type}:${p.id}`)) {
-      seen.add(`${p.type}:${p.id}`);
-      out.unshift({ ...p, label: names[p.type]?.[p.id] ?? p.id });
-    }
-    return out;
-  };
+export function staticResources(names: Record<string, Record<string, string>>, o: { open?: (ref: ResourceRef) => void } = {}): IamResources {
   return {
-    useResolver: () => ({
-      name: (type, id) => (names[type] && Object.hasOwn(names[type], id) ? names[type][id] : undefined),
-      known: (type, id) => (names[type] ? Object.hasOwn(names[type], id) : undefined),
-    }),
-    pick: async (type, query) => Object.entries(names[type] ?? {})
-      .filter(([, label]) => label.toLowerCase().includes(query.trim().toLowerCase()))
-      .map(([value, label]) => ({ value, label, sub: chain(type, value).map(s => s.label).join(' › ') || undefined })),
-    useChain: (type, id) => (id ? chain(type, id) : []),
-    ...(o.noGrant ? { noGrant: o.noGrant } : {}),
+    useResolver: () => ({ name: ref => (ref.id && names[ref.type] && Object.hasOwn(names[ref.type]!, ref.id) ? names[ref.type]![ref.id] : undefined) }),
+    ...(o.open ? { open: o.open } : {}),
   };
 }

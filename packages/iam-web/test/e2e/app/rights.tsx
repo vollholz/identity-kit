@@ -1,14 +1,17 @@
-/** Testseite der Rechte-Bausteine: Seitenkopf, Kontomenü, Rechte-Übersicht (mit Scopes), Rollenmatrix, «Recht fehlt». */
+/** Testseite der Rechte-Bausteine: Seitenkopf, Kontomenü mit «Meine Rechte» (Rollen an Orten), Rechte-Übersicht (mit Scopes), Rollenmatrix, «Recht fehlt». */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../src/styles.css';
 import { AccountMenu, AdminHead, IamProvider, MissingRight, OrgName, Requires, RightsOverview, RoleCompare, useAuthz } from '../../../src/index.ts';
-import { ME, mockIamApi } from '../../../src/testing/index.tsx';
+import { json, ME, mockIamApi, staticResources } from '../../../src/testing/index.tsx';
 import './page.css';
 
 sessionStorage.removeItem('iam.tab.org');
-const me = { ...ME, roles: ['folder-admin', 'auditor'], permissions: ['tenant:read', 'acl:read', 'note:read', 'note:write', 'note:delete', 'folder:admin', 'audit:read'], grantedPermissions: ['acl:admin'] };
-window.fetch = mockIamApi({}, { me }).fetch;
+const perms = ['tenant:read', 'note:read', 'note:write', 'access:admin', 'audit:read'];
+const me = { ...ME, roles: ['editor', 'auditor'], permissions: perms, somewhere: [...perms, 'note:delete', 'folder:admin'], clearance: 1 as const };
+// Rollen an Orten («Meine Rechte»): Ordner-Admin an einem Ordner
+const places = { items: [{ id: 't1', subject: { ref: 'user:p-anna', kind: 'user', name: 'Anna Admin' }, relation: 'folder-admin', place: { type: 'folder', id: 'f1' }, via: 'direct', expiresAt: null, createdAt: null, createdBy: null, removable: false }] };
+window.fetch = mockIamApi({ 'GET /v1/access': () => json(places) }, { me }).fetch;
 
 function App() {
   const authz = useAuthz();
@@ -30,4 +33,5 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><IamProvider product="Notizen"><App /></IamProvider></StrictMode>);
+const resources = staticResources({ folder: { f1: 'Projekte' } });
+createRoot(document.getElementById('root')!).render(<StrictMode><IamProvider product="Notizen" resources={resources}><App /></IamProvider></StrictMode>);

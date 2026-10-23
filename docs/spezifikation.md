@@ -587,10 +587,12 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   andere Organisation hat; Gastkonten nie verknüpfen. `state` 15 min, einmalig, an Person, Organisation und Tenant
   gebunden.
 - **Zustimmung mit Nachweis:** Verbinden startet einen Code-Flow im Tenant (`/{tid}/oauth2/v2.0/authorize`, Scopes
-  `openid profile https://graph.microsoft.com/.default`, `prompt=consent`, PKCE und `nonce` aus `state`). Die API löst den
+  `openid profile https://graph.microsoft.com/.default`, `prompt=admin_consent`, PKCE und `nonce` aus `state`). Die API löst den
   Code selbst ein und prüft das ID-Token (Schlüssel des Tenants, `iss` und `tid` = gestarteter Tenant, `aud` = Entra-App,
   `nonce`, kein Gast, `wids` mit «Global Administrator» oder «Privileged Role Administrator»); sonst 409
-  `consent-unproven`. Ein Tenant, der der App schon früher zugestimmt hat, genügt nie. Wer zugestimmt hat (Objekt-ID,
+  `consent-unproven`. `wids` liefert Microsoft nur, wenn die Entra-App Verzeichnisrollen im Gruppen-Claim ausgibt
+  (`groupMembershipClaims` mit `DirectoryRole`, Portal: Token configuration › groups claim › Directory roles); fehlt der
+  Claim, scheitert die Zustimmung. Ein Tenant, der der App schon früher zugestimmt hat, genügt nie. Wer zugestimmt hat (Objekt-ID,
   Name), steht im Audit von `entra.connected`; Start und Fehlschläge als `entra.consent_started` bzw.
   `entra.consent_failed`.
 - Konten der Plattform-Administration (`PLATFORM_ADMIN_ROLE`, auch zusammengesetzt) behalten bei «Nur Entra» Passwort und

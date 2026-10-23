@@ -750,6 +750,8 @@ Audit-Trigger darauf warten.
     aufrufen und einen fremden Tenant samt Domänen und Verzeichnis übernehmen können. Jetzt Code-Flow mit PKCE und
     `nonce` (beide per HMAC mit `ENTRA_CLIENT_SECRET` aus `state` abgeleitet, keine neue Spalte), Einlösen auf dem
     Server und Prüfung des ID-Tokens (`EntraGraph.verifyConsent`, Spez. 9.4). `consentBy` im Audit.
+    `prompt=admin_consent` (Zustimmung für den Tenant). `wids` nur mit `groupMembershipClaims` «DirectoryRole» in der
+    Entra-App; fehlt der Claim, 409 mit Hinweis darauf (fail-closed; «Default User» b79fbf4d-… genügt nie).
     Vertragsänderung: `POST …/entra/consent/complete` nimmt `code` statt `tenant` und `adminConsent`.
   - F2: «Nur Entra» lässt Konten mit `PLATFORM_ADMIN_ROLE` (zusammengesetzt gelesen) Passwort und Passkey
     (`removeFirstFactor`, auch beim Hinzufügen aus Entra ID); Vorschau und Ergebnis mit `passwordKept`.

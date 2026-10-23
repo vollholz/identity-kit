@@ -51,7 +51,7 @@ describe('Entra ID: Regeln ohne Datenbank', () => {
     const u = new URL(g.consentUrl(t.id, { state: 's1', redirectUri: 'https://app.test/cb', nonce: 'n1', codeChallenge: 'c1' }));
     assert.equal(`${u.origin}${u.pathname}`, `https://login.microsoftonline.com/${t.id}/oauth2/v2.0/authorize`);
     assert.deepEqual(['response_type', 'scope', 'prompt', 'nonce', 'code_challenge', 'code_challenge_method'].map(k => u.searchParams.get(k)),
-      ['code', 'openid profile https://graph.microsoft.com/.default', 'consent', 'n1', 'c1', 'S256']);
+      ['code', 'openid profile https://graph.microsoft.com/.default', 'admin_consent', 'n1', 'c1', 'S256']);
     await assert.rejects(g.organization(t.id), (e: any) => e.status === 409, 'ohne Zustimmung kein Token');
     t.consented = true;
     assert.deepEqual((await g.organization(t.id, true)).verifiedDomains, ['demo.example', 'demo.onmicrosoft.com']);
@@ -206,13 +206,14 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     const fremd = ms.tenant('Fremd AG', ['fremd.example']);
     unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { tid: fremd.id } })), /anderen Tenant/, 'tid fremd');
     unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { nonce: 'alt' } })), /gehört nicht zu dieser Zustimmung/, 'nonce');
-    unproven(await complete(ms.approve(await begin(), ga, { wids: ['b79fbf4d-3ef9-4689-8143-76b194e85509'] })), /weder «Global Administrator»/, 'ohne Admin-Rolle');
+    unproven(await complete(ms.approve(await begin(), ga, { wids: ['b79fbf4d-3ef9-4689-8143-76b194e85509'] })), /weder «Global Administrator»/, 'nur Default User');
+    unproven(await complete(ms.approve(await begin(), ga, { claims: { wids: undefined } })), /wids fehlt: DirectoryRole-Claim/, 'Claim fehlt (App-Registrierung ohne Verzeichnisrollen)');
     unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[1]!], guest: true })), /Gast/, 'Gast');
     unproven(await complete(ms.approve(await begin(), ga, { wids: [CONSENT_ADMIN_ROLES[0]!], claims: { aud: 'andere-app' } })), /ID-Token ungültig/, 'Zielgruppe');
     assert.deepEqual([kc.idps.size, (await t.inspect.query('SELECT count(*)::int AS n FROM notes.entra_connection')).rows[0].n], [0, 0], 'nichts verbunden');
     const failed = (await auditOf('demo', 'entra.consent_failed')).map(a => a.data.reason);
-    assert.ok(failed.length >= 9 && failed.every(r => r === 'consent-unproven' || r === 'consent-error'), 'Fehlschläge im Protokoll');
-    assert.ok((await auditOf('demo', 'entra.consent_started')).length >= 9, 'Start im Protokoll');
+    assert.ok(failed.length >= 10 && failed.every(r => r === 'consent-unproven' || r === 'consent-error'), 'Fehlschläge im Protokoll');
+    assert.ok((await auditOf('demo', 'entra.consent_started')).length >= 10, 'Start im Protokoll');
     contoso.consented = false;
     contoso.users.splice(contoso.users.indexOf(ga), 1);
   });

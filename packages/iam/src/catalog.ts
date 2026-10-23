@@ -93,7 +93,7 @@ export interface AuthzCatalogJson {
   groups: { key: string; label: string; match?: string }[];
   roles: { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean }[];
   scopes: { key: string; text: string; permissions: string[] }[];
-  resourceTypes: { key: string; label: string }[];
+  resourceTypes: { key: string; label: string; leaf?: true }[];
   mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
 }
 
@@ -322,7 +322,7 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
       groups: groups.map(g => ({ key: g.key, label: g.label, ...(g.match ? { match: g.match.source } : {}) })),
       roles: [...roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...permissionsForRoles([key])], adminOnly: key === ADMIN_ROLE })),
       scopes: [...scopes].map(([key, s]) => ({ key, text: s.text, permissions: [...s.permissions] })),
-      resourceTypes: resourceTypes.map(({ key, label }) => ({ key, label })),
+      resourceTypes: resourceTypes.map(({ key, label, leaf }) => ({ key, label, ...(leaf ? { leaf: true as const } : {}) })),
       mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly })),
     }),
     platformJson: () => `${JSON.stringify({ roles: Object.fromEntries([...roles].map(([k, r]) => [k, r.label])), scopes: [...scopes.keys()] }, null, 2)}\n`,

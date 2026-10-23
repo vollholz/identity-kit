@@ -18,7 +18,7 @@ export interface AuthzCatalog {
   groups: CatalogGroup[];
   roles: CatalogRole[];
   scopes: CatalogScope[];
-  resourceTypes?: { key: string; label: string }[];
+  resourceTypes?: { key: string; label: string; leaf?: boolean }[];
 }
 
 /** Reservierte Rolle (Spezifikation Kap. 8.1). */

@@ -229,7 +229,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
   if (raw.ENTRA_UI_PATH !== undefined && (!/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH) || raw.ENTRA_UI_PATH.split('/').some(x => x === '.' || x === '..'))) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
-  if (raw.GROUP_ROLE_PREFIX !== undefined && !/^\/?[^\s/]+(\/[^\s/]+)*\/?$/.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
+  if (raw.GROUP_ROLE_PREFIX !== undefined && !GROUP_PREFIX_RE.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
   try { const ms = parseDuration(raw.MEMBER_SYNC_INTERVAL ?? '1h'); if (ms > 0 && ms < 60_000) errors.push('MEMBER_SYNC_INTERVAL: mindestens 1m oder 0 (aus)'); } catch { /* bereits gemeldet */ }
   try {
     const life = parseDuration(raw.KEYCLOAK_MGMT_INVITE_LIFESPAN ?? '72h');
@@ -248,6 +248,9 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
  * Präfix der Rollengruppen einheitlich mit führendem und ohne abschliessenden «/» (`orgs`, `/orgs/` → `/orgs`): Token
  * (Gruppenpfade), Verwaltung (Gruppen anlegen) und Status sehen so denselben Pfad.
  */
+/** Gültiger GROUP_ROLE_PREFIX: Gruppenpfad ohne Leerzeichen und leere Teile (führender und abschliessender «/» optional). */
+export const GROUP_PREFIX_RE = /^\/?[^\s/]+(\/[^\s/]+)*\/?$/;
+
 export function normalizeGroupPrefix(v: string): string { return `/${v.replace(/^\/+|\/+$/g, '')}`; }
 
 export function iamConfig(raw: RawVars, mode: Mode): IamConfig {

@@ -412,7 +412,8 @@ Der Rechtekatalog steht an **einer** Stelle im Code (`authz/permissions.ts`) und
 - `GET /v1/authz/catalog`: Rechte (mit `adminOnly`), Gruppen, Rollen (mit Rechten, `adminOnly`), Scopes,
   Ressourcentypen (und MCP-Werkzeuge), für jede angemeldete Person und jeden Client, ohne Rechteprüfung. Ergänzt um
   `groups[].match` (Stichwörter der Gruppe als regulärer Ausdruck, [8.2](#82-regeln-für-den-katalog)) und
-  `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind), jeweils nur, wo gesetzt; für Assets
+  `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind) und `resourceTypes[].leaf` (`true` für
+  Blätter der Kette: dort keine Freigaben), jeweils nur, wo gesetzt; für Assets
   ist die Antwort die bisherige plus diese Felder.
 - Die Oberfläche hat **keine** eigenen Listen und Labels; ein Test prüft, dass ihr Typ `Permission` genau dem Katalog
   entspricht.
@@ -579,6 +580,10 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
 `src/platform/modules/admin/{entra,graph}.ts`, Migrationen `046`, `047`.
 
 - **Eine** mandantenfähige App in Entra ID je Produkt (Betreiber registriert einmal); Kunden stimmen beim Verbinden zu.
+  Berechtigungen in Microsoft Graph (minimal, nach den Aufrufen der App): Anwendung `Organization.Read.All`
+  (`GET /organization`: Tenant und verifizierte Domänen), Anwendung `User.Read.All` (`GET /users` mit `$filter` bzw.
+  `$search`, `GET /users/{id}`), delegiert `User.Read` (Keycloak liest bei der Anmeldung `/me`). Dazu Verzeichnisrollen im
+  Gruppen-Claim (`groupMembershipClaims` mit `DirectoryRole`) für den Nachweis der Zustimmung (`wids`).
   Je Organisation ein Identity Provider `entra-NNN` aus einem Pool von Redirect-URIs (`ENTRA_IDP_SLOTS`), mit der
   Organisation und ihren Domänen verbunden (Keycloak ≥ 26.8). `<produkt>-admin` braucht dafür
   `manage-identity-providers`; Mapper an Anbietern legt die App nie an.

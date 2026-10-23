@@ -523,7 +523,8 @@ an die Person zurück (nur `exists` = 404 bzw. Zustand der Kette).
 `McpAuth` kommt ins Paket (Teil-PR 8): nur Tokens der Hosts aus `MCP_HOST_CLIENT_IDS` (sonst 403), `exchangeScopes`
 mit `organization:<alias>` (eine Organisation bleibt im API-Token festgelegt), Protected Resource Metadata (RFC 9728)
 mit den Scopes des Katalogs, Fehler `-32602` mit der eigenen Liste der Organisationen bei fehlender Wahl,
-Zwischenspeicher der getauschten Tokens mit Schlüssel Token + Mandant. Katalog bzw. `SCOPES` sind Parameter.
+Zwischenspeicher der getauschten Tokens je Token, der Rechte (`GET /v1/me`) je Token + Mandant (13.6). Katalog bzw.
+`SCOPES` sind Parameter.
 
 ### 13.6 Zwischenspeicher und Wirkungszeiten (Auflage 10)
 
@@ -534,7 +535,8 @@ Zwischenspeicher der getauschten Tokens mit Schlüssel Token + Mandant. Katalog 
 | Principal | Mandant + Art + Subject (+ Rollen/Scopes bei Clients) | 5 min | `forgetPrincipal(tenant, subject)` | Entfernen ≤ 5 min, Tokens von davor nie mehr | `cache`, `admin` |
 | «Nur Entra» je Domäne | Domäne | 60 s | `forgetEntra()` | ≤ 60 s | `cache`, `entra` |
 | ACL und eigene Rollen | Mandant, gültig solange `acl_version` (+ `ResourceModel.version`) gleich | bis zur Änderung | `invalidate(tenant)` | sofort auf allen Instanzen | `access` |
-| Getauschte MCP-Tokens | Hash des Tokens + Mandant | bis kurz vor Ablauf | – | – | `mcp` |
+| Getauschte MCP-Tokens | Hash des Tokens | bis kurz vor Ablauf | `forget(token)` bei 401 der API | – | `mcp` |
+| Rechte im MCP-Dienst (`GET /v1/me`) | Token + Mandant | 60 s | – | Rechteänderung ≤ 60 s im MCP-Dienst | `mcp` |
 
 Die Tests setzen die Uhr (`Date.now`) und prüfen Treffer vor und Neuladen nach Ablauf.
 
@@ -760,3 +762,30 @@ Audit-Trigger darauf warten.
     `entra.consent_failed`.
 - **Tests**: Die Nachbildung von Microsoft ist `EntraFake` im Test-Kit (0.3.0), mit `approve` für die Anmeldung im
   Browser und ID-Tokens mit eigenem JWKS.
+
+### 13.16 MCP, `org-bootstrap`, Doku (Teil-PR 8)
+
+- **MCP** (`src/mcp/`, aus Assets `mcp/{dpop,exchange,api,server}.ts`): `DpopSigner`, `TokenExchanger` (Scopes nur aus dem
+  Katalog der App und `organization…`), `ApiClient` und `McpAuth` mit `registerMcpAuth`. `McpAuth` ist die Anmeldung aus
+  `buildMcpApp` ohne MCP-SDK (Ursprung, Token, Scope, nur POST, keine gebundenen Tokens, `MCP_HOST_CLIENT_IDS`, Tausch,
+  Organisation(en) mit Rechten, Fehler als JSON-RPC). Server und Werkzeuge baut die App; das Paket hängt nicht vom SDK
+  ab. `DEFAULT_SCOPES` wird `McpAuth.defaultScopes` (`openid`, `organization:*`, `<produkt>:read`).
+- **`org-bootstrap`** (`src/bootstrap.ts`, Kommandozeile `iam-org-bootstrap`, aus Assets `scripts/org-bootstrap.ts`):
+  über `KeycloakAdmin` mit dem Service Account `<realm>-iac`; Rollen aus `--catalog` (platform.json) statt `ROLES`,
+  Präfix Stufe für Stufe, Alias nach `ALIAS_PATTERN`. Der `KeycloakFake` kennt dafür Realm-Rollen und
+  `reset-password`.
+- **Doku** `docs/backend.md`: Einbinden, Katalog (Hinweis zu `members:admin`), Konfiguration, Datenbank, API mit den
+  vorausgesetzten Einstellungen (`removeAdditional: false`, `@fastify/rate-limit`, Swagger), Module und Optionen,
+  Worker, MCP, Betrieb (Ersteinrichtung, Entra-App mit Verzeichnisrollen im Gruppen-Claim), Tests.
+- `private` entfernt: Der Release-Workflow veröffentlicht `@vollholz/iam` 0.1.0 nach dem Merge.
+
+- **Review zu #29 (Hauptsession)**:
+  - S1: `WWW-Authenticate` nur mit druckbarem ASCII (`headerText`), sonst scheiterte der Header an «…» oder CR/LF.
+  - S2: Passwortdatei nur in einem eigenen, für andere geschlossenen Verzeichnis (`lstat`), neu mit `O_EXCL|O_NOFOLLOW`
+    und 0600; scheitert das Setzen in Keycloak, wird sie gelöscht.
+  - S3: Test-Kit 0.3.1 (0.3.0 ist mit #26 veröffentlicht).
+  - S4, S9: MCP-Beispiel mit GET/POST/DELETE, `redact`, `allowedOrigins`; absolute Links; `SHARED_STATE`; Export
+    `./package.json`.
+  - S5–S8: `GROUP_ROLE_PREFIX` geprüft (`GROUP_PREFIX_RE`), Realm im Dateinamen bereinigt; kein Passwort für Konten mit
+    Identitätsanbieter; `X-Tenant`/`?org=` nach `ALIAS_PATTERN` (400); `TokenExchanger` tauscht nie ohne Scope des
+    Katalogs, höchstens 10 000 Tokens im Zwischenspeicher.

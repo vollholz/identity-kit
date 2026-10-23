@@ -37,3 +37,8 @@ export { roleKey } from './http/roles.ts';
 export { defaultPeoplePermissions } from './http/people.ts';
 export { EntraService, brokerRedirectUris, consentPath, consentRedirectUri, testPath, entraFirstLoginFlow, idpRepresentation, slotAlias, type EntraConnection, type EntraConnectionOut, type EntraStatus, type EntraCandidate, type BindResult, type ConnectResult } from './entra.ts';
 export { EntraGraph, EntraError, notLinkable, ENTRA_LOGIN, GRAPH, type EntraUser, type EntraOrganization } from './graph.ts';
+export { DpopSigner, wantsNonce } from './mcp/dpop.ts';
+export { TokenExchanger, type ExchangedToken } from './mcp/exchange.ts';
+export { ApiClient, ApiError, type CallOptions } from './mcp/api.ts';
+export { McpAuth, registerMcpAuth, exchangeScopes, type McpAuthOptions, type McpAuthorized, type McpOrg, type McpMe, type McpRequest } from './mcp/auth.ts';
+export { orgBootstrap, orgBootstrapErrors, type OrgBootstrapOptions, type OrgBootstrapResult } from './bootstrap.ts';

@@ -3,7 +3,7 @@
 Backend-Baustein (Node 24, TypeScript, Fastify-Adapter). Spezifikation Kap. 4–10 und 12; Entwurf und Festlegungen in
 [`docs/entwurf.md`](docs/entwurf.md).
 
-Inhalt (Ziel 0.1.0): Konfiguration, Token-Prüfung (Bearer, DPoP, mTLS), Principal, BFF (`/auth/*`), Entscheidung
+Inhalt: Konfiguration, Token-Prüfung (Bearer, DPoP, mTLS), Principal, BFF (`/auth/*`), Entscheidung
 (Rolle ∨ Freigabe) ∧ Scope ∧ kein Verbot/keine Beschränkung mit dem Katalog der App, Zugriffsregeln (`/v1/acl…`),
 eigene Rollen (`/v1/roles`), Verwaltung (`/v1/admin/*`, `/v1/platform/*`), Abgleich der Mitglieder, Freigaben von
 Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
@@ -11,7 +11,9 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-## Stand (Teil-PR 7)
+## Inhalt 0.1.0
+
+Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 
 | Baustein | Inhalt |
 |---|---|
@@ -40,6 +42,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 | `MemberSync`, `syncAllMembers`, `syncTenantMembers` | Abgleich der Mitglieder ins Personenverzeichnis (Worker, `KEYCLOAK_SYNC_*`, `MEMBER_SYNC_INTERVAL`) und Name der Organisation |
 | `optionalBodies` | `transformObject` für `@fastify/swagger`: optionale Bodies (`POST …/suspend`, `…/resume`) als optional ausweisen |
 | `Bff`, Modul `bff` | Anmeldung der Oberfläche unter `/auth/*`: Code-Flow mit PKCE, verschlüsselte Sitzung, CSRF, Erneuerung, Organisation je Tab, Abmeldung und Backchannel-Logout |
+| `McpAuth`, `registerMcpAuth`, `TokenExchanger`, `DpopSigner`, `ApiClient` | MCP-Dienst der App: Anmeldung (RFC 9728, nur Hosts aus `MCP_HOST_CLIENT_IDS`), Token Exchange DPoP-gebunden, Organisation über `X-Tenant`/`?org=`, Aufrufe der REST-API |
+| `orgBootstrap`, `iam-org-bootstrap` | Ersteinrichtung einer Organisation mit Rollengruppen und erster Person (idempotent, Probelauf) |
 | `IAM_API_TAGS`, Option `openapi` | Tags der Routen; Tags, Texte und Feldbeschreibungen der App ersetzen die produktneutralen Standardtexte |
 
 ```ts

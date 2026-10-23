@@ -245,6 +245,7 @@ export class KeycloakFake {
         return empty();
       }
       if (seg[2] === 'credentials') return json(200, u.password ? [{ id: 'c1', type: 'password' }] : []);
+      if (seg[2] === 'reset-password' && method === 'PUT') { u.password = true; if (data?.temporary) u.requiredActions = [...new Set([...u.requiredActions, 'UPDATE_PASSWORD'])]; return empty(); }
       if (seg[2] === 'role-mappings' && seg[3] === 'realm') {
         const mine = this.realmRoleMappings.get(u.id) ?? new Set<string>();
         this.realmRoleMappings.set(u.id, mine);
@@ -264,6 +265,10 @@ export class KeycloakFake {
         if (method === 'PUT') { this.userGroups.get(u.id)!.add(g.id); return empty(); }
         if (method === 'DELETE') { this.userGroups.get(u.id)!.delete(g.id); return empty(); }
       }
+    }
+    if (seg[0] === 'roles' && seg[1] && method === 'GET') {
+      const name = decodeURIComponent(seg[1]);
+      return this.realmRoles.has(name) ? json(200, { id: `role-${name}`, name }) : json(404, { error: 'Could not find role' });
     }
     // Gruppen
     if (seg[0] === 'group-by-path') {

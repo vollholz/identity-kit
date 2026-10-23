@@ -114,9 +114,18 @@ describe('Rollen: vordefinierte und eigene', { skip }, () => {
     assert.equal(ok(r).version, 2);
     assert.equal(r.headers.etag, 'W/"2"');
     assert.ok((await perms('dana')).includes('note:share'), 'ohne neues Token: Rechte kommen aus der Organisation');
+    // Andere Instanz (eigener Zwischenspeicher): Rechte der Rolle sofort neu (acl_version, Trigger auf tenant_role)
+    const other = await notesApp({ db: t.runtime, issuer: idp.issuer });
+    try {
+      assert.ok(ok(await call('dana', 'GET', '/v1/me', undefined, {}, other)).permissions.includes('note:share'));
+      ok(await call('anna', 'PATCH', `/v1/roles/${key}`, { permissions: ['tenant:read', 'note:read', 'note:write'] }));
+      assert.ok(!ok(await call('dana', 'GET', '/v1/me', undefined, {}, other)).permissions.includes('note:share'), 'andere Instanz ohne Warten');
+      ok(await call('anna', 'PATCH', `/v1/roles/${key}`, { permissions: ['tenant:read', 'note:read', 'note:write', 'note:share'] }));
+    } finally { await other.app.close(); }
     assert.equal((await call('anna', 'PATCH', `/v1/roles/${key}`, { description: 'alt' }, { 'if-match': 'W/"1"' })).status, 412);
     assert.equal((await call('anna', 'PATCH', `/v1/roles/${key}`, { description: 'alt' }, { 'if-match': 'kaputt' })).status, 412);
     assert.deepEqual((await auditOf('role.updated'))[0], { key, label: 'Datenpflege', added: ['note:share'], removed: [] });
+    assert.equal(ok(await call('anna', 'GET', `/v1/roles/${key}`)).version, 4);
   });
 
   test('Zugriffsregeln: eigene Rolle als Wer; unbekannte eigene Rolle abgelehnt', async () => {
@@ -129,7 +138,7 @@ describe('Rollen: vordefinierte und eigene', { skip }, () => {
     assert.equal((await call('anna', 'DELETE', '/v1/roles/editor')).status, 409);
     assert.equal((await call('carla', 'DELETE', `/v1/roles/${key}`)).status, 403);
     assert.equal((await call('anna', 'DELETE', `/v1/roles/${key}`, undefined, { 'if-match': 'W/"1"' })).status, 412);
-    assert.equal((await call('anna', 'DELETE', `/v1/roles/${key}`, undefined, { 'if-match': 'W/"2"' })).status, 204);
+    assert.equal((await call('anna', 'DELETE', `/v1/roles/${key}`, undefined, { 'if-match': 'W/"4"' })).status, 204);
     assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
     assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${key}`), 'Gruppe gelöscht');
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.acl_entry WHERE principal_ref = $1', [key])).rows[0].n, 0);

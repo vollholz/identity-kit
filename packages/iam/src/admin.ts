@@ -161,7 +161,7 @@ export class AdminService {
   private readonly prefix: string;
   /** Schema der Tabellen (geprüft). */
   private readonly S: string;
-  private orgs: { at: number; byAlias: Map<string, KcOrg> } | null = null;
+  private orgs: { at: number; byAlias: Map<string, KcOrg>; ambiguous: Set<string> } | null = null;
   private readonly groups = new Map<string, { at: number; byRole: Map<string, KcGroup> }>();
   private readonly custom = new Map<string, { at: number; keys: string[] }>();
 
@@ -182,16 +182,22 @@ export class AdminService {
 
   // ---------------------------------------------------------------- Organisation und Rollengruppen
   async org(alias: string, fresh = false): Promise<KcOrg> {
-    if (fresh || !this.orgs || Date.now() - this.orgs.at > 60_000) {
-      const list = await this.kc.listOrgs();
-      this.orgs = { at: Date.now(), byAlias: new Map(list.map(o => [asciiLower(o.alias), o])) };
-    }
-    const o = this.orgs.byAlias.get(asciiLower(alias));
+    if (fresh || !this.orgs || Date.now() - this.orgs.at > 60_000) this.cacheOrgs(await this.kc.listOrgs());
+    const key = asciiLower(alias);
+    // Aliase, die sich nur in der Gross-/Kleinschreibung unterscheiden: nicht stillschweigend eine davon nehmen
+    if (this.orgs!.ambiguous.has(key)) throw conflict(`In Keycloak gibt es mehrere Organisationen mit dem Alias «${alias}» (nur Gross-/Kleinschreibung verschieden). In Keycloak bereinigen.`, { reason: 'ambiguous-alias' });
+    const o = this.orgs!.byAlias.get(key);
     if (!o) {
       if (!fresh) return this.org(alias, true);
       throw notFound(`Organisation «${alias}»`);
     }
     return o;
+  }
+
+  private cacheOrgs(list: KcOrg[]) {
+    const byAlias = new Map<string, KcOrg>(), ambiguous = new Set<string>();
+    for (const o of list) { const k = asciiLower(o.alias); if (byAlias.has(k)) ambiguous.add(k); byAlias.set(k, o); }
+    this.orgs = { at: Date.now(), byAlias, ambiguous };
   }
 
   private rolePath(alias: string, role?: string) { return `${this.prefix}/${alias}${role ? `/${role}` : ''}`; }
@@ -685,7 +691,7 @@ export class AdminService {
   // ---------------------------------------------------------------- Organisationen (nur platform-admin)
   async listOrganizations(correlationId?: string): Promise<Organization[]> {
     const [orgs, tenants] = await Promise.all([this.kc.listOrgs(), listTenants(this.deps.db)]);
-    this.orgs = { at: Date.now(), byAlias: new Map(orgs.map(o => [asciiLower(o.alias), o])) };
+    this.cacheOrgs(orgs);
     const byAlias = new Map(tenants.map(t => [t.alias, t]));
     for (const o of orgs) await this.syncName(o, byAlias.get(asciiLower(o.alias)) ?? null, correlationId);
     return orgs.map(o => this.orgOut(o, byAlias.get(asciiLower(o.alias)) ?? null)).sort((a, b) => a.alias.localeCompare(b.alias));
@@ -718,6 +724,18 @@ export class AdminService {
     return this.orgOut(o, t);
   }
 
+  /** Anzahl Personen in bestehenden Gruppen `<prefix>/<alias>/…` (vor dem Anlegen einer Organisation). */
+  private async leftoverRoleMembers(alias: string): Promise<number> {
+    const parent = await this.kc.groupByPath(this.rolePath(alias));
+    if (!parent) return 0;
+    const ids = new Set<string>();
+    for (const role of this.deps.catalog.roles.keys()) {
+      const g = await this.kc.groupByPath(this.rolePath(alias, role));
+      if (g) for (const u of await this.kc.groupMembers(g.id)) ids.add(u.id);
+    }
+    return ids.size;
+  }
+
   private checkDomains(domains: string[]): string[] {
     const list = [...new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean))];
     const bad = list.filter(d => !DOMAIN_RE.test(d));
@@ -734,6 +752,10 @@ export class AdminService {
     const domains = this.checkDomains(input.domains);
     if ((await this.kc.listOrgs()).some(o => asciiLower(o.alias) === alias)) throw conflict(`Eine Organisation mit dem Alias «${alias}» besteht bereits.`);
     if (await findTenant(this.deps.db, alias)) throw conflict(`Der Alias «${alias}» ist in der Plattform bereits vergeben.`);
+    // Rollengruppen einer früher gelöschten Organisation mit gleichem Alias: ihre Personen erhielten sonst sofort Rollen
+    // in der neuen Organisation (Mitgliedschaft genügt). Leere Gruppen werden übernommen.
+    const left = await this.leftoverRoleMembers(alias);
+    if (left) throw conflict(`In Keycloak bestehen noch Rollengruppen ${this.rolePath(alias)}/… mit ${left} Person(en) einer früheren Organisation. Diese Gruppen zuerst in Keycloak leeren oder löschen.`, { reason: 'leftover-role-groups' });
     let id: string;
     try {
       id = await this.kc.createOrg({ alias, name, enabled: true, ...(input.description ? { description: input.description.trim() } : {}), domains: domains.map(d => ({ name: d, verified: false })) });

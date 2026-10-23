@@ -705,3 +705,13 @@ Audit-Trigger darauf warten.
   geteilte Objekte wie `Deleted` erhielten so die Fehler aller Routen (z. B. 412 für jedes `DELETE`, sobald eine Route
   `If-Match` kennt). Jetzt eine Kopie je Route. Assets: `http/app.ts:452`, gleich betroffen (16 Routen mit `Deleted`).
 - Die Isolationstests decken damit alle Routen des Pakets ausser der Entra-Anbindung (Teil 7) ab.
+- **Rollenänderungen ohne Ereignis** (wie Assets, entschieden): Kein Zwischenspeicher hält die Rechte einer Rolle über
+  eine Änderung hinaus – die Entscheidung lädt neu, sobald `acl_version` steigt (Trigger auf `tenant_role` und
+  `acl_entry`, auch für andere Instanzen; Test mit zweiter Instanz), der Resolver hält nur die Rollen aus dem Token,
+  die Schlüssel eigener Rollen der Verwaltung leert `forgetRoles` (andere Instanzen nach 60 s, betrifft nur das Prüfen
+  beim Vergeben).
+- **Review zu #24, E und F**: Aliase in Keycloak, die sich nur in der Gross-/Kleinschreibung unterscheiden, ergeben
+  409 `ambiguous-alias` statt stillschweigend der letzten. Anlegen einer Organisation mit dem Alias einer früher
+  gelöschten: Rollengruppen `<prefix>/<alias>/<rolle>` (vordefinierte Rollen) mit Personen → 409
+  `leftover-role-groups`, leere werden übernommen. Spez. 9.3: Einladen löst keinen Abgleich aus (Eingeladene erst nach
+  Annahme im Verzeichnis); präzisiert statt `syncNow` nach dem Einladen.

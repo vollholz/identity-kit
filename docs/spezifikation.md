@@ -563,7 +563,8 @@ Herkunft). Organisation: `id` (Keycloak), `alias`, `name`,
 ### 9.3 Abgleich ins Personenverzeichnis
 
 - Worker gleicht alle Mandanten nach `MEMBER_SYNC_INTERVAL` ab (Standard 1 h, `0` = aus), höchstens ein Lauf über alle
-  Instanzen (Advisory-Lock); zusätzlich sofort nach Einladen, Entfernen und beim Öffnen der Mitgliederliste.
+  Instanzen (Advisory-Lock); zusätzlich sofort nach Entfernen und beim Öffnen der Mitgliederliste. Eingeladene
+  erscheinen erst nach Annahme im Personenverzeichnis ([9.1](#91-regeln) Nr. 9), Einladen löst deshalb keinen Abgleich aus.
 - Zuordnung Organisation ↔ Mandant über Alias **und** `kc_org_id`; Organisationen ohne Mandant und gesperrte Mandanten
   übersprungen; ein Fehler bei einer Organisation hält die anderen nicht auf und markiert dort niemanden als entfernt.
 - Wer nicht mehr Mitglied ist, erhält `removed_at` (nicht löschen: Verweise und Audit bleiben); Rückkehr hebt es auf

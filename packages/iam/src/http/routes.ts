@@ -81,7 +81,10 @@ function describeFields(node: unknown, fields: Record<string, string>, path: str
  * Routen mit `'x-body-optional': true` im Schema (z. B. `POST …/suspend`) werden hier als optional ausgewiesen. Die App
  * übergibt es als `transformObject` (oder ruft es in ihrem eigenen auf).
  */
-export function optionalBodies<T>({ openapiObject }: { openapiObject: T }): T {
+export function optionalBodies<T>(doc: { openapiObject?: T; swaggerObject?: T }): T {
+  // Swagger 2 (`swaggerObject`) kennt `requestBody` nicht: unverändert zurück
+  if (!doc.openapiObject) return doc.swaggerObject as T;
+  const { openapiObject } = doc;
   const paths = (openapiObject as { paths?: Record<string, Record<string, { requestBody?: { required?: boolean }; 'x-body-optional'?: boolean }>> }).paths ?? {};
   for (const ops of Object.values(paths)) {
     for (const op of Object.values(ops)) {

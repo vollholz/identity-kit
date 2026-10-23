@@ -668,6 +668,13 @@ Audit-Trigger darauf warten.
   Sperren und Entsperren laufen unter der Sperre der Organisation (`admin:<alias>`) und lesen die Organisation darunter
   neu. Niemand entfernt sich selbst, auch nicht über die Plattform-Route. (Assets: `ops/tenants.ts` und
   `service.ts:622/795` gleich wie vorher im Paket.)
+- **Unabhängige Review zu #24**: (A) Der Schutz des letzten Admins greift nur, wenn die Zielperson selbst aktiv ist –
+  eine feststeckende einzige Einladung mit org-admin lässt sich zurückziehen. (B) Ein gesperrter Mandant ohne
+  `kc_org_id` gilt nicht als die Organisation mit gleichem Alias (`orgMatches` false); die Verwaltung antwortet 409
+  `unbound-suspended` mit Hinweis auf `relinkTenant` und bindet nichts. (C) `GROUP_ROLE_PREFIX` wird beim Laden
+  einheitlich mit führendem und ohne abschliessenden `/` geführt (`normalizeGroupPrefix`); leere Teile und Leerzeichen
+  sind ein Konfigurationsfehler. (D) `optionalBodies` gibt bei Swagger 2 (`swaggerObject`) das Dokument unverändert
+  zurück.
 - **Alias nur ASCII klein** auch in der Verwaltung und im Abgleich (Zwischenspeicher der Organisationen, Zuordnung zum
   Mandanten, Anlegen): Assets nutzt `toLowerCase()` (`service.ts:152/154/695/697/698/736`, `sync.ts:144`), das das
   Kelvin-Zeichen zu «k» faltet.

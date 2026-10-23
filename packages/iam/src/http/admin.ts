@@ -130,7 +130,7 @@ export const adminModule: IamModule = {
       return {
         enabled: !!svc, reason: svc ? null : OFF_DETAIL, organization: p.tenantAlias, platformAdmin: isPerson && p.platformAdmin,
         canManageMembers: !!svc && isPerson && (await req.can('members:admin')), rolesManageable: iam.cfg.tenancy.roleSource !== 'client',
-        groupRolePrefix: `/${iam.cfg.tenancy.groupRolePrefix.replace(/^\/|\/$/g, '')}`,
+        groupRolePrefix: iam.cfg.tenancy.groupRolePrefix,
         roles: roleCatalog(iam.catalog, await req.tx(async tx => (await tx.query<CustomRole>(`SELECT key, label, description, permissions FROM ${S}.tenant_role WHERE deleted_at IS NULL ORDER BY lower(label)`)).rows)),
       };
     });

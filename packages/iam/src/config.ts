@@ -227,6 +227,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
   }
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
+  if (raw.GROUP_ROLE_PREFIX !== undefined && !/^\/?[^\s/]+(\/[^\s/]+)*\/?$/.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
   try { const ms = parseDuration(raw.MEMBER_SYNC_INTERVAL ?? '1h'); if (ms > 0 && ms < 60_000) errors.push('MEMBER_SYNC_INTERVAL: mindestens 1m oder 0 (aus)'); } catch { /* bereits gemeldet */ }
   try {
     const life = parseDuration(raw.KEYCLOAK_MGMT_INVITE_LIFESPAN ?? '72h');
@@ -241,6 +242,12 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
 }
 
 /** Typisierte Konfiguration aus geprüften Rohwerten. */
+/**
+ * Präfix der Rollengruppen einheitlich mit führendem und ohne abschliessenden «/» (`orgs`, `/orgs/` → `/orgs`): Token
+ * (Gruppenpfade), Verwaltung (Gruppen anlegen) und Status sehen so denselben Pfad.
+ */
+export function normalizeGroupPrefix(v: string): string { return `/${v.replace(/^\/+|\/+$/g, '')}`; }
+
 export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
   const s = (k: string) => raw[k] ?? '';
   const n = (k: string) => Number(raw[k]);
@@ -252,7 +259,7 @@ export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
     mode, publicBaseUrl: s('PUBLIC_BASE_URL').replace(/\/$/, ''),
     db: { url: s('DATABASE_URL'), adminUrl: opt('DATABASE_ADMIN_URL'), workerUrl: opt('DATABASE_WORKER_URL') ?? s('DATABASE_URL'), poolMax: n('DATABASE_POOL_MAX'), statementTimeoutMs: d('DATABASE_STATEMENT_TIMEOUT'), ssl: s('DATABASE_SSL') as IamConfig['db']['ssl'] },
     oidc: { issuer: s('OIDC_ISSUER_URL').replace(/\/$/, ''), apiAudience: s('OIDC_API_AUDIENCE'), mcpAudience: s('OIDC_MCP_AUDIENCE'), clockToleranceSec: Math.round(d('OIDC_CLOCK_TOLERANCE') / 1000), bffClientId: s('OIDC_BFF_CLIENT_ID'), bffClientSecret: opt('OIDC_BFF_CLIENT_SECRET'), bffPrivateKey: opt('OIDC_BFF_PRIVATE_KEY'), scopes: s('OIDC_SCOPES') },
-    tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), roleSource: s('ROLE_SOURCE') as IamConfig['tenancy']['roleSource'], roleClientId: s('ROLE_CLIENT_ID'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), groupRolePrefix: s('GROUP_ROLE_PREFIX').replace(/\/$/, ''), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
+    tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), roleSource: s('ROLE_SOURCE') as IamConfig['tenancy']['roleSource'], roleClientId: s('ROLE_CLIENT_ID'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), groupRolePrefix: normalizeGroupPrefix(s('GROUP_ROLE_PREFIX')), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
     m2m: { dpopMode: s('DPOP_MODE') as IamConfig['m2m']['dpopMode'], dpopMaxAgeSec: Math.round(d('DPOP_MAX_AGE') / 1000), mtlsHeader: opt('MTLS_HEADER') },
     mgmt: { clientId: opt('KEYCLOAK_MGMT_CLIENT_ID'), privateKey: opt('KEYCLOAK_MGMT_PRIVATE_KEY'), clientSecret: opt('KEYCLOAK_MGMT_CLIENT_SECRET'), adminUrl: opt('KEYCLOAK_MGMT_URL')?.replace(/\/$/, '') ?? null, inviteLifespanSec: Math.round(d('KEYCLOAK_MGMT_INVITE_LIFESPAN') / 1000), inviteMinMs: d('KEYCLOAK_MGMT_INVITE_MIN_TIME'), timeoutMs: d('KEYCLOAK_MGMT_TIMEOUT') },
     entra: { clientId: opt('ENTRA_CLIENT_ID'), clientSecret: opt('ENTRA_CLIENT_SECRET'), slots: n('ENTRA_IDP_SLOTS'), timeoutMs: d('ENTRA_TIMEOUT') },

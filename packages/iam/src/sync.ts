@@ -55,12 +55,13 @@ const SYSTEM = (correlationId: string): Actor => ({ principal: null, source: 'sy
 /**
  * Gehört der Mandant zu dieser Organisation (Keycloak-ID)? Ohne gespeicherte ID wird sie jetzt gebunden –
  * app.resolve_tenant bindet nur, wenn keine andere Zeile sie trägt. false: andere ID, oder die ID gehört bereits einem
- * anderen Mandanten; dann weder Personen übernehmen noch verwalten. Gesperrte Mandanten bindet resolve_tenant nicht
- * (Bindung nach dem Entsperren).
+ * anderen Mandanten, oder der Mandant ist gesperrt und noch nicht gebunden (resolve_tenant bindet gesperrte nicht);
+ * dann weder Personen übernehmen noch verwalten.
  */
 export async function orgMatches(db: Db, t: TenantRow, org: KcOrg): Promise<boolean> {
   if (t.kc_org_id) return t.kc_org_id === org.id;
-  if (t.status !== 'active') return true;
+  // Gesperrt ohne ID: resolve_tenant bindet nicht, eine Prüfung ist nicht möglich – nicht als dieselbe Organisation werten
+  if (t.status !== 'active') return false;
   const r = await db.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, false) AS id', [t.alias, org.id, org.name]);
   if (!r.rows[0]?.id) return false;
   return (await findTenant(db, t.alias))?.kc_org_id === org.id;

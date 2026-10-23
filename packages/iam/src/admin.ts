@@ -168,7 +168,7 @@ export class AdminService {
   constructor(deps: AdminDeps, kc: KeycloakAdmin) {
     this.deps = deps; this.kc = kc;
     this.S = schemaName(deps.schema);
-    this.prefix = `/${deps.cfg.tenancy.groupRolePrefix.replace(/^\/|\/$/g, '')}`;
+    this.prefix = deps.cfg.tenancy.groupRolePrefix;
   }
 
   private get tenants(): TenantsContext { return { schema: this.deps.schema, audit: this.deps.audit, resolver: this.deps.resolver }; }
@@ -300,6 +300,9 @@ export class AdminService {
   /** Mandant der Organisation; wird bei Bedarf angelegt (Organisation in Keycloak, aber noch nie benutzt). */
   async tenantFor(s: Scope, org: KcOrg): Promise<string> {
     const t = await findTenant(this.deps.db, org.alias) ?? (s.platform ? await createTenant(this.tenants, this.deps.db, this.deps.db, org.alias, org.name, org.id, this.actorOf(s)) : null);
+    // Gesperrt und noch an keine Organisation gebunden: resolve_tenant bindet gesperrte Mandanten nicht, und ohne ID liesse
+    // sich nicht prüfen, ob die Organisation mit diesem Alias dieselbe ist (Alias neu vergeben)
+    if (t && !t.kc_org_id && t.status !== 'active') throw conflict(`Die Organisation «${org.alias}» ist gesperrt und noch an keine Organisation in Keycloak gebunden. Zuordnung durch den Betrieb prüfen (relinkTenant), dann entsperren.`, { reason: 'unbound-suspended' });
     // Alias in Keycloak neu vergeben (gelöschte Organisation, neue mit gleichem Alias)? Dann nicht die Mitglieder der
     // neuen Organisation in den alten Mandanten übernehmen. Fehlt die gespeicherte ID, wird sie jetzt gebunden.
     if (t && !(await orgMatches(this.deps.db, t, org))) throw conflict(`Die Organisation «${org.alias}» in Keycloak passt nicht zur Organisation der Plattform (andere ID). Zuordnung durch die Plattform-Administration prüfen.`);
@@ -646,8 +649,13 @@ export class AdminService {
     } catch { /* nächster Abgleich (Liste, Worker) holt es nach */ }
   }
 
+  /**
+   * Die letzte aktive Person mit org-admin bleibt. Ist die Zielperson selbst nicht aktiv (z. B. nie angenommene
+   * Einladung), sperrt nichts: sonst liesse sich eine feststeckende einzige Einladung nie zurückziehen.
+   */
   private async lastAdminGuard(tx: Tx, org: KcOrg, groups: Map<string, KcGroup>, userId: string) {
     const admins = await this.activeAdmins(tx, org, groups);
+    if (!admins.includes(userId)) return;
     if (!admins.filter(id => id !== userId).length) throw conflict(`Die Organisation braucht mindestens eine aktive Person mit der Rolle ${this.roleLabel(ADMIN_ROLE)}. Zuerst eine andere Person zur Administration machen.`, { reason: 'last-admin' });
   }
 

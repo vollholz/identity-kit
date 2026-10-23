@@ -478,6 +478,10 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const inv = ok(await call('paula', 'POST', '/v1/platform/organizations/neu/members', { email: 'chefin@neu.example', roles: ['org-admin'] }), 202);
     assert.deepEqual(inv.member.roles, ['org-admin']);
     assert.ok(kc.orgMembers.get([...kc.orgs.values()].find(x => x.alias === 'neu')!.id)!.has(kc.byEmail('chefin@neu.example')!.id));
+    // Einzige Einladung mit org-admin, nie angenommen (nicht aktiv): zurückziehen bzw. Rolle ändern sperrt nicht (A)
+    ok(await call('paula', 'PUT', `/v1/platform/organizations/neu/members/${inv.member.id}/roles`, { roles: ['viewer'] }));
+    ok(await call('paula', 'PUT', `/v1/platform/organizations/neu/members/${inv.member.id}/roles`, { roles: ['org-admin'] }));
+    assert.deepEqual(ok(await call('paula', 'DELETE', `/v1/platform/organizations/neu/members/${inv.member.id}`)), { accountDeleted: true });
   });
 
   test('Plattform: sperren und entsperren – Keycloak und Mandant gleich; Body optional mit Grund; eigene Organisation nicht', async () => {
@@ -521,6 +525,21 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await call('paula', 'POST', '/v1/platform/organizations/muster/suspend', {})).status, 502);
     kc.deny = [];
     assert.equal((await t.inspect.query("SELECT status FROM notes.tenant WHERE alias = 'muster'")).rows[0].status, 'active');
+  });
+
+  test('gesperrter Mandant ohne Organisations-ID: 409 mit Hinweis, keine Bindung an die Organisation mit gleichem Alias (B)', async () => {
+    await t.inspect.query("SELECT app.resolve_tenant('altlast', null, 'Altlast', true)");
+    await t.inspect.query("UPDATE notes.tenant SET status = 'suspended' WHERE alias = 'altlast'");
+    const fremd = kc.org('altlast', 'Neue Altlast AG');
+    try {
+      for (const r of [await call('paula', 'GET', '/v1/platform/organizations/altlast/members'), await call('paula', 'POST', '/v1/platform/organizations/altlast/resume'), await call('paula', 'POST', '/v1/platform/organizations/altlast/members', { email: 'x@altlast.example' })]) {
+        assert.deepEqual([r.status, r.body.reason], [409, 'unbound-suspended'], JSON.stringify(r.body));
+        assert.match(r.body.detail, /relinkTenant/);
+      }
+      assert.deepEqual((await t.inspect.query("SELECT kc_org_id, status FROM notes.tenant WHERE alias = 'altlast'")).rows[0], { kc_org_id: null, status: 'suspended' }, 'nicht gebunden, weiter gesperrt');
+      assert.equal(fremd.enabled, true, 'Keycloak unverändert');
+      assert.equal(kc.byEmail('x@altlast.example'), null);
+    } finally { kc.orgs.delete(fremd.id); }
   });
 
   test('Anmeldung des Verwaltungs-Clients: Client Credentials, Token wird wiederverwendet', async () => {

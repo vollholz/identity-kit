@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import { routesOf } from '@vollholz/iam-testkit';
 import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { authzCatalogSchema } from '../src/http/account.ts';
-import { IAM_API_TAGS } from '../src/http/routes.ts';
+import { IAM_API_TAGS, optionalBodies } from '../src/http/routes.ts';
 import { assetsCatalog, notesCatalog } from './support/catalogs.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
@@ -50,6 +50,14 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
       assert.ok(op(r).summary, r);
     }
     assert.ok(!doc.paths['/v1/openapi.json'], 'versteckt');
+  });
+
+  test('optionalBodies: Swagger 2 (swaggerObject) unverändert, ohne Pfade kein Fehler (D)', () => {
+    const swagger2 = { swagger: '2.0', paths: { '/x': { post: { 'x-body-optional': true } } } };
+    assert.equal(optionalBodies({ swaggerObject: swagger2 }), swagger2);
+    assert.deepEqual(swagger2.paths['/x'].post, { 'x-body-optional': true }, 'nicht verändert');
+    assert.deepEqual(optionalBodies({ openapiObject: { openapi: '3.1.0' } }), { openapi: '3.1.0' });
+    assert.equal(optionalBodies({}), undefined);
   });
 
   test('Modul admin: groupRolePrefix im Status, Body von suspend/resume optional (optionalBodies), Einladen mit 202', () => {

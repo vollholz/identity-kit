@@ -254,7 +254,7 @@ entfallen):
 | `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
 | `iam_010_revoke_public_execute.sql` | kein EXECUTE für PUBLIC auf Funktionen in `app` und `<schema>`; `app.audit_hash` ausdrücklich für `_app` und `_sched` | 051 (vollholz/assets#24) |
 | `iam_011_resolve_tenant_strict.sql` | `app.resolve_tenant`: Alias roh gegen das ASCII-Muster prüfen, nur A–Z falten (kein `lower()`, Kelvin-Zeichen); scheitert das Binden der Organisations-ID, kein Mandant | 052 (vollholz/assets#26) |
-| `iam_012_acl_unique.sql` | keine doppelten Zugriffsregeln: eindeutiger Index über Ressource, Subjekt, Recht und Wirkung (`NULLS NOT DISTINCT`); bestehende Duplikate entfernt (der älteste bleibt) | 053 (folgt; Befund aus der Prüfung von #17) |
+| `iam_012_acl_unique.sql` | keine doppelten Zugriffsregeln: eindeutiger Index über Ressource, Subjekt, Recht und Wirkung (`NULLS NOT DISTINCT`); bestehende Duplikate entfernt (der älteste bleibt) | 053 (vollholz/assets#28) |
 
 Bis `iam_008` entsprechen die Rechte der Funktionen genau Assets 049, auch wo PUBLIC noch ausführen darf
 (`app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()`);
@@ -309,8 +309,8 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
   Bedingungen zu Ressourcentypen stellt danach der Abgleich her (6.2). Sonst bricht er ab und trägt nichts ein
   (Auflage 4). Spätere IAM-Migrationen (`iam_009` …) laufen in Assets normal.
 - **Gleichheitstest** in der CI des Pakets (`test/assets-schema.test.ts`): Der Abzug der IAM-Objekte von Assets nach
-  001–052 (`63b9cf9`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
-  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010` und `iam_011` (= Assets 051, 052) mit den Parametern von Assets muss für alle
+  001–053 (`4a3574d`) liegt als Fixture bei (`test/fixtures/assets-schema.json`, erzeugt mit `scripts/assets-schema.ts` aus einem
+  Checkout von Assets). Eine frische Datenbank aus `iam_001`–`iam_008`, `iam_010`–`iam_012` (= Assets 051–053) mit den Parametern von Assets muss für alle
   IAM-Tabellen und -Funktionen genau diesen Abzug ergeben (`schemaSnapshot`, exportiert): Besitzer, Spalten, Typen,
   Standardwerte, Sequenzen, Bedingungen mit Namen,
   Indizes, Policies, Trigger, RLS, Rechte von Tabellen, Spalten, Schemas und Funktionen, Funktionsrümpfe, Standardrechte.

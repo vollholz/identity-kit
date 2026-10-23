@@ -19,6 +19,7 @@ import type { ResourceRef } from '../resources.ts';
 import { accountModule } from './account.ts';
 import { aclModule } from './acl.ts';
 import { bffModule } from './bff.ts';
+import { clientsModule } from './clients.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
 import type { IamModule, ModuleContext, OpenApiOverrides } from './routes.ts';
 
@@ -27,7 +28,7 @@ export interface SessionBridge {
   accessToken(req: FastifyRequest, reply: FastifyReply): Promise<{ token: string; csrfOk: boolean } | null>;
 }
 
-export type IamModuleName = 'account' | 'acl' | 'bff';
+export type IamModuleName = 'account' | 'acl' | 'bff' | 'clients';
 
 export interface IamPluginOptions {
   iam: Iam<any, any>;
@@ -108,7 +109,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const realm = iam.catalog.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), ...(iam.bff ? ['bff'] : [])] as IamModuleName[]);
+  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), ...(iam.bff ? ['bff'] : []), 'clients'] as IamModuleName[]);
   // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
   const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
@@ -197,7 +198,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
 
   // ---------- Module
   const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {} };
-  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, bff: bffModule };
+  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, bff: bffModule, clients: clientsModule };
   for (const n of names) await modules[n].register(app, ctx);
 }
 

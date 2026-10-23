@@ -5,5 +5,7 @@
     // Typprüfung vor dem Build (CI): das Test-Kit aus den Quellen statt aus dist
     "paths": { "@vollholz/iam-testkit": ["../iam-testkit/src/index.ts"] }
   },
-  "include": ["src", "test", "scripts"]
+  "include": ["src", "test", "scripts"],
+  // Entfallen mit Authz neu (Spezifikation Kap. 9.2, 10.2); Löschung offen, siehe PR «Zu löschen»
+  "exclude": ["src/catalog.ts", "src/http/acl.ts", "src/http/roles.ts", "test/acl.test.ts", "test/roles.test.ts", "test/assets-schema.test.ts", "scripts/assets-catalog.ts", "scripts/assets-schema.ts"]
 }

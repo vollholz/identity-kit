@@ -1,99 +1,57 @@
 /**
- * Verwaltung von Organisationen, Mitgliedern und Rollen über die Keycloak-Admin-API – mit der Mandantengrenze
- * (Spezifikation Kap. 9.1; aus Assets `modules/admin/service.ts`, ohne Fastify).
+ * Verwaltung von Organisationen und Mitgliedern – mit der Mandantengrenze (Spezifikation Kap. 9.1, 9.6).
  *
- * Der Service Account in Keycloak darf mehr als eine einzelne Organisation (Keycloak 26 kennt keine Rechte je
- * Organisation). Die Grenze setzt deshalb diese Datei durch:
- * - Ein org-admin arbeitet immer in der Organisation seines Tokens (`Scope.alias` kommt aus dem Principal, nie aus der
- *   Anfrage). Jede Person wird vor jeder Änderung als Mitglied genau dieser Organisation geprüft; fremde IDs → 404.
- * - Rollen sind ausschliesslich die Gruppen `<GROUP_ROLE_PREFIX>/<alias>/<rolle>` des Rollenkatalogs und der eigenen
- *   Rollen der Organisation (`tenant_role`). Andere Gruppen, Realm-Rollen und Client-Rollen werden nie verändert.
- * - Die Rolle org-admin vergeben und entziehen, Organisationen anlegen, ändern und sperren: nur platform-admin.
- * - Die letzte aktive Person mit org-admin lässt sich weder entfernen noch herabstufen (409). Aktiv heisst wie in der
- *   Mitgliederliste: Mitglied, Konto nicht gesperrt, Einladung angenommen (Abweichung von Assets, Entwurf 13.13).
+ * Keycloak hält nur Konto und Mitgliedschaft (D6); Rollen sind Tupel `user:<id> <rolle> org` in der Datenbank der App,
+ * die Freigabestufe steht am Principal. Der Service Account in Keycloak darf mehr als eine Organisation (Keycloak 26
+ * kennt keine Rechte je Organisation); die Grenze setzt diese Datei durch:
+ * - Wer `members:admin` hat, arbeitet immer in der Organisation seines Tokens (`Scope.alias` kommt aus dem Principal,
+ *   nie aus der Anfrage). Jede Person wird vor jeder Änderung als Mitglied bzw. offene Einladung genau dieser
+ *   Organisation geprüft; fremde IDs → 404.
+ * - Regeln für Rollen und Freigabestufen (org-admin nur platform-admin, niemand gibt mehr, als er hat, letzter Admin,
+ *   nie für sich selbst): rules.ts.
  * - Ein org-admin erfährt nichts über andere Organisationen: Einladen, erneut Senden und Zurückziehen antworten gleich,
  *   ob für die Adresse schon ein Konto besteht oder nicht (gleicher Status, gleiche Felder, Mindestdauer
  *   KEYCLOAK_MGMT_INVITE_MIN_TIME); eingeladene Personen erscheinen in beiden Fällen gleich (offene Einladung aus
- *   `member_invitation`, nicht aus dem Konto) und tragen nach aussen die ID ihrer Einladung, nie die ID des Kontos; ob
- *   ein Konto beim Entfernen gelöscht wurde, sieht nur die Plattform. Gelöscht wird nur ein Konto, das die Einladung
- *   selbst angelegt hat (`created_account`).
- * - Änderungen derselben Organisation laufen nacheinander (Advisory-Lock `admin:<alias>`), damit der Schutz des letzten
- *   Admins auch bei gleichzeitigen Anfragen hält. Jede Änderung wird im Audit-Protokoll des betroffenen Mandanten
- *   festgehalten; scheitert eine Änderung, nachdem Keycloak schon geändert wurde, folgt ein eigener Eintrag `…_failed`
- *   mit den erfolgten Schritten.
+ *   `member_invitation`) und tragen nach aussen die ID ihrer Einladung, nie die ID des Kontos; ob ein Konto beim
+ *   Entfernen gelöscht wurde, sieht nur die Plattform. Gelöscht wird nur ein Konto, das die Einladung selbst angelegt
+ *   hat (`created_account`).
+ * - Die Einladung legt den Principal an (A16) und setzt die Rollen sofort als Tupel; Zurückziehen und Entfernen löschen
+ *   alle Tupel der Person (A17).
+ * - Änderungen derselben Organisation laufen nacheinander (Advisory-Lock `admin:<alias>`). Jede Änderung steht im
+ *   Audit des betroffenen Mandanten; scheitert eine Änderung, nachdem Keycloak schon geändert wurde, folgt ein eigener
+ *   Eintrag `…_failed` mit den erfolgten Schritten.
  */
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { AccessService } from './access.ts';
 import type { Actor, AuditEntry, AuditPort, Source } from './audit.ts';
-import { ADMIN_ROLE, type Catalog } from './catalog.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db, type Tx } from './db.ts';
-import { conflict, forbidden, HttpError, invalid, notFound } from './errors.ts';
+import { conflict, HttpError, invalid, notFound } from './errors.ts';
 import { notLinkable, type EntraGraph, type EntraUser } from './graph.ts';
-import { KeycloakAdmin, KeycloakError, type KcGroup, type KcOrg, type KcUser } from './keycloak.ts';
+import { listClients } from './http/clients.ts';
+import { KeycloakAdmin, KeycloakError, type KcOrg, type KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
-import { ALIAS_PATTERN, asciiLower, rolesFromClaims, tenantGroups, type Principal, type PrincipalResolver } from './principal.ts';
-import { displayName, orgMatches, pendingActions, syncTenantMembers, syncTenantName, type RoleCleanup, type SyncContext } from './sync.ts';
+import { ADMIN_ROLE, type Level, type Model } from './model.ts';
+import { ALIAS_PATTERN, asciiLower, type Principal, type PrincipalResolver } from './principal.ts';
+import { checkRoleChange, checkRoles, lastAdminGuard, setClearance, setOrgRoles, type Acting } from './rules.ts';
+import { displayName, orgMatches, pendingActions, syncTenantMembers, syncTenantName, type SyncContext } from './sync.ts';
 import { createTenant, findTenant, listTenants, setTenantStatus, type TenantActor, type TenantRow, type TenantsContext } from './tenants.ts';
+import type { TupleStore } from './tuples.ts';
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-/** Eigene Rolle der Organisation (`tenant_role`). */
-export interface CustomRole { key: string; label: string; description: string; permissions: string[] }
-
-/** Rolle mit Erklärung für die Oberfläche (`GET /v1/admin/status`). */
-export interface RoleInfo { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean; custom: boolean }
-
-/**
- * Rollen mit Erklärung: vordefinierte wie `GET /v1/authz/catalog`, danach die eigenen der Organisation (Rechte in
- * Katalogreihenfolge, ohne Rechte nur für org-admin).
- */
-export function roleCatalog(catalog: Catalog, custom: CustomRole[] = []): RoleInfo[] {
-  return [
-    ...catalog.toJSON().roles.map(r => ({ ...r, custom: false })),
-    ...custom.map(r => ({ key: r.key, label: r.label, description: r.description, permissions: [...catalog.permissionsForRoles([r.key], new Map([[r.key, r.permissions]]))], adminOnly: false, custom: true })),
-  ];
-}
-
-/** Höchstzahl eigener Rollen je Organisation (wie Assets `MAX_CUSTOM_ROLES`). */
-export const MAX_CUSTOM_ROLES = 50;
-
-/** Eigene Rolle, wie sie in `tenant_role` steht. */
-export interface TenantRoleRow { id: string; key: string; label: string; description: string; permissions: string[]; version: number; created_at: Date; updated_at: Date }
-/** Spalten von `TenantRoleRow` für Abfragen. */
-export const TENANT_ROLE_COLS = 'id, key, label, description, permissions, version, created_at, updated_at';
-
-/** Rolle wie `GET /v1/roles` (Schema `Role`). `memberCount` null ohne Zahlen. */
-export interface RoleOut {
-  key: string; label: string; description: string; permissions: string[]; custom: boolean; adminOnly: boolean;
-  id: string | null; version: number | null; memberCount: number | null; createdAt: Date | null; updatedAt: Date | null;
-}
-
-/**
- * Rollen einer Organisation wie `GET /v1/roles` (aus Assets `modules/admin/roles.ts`): zuerst die vordefinierten in
- * Katalogreihenfolge, dann die eigenen in der gegebenen Reihenfolge; Rechte in Katalogreihenfolge.
- */
-export function roleList(catalog: Catalog, rows: TenantRoleRow[], counts: Map<string, number> | null): { items: RoleOut[]; maxCustom: number; customPermissions: string[] } {
-  const count = (key: string) => (counts ? counts.get(key) ?? 0 : null);
-  return {
-    items: [
-      ...[...catalog.roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...r.permissions], custom: false, adminOnly: key === ADMIN_ROLE, id: null, version: null, memberCount: count(key), createdAt: null, updatedAt: null })),
-      ...rows.map(r => ({ key: r.key, label: r.label, description: r.description, permissions: catalog.permissions.filter(p => r.permissions.includes(p)), custom: true, adminOnly: false, id: r.id, version: r.version, memberCount: count(r.key), createdAt: r.created_at, updatedAt: r.updated_at })),
-    ],
-    maxCustom: MAX_CUSTOM_ROLES,
-    customPermissions: [...catalog.customRolePermissions],
-  };
-}
-
 /** Was der Service vom IAM braucht (`createIam` übergibt sich selbst). */
 export interface AdminDeps {
   readonly cfg: IamConfig;
-  readonly catalog: Catalog<any>;
+  readonly model: Model<any>;
   readonly db: Db;
   readonly schema: string;
   readonly audit: AuditPort;
   readonly resolver: Pick<PrincipalResolver, 'forgetPrincipal' | 'forgetTenant' | 'forgetEntra'>;
+  readonly access: AccessService<any, any>;
+  readonly tuples: TupleStore;
 }
 
 /** Wer handelt und in welcher Organisation. */
@@ -107,11 +65,27 @@ export interface Scope {
 }
 
 export type MemberStatus = 'active' | 'invited' | 'disabled';
+/** Person oder freigegebener Maschinen-Client der Organisation (Kap. 9.6). */
 export interface Member {
-  id: string; principalId: string | null; username: string; name: string; email: string | null;
-  status: MemberStatus; roles: string[]; lastSeenAt: Date | null; createdAt: Date | null;
+  /** Person: Keycloak-ID bzw. Einladungs-ID; Client: Client-ID. */
+  id: string;
+  kind: 'user' | 'client';
+  /** Subjekt `user:<id>` bzw. `client:<id>`; nie null (A16). */
+  principalId: string;
+  username: string; name: string; email: string | null;
+  status: MemberStatus;
+  /** Rollen an der Organisation (Tupel), Reihenfolge des Modells. */
+  roles: string[];
+  /** Gespeicherte Stufe, ohne Break-Glass. */
+  clearance: Level;
+  breakGlassUntil: Date | null;
+  /** Tupel an anderen Orten als org («+3 Orte»). */
+  places: number;
+  lastSeenAt: Date | null; createdAt: Date | null;
   /** Offene Einladung aus Entra ID: Pfad der Anmeldung über Microsoft (zum Weitergeben), sonst null. */
   loginPath: string | null;
+  /** Nur Clients. */
+  clientId: string | null; scopes: string[] | null; description: string | null;
 }
 
 export interface Organization {
@@ -155,8 +129,8 @@ interface Target { id: string; userId: string; user: KcUser | null; member: bool
 
 /** In Keycloak erfolgte Änderung, für das Protokoll, falls danach etwas scheitert. Nur Angaben dieser Organisation. */
 export interface Step {
-  step: 'account_created' | 'membership_added' | 'membership_removed' | 'account_deleted' | 'role_added' | 'role_removed' | 'organization_updated'
-    | 'idp_created' | 'idp_linked' | 'idp_updated' | 'idp_deleted' | 'account_linked' | 'password_removed';
+  step: 'account_created' | 'membership_added' | 'membership_removed' | 'account_deleted' | 'organization_updated'
+    | 'idp_created' | 'idp_linked' | 'idp_updated' | 'idp_deleted' | 'account_linked' | 'password_removed' | 'mapper_created';
   role?: string;
 }
 
@@ -164,6 +138,8 @@ export interface Step {
 export interface Work {
   tx: Tx;
   tenantId: string;
+  /** Wer handelt (Regeln für Rollen und Freigabestufen). */
+  acting: Acting;
   log: (e: AuditEntry) => Promise<void>;
   /** Änderung in Keycloak erfolgt. `platformOnly`: verriete einem org-admin etwas über das Konto (neu/gelöscht). */
   done: (st: Step, platformOnly?: boolean) => void;
@@ -174,32 +150,25 @@ export interface Work {
 /** Protokolleintrag, wenn die Arbeit scheitert, nachdem Keycloak schon geändert wurde (eigene Transaktion). */
 export type Failure = { action: string; resourceType: 'member'; resourceId: string | null } | { action: string; resourceType: 'tenant' };
 
+interface PrincipalRow { id: string; subject: string; last_seen_at: Date | null; clearance: Level; clearance_until: Date | null; invited_at: Date | null }
+
 export class AdminService {
   private readonly deps: AdminDeps;
   readonly kc: KeycloakAdmin;
-  private readonly prefix: string;
   /** Schema der Tabellen (geprüft). */
   private readonly S: string;
   private orgs: { at: number; byAlias: Map<string, KcOrg>; ambiguous: Set<string> } | null = null;
-  private readonly groups = new Map<string, { at: number; byRole: Map<string, KcGroup> }>();
-  private readonly custom = new Map<string, { at: number; keys: string[] }>();
 
   constructor(deps: AdminDeps, kc: KeycloakAdmin) {
     this.deps = deps; this.kc = kc;
     this.S = schemaName(deps.schema);
-    this.prefix = deps.cfg.tenancy.groupRolePrefix;
   }
 
   private get tenants(): TenantsContext { return { schema: this.deps.schema, audit: this.deps.audit, resolver: this.deps.resolver }; }
   private get sync(): SyncContext { return { schema: this.deps.schema, audit: this.deps.audit }; }
+  private get roleOrder() { return [...this.deps.model.roles.keys()] as string[]; }
 
-  /** Rollen über Gruppen wirken nur, wenn ROLE_SOURCE sie auswertet. */
-  get rolesManageable() { return this.deps.cfg.tenancy.roleSource !== 'client'; }
-
-  /** Label einer Rolle für Meldungen: «Organisations-Admin» statt org-admin. */
-  private roleLabel(r: string) { return `«${this.deps.catalog.roles.get(r)?.label ?? r}»`; }
-
-  // ---------------------------------------------------------------- Organisation und Rollengruppen
+  // ---------------------------------------------------------------- Organisation
   async org(alias: string, fresh = false): Promise<KcOrg> {
     if (fresh || !this.orgs || Date.now() - this.orgs.at > 60_000) this.cacheOrgs(await this.kc.listOrgs());
     const key = asciiLower(alias);
@@ -219,118 +188,10 @@ export class AdminService {
     this.orgs = { at: Date.now(), byAlias, ambiguous };
   }
 
-  private rolePath(alias: string, role?: string) { return `${this.prefix}/${alias}${role ? `/${role}` : ''}`; }
-
-  /** Eigene Rollen der Organisation (`tenant_role`), 60 s zwischengespeichert; nach Änderungen forgetRoles(). */
-  private async customRoleKeys(alias: string): Promise<string[]> {
-    const hit = this.custom.get(alias);
-    if (hit && Date.now() - hit.at < 60_000) return hit.keys;
-    const t = await findTenant(this.deps.db, alias);
-    const keys = t ? await withTenant(this.deps.db, { tenantId: t.id }, async tx => (await tx.query<{ key: string }>(`SELECT key FROM ${this.S}.tenant_role WHERE deleted_at IS NULL ORDER BY key`)).rows.map(r => r.key)) : [];
-    this.custom.set(alias, { at: Date.now(), keys });
-    return keys;
-  }
-
-  /** Vordefinierte und eigene Rollen der Organisation. */
-  async roleKeys(alias: string): Promise<string[]> {
-    return [...this.deps.catalog.roles.keys(), ...await this.customRoleKeys(alias)];
-  }
-
-  /** Nach Anlegen oder Löschen einer eigenen Rolle (andere Instanzen nach spätestens 60 s). */
-  forgetRoles(alias: string) { this.custom.delete(alias); this.groups.delete(alias); }
-
-  /**
-   * Gruppe einer gelöschten eigenen Rolle entfernen: alle Personen verlieren die Rolle. Vordefinierte Rollen nie.
-   * @returns Anzahl Personen, die die Rolle hatten
-   */
-  async deleteRoleGroup(alias: string, key: string): Promise<number> {
-    if (this.deps.catalog.roles.has(key)) throw new Error(`Vordefinierte Rolle ${key} lässt sich nicht löschen`);
-    const g = await this.kc.groupByPath(this.rolePath(alias, key));
-    const n = g ? (await this.kc.groupMembers(g.id)).length : 0;
-    if (g) await this.kc.deleteGroup(g.id);
-    this.forgetRoles(alias);
-    return n;
-  }
-
-  /**
-   * Rollen einer beliebigen Organisation für die Plattform-Administration (nur lesend, Format von `GET /v1/roles`, mit
-   * Anzahl Personen). Unbekannte Organisation 404; noch nie benutzt (kein Mandant): nur die vordefinierten Rollen.
-   * Scheitert das Zählen in Keycloak, ohne Zahlen.
-   */
-  async rolesOfOrganization(alias: string) {
-    const org = await this.org(alias, true);
-    const t = await findTenant(this.deps.db, org.alias);
-    const rows = t ? await withTenant(this.deps.db, { tenantId: t.id }, async tx => (await tx.query<TenantRoleRow>(`SELECT ${TENANT_ROLE_COLS} FROM ${this.S}.tenant_role WHERE deleted_at IS NULL ORDER BY lower(label)`)).rows) : [];
-    const counts = await this.roleMemberCounts(org.alias).catch(() => null);
-    return roleList(this.deps.catalog, rows, counts);
-  }
-
-  /** Anzahl Personen je Rolle (Gruppenmitglieder, auch eingeladene). Rollen ohne Gruppe fehlen. */
-  async roleMemberCounts(alias: string): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    for (const [role, g] of await this.roleGroups(alias)) out.set(role, (await this.kc.groupMembers(g.id)).length);
-    return out;
-  }
-
-  /** Gruppen `<prefix>/<alias>/<rolle>`; fehlende werden angelegt (z. B. für in der Konsole angelegte Organisationen). */
-  async roleGroups(alias: string, create = false): Promise<Map<string, KcGroup>> {
-    const keys = await this.roleKeys(alias);
-    const hit = this.groups.get(alias);
-    if (hit && Date.now() - hit.at < 300_000 && (!create || hit.byRole.size === keys.length)) return hit.byRole;
-    const byRole = new Map<string, KcGroup>();
-    let parent = await this.kc.groupByPath(this.rolePath(alias));
-    if (!parent && create) {
-      // Präfix mit mehreren Stufen (`/apps/notes`): jede fehlende Stufe einzeln anlegen
-      let rootId: string | null = null, path = '';
-      for (const name of this.prefix.slice(1).split('/')) {
-        path += `/${name}`;
-        rootId = (await this.kc.groupByPath(path))?.id ?? await this.kc.createGroup(rootId, name);
-      }
-      parent = { id: await this.kc.createGroup(rootId, alias), name: alias, path: this.rolePath(alias) };
-    }
-    if (parent) {
-      for (const role of keys) {
-        let g = await this.kc.groupByPath(this.rolePath(alias, role));
-        if (!g && create) g = { id: await this.kc.createGroup(parent.id, role), name: role, path: this.rolePath(alias, role) };
-        if (g) byRole.set(role, g);
-      }
-    }
-    this.groups.set(alias, { at: Date.now(), byRole });
-    return byRole;
-  }
-
-  /** Rollen einer Person in dieser Organisation (nur Gruppen vordefinierter und eigener Rollen). */
-  private async rolesOf(alias: string, userId: string): Promise<string[]> {
-    const base = `${this.rolePath(alias)}/`, known = new Set(await this.roleKeys(alias));
-    return (await this.kc.userGroups(userId)).map(g => g.path).filter(p => p.startsWith(base)).map(p => p.slice(base.length)).filter(r => known.has(r));
-  }
-
-  /**
-   * Aktive Mitglieder mit Rolle org-admin (Spezifikation 9.1 Nr. 6): Mitglied, Konto nicht gesperrt und – wie
-   * `status: 'active'` in der Mitgliederliste – weder offen eingeladen noch mit offenem «Passwort setzen» ohne Zugriff.
-   * Assets zählt auch nie angenommene Einladungen mit angelegtem Konto (dort Mitglied ab der Einladung).
-   */
-  private async activeAdmins(tx: Tx, org: KcOrg, groups: Map<string, KcGroup>): Promise<string[]> {
-    const g = groups.get(ADMIN_ROLE);
-    if (!g) return [];
-    const candidates: KcUser[] = [];
-    for (const u of await this.kc.groupMembers(g.id)) {
-      const m = await this.kc.member(org.id, u.id);
-      if (m && m.enabled !== false) candidates.push(m);
-    }
-    if (!candidates.length) return [];
-    const ids = candidates.map(u => u.id);
-    const open = new Set((await tx.query<{ user_id: string }>(`SELECT user_id FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND user_id = ANY($1::text[])`, [ids])).rows.map(r => r.user_id));
-    const seen = new Set((await tx.query<{ subject: string }>(`SELECT subject FROM ${this.S}.principal WHERE kind = 'user' AND last_seen_at IS NOT NULL AND subject = ANY($1::text[])`, [ids])).rows.map(r => r.subject));
-    return candidates.filter(u => !open.has(u.id) && !(pendingActions(u) && !seen.has(u.id))).map(u => u.id);
-  }
-
   // ---------------------------------------------------------------- Mandant, Transaktion, Audit
   /** Mandant der Organisation; wird bei Bedarf angelegt (Organisation in Keycloak, aber noch nie benutzt). */
   async tenantFor(s: Scope, org: KcOrg): Promise<string> {
     const t = await findTenant(this.deps.db, org.alias) ?? (s.platform ? await createTenant(this.tenants, this.deps.db, this.deps.db, org.alias, org.name, org.id, this.actorOf(s)) : null);
-    // Gesperrt und noch an keine Organisation gebunden: resolve_tenant bindet gesperrte Mandanten nicht, und ohne ID liesse
-    // sich nicht prüfen, ob die Organisation mit diesem Alias dieselbe ist (Alias neu vergeben)
     if (t && !t.kc_org_id && t.status !== 'active') throw conflict(`Die Organisation «${org.alias}» ist gesperrt und noch an keine Organisation in Keycloak gebunden. Zuordnung durch den Betrieb prüfen (relinkTenant), dann entsperren.`, { reason: 'unbound-suspended' });
     // Alias in Keycloak neu vergeben (gelöschte Organisation, neue mit gleichem Alias)? Dann nicht die Mitglieder der
     // neuen Organisation in den alten Mandanten übernehmen. Fehlt die gespeicherte ID, wird sie jetzt gebunden.
@@ -364,15 +225,17 @@ export class AdminService {
     const a = this.actorOf(s);
     const steps: Step[] = [];
     try {
-      return await withTenant(this.deps.db, ctx, async tx => {
+      const r = await withTenant(this.deps.db, ctx, async tx => {
         await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey.admin(org.alias)]);
         return fn({
-          tx, tenantId,
+          tx, tenantId, acting: { actor: s.actor, platform: s.platform },
           log: e => this.write(tx, a, e),
           done: (st, platformOnly = false) => { if (s.platform || !platformOnly) steps.push(st); },
           undone: st => { const i = steps.findIndex(x => x.step === st.step && x.role === st.role); if (i >= 0) steps.splice(i, 1); },
         });
       });
+      this.deps.access.invalidate(tenantId);
+      return r;
     } catch (e) {
       if (failure && steps.length) {
         await withTenant(this.deps.db, ctx, tx => this.write(tx, a, {
@@ -384,91 +247,100 @@ export class AdminService {
     }
   }
 
-  private async checkRoles(s: Scope, roles: string[]) {
-    // Set statt Objekt: `constructor`, `__proto__` u. a. sind keine Rollen
-    const known = new Set(await this.roleKeys(s.alias));
-    const unknown = roles.filter(r => !known.has(r));
-    if (unknown.length) throw invalid(`Unbekannte Rolle: ${unknown.join(', ')}`, unknown.map(r => ({ path: '/roles', message: `«${r}» ist keine Rolle dieser Organisation` })));
-    if (roles.length && !this.rolesManageable) throw conflict('Rollen kommen aus Client-Rollen von Keycloak (ROLE_SOURCE=client) und lassen sich hier nicht verwalten.');
-  }
-
-  /**
-   * Unter der Sperre der Organisation (hält auch das Löschen einer Rolle): Rollen erneut prüfen, eigene Rollen und ihre
-   * Gruppen ungecacht. Sonst legte roleGroups(…, true) die Gruppe einer auf einer anderen Instanz gelöschten Rolle neu an.
-   */
-  private async recheckRoles(s: Scope, org: KcOrg, roles: string[]) {
-    this.forgetRoles(org.alias);
-    await this.checkRoles({ ...s, alias: org.alias }, roles);
-  }
-
-  private requireAdminChange(s: Scope) {
-    if (!s.platform) throw forbidden(`Die Rolle ${this.roleLabel(ADMIN_ROLE)} vergibt und entzieht nur die Plattform-Administration.`);
+  /** Principal einer Person im Mandanten anlegen (A16) oder finden; `last_seen_at` bleibt leer bis zum ersten Zugriff. */
+  private async principalOf(tx: Tx, userId: string, name: string | null, email: string | null): Promise<string> {
+    return (await tx.query<{ id: string }>(
+      `INSERT INTO ${this.S}.principal AS p (tenant_id, kind, subject, display_name, email, last_seen_at) VALUES (app.tenant_id(), 'user', $1, $2, $3, NULL)
+       ON CONFLICT (tenant_id, kind, subject) DO UPDATE SET display_name = coalesce(p.display_name, excluded.display_name), email = coalesce(p.email, excluded.email)
+       RETURNING id`, [userId, name, email])).rows[0]!.id;
   }
 
   // ---------------------------------------------------------------- Mitglieder
   /** Offene Einladungen und Anbieter der Entra-Verbindung (für den Link der Einladungen aus Entra ID). */
-  private async openInvitations(tenantId: string): Promise<{ list: Invitation[]; idpAlias: string | null }> {
-    return withTenant(this.deps.db, { tenantId }, async tx => ({
+  private async openInvitations(tx: Tx): Promise<{ list: Invitation[]; idpAlias: string | null }> {
+    return {
       list: (await tx.query<Invitation>(`SELECT ${INVITATION_COLS} FROM ${this.S}.member_invitation WHERE accepted_at IS NULL ORDER BY created_at`)).rows,
       idpAlias: (await tx.query<{ idp_alias: string }>(`SELECT idp_alias FROM ${this.S}.entra_connection`)).rows[0]?.idp_alias ?? null,
-    }));
+    };
+  }
+
+  /** Rollen an org und Anzahl Orte je Subjekt aus dem Stand der Tupel. */
+  private async tupleView(tenantId: string): Promise<(subject: string) => { roles: string[]; places: number }> {
+    const acl = await this.deps.access.load(tenantId);
+    const now = Date.now();
+    return subject => {
+      const mine = acl.tuples.filter(t => t.subject === subject);
+      const roles = new Set(mine.filter(t => t.object_type === 'org' && (!t.expires_at || t.expires_at.getTime() > now)).map(t => t.relation));
+      return { roles: this.roleOrder.filter(r => roles.has(r)), places: mine.filter(t => t.object_type !== 'org').length };
+    };
   }
 
   /**
    * Eingeladene Person: Angaben aus der Einladung dieses Mandanten, nicht aus dem Konto (gleich für neue und bestehende
    * Konten); ID der Einladung statt der Keycloak-ID (gleiche Keycloak-ID bei erneuter Einladung verriete ein Konto).
    */
-  private static invited(i: Invitation, roles: string[], org: string, idpAlias: string | null): Member {
+  private static invited(i: Invitation, p: { principalId: string; roles: string[]; places: number; clearance: Level }, org: string, idpAlias: string | null): Member {
     return {
-      id: i.id, principalId: null, username: i.email, name: i.display_name, email: i.email, status: 'invited', roles, lastSeenAt: null, createdAt: i.created_at,
-      loginPath: i.entra && idpAlias ? entraLoginPath(idpAlias, org) : null,
+      id: i.id, kind: 'user', principalId: p.principalId, username: i.email, name: i.display_name, email: i.email, status: 'invited', roles: p.roles,
+      clearance: p.clearance, breakGlassUntil: null, places: p.places, lastSeenAt: null, createdAt: i.created_at,
+      loginPath: i.entra && idpAlias ? entraLoginPath(idpAlias, org) : null, clientId: null, scopes: null, description: null,
     };
   }
 
+  /** Personen (Mitglieder und offene Einladungen) und freigegebene Clients, sortiert nach Name. */
   async listMembers(s: Scope): Promise<Member[]> {
     const org = await this.org(s.alias);
     const users = await this.kc.members(org.id);
-    const groups = await this.roleGroups(org.alias);
-    const roleSets = new Map<string, Set<string>>();
-    for (const [role, g] of groups) roleSets.set(role, new Set((await this.kc.groupMembers(g.id)).map(u => u.id)));
-    const rolesOf = (id: string) => [...roleSets].filter(([, ids]) => ids.has(id)).map(([r]) => r);
     const tenantId = await this.tenantFor(s, org);
-    // Personenverzeichnis abgleichen: Mitglieder, die sich noch nie angemeldet haben, auswählbar; Ehemalige markiert;
-    // angenommene Einladungen abgeschlossen; Rollengruppen von Nicht-Mitgliedern ohne Einladung entfernt (passt roleSets an)
-    await syncTenantMembers(this.sync, this.deps.db, tenantId, org.alias, users, s.correlationId, { kc: this.kc, orgId: org.id, groups, members: roleSets });
-    const inv = await this.openInvitations(tenantId);
-    const open = new Map(inv.list.map(i => [i.user_id, i]));
-    const seen = await withTenant(this.deps.db, { tenantId }, async tx => new Map((await tx.query<{ id: string; subject: string; last_seen_at: Date | null; invited_at: Date | null }>(
-      `SELECT p.id, p.subject, p.last_seen_at, (SELECT max(i.created_at) FROM ${this.S}.member_invitation i WHERE i.user_id = p.subject) AS invited_at
-       FROM ${this.S}.principal p WHERE p.kind = 'user' AND p.subject = ANY($1::text[])`, [users.map(u => u.id)])).rows.map(r => [r.subject, r])));
-    const out: Member[] = users.filter(u => !open.has(u.id)).map(u => {
-      const p = seen.get(u.id);
-      const status: MemberStatus = u.enabled === false ? 'disabled' : pendingActions(u) && !p?.last_seen_at ? 'invited' : 'active';
-      // createdAt: Einladung in DIESE Organisation; das Alter des Kontos in Keycloak verriete ein früheres Konto
-      return { id: u.id, principalId: p?.id ?? null, username: u.username, name: displayName(u), email: u.email ?? null, status, roles: rolesOf(u.id), lastSeenAt: p?.last_seen_at ?? null, createdAt: p?.invited_at ?? null, loginPath: null };
+    // Personenverzeichnis abgleichen: Mitglieder, die sich noch nie angemeldet haben, auswählbar; Ehemalige markiert
+    await syncTenantMembers(this.sync, this.deps.db, tenantId, org.alias, users, s.correlationId);
+    const view = await this.tupleView(tenantId);
+    const now = Date.now();
+    return withTenant(this.deps.db, { tenantId }, async tx => {
+      const inv = await this.openInvitations(tx);
+      const open = new Map(inv.list.map(i => [i.user_id, i]));
+      const subjects = [...users.map(u => u.id), ...inv.list.map(i => i.user_id)];
+      const principals = new Map((await tx.query<PrincipalRow>(
+        `SELECT p.id, p.subject, p.last_seen_at, p.clearance, CASE WHEN p.clearance_until > now() THEN p.clearance_until END AS clearance_until,
+                (SELECT max(i.created_at) FROM ${this.S}.member_invitation i WHERE i.user_id = p.subject) AS invited_at
+           FROM ${this.S}.principal p WHERE p.kind = 'user' AND p.subject = ANY($1::text[])`, [subjects])).rows.map(r => [r.subject, r]));
+      const missing = subjects.filter(id => !principals.has(id));
+      for (const id of missing) {
+        const u = users.find(x => x.id === id);
+        const pid = await this.principalOf(tx, id, u ? displayName(u) : open.get(id)?.display_name ?? null, u?.email ?? open.get(id)?.email ?? null);
+        principals.set(id, { id: pid, subject: id, last_seen_at: null, clearance: 0, clearance_until: null, invited_at: null });
+      }
+      const out: Member[] = users.filter(u => !open.has(u.id)).map(u => {
+        const p = principals.get(u.id)!, tv = view(`user:${p.id}`);
+        const status: MemberStatus = u.enabled === false ? 'disabled' : pendingActions(u) && !p.last_seen_at ? 'invited' : 'active';
+        // createdAt: Einladung in DIESE Organisation; das Alter des Kontos in Keycloak verriete ein früheres Konto
+        return {
+          id: u.id, kind: 'user' as const, principalId: p.id, username: u.username, name: displayName(u), email: u.email ?? null, status, roles: tv.roles,
+          clearance: p.clearance, breakGlassUntil: p.clearance_until && p.clearance_until.getTime() > now ? p.clearance_until : null, places: tv.places,
+          lastSeenAt: p.last_seen_at, createdAt: p.invited_at, loginPath: null, clientId: null, scopes: null, description: null,
+        };
+      });
+      for (const i of open.values()) {
+        const p = principals.get(i.user_id)!, tv = view(`user:${p.id}`);
+        out.push(AdminService.invited(i, { principalId: p.id, roles: tv.roles, places: tv.places, clearance: p.clearance }, org.alias, inv.idpAlias));
+      }
+      for (const c of await listClients(tx, this.S, this.roleOrder)) {
+        out.push({
+          id: c.clientId, kind: 'client', principalId: c.principalId, username: c.clientId, name: c.clientId, email: null, status: 'active', roles: c.roles,
+          clearance: c.clearance, breakGlassUntil: null, places: c.places, lastSeenAt: c.lastUsedAt, createdAt: c.createdAt, loginPath: null,
+          clientId: c.clientId, scopes: c.lastScopes, description: c.description,
+        });
+      }
+      return out.sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
     });
-    for (const i of open.values()) out.push(AdminService.invited(i, rolesOf(i.user_id), org.alias, inv.idpAlias));
-    return out.sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
   }
 
-  /**
-   * Rollen und Gruppen einer Person in der Organisation, wie sie im Token stünden (Gruppen `<prefix>/<alias>/<rolle>`
-   * und Gruppen ohne fremde Organisation). Für `GET /v1/acl/effective` mit echten statt simulierten Rollen
-   * (`iam.memberAccess`); nur mit ROLE_SOURCE=groups, sonst fehlten die Client-Rollen. `null`: kein Mitglied.
-   */
-  async accessOf(alias: string, subject: string): Promise<{ roles: string[]; groups: string[] } | null> {
-    const t = this.deps.cfg.tenancy;
-    const org = await this.org(alias);
-    if (!(await this.kc.member(org.id, subject))) return null;
-    const claims = { [t.groupsClaim]: (await this.kc.userGroups(subject)).map(g => g.path) };
-    const known = new Set(await this.roleKeys(org.alias));
-    return { roles: rolesFromClaims(claims, asciiLower(org.alias), t).filter(r => known.has(r)), groups: tenantGroups(claims, asciiLower(org.alias), t) };
-  }
-
-  /** Hat eine Person mit diesen Rollen `members:admin`? Eigene Rollen mit ihren Rechten (unter RLS des Mandanten in `tx`). */
-  async managesMembers(tx: Tx, roles: string[]): Promise<boolean> {
-    const custom = (await tx.query<{ key: string; permissions: string[] }>(`SELECT key, permissions FROM ${this.S}.tenant_role WHERE deleted_at IS NULL`)).rows;
-    return this.deps.catalog.permissionsForRoles(roles, new Map(custom.map(r => [r.key, r.permissions]))).has('members:admin');
+  /** Hat die Person (Keycloak-ID) in dieser Organisation `members:admin`? (Tupel an org eigener Subjekte, ohne Gruppen) */
+  async managesMembers(tenantId: string, subject: string): Promise<boolean> {
+    const id = await withTenant(this.deps.db, { tenantId }, async tx => (await tx.query<{ id: string }>(`SELECT id FROM ${this.S}.principal WHERE kind = 'user' AND subject = $1 AND removed_at IS NULL`, [subject])).rows[0]?.id);
+    if (!id) return false;
+    const acl = await this.deps.access.load(tenantId);
+    return this.deps.access.orgPermissions({ kind: 'user', principalId: id, subjects: [`user:${id}`, 'org:members'], scopes: [] }, acl).includes('members:admin');
   }
 
   /**
@@ -483,9 +355,9 @@ export class AdminService {
     await w.log({ action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: w.tenantId, data: { linkIds: ids, reason: 'creator-lost-access' } });
   }
 
-  /** Mitglied bzw. eingeladene Person nach der ID von aussen (Mitglieds- oder Einladungs-ID). */
+  /** Mitglied bzw. eingeladene Person nach der ID von aussen (Mitglieds- oder Einladungs-ID); Clients nicht. */
   async member(s: Scope, id: string): Promise<Member> {
-    const m = (await this.listMembers(s)).find(x => x.id === id);
+    const m = (await this.listMembers(s)).find(x => x.id === id && x.kind === 'user');
     if (!m) throw notFound('Mitglied');
     return m;
   }
@@ -513,21 +385,19 @@ export class AdminService {
   /**
    * Einladen. Besteht für die Adresse kein Konto: Konto ohne Passwort anlegen, als Mitglied eintragen, E-Mail «Passwort
    * setzen». Besteht eines (auch einer anderen Organisation): Keycloak sendet eine Einladung, Mitglied nach Annahme.
-   * In beiden Fällen gleiche Antwort (202, «invitation-sent», eingeladene Person aus der Einladung), Rollen sofort
-   * gesetzt (wirken erst mit der Mitgliedschaft), Personenverzeichnis erst nach Annahme. Die App setzt nie ein Passwort.
+   * In beiden Fällen gleiche Antwort (202, «invitation-sent», eingeladene Person aus der Einladung). Die Einladung legt
+   * den Principal an und setzt die Rollen als Tupel (A16). Die App setzt nie ein Passwort.
    */
   async invite(s: Scope, input: { email: string; firstName?: string; lastName?: string; roles: string[] }): Promise<{ result: 'invitation-sent'; emailSent: boolean; member: Member }> {
     const email = input.email.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) throw invalid('E-Mail-Adresse ungültig', [{ path: '/email', message: 'Gültige E-Mail-Adresse angeben' }]);
-    const roles = [...new Set(input.roles)];
-    await this.checkRoles(s, roles);
-    if (roles.includes(ADMIN_ROLE)) this.requireAdminChange(s);
+    const roles = checkRoles(this.deps.access, input.roles);
+    await checkRoleChange(this.deps.access, { actor: s.actor, platform: s.platform }, roles);
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     const name = [input.firstName, input.lastName].map(x => x?.trim()).filter(Boolean).join(' ') || email;
     return this.padded(() => this.locked(s, org, { action: 'member.invite_failed', resourceType: 'member', resourceId: null }, async w => {
       const { tx, log } = w;
-      await this.recheckRoles(s, org, roles);
       if ((await tx.query(`SELECT 1 FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND lower(email) = $1`, [email])).rowCount) throw conflict('Diese Adresse ist bereits eingeladen. Einladung in der Liste erneut senden.');
       // «Nur Entra» für die Domäne aktiv: kein Konto mit Passwort; Personen kommen über Entra ID dazu (Modul entra)
       if ((await tx.query(`SELECT 1 FROM ${this.S}.entra_connection WHERE stage = 'enforced' AND $1 = ANY (domains)`, [email.split('@')[1]])).rowCount) {
@@ -535,10 +405,8 @@ export class AdminService {
       }
       const existing = await this.kc.findUserByEmail(email);
       if (existing && await this.kc.member(org.id, existing.id)) throw conflict('Diese Person ist bereits Mitglied der Organisation.');
-      const groups = roles.length ? await this.roleGroups(org.alias, true) : new Map<string, KcGroup>();
       // createdAccount: das Konto entsteht mit dieser Einladung – nur dann darf ein Fehler oder das Zurückziehen es löschen
       let userId = existing?.id ?? null, createdAccount = false;
-      const joined: string[] = [];
       try {
         if (!userId) {
           userId = await this.createAccount(email, input);
@@ -547,7 +415,8 @@ export class AdminService {
           await this.kc.addMember(org.id, userId);
           w.done({ step: 'membership_added' }, true);
         }
-        for (const r of roles) { await this.kc.joinGroup(userId, groups.get(r)!.id); joined.push(r); w.done({ step: 'role_added', role: r }); }
+        const principalId = await this.principalOf(tx, userId, name, email);
+        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
         const emailSent = createdAccount
           ? await this.kc.sendActionsEmail(userId, ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], { lifespanSec: this.deps.cfg.mgmt.inviteLifespanSec, clientId: this.deps.cfg.oidc.bffClientId })
           : await this.inviteExisting(org.id, userId);
@@ -559,17 +428,12 @@ export class AdminService {
            RETURNING ${INVITATION_COLS}`, [userId, email, name, s.actor.name, createdAccount])).rows[0]!;
         // Ohne Angabe, ob das Konto neu ist: das Protokoll lesen auch Personen dieser Organisation
         await log({ action: 'member.invited', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent } });
-        return { result: 'invitation-sent' as const, emailSent, member: AdminService.invited(inv, roles, org.alias, null) };
+        const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
+        return { result: 'invitation-sent' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: this.roleOrder.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, null) };
       } catch (e) {
-        // nichts Halbes zurücklassen (Transaktion wird ebenfalls zurückgerollt); was sich nicht rückgängig machen lässt,
-        // protokolliert locked(). Gelöscht wird nur das mit dieser Einladung angelegte Konto (samt Mitgliedschaft und Gruppen).
-        if (createdAccount && userId) {
-          if (await this.kc.deleteUser(userId).then(() => true, () => false)) {
-            w.undone({ step: 'account_created' }); w.undone({ step: 'membership_added' });
-            for (const r of joined) w.undone({ step: 'role_added', role: r });
-          }
-        } else if (userId) {
-          for (const r of joined) if (await this.kc.leaveGroup(userId, groups.get(r)!.id).then(() => true, () => false)) w.undone({ step: 'role_added', role: r });
+        // Nichts Halbes zurücklassen (Transaktion wird zurückgerollt): nur das mit dieser Einladung angelegte Konto löschen
+        if (createdAccount && userId && await this.kc.deleteUser(userId).then(() => true, () => false)) {
+          w.undone({ step: 'account_created' }); w.undone({ step: 'membership_added' });
         }
         throw e;
       }
@@ -591,9 +455,8 @@ export class AdminService {
 
   /**
    * E-Mail der Einladung aus Entra ID (Keycloak, `execute-actions-email`): einzige Aktion «E-Mail bestätigen», danach
-   * leitet Keycloak zur Anmeldung über Microsoft weiter (`entraLoginPath`). Kein Passwort. Gesperrtes bestehendes Konto
-   * (Keycloak lehnt es vor dem Versand ab): Antwort wie für ein neues Konto, sonst verriete `emailSent` den Zustand eines
-   * fremden Kontos (wie inviteExisting).
+   * leitet Keycloak zur Anmeldung über Microsoft weiter (`entraLoginPath`). Gesperrtes bestehendes Konto: Antwort wie für
+   * ein neues Konto (wie inviteExisting).
    */
   async sendEntraInvitation(user: KcUser, idpAlias: string, org: string): Promise<boolean> {
     if (user.enabled === false) return this.kc.mailConfigured();
@@ -603,24 +466,18 @@ export class AdminService {
   }
 
   /**
-   * Person aus Entra ID hinzufügen, noch vor ihrer ersten Anmeldung (Spezifikation Kap. 9.4). Die Person wird in Graph neu
-   * gelesen (nicht den Angaben des Clients trauen) und muss verknüpfbar sein (`notLinkable`, Domäne der Verbindung).
-   * Besteht für ihre Adresse ein Konto (auch einer anderen Organisation), wird es verwendet, sonst eines ohne Passwort
-   * und ohne offene Aktion angelegt; dann Mitglied, über die Objekt-ID verknüpft, Rollen gesetzt. Bei «Nur Entra»
-   * verliert ein bestehendes Konto Passwort und Passkey (wie beim Aktivieren). Ist die Objekt-ID schon mit einem anderen
-   * Konto verknüpft: 409. Antwort und Dauer gleich für neue und bestehende Konten (Mandantentrennung). Die Person bleibt
-   * «eingeladen» bis zum ersten Zugriff. `sendEmail` false: keine E-Mail, die Oberfläche zeigt den Link (`loginPath`).
+   * Person aus Entra ID hinzufügen, noch vor ihrer ersten Anmeldung (Kap. 9.4). Die Person wird in Graph neu gelesen
+   * (nicht den Angaben des Clients trauen) und muss verknüpfbar sein. Besteht für ihre Adresse ein Konto, wird es
+   * verwendet, sonst eines ohne Passwort angelegt; dann Mitglied, über die Objekt-ID verknüpft, Principal und Rollen als
+   * Tupel. Antwort und Dauer gleich für neue und bestehende Konten (Mandantentrennung).
    */
-  async addFromEntra(s: Scope, ent: EntraLink,
-    input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; member: Member }> {
-    const roles = [...new Set(input.roles)];
-    await this.checkRoles(s, roles);
-    if (roles.includes(ADMIN_ROLE)) this.requireAdminChange(s);
+  async addFromEntra(s: Scope, ent: EntraLink, input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; member: Member }> {
+    const roles = checkRoles(this.deps.access, input.roles);
+    await checkRoleChange(this.deps.access, { actor: s.actor, platform: s.platform }, roles);
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     return this.padded(() => this.locked(s, org, { action: 'member.entra_add_failed', resourceType: 'member', resourceId: null }, async w => {
       const { tx } = w;
-      await this.recheckRoles(s, org, roles);
       const c = await ent.connectionOf(tx);
       if (!c) throw conflict('Die Organisation ist nicht mit Microsoft Entra ID verbunden.', { reason: 'entra-not-connected' });
       const p = await ent.graphFor(c).user(c.entraTenantId, input.id);
@@ -636,10 +493,8 @@ export class AdminService {
         if ((await tx.query(`SELECT 1 FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND user_id = $1`, [existing.id])).rowCount) throw conflict('Diese Person ist bereits eingeladen.');
         if (await this.kc.member(org.id, existing.id)) throw conflict('Diese Person ist bereits Mitglied der Organisation.');
       }
-      const groups = roles.length ? await this.roleGroups(org.alias, true) : new Map<string, KcGroup>();
       const name = p.displayName?.trim() || [p.givenName, p.surname].filter(Boolean).join(' ') || email;
       let user = existing, createdAccount = false, member = false, linkedNow = false;
-      const joined: string[] = [];
       try {
         if (!user) {
           // Ohne Passwort und ohne «Passwort setzen»: angemeldet wird nur über Microsoft
@@ -654,7 +509,8 @@ export class AdminService {
         if (!linked) { await ent.linkAccount(w, c, user, p); linkedNow = true; }
         // Passwort eines bestehenden Kontos: nur für die Plattform protokolliert (verriete sonst das Konto)
         if (c.stage === 'enforced' && !createdAccount) await ent.removeFirstFactor({ done: st => w.done(st, true) }, user);
-        for (const r of roles) { await this.kc.joinGroup(user.id, groups.get(r)!.id); joined.push(r); w.done({ step: 'role_added', role: r }); }
+        const principalId = await this.principalOf(tx, user.id, name.slice(0, 200), email);
+        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
         const inv = (await tx.query<Invitation>(
           `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account, entra) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, true)
            ON CONFLICT (tenant_id, user_id) DO UPDATE SET id = gen_random_uuid(), email = excluded.email, display_name = excluded.display_name, created_at = now(),
@@ -662,18 +518,15 @@ export class AdminService {
            RETURNING ${INVITATION_COLS}`, [user.id, email, name.slice(0, 200), s.actor.name, createdAccount])).rows[0]!;
         const emailSent = input.sendEmail === false ? false : await this.sendEntraInvitation(user, c.idpAlias, org.alias);
         await w.log({ action: 'member.added_from_entra', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent, entraId: p.id } });
-        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, roles, org.alias, c.idpAlias) };
+        const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
+        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: this.roleOrder.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, c.idpAlias) };
       } catch (e) {
-        // Wie beim Einladen: ein selbst angelegtes Konto löschen (samt Mitgliedschaft, Gruppen und Verknüpfung), bei einem
-        // bestehenden nur zurücknehmen, was dieser Aufruf geändert hat. Ein entferntes Passwort lässt sich nicht zurückgeben.
+        // Wie beim Einladen: ein selbst angelegtes Konto löschen, bei einem bestehenden nur zurücknehmen, was dieser
+        // Aufruf geändert hat. Ein entferntes Passwort lässt sich nicht zurückgeben.
         const id = user?.id;
         if (createdAccount && id) {
-          if (await this.kc.deleteUser(id).then(() => true, () => false)) {
-            w.undone({ step: 'account_created' }); w.undone({ step: 'membership_added' }); w.undone({ step: 'account_linked' });
-            for (const r of joined) w.undone({ step: 'role_added', role: r });
-          }
+          if (await this.kc.deleteUser(id).then(() => true, () => false)) { w.undone({ step: 'account_created' }); w.undone({ step: 'membership_added' }); w.undone({ step: 'account_linked' }); }
         } else if (id) {
-          for (const r of joined) if (await this.kc.leaveGroup(id, groups.get(r)!.id).then(() => true, () => false)) w.undone({ step: 'role_added', role: r });
           if (linkedNow && await this.kc.removeFederatedIdentity(id, c.idpAlias).then(() => true, () => false)) w.undone({ step: 'account_linked' });
           if (member && await this.kc.removeMember(org.id, id).then(() => true, () => false)) w.undone({ step: 'membership_added' });
         }
@@ -684,11 +537,10 @@ export class AdminService {
 
   /**
    * Offen eingeladene Person (ID der Einladung) oder Mitglied dieser Organisation (Keycloak-ID); sonst 404 (gleich für
-   * «gibt es nicht» und «fremd»). Eine offene Einladung gilt nur über ihre eigene ID – auch wenn das Konto schon Mitglied
-   * ist (neues Konto): so verhalten sich neue und bestehende Konten auch hier gleich.
+   * «gibt es nicht» und «fremd»). Eine offene Einladung gilt nur über ihre eigene ID.
    */
   private async target(tx: Tx, org: KcOrg, id: string): Promise<Target> {
-    const invitation = (await tx.query<Invitation>(`SELECT ${INVITATION_COLS} FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND id = $1`, [id])).rows[0] ?? null;
+    const invitation = (await tx.query<Invitation>(`SELECT ${INVITATION_COLS} FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND id::text = $1`, [id])).rows[0] ?? null;
     if (invitation) {
       const m = await this.kc.member(org.id, invitation.user_id);
       return { id, userId: invitation.user_id, user: m ?? await this.kc.getUser(invitation.user_id), member: !!m, invitation };
@@ -699,10 +551,7 @@ export class AdminService {
     return { id, userId: id, user: m, member: true, invitation: null };
   }
 
-  /**
-   * Einladung erneut senden (offene Einladung, bzw. Mitglied, das sein Passwort noch nicht gesetzt hat). Für offene
-   * Einladungen mit Mindestdauer wie beim Einladen.
-   */
+  /** Einladung erneut senden (offene Einladung bzw. Mitglied ohne gesetztes Passwort); Mindestdauer wie beim Einladen. */
   async resendInvitation(s: Scope, id: string): Promise<{ emailSent: boolean }> {
     const org = await this.org(s.alias);
     let invitation = false;
@@ -727,47 +576,49 @@ export class AdminService {
     }), () => invitation);
   }
 
+  /** Principal einer Person im Mandanten (nur lesen). */
+  private async principalIdOf(tx: Tx, userId: string): Promise<string | null> {
+    return (await tx.query<{ id: string }>(`SELECT id FROM ${this.S}.principal WHERE kind = 'user' AND subject = $1`, [userId])).rows[0]?.id ?? null;
+  }
+
   /**
-   * Mitglied entfernen bzw. Einladung zurückziehen: Rollen dieser Organisation und Mitgliedschaft entfernen. Hat diese
-   * Einladung das Konto angelegt (`created_account`), hat die Person ihr Passwort noch nie gesetzt und gehört sie keiner
-   * anderen Organisation an, wird das unbenutzte Konto gelöscht – fremde Konten nie, auch wenn sie nie benutzt wurden.
-   * `accountDeleted` erfährt nur die Plattform-Administration (für einen org-admin verriete es andere Organisationen).
-   * Einladung zurückziehen mit Mindestdauer wie beim Einladen.
+   * Mitglied entfernen bzw. Einladung zurückziehen: Mitgliedschaft in Keycloak und alle Tupel der Person (A17, je Tupel
+   * `access.revoked`). Hat diese Einladung das Konto angelegt, hat die Person ihr Passwort noch nie gesetzt und gehört
+   * sie keiner anderen Organisation an, wird das unbenutzte Konto gelöscht – fremde Konten nie. `accountDeleted`
+   * erfährt nur die Plattform-Administration. Zurückziehen mit Mindestdauer wie beim Einladen.
    */
   async removeMember(s: Scope, id: string): Promise<{ accountDeleted: boolean }> {
     const org = await this.org(s.alias);
     let invitation = false;
     return this.padded(async () => {
       const failure: Failure = { action: 'member.remove_failed', resourceType: 'member', resourceId: id };
-      const r = await this.locked(s, org, failure, async ({ tx, tenantId, log, done }) => {
+      const r = await this.locked(s, org, failure, async ({ tx, tenantId, log, done, acting }) => {
         const t = await this.target(tx, org, id);
         const userId = t.userId;
         invitation = !!t.invitation;
         if (t.invitation) failure.action = 'member.invitation_withdraw_failed';
         // Auch über die Plattform-Route: niemand entfernt sich selbst (Spez. 9.1 Nr. 6)
-        if (userId === s.actor.subject) throw conflict('Du kannst dich nicht selbst aus der Organisation entfernen.');
-        const roles = await this.rolesOf(org.alias, userId);
-        const groups = await this.roleGroups(org.alias);
-        if (roles.includes(ADMIN_ROLE)) {
-          this.requireAdminChange(s);
-          if (t.member) await this.lastAdminGuard(tx, org, groups, userId);
-        }
-        for (const r of roles) { const g = groups.get(r); if (g) { await this.kc.leaveGroup(userId, g.id); done({ step: 'role_removed', role: r }); } }
+        if (userId === s.actor.subject && s.actor.kind === 'user') throw conflict('Du kannst dich nicht selbst aus der Organisation entfernen.', { reason: 'self' });
+        const principalId = await this.principalIdOf(tx, userId);
+        const roles = principalId ? await this.deps.tuples.rolesAtOrg(tx, `user:${principalId}`) : [];
+        await checkRoleChange(this.deps.access, acting, roles);
+        if (principalId && roles.includes(ADMIN_ROLE)) await lastAdminGuard(tx, this.S, principalId, this.deps.model.roles.get(ADMIN_ROLE)?.label);
         if (t.member) { await this.kc.removeMember(org.id, userId); done({ step: 'membership_removed' }); }
         // Verknüpfung mit Entra ID dieser Organisation lösen: sonst bliebe die Anmeldung über Entra bestehen
         const idp = (await tx.query<{ idp_alias: string }>(`SELECT idp_alias FROM ${this.S}.entra_connection`)).rows[0]?.idp_alias;
         if (idp) await this.kc.removeFederatedIdentity(userId, idp);
         let accountDeleted = false;
-        // Einladung aus Entra ID: kein «Passwort setzen» offen, das Konto war nie benutzt, solange die Einladung offen ist
         if (t.invitation?.created_account && t.user && (t.invitation.entra || pendingActions(t.user)) && !(await this.kc.hasPassword(userId)) && !(await this.kc.memberOrgs(userId)).length) {
           await this.kc.deleteUser(userId);
           accountDeleted = true;
           done({ step: 'account_deleted' }, true);
         }
         await tx.query(`DELETE FROM ${this.S}.member_invitation WHERE user_id = $1 AND accepted_at IS NULL`, [userId]);
+        const a = this.actorOf(s);
+        if (principalId) await this.deps.tuples.revokeSubject(tx, `user:${principalId}`, { principal: a.principal, source: a.source, correlationId: a.correlationId, extra: a.data });
         // Austritt erst jetzt, nach dem Entfernen in Keycloak: clock_timestamp() statt now() (Beginn der Transaktion,
         // vor dem Entfernen) – sonst höbe ein Token aus der Zwischenzeit (iat ≥ removed_at) den Austritt wieder auf
-        await tx.query(`UPDATE ${this.S}.principal SET removed_at = clock_timestamp() WHERE kind = 'user' AND subject = $1`, [userId]);
+        await tx.query(`UPDATE ${this.S}.principal SET removed_at = clock_timestamp(), clearance_boost = NULL, clearance_until = NULL WHERE kind = 'user' AND subject = $1`, [userId]);
         await this.revokeConsentLinksOf({ tx, tenantId, log }, userId);
         await log({ action: t.invitation ? 'member.invitation_withdrawn' : 'member.removed', resourceType: 'member', resourceId: t.id,
           data: { email: t.invitation?.email ?? t.user?.email ?? null, roles, ...(s.platform ? { accountDeleted } : {}) } });
@@ -782,43 +633,33 @@ export class AdminService {
 
   /** Sofortiger Abgleich des Personenverzeichnisses nach dem Entfernen; die Änderung selbst ist schon gespeichert. */
   private async syncNow(s: Scope, org: KcOrg) {
-    try {
-      const roles: RoleCleanup = { kc: this.kc, orgId: org.id, groups: await this.roleGroups(org.alias) };
-      await syncTenantMembers(this.sync, this.deps.db, await this.tenantFor(s, org), org.alias, await this.kc.members(org.id), s.correlationId, roles);
-    } catch { /* nächster Abgleich (Liste, Worker) holt es nach */ }
+    try { await syncTenantMembers(this.sync, this.deps.db, await this.tenantFor(s, org), org.alias, await this.kc.members(org.id), s.correlationId); }
+    catch { /* nächster Abgleich (Liste, Worker) holt es nach */ }
   }
 
-  /**
-   * Die letzte aktive Person mit org-admin bleibt. Ist die Zielperson selbst nicht aktiv (z. B. nie angenommene
-   * Einladung), sperrt nichts: sonst liesse sich eine feststeckende einzige Einladung nie zurückziehen.
-   */
-  private async lastAdminGuard(tx: Tx, org: KcOrg, groups: Map<string, KcGroup>, userId: string) {
-    const admins = await this.activeAdmins(tx, org, groups);
-    if (!admins.includes(userId)) return;
-    if (!admins.filter(id => id !== userId).length) throw conflict(`Die Organisation braucht mindestens eine aktive Person mit der Rolle ${this.roleLabel(ADMIN_ROLE)}. Zuerst eine andere Person zur Administration machen.`, { reason: 'last-admin' });
-  }
-
-  /** Rollen einer Person (Mitglieds- oder Einladungs-ID) in dieser Organisation auf genau diese Liste setzen. */
+  /** Rollen einer Person (Mitglieds- oder Einladungs-ID) an der Organisation auf genau diese Liste setzen (Tupel). */
   async setRoles(s: Scope, id: string, wanted: string[]): Promise<Member> {
-    const roles = [...new Set(wanted)];
-    await this.checkRoles(s, roles);
-    if (!this.rolesManageable) throw conflict('Rollen kommen aus Client-Rollen von Keycloak (ROLE_SOURCE=client) und lassen sich hier nicht verwalten.');
+    const roles = checkRoles(this.deps.access, wanted);
     const org = await this.org(s.alias);
-    await this.locked(s, org, { action: 'member.roles_change_failed', resourceType: 'member', resourceId: id }, async ({ tx, tenantId, log, done }) => {
-      await this.recheckRoles(s, org, roles);
+    await this.locked(s, org, null, async ({ tx, tenantId, log, acting }) => {
       const t = await this.target(tx, org, id);
-      const current = await this.rolesOf(org.alias, t.userId);
-      const add = roles.filter(r => !current.includes(r)), del = current.filter(r => !roles.includes(r));
-      if (!add.length && !del.length) return;
-      if (add.includes(ADMIN_ROLE) || del.includes(ADMIN_ROLE)) this.requireAdminChange(s);
-      const groups = await this.roleGroups(org.alias, true);
-      if (del.includes(ADMIN_ROLE) && t.member) await this.lastAdminGuard(tx, org, groups, t.userId);
-      const gone = add.find(r => !groups.has(r));
-      if (gone) throw conflict(`Die Rolle «${gone}» gibt es nicht mehr. Seite neu laden.`);
-      for (const r of add) { await this.kc.joinGroup(t.userId, groups.get(r)!.id); done({ step: 'role_added', role: r }); }
-      for (const r of del) { await this.kc.leaveGroup(t.userId, groups.get(r)!.id); done({ step: 'role_removed', role: r }); }
-      await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: t.id, data: { added: add, removed: del, roles } });
-      if (!(await this.managesMembers(tx, roles))) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);
+      const principalId = await this.principalOf(tx, t.userId, t.user ? displayName(t.user) : t.invitation?.display_name ?? null, t.user?.email ?? t.invitation?.email ?? null);
+      const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
+      if (!added.length && !removed.length) return;
+      await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: principalId, data: { added, removed } });
+      if (!this.deps.model.permissionsForRoles(roles).has('members:admin')) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);
+    });
+    return this.member(s, id);
+  }
+
+  /** Freigabestufe einer Person (Mitglieds- oder Einladungs-ID) setzen; Regeln in rules.ts. */
+  async setClearance(s: Scope, id: string, clearance: Level): Promise<Member> {
+    const org = await this.org(s.alias);
+    await this.locked(s, org, null, async ({ tx, log, acting }) => {
+      const t = await this.target(tx, org, id);
+      const principalId = await this.principalOf(tx, t.userId, t.user ? displayName(t.user) : t.invitation?.display_name ?? null, t.user?.email ?? t.invitation?.email ?? null);
+      const from = await setClearance(tx, { access: this.deps.access, schema: this.S, acting, principalId, clearance });
+      if (from !== clearance) await log({ action: 'member.clearance_changed', resourceType: 'member', resourceId: principalId, data: { from, to: clearance } });
     });
     return this.member(s, id);
   }
@@ -832,11 +673,7 @@ export class AdminService {
     return orgs.map(o => this.orgOut(o, byAlias.get(asciiLower(o.alias)) ?? null)).sort((a, b) => a.alias.localeCompare(b.alias));
   }
 
-  /**
-   * Name des Mandanten nachführen, wo die Plattform die Organisation ohnehin liest (Name in Keycloak massgeblich).
-   * Nur für den Mandanten mit derselben Keycloak-ID (eine leere wird wie beim Mitgliederabgleich gebunden, orgMatches);
-   * Fehler halten das Lesen nicht auf – der Worker holt es nach.
-   */
+  /** Name des Mandanten nachführen, wo die Plattform die Organisation ohnehin liest (Name in Keycloak massgeblich). */
   private async syncName(o: KcOrg, t: TenantRow | null, correlationId?: string) {
     if (!t || t.name === o.name?.trim()) return;
     try {
@@ -859,18 +696,6 @@ export class AdminService {
     return this.orgOut(o, t);
   }
 
-  /** Anzahl Personen in bestehenden Gruppen `<prefix>/<alias>/…` (vor dem Anlegen einer Organisation). */
-  private async leftoverRoleMembers(alias: string): Promise<number> {
-    const parent = await this.kc.groupByPath(this.rolePath(alias));
-    if (!parent) return 0;
-    const ids = new Set<string>();
-    for (const role of this.deps.catalog.roles.keys()) {
-      const g = await this.kc.groupByPath(this.rolePath(alias, role));
-      if (g) for (const u of await this.kc.groupMembers(g.id)) ids.add(u.id);
-    }
-    return ids.size;
-  }
-
   private checkDomains(domains: string[]): string[] {
     const list = [...new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean))];
     const bad = list.filter(d => !DOMAIN_RE.test(d));
@@ -887,10 +712,6 @@ export class AdminService {
     const domains = this.checkDomains(input.domains);
     if ((await this.kc.listOrgs()).some(o => asciiLower(o.alias) === alias)) throw conflict(`Eine Organisation mit dem Alias «${alias}» besteht bereits.`);
     if (await findTenant(this.deps.db, alias)) throw conflict(`Der Alias «${alias}» ist in der Plattform bereits vergeben.`);
-    // Rollengruppen einer früher gelöschten Organisation mit gleichem Alias: ihre Personen erhielten sonst sofort Rollen
-    // in der neuen Organisation (Mitgliedschaft genügt). Leere Gruppen werden übernommen.
-    const left = await this.leftoverRoleMembers(alias);
-    if (left) throw conflict(`In Keycloak bestehen noch Rollengruppen ${this.rolePath(alias)}/… mit ${left} Person(en) einer früheren Organisation. Diese Gruppen zuerst in Keycloak leeren oder löschen.`, { reason: 'leftover-role-groups' });
     let id: string;
     try {
       id = await this.kc.createOrg({ alias, name, enabled: true, ...(input.description ? { description: input.description.trim() } : {}), domains: domains.map(d => ({ name: d, verified: false })) });
@@ -899,7 +720,6 @@ export class AdminService {
       throw e;
     }
     try {
-      await this.roleGroups(alias, true);
       const a = this.actorOf(s);
       await createTenant(this.tenants, this.deps.db, this.deps.db, alias, name, id, { ...a, data: { ...a.data, domains } });
     } catch (e) {
@@ -945,9 +765,7 @@ export class AdminService {
 
   /**
    * Sperren/Entsperren in Keycloak (Organisation deaktiviert) und in der Plattform (Mandant gesperrt) zugleich, unter der
-   * Sperre der Organisation (wie alle Änderungen der Verwaltung): Gleichzeitiges Sperren und Entsperren liessen Keycloak
-   * und Mandant sonst auseinanderlaufen. Die Organisation wird unter der Sperre neu gelesen; scheitert der Mandant, wird
-   * Keycloak zurückgesetzt.
+   * Sperre der Organisation. Scheitert der Mandant, wird Keycloak zurückgesetzt.
    */
   async setOrganizationStatus(s: Scope, alias: string, status: 'active' | 'suspended', reason = ''): Promise<Organization> {
     const org = await this.org(alias, true);
@@ -957,10 +775,9 @@ export class AdminService {
       const cur = (await this.kc.getOrg(org.id)) ?? org;
       if (cur.enabled !== enabled) await this.kc.updateOrg({ ...cur, enabled });
       try {
-        // Status und Protokoll in eigener Transaktion; setTenantStatus vergisst den Mandanten im Resolver dieser Instanz
         await setTenantStatus(this.tenants, this.deps.db, this.deps.db, org.alias, status, reason, this.actorOf(s));
       } catch (e) {
-        if (cur.enabled !== enabled) await this.kc.updateOrg({ ...cur, enabled: cur.enabled }).catch(() => undefined); // Keycloak und Plattform gleich halten
+        if (cur.enabled !== enabled) await this.kc.updateOrg({ ...cur, enabled: cur.enabled }).catch(() => undefined);
         throw e;
       }
     });

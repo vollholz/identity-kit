@@ -46,7 +46,7 @@ import { box, keyById, NoEncryptionKeyError, primaryKey, unbox, type Keyring } f
 import { schemaName, withTenant, type Tx } from './db.ts';
 import { conflict, HttpError, invalid, notFound } from './errors.ts';
 import { EntraError, EntraGraph, GUID_RE, notLinkable, OWN_APP_PERMISSIONS, SEARCH_MIN, type AppPermission, type ConsentApprover, type EntraOrganization, type EntraUser } from './graph.ts';
-import type { KcIdp, KcOrg, KcOrgDomain, KcUser } from './keycloak.ts';
+import type { KcIdp, KcIdpMapper, KcOrg, KcOrgDomain, KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
 import { asciiLower, type Principal } from './principal.ts';
 import { findTenant, listTenants, type TenantRow } from './tenants.ts';
@@ -220,6 +220,18 @@ export function idpRepresentation(alias: string, entraTenantId: string, cfg: { c
   };
 }
 
+/**
+ * Mapper `entra-groups` an jedem Entra-Anbieter (Kap. 3.5, 9.4; O3): Claim `groups` des Entra-Tokens (Objekt-IDs) →
+ * Benutzerattribut `entra_groups`, Sync-Modus FORCE; der Client-Mapper des Realm-Moduls gibt es als Claim `groups` aus.
+ */
+export function entraGroupsMapper(alias: string): KcIdpMapper {
+  return {
+    name: ENTRA_GROUPS_MAPPER, identityProviderAlias: alias, identityProviderMapper: 'oidc-user-attribute-idp-mapper',
+    config: { syncMode: 'FORCE', claim: 'groups', 'user.attribute': 'entra_groups' },
+  };
+}
+export const ENTRA_GROUPS_MAPPER = 'entra-groups';
+
 export class EntraService {
   private readonly deps: AdminDeps;
   /** Schema der Tabellen (geprüft). */
@@ -271,6 +283,15 @@ export class EntraService {
     return this.ownGraph(a.clientId!, a.clientSecret!);
   }
 
+  /** Mapper `entra-groups` anlegen bzw. auf das Soll bringen (idempotent); andere Mapper legt die App nicht an. */
+  private async ensureGroupsMapper(w: Pick<Work, 'done'>, alias: string): Promise<void> {
+    const want = entraGroupsMapper(alias);
+    const have = (await this.kc.idpMappers(alias)).find(m => m.name === ENTRA_GROUPS_MAPPER);
+    if (!have) { await this.kc.createIdpMapper(alias, want); w.done({ step: 'mapper_created' }); return; }
+    const same = have.identityProviderMapper === want.identityProviderMapper && Object.entries(want.config).every(([k, v]) => have.config?.[k] === v);
+    if (!same) { await this.kc.updateIdpMapper(alias, { ...want, id: have.id! }); w.done({ step: 'idp_updated' }); }
+  }
+
   /** Anleitung für eine eigene App dieser Organisation (bestehende Verbindung behält ihren Anbieter). */
   private guide(orgAlias: string, idpAlias?: string): OwnAppGuide {
     return { redirectUri: brokerRedirectUri(this.deps.cfg, idpAlias ?? ownAppAlias(orgAlias)), permissions: OWN_APP_PERMISSIONS.map(p => ({ ...p })) };
@@ -280,6 +301,63 @@ export class EntraService {
   /** Verbindung der Organisation des Mandantenkontexts (auch für `addFromEntra`). */
   async connectionOf(tx: Tx): Promise<EntraConnection | null> {
     return (await tx.query<EntraConnection>(`SELECT ${COLS} FROM ${this.S}.entra_connection`)).rows[0] ?? null;
+  }
+
+  /** Hat die Organisation eine Entra-Verbindung? (`/auth/me` › `tenant.entraConnected`, Gruppen als Subjekte) */
+  async connected(tenantId: string): Promise<boolean> {
+    return !!(await withTenant(this.deps.db, { tenantId }, tx => this.connectionOf(tx)));
+  }
+
+  /** Namen der Gruppen je Mandant (Objekt-IDs sind eindeutig, eine Verbindung je Organisation), 1 h. */
+  private readonly groupCache = new Map<string, Map<string, { name: string; at: number }>>();
+  private rememberGroups(tenantId: string, groups: { id: string; name: string }[]) {
+    let m = this.groupCache.get(tenantId);
+    if (!m) { m = new Map(); this.groupCache.set(tenantId, m); }
+    for (const g of groups) m.set(g.id, { name: g.name, at: Date.now() });
+  }
+
+  /** Verbindung oder 409 `entra-not-connected`. */
+  private async requireConnection(tenantId: string): Promise<EntraConnection> {
+    const c = await withTenant(this.deps.db, { tenantId }, tx => this.connectionOf(tx));
+    if (!c) throw conflict('Die Organisation ist nicht mit Microsoft Entra ID verbunden.', { reason: 'entra-not-connected' });
+    return c;
+  }
+
+  /** Gruppen aus Entra suchen (A4, Kap. 9.5); `name` = Anzeigename, sonst Objekt-ID. */
+  async searchGroups(tenantId: string, q: string): Promise<{ id: string; name: string }[]> {
+    const c = await this.requireConnection(tenantId);
+    const out = (await this.graphFor(c).searchGroups(c.entraTenantId, q)).map(g => ({ id: g.id, name: g.displayName ?? g.id }));
+    this.rememberGroups(tenantId, out);
+    return out;
+  }
+
+  /** Gruppen nach Objekt-ID auflösen (bis 100); unbekannte fehlen in der Antwort. */
+  async groupsByIds(tenantId: string, ids: string[]): Promise<{ id: string; name: string }[]> {
+    const c = await this.requireConnection(tenantId);
+    const g = this.graphFor(c);
+    const out: { id: string; name: string }[] = [];
+    for (const id of ids.slice(0, 100)) {
+      const x = await g.group(c.entraTenantId, id);
+      if (x) out.push({ id: x.id, name: x.displayName ?? x.id });
+    }
+    this.rememberGroups(tenantId, out);
+    return out;
+  }
+
+  /**
+   * Namen für Subjekte `group:<id>` («Wer hat Zugriff?», «Warum?»): aus dem Zwischenspeicher, fehlende über Graph;
+   * ohne Verbindung oder bei Fehlern bleibt die Objekt-ID (Aufrufer).
+   */
+  async groupNames(tenantId: string, ids: string[]): Promise<Map<string, string>> {
+    const cache = this.groupCache.get(tenantId), out = new Map<string, string>(), missing: string[] = [];
+    for (const id of ids) {
+      const hit = cache?.get(id);
+      if (hit && Date.now() - hit.at < 3_600_000) out.set(id, hit.name); else missing.push(id);
+    }
+    if (missing.length && await this.connected(tenantId)) {
+      for (const g of await this.groupsByIds(tenantId, missing).catch(() => [])) out.set(g.id, g.name);
+    }
+    return out;
   }
 
   /** @param alias Organisation der Verbindung: die Testanmeldung wählt sie vor (Personen in mehreren Organisationen). */
@@ -569,8 +647,8 @@ export class EntraService {
     // Bestehende Verbindung behält ihren Anbieter (Redirect-URI des Platzes)
     const idp = own ? await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => (await this.connectionOf(tx))?.idpAlias) : undefined;
     return {
-      kind: link.kind, organization: tenant.name, product: this.deps.catalog.product, requestedBy: link.created_by_name, tenant: link.tenant_input, entraTenantId: link.entra_tenant_id, expiresAt: link.expires_at,
-      notice: `${own ? 'Mit der eigenen App' : 'Mit der Zustimmung'} melden sich Personen von «${tenant.name}» in ${this.deps.catalog.product} über Microsoft an. Die verifizierten Domänen des Verzeichnisses werden dieser Organisation zugeordnet und stehen keiner anderen mehr zur Verfügung.`,
+      kind: link.kind, organization: tenant.name, product: this.deps.model.product, requestedBy: link.created_by_name, tenant: link.tenant_input, entraTenantId: link.entra_tenant_id, expiresAt: link.expires_at,
+      notice: `${own ? 'Mit der eigenen App' : 'Mit der Zustimmung'} melden sich Personen von «${tenant.name}» in ${this.deps.model.product} über Microsoft an. Die verifizierten Domänen des Verzeichnisses werden dieser Organisation zugeordnet und stehen keiner anderen mehr zur Verfügung.`,
       ownApp: own ? this.guide(tenant.alias, idp) : null,
     };
   }
@@ -681,15 +759,14 @@ export class EntraService {
   private linkScope(tenant: TenantRow, link: LinkRow): Scope {
     const actor: Principal = {
       tenantId: tenant.id, tenantAlias: link.created_by_tenant, principalId: link.created_by, kind: 'user', subject: link.created_by_subject, name: link.created_by_name,
-      email: null, clientId: null, roles: [], groups: [], scopes: [], platformAdmin: link.platform, binding: 'none', token: '',
+      email: null, clientId: null, groups: [], subjects: [`user:${link.created_by}`], scopes: [], platformAdmin: link.platform, binding: 'none', token: '',
     };
     return { alias: tenant.alias, actor, platform: link.platform, source: 'api', correlationId: randomUUID() };
   }
 
   /**
    * Darf die Person, die den Link erzeugt hat, noch, und ist die Organisation nicht gesperrt? Plattform-Link: Realm-Rolle
-   * PLATFORM_ADMIN_ROLE; sonst Mitglied mit `members:admin` (Rollen aus Gruppen; mit ROLE_SOURCE=client oder both
-   * stehen Rollen auch im Token, dort zählt nur die Mitgliedschaft). Wenn nicht: Link widerrufen (Protokoll mit
+   * PLATFORM_ADMIN_ROLE; sonst Mitglied mit `members:admin` (Tupel an org). Wenn nicht: Link widerrufen (Protokoll mit
    * `reason: 'creator-lost-access'`) und dieselbe Antwort wie für einen ungültigen Link. Fehler bei Keycloak: Link bleibt.
    */
   private async requireCreator(tenant: TenantRow, link: LinkRow): Promise<void> {
@@ -698,11 +775,7 @@ export class EntraService {
     if (!org.enabled) throw linkGone();
     let ok: boolean;
     if (link.platform) ok = (await this.kc.realmRoles(subject)).includes(t.platformAdminRole);
-    else if (t.roleSource !== 'groups') ok = !!(await this.kc.member(org.id, subject));
-    else {
-      const a = await this.admin.accessOf(org.alias, subject);
-      ok = !!a && await withTenant(this.deps.db, { tenantId: tenant.id }, tx => this.admin.managesMembers(tx, a.roles));
-    }
+    else ok = !!(await this.kc.member(org.id, subject)) && await this.admin.managesMembers(tenant.id, subject);
     if (ok) return;
     await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
       const r = await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'creator-lost-access', error_detail = NULL WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`, [link.id]);
@@ -873,12 +946,12 @@ export class EntraService {
 
       let created = false, linked = 0;
       try {
-        const rep = idpRepresentation(alias, eo.id, own ?? this.deps.cfg.entra, this.deps.catalog.product);
+        const rep = idpRepresentation(alias, eo.id, own ?? this.deps.cfg.entra, this.deps.model.product);
         const have = await this.kc.getIdp(alias);
         if (have && !existing) await this.kc.deleteIdp(alias); // Rest eines abgebrochenen Laufs: Plätze und `entra-app-<alias>` gehören der Plattform
         // Bestehender Anbieter: erst nach allen anderen Schritten nachführen (unten), sonst meldete Keycloak nach einem
         // Fehlschlag mit der neuen App an, während die Datenbank zurückrollt
-        if (!(have && existing)) { await this.kc.createIdp(rep); created = true; w.done({ step: 'idp_created' }); }
+        if (!(have && existing)) { await this.kc.createIdp(rep); created = true; w.done({ step: 'idp_created' }); await this.ensureGroupsMapper(w, alias); }
         if (!existing) { await this.kc.linkOrgIdp(org.id, alias); w.done({ step: 'idp_linked' }); }
         const d = EntraService.orgDomains(org, alias, bound, enforced);
         await this.kc.updateOrg({ ...org, domains: d.domains });
@@ -904,7 +977,7 @@ export class EntraService {
         // Übrige offene Links für die eigene App verfallen: ein alter Link überschriebe sonst später diese Verbindung
         if (own) await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'superseded', error_detail = NULL
           WHERE kind = 'credentials' AND used_at IS NULL AND revoked_at IS NULL`);
-        if (have && existing) { await this.kc.updateIdp(rep); w.done({ step: 'idp_updated' }); }
+        if (have && existing) { await this.kc.updateIdp(rep); w.done({ step: 'idp_updated' }); await this.ensureGroupsMapper(w, alias); }
         this.deps.resolver.forgetEntra();
         return { connection: this.out(c, org.alias), members, rejectedDomains: rejected };
       } catch (e) {
@@ -1045,7 +1118,8 @@ export class EntraService {
       const verified = eo.verifiedDomains.filter(d => DOMAIN_RE.test(d));
       const domains = c.domains.filter(d => verified.includes(d));
       if (!domains.length) throw conflict('Keine der gebundenen Domänen ist im Tenant noch verifiziert. Verbindung trennen oder neu verbinden.');
-      await this.kc.updateIdp(idpRepresentation(c.idpAlias, c.entraTenantId, this.appOf(c), this.deps.catalog.product));
+      await this.kc.updateIdp(idpRepresentation(c.idpAlias, c.entraTenantId, this.appOf(c), this.deps.model.product));
+      await this.ensureGroupsMapper(w, c.idpAlias);
       if (c.appClientId && expires?.getTime() !== c.appSecretExpiresAt?.getTime()) await w.tx.query(`UPDATE ${this.S}.entra_connection SET app_secret_expires_at = $1`, [expires]);
       return this.apply(w, c, o, domains, [], { action: 'entra.refreshed', data: { removed: c.domains.filter(d => !domains.includes(d)) }, tenantDomains: verified, entraName: eo.displayName });
     });

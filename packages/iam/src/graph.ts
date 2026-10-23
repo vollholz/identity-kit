@@ -94,7 +94,13 @@ export const OWN_APP_PERMISSIONS: readonly AppPermission[] = [
   { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses lesen', optional: false },
   { name: 'User.Read.All', type: 'Application', why: 'Personen suchen und ihre Konten verknüpfen', optional: false },
   { name: 'Application.Read.All', type: 'Application', why: 'Nachweis, dass die App in diesem Verzeichnis registriert ist, und Ablauf des geheimen Clientschlüssels (Erinnerung vor dem Ablauf)', optional: false },
+  { name: 'GroupMember.Read.All', type: 'Application', why: 'Gruppen suchen und ihre Namen anzeigen (Gruppen als Wer einer Freigabe)', optional: false },
 ];
+/** Anwendungsberechtigung für Gruppen (A25). */
+export const GROUPS_PERMISSION = 'GroupMember.Read.All';
+/** Höchstzahl Treffer der Gruppensuche. */
+export const GROUP_SEARCH_TOP = 50;
+export interface EntraGroup { id: string; displayName: string | null }
 const REQUIRED_ROLES = OWN_APP_PERMISSIONS.filter(p => p.type === 'Application' && !p.optional).map(p => p.name);
 /** Statt Application.Read.All genügt auch die weitergehende Berechtigung. */
 const ROLE_ALTERNATIVES: Record<string, string[]> = { 'Application.Read.All': ['Application.ReadWrite.All'] };
@@ -292,6 +298,30 @@ export class EntraGraph {
     const r = await this.get<{ value?: EntraUser[]; '@odata.nextLink'?: string }>(tenantId,
       `/users?$search=${encodeURIComponent(search)}&$select=${USER_FIELDS}&$top=${SEARCH_TOP}&$count=true`, { what: 'Personen suchen', headers: { ConsistencyLevel: 'eventual' } });
     return { users: r?.value ?? [], more: !!r?.['@odata.nextLink'] };
+  }
+
+  /** Fehlt GroupMember.Read.All: 409 `entra-consent-missing` mit Hinweis (A25). */
+  private groupsMissing(e: unknown): never {
+    if (e instanceof EntraError && e.status === 409) {
+      throw new EntraError(409, 'Recht in Entra ID fehlt', `Für Gruppen braucht die App die Anwendungsberechtigung ${GROUPS_PERMISSION} (Microsoft Graph) mit Administratorzustimmung.`, e.code, 'entra-consent-missing');
+    }
+    throw e;
+  }
+
+  /** Gruppen suchen (Anzeigename, Präfix je Wort), höchstens GROUP_SEARCH_TOP; `ConsistencyLevel: eventual`. */
+  async searchGroups(tenantId: string, query: string): Promise<EntraGroup[]> {
+    const q = query.replace(/["\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+    if (q.length < SEARCH_MIN) return [];
+    const r = await this.get<{ value?: EntraGroup[] }>(tenantId, `/groups?$search=${encodeURIComponent(`"displayName:${q}"`)}&$select=id,displayName&$top=${GROUP_SEARCH_TOP}&$orderby=displayName`,
+      { what: 'Gruppen suchen', headers: { ConsistencyLevel: 'eventual' } }).catch(e => this.groupsMissing(e));
+    return (r?.value ?? []).map(g => ({ id: g.id.toLowerCase(), displayName: g.displayName ?? null }));
+  }
+
+  /** Gruppe nach Objekt-ID; null = gibt es nicht (mehr). */
+  async group(tenantId: string, id: string): Promise<EntraGroup | null> {
+    if (!GUID_RE.test(id)) return null;
+    const g = await this.get<EntraGroup>(tenantId, `/groups/${id}?$select=id,displayName`, { what: 'Gruppe lesen' }).catch(e => this.groupsMissing(e));
+    return g ? { id: g.id.toLowerCase(), displayName: g.displayName ?? null } : null;
   }
 
   /** Person nach Objekt-ID; null = gibt es nicht (mehr). */

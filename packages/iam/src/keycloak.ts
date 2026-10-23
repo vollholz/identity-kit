@@ -18,9 +18,11 @@ export interface KcUser {
   id: string; username: string; email?: string; firstName?: string; lastName?: string; enabled: boolean; emailVerified?: boolean;
   requiredActions?: string[]; createdTimestamp?: number; membershipType?: string;
 }
-export interface KcGroup { id: string; name: string; path: string; subGroupCount?: number }
 /** Domain einer Organisation; ab Keycloak 26.8 mit Anbieter und automatischer Weiterleitung je Domain. */
 export interface KcOrgDomain { name: string; verified?: boolean; identityProviderAlias?: string; autoRedirect?: boolean }
+/** Mapper eines Identitätsanbieters (z. B. `entra-groups`). */
+export interface KcIdpMapper { id?: string; name: string; identityProviderAlias: string; identityProviderMapper: string; config: Record<string, string> }
+
 export interface KcIdp {
   alias: string; displayName?: string; providerId: string; enabled: boolean; trustEmail?: boolean; storeToken?: boolean; linkOnly?: boolean;
   hideOnLogin?: boolean; firstBrokerLoginFlowAlias?: string; postBrokerLoginFlowAlias?: string; config: Record<string, string>; [k: string]: unknown;
@@ -269,18 +271,7 @@ export class KeycloakAdmin {
   async unlinkOrgIdp(orgId: string, alias: string) { await this.call('DELETE', `/organizations/${seg(orgId)}/identity-providers/${seg(alias)}`, undefined, { ok: [400, 404], what: 'Anbieter von Organisation lösen' }); }
 
   // ---------------------------------------------------------------- Gruppen
-  async groupByPath(path: string): Promise<KcGroup | null> {
-    const r = await this.call<KcGroup>('GET', `/group-by-path/${path.split('/').filter(Boolean).map(seg).join('/')}`, undefined, { ok: [404] });
-    return r.status === 404 ? null : r.data;
-  }
-  async createGroup(parentId: string | null, name: string): Promise<string> {
-    const r = await this.call('POST', parentId ? `/groups/${seg(parentId)}/children` : '/groups', { name }, { what: 'Gruppe anlegen', ok: [409] });
-    if (r.status === 409) throw new KeycloakError(409, 'Gruppe existiert bereits');
-    return KeycloakAdmin.idFrom(r.location);
-  }
-  async deleteGroup(id: string) { await this.call('DELETE', `/groups/${seg(id)}`, undefined, { what: 'Gruppe löschen', ok: [404] }); }
-  groupMembers(groupId: string) { return this.page<KcUser>(`/groups/${seg(groupId)}/members?briefRepresentation=true`); }
-  async userGroups(userId: string): Promise<KcGroup[]> { return (await this.call<KcGroup[]>('GET', `/users/${seg(userId)}/groups?briefRepresentation=true&max=1000`)).data ?? []; }
-  async joinGroup(userId: string, groupId: string) { await this.call('PUT', `/users/${seg(userId)}/groups/${seg(groupId)}`, undefined, { what: 'Rolle zuweisen' }); }
-  async leaveGroup(userId: string, groupId: string) { await this.call('DELETE', `/users/${seg(userId)}/groups/${seg(groupId)}`, undefined, { what: 'Rolle entziehen', ok: [404] }); }
+  async idpMappers(alias: string): Promise<KcIdpMapper[]> { return (await this.call<KcIdpMapper[]>('GET', `/identity-provider/instances/${seg(alias)}/mappers`)).data ?? []; }
+  async createIdpMapper(alias: string, rep: KcIdpMapper) { await this.call('POST', `/identity-provider/instances/${seg(alias)}/mappers`, rep, { what: 'Mapper des Anbieters anlegen' }); }
+  async updateIdpMapper(alias: string, rep: KcIdpMapper & { id: string }) { await this.call('PUT', `/identity-provider/instances/${seg(alias)}/mappers/${seg(rep.id)}`, rep, { what: 'Mapper des Anbieters ändern' }); }
 }

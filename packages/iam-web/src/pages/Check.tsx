@@ -11,10 +11,9 @@
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
-import { useClientGrants, useMembers } from '../admin.ts';
+import { useClientGrants, useGroupRolePrefix, useMembers } from '../admin.ts';
 import { aclApi, PersonPick, usePermLabel, useResources, type EffectiveQuery } from '../acl/shared.tsx';
 import { useAuthz } from '../authz.ts';
-import { useIamConfig } from '../config.tsx';
 import { relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { MissingRight } from '../rights/MissingRight.tsx';
@@ -42,7 +41,7 @@ export function Check() {
   const authz = useAuthz();
   const { me, can } = useIam();
   const { Icon } = useIamUi();
-  const { groupRolePrefix = '/orgs' } = useIamConfig();
+  const groupRolePrefix = useGroupRolePrefix();
   useIamText();
   const search = useAccessSearch();
   const urlClient = search.get('client');
@@ -174,7 +173,7 @@ export function Check() {
             </button>
             <div id={`${id}-more`} className="iam-acl-more-b" hidden={!more}>
               <label className="iam-lblcol">{t('iam.acl.check.groups')}
-                <input className="iam-inp" value={pick.groups} onChange={e => setPick(p => ({ ...p, groups: e.target.value }))} placeholder={`${groupRolePrefix.replace(/\/+$/, '')}/${me.tenant?.alias ?? '<alias>'}/team`} autoComplete="off" /></label>
+                <input className="iam-inp" value={pick.groups} onChange={e => setPick(p => ({ ...p, groups: e.target.value }))} placeholder={`${groupRolePrefix}/${me.tenant?.alias ?? '<alias>'}/team`} autoComplete="off" /></label>
               {who !== 'person' ? <ScopePick value={scopes ?? []} optional onChange={s => setPick(p => ({ ...p, scopes: s.length ? s : null }))} /> : null}
             </div>
           </>

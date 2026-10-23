@@ -118,6 +118,8 @@ export interface AdminStatus {
   canManageMembers: boolean;
   rolesManageable: boolean;
   roles: RoleInfo[];
+  /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14), z. B. `/orgs`; ältere Server ohne. */
+  groupRolePrefix?: string;
 }
 /** Rolle in `GET /v1/admin/status`: vergebbare Rollen der Organisation mit ihren Rechten. */
 export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }

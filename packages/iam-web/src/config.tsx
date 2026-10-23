@@ -79,7 +79,7 @@ export interface IamConfig {
   roleIcons?: Record<string, string>;
   /** Vorgewählte Rollen beim Einladen; Standard: die Rolle mit den wenigsten Rechten ausser org-admin. */
   inviteRoles?: string[];
-  /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14) für den Hinweis auf die Gruppen der Rollen; Standard `/orgs`. */
+  /** `GROUP_ROLE_PREFIX` für ältere Server, die ihn nicht in `/v1/admin/status` melden; Standard `/orgs`. */
   groupRolePrefix?: string;
   /** Erlaubte Hosts für die Zustimmung bei Microsoft (nur https); Standard `login.microsoftonline.com`. */
   entraConsentHosts?: string[];

@@ -9,7 +9,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
-import { useClientGrants } from '../admin.ts';
+import { useClientGrants, useGroupRolePrefix } from '../admin.ts';
 import { aclResourceTypes, belowText, effectOf, effectText, EFFECT_KEYS, permissionsFor, previewEntry, whereText, type AclLike, type Effect, type ResStep } from '../acl/rules.ts';
 import { aclApi, PersonPick, principalTypes, ResourcePick, usePermLabel, useResources, useWhoText } from '../acl/shared.tsx';
 import { useAuthz } from '../authz.ts';
@@ -38,7 +38,8 @@ const noChain = () => [];
 export function AddEntry({ entries, onClose }: { entries: AclEntry[]; onClose: () => void }) {
   const authz = useAuthz();
   const { me, can, orgName: org } = useIam();
-  const { resources, groupRolePrefix = '/orgs' } = useIamConfig();
+  const { resources } = useIamConfig();
+  const groupRolePrefix = useGroupRolePrefix();
   const { Dialog, Button, toast } = useIamUi();
   useIamText();
   const fid = useId();
@@ -115,7 +116,7 @@ export function AddEntry({ entries, onClose }: { entries: AclEntry[]; onClose: (
   const preview = ready && !bundleRole ? previewEntry({ draft, entries, chain, catalog: c, resourceName, who, leaves: res.leaves }) : null;
   const plural = d.principalType === 'role' || d.principalType === 'group';
   const prLabel = d.principalType === 'role' ? t('iam.acl.pr.role') : d.principalType === 'group' ? t('iam.acl.pr.group') : d.principalType === 'client' ? t('iam.acl.pr.client') : t('iam.acl.pr.user');
-  const groupExample = `${groupRolePrefix.replace(/\/+$/, '')}/${me.tenant?.alias ?? '<alias>'}`;
+  const groupExample = `${groupRolePrefix}/${me.tenant?.alias ?? '<alias>'}`;
 
   const submit = () => {
     setTried(true);

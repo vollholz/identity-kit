@@ -38,7 +38,7 @@ export { historyRouter, type IamLinkProps, type IamRouter } from './router.tsx';
 export { iamKeys } from './keys.ts';
 export { useIamText } from './texts/react.tsx';
 export { useIamFetch } from './fetch.ts';
-export { clientApi, entraApi, entraTest, memberApi, orgApi, roleApi, useAdminStatus, useClientGrants, useEntra, useMembers, useOrganization, useOrganizations } from './admin.ts';
+export { clientApi, entraApi, entraTest, memberApi, orgApi, roleApi, useAdminStatus, useClientGrants, useGroupRolePrefix, useEntra, useMembers, useOrganization, useOrganizations } from './admin.ts';
 export { MissingRight, missingRightText, NoPermission, type Need } from './rights/MissingRight.tsx';
 export { AdminHead, type AdminHeadProps } from './rights/AdminHead.tsx';
 export { Requires, RequiresPlatformAdmin, type RequiresProps } from './rights/Requires.tsx';

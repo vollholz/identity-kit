@@ -37,7 +37,7 @@ export interface IamProviderProps {
   roleIcons?: Record<string, string>;
   /** Vorgewählte Rollen beim Einladen; Standard: die Rolle mit den wenigsten Rechten ausser org-admin. */
   inviteRoles?: string[];
-  /** `GROUP_ROLE_PREFIX` des Servers, falls nicht `/orgs` (Hinweis auf die Gruppen der Rollen unter «Mitglieder»). */
+  /** `GROUP_ROLE_PREFIX` für ältere Server ohne Angabe in `/v1/admin/status`; Standard `/orgs`. */
   groupRolePrefix?: string;
   /** Weitere Hosts für die Zustimmung bei Microsoft (z. B. nationale Clouds); Standard `login.microsoftonline.com`. */
   entraConsentHosts?: string[];

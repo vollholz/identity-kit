@@ -296,6 +296,29 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
     } finally { await f.drop(); }
   });
 
+  /** Assets-Stand mit veränderter Migration 051, 052 oder 053 (unvollständig nachgebaut): Übernahme bricht ab. */
+  const broken = async (file: string, edit: (sql: string) => string, message: RegExp) => {
+    const base = assetsLike();
+    const src = { ...base, migrations: base.migrations.map(m => (m.name === file ? migration(m.name, edit(m.sql)) : m)) };
+    const b = await productDb({ iam: false, sources: [src] }).create();
+    try {
+      await assert.rejects(migrate(b.adminUrl, [src, iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]), (e: Error) => { assert.match(e.message, message); return true; });
+      assert.equal((await b.inspect.query("SELECT count(*)::int AS n FROM public.schema_migrations WHERE name LIKE 'iam_%'")).rows[0].n, 0, file);
+      // die Probe von resolve_tenant hinterlässt nichts
+      assert.equal((await b.inspect.query("SELECT count(*)::int AS n FROM notes.tenant WHERE alias LIKE 'iamprobe-%'")).rows[0].n, 0);
+    } finally { await b.drop(); }
+  };
+
+  test('unvollständig nachgebaut: fehlender Grant, partieller Index, Index ohne NULLS NOT DISTINCT, resolve_tenant ohne Prüfungen → Abbruch ohne Eintrag', async () => {
+    await broken('051_revoke_public_execute.sql', sql => sql.replace(/GRANT EXECUTE ON FUNCTION app\.audit_hash[^;]*;/, ''), /EXECUTE auf app\.audit_hash\(bytea, notes\.audit_log\) fehlt für notes_app, notes_sched/);
+    await broken('053_acl_unique.sql', sql => sql.replace(/NULLS NOT DISTINCT;/, "NULLS NOT DISTINCT WHERE effect <> 'deny';"), /acl_entry_unique entspricht nicht iam_012/);
+    await broken('053_acl_unique.sql', sql => sql.replace(/ NULLS NOT DISTINCT;/, ';'), /acl_entry_unique entspricht nicht iam_012/);
+    await broken('052_resolve_tenant_strict.sql', sql => sql.replace(/ {4}IF v_kc IS DISTINCT FROM p_kc_org_id THEN RETURN NULL; END IF;\n/, ''), /bindet die Organisations-ID eines anderen Mandanten/);
+    await broken('052_resolve_tenant_strict.sql', sql => sql.replace("ON CONFLICT DO NOTHING", ''), /app\.resolve_tenant: .*duplicate key|legt einen Mandanten mit der Organisations-ID/);
+    // Stand vor iam_011 (Funktion aus iam_005 bzw. Assets vor 052): 052 ändert nichts
+    await broken('052_resolve_tenant_strict.sql', () => 'SELECT 1;', /app\.resolve_tenant (findet einen Mandanten über einen ungültigen Alias|legt einen Mandanten mit der Organisations-ID|bindet die Organisations-ID)/);
+  });
+
   test('Zuordnung ohne angewendete Migration der App oder ohne Objekte: Abbruch, nichts eingetragen', async () => {
     const base = assetsLike();
     // 053 fehlt als Migration, die Marke after ist 052: Zuordnung verlangt 053

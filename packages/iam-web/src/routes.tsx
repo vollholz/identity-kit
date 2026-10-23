@@ -20,8 +20,8 @@ export type IamRouteId = 'members' | 'roles' | 'clients' | 'organizations' | 'or
 export interface IamRoute {
   id: IamRouteId;
   /**
-   * Aus `paths` (Standard wie vollholz/assets). Parameter in der Schreibweise von React Router (`:alias`); TanStack Router
-   * schreibt `$alias`. Die Seite liest ihn selbst aus dem Pfad.
+   * Aus `paths` (Standard wie vollholz/assets). Parameter in der Schreibweise des Routers der App (`param` von
+   * `makeIamRoutes`; Standard React Router `:alias`, TanStack Router `$alias`). Die Seite liest ihn selbst aus dem Pfad.
    */
   path: string;
   /** Bedarf der Seite; der Guard in `load()` prüft ihn, die Navigation blendet die Seite ohne ihn aus. */
@@ -37,15 +37,19 @@ export interface IamRoute {
 
 const pages = () => import('./pages/index.ts');
 
+/** Parameter für TanStack Router (`$alias`), z. B. `makeIamRoutes(paths, features, { param: tanstackParam })`. */
+export const tanstackParam = (name: string) => `$${name}`;
+
 /** Routen mit den Pfaden und Schaltern der App (`paths`, `features` wie bei `IamProvider`; ohne `platform` keine Organisationen). */
-export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatures = {}): IamRoute[] {
+export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatures = {}, o: { param?: (name: string) => string } = {}): IamRoute[] {
   const p = { ...DEFAULT_PATHS, ...paths };
+  const param = o.param ?? ((name: string) => `:${name}`);
   const all: IamRoute[] = [
     { id: 'members', path: p.members, need: { perm: 'members:admin' }, get title() { return t('iam.members.title'); }, icon: 'users', nav: true, load: () => pages().then(m => ({ default: m.MembersScreen })) },
     { id: 'roles', path: p.roles, need: { perm: 'members:admin' }, get title() { return t('iam.rolesPage.title'); }, icon: 'tag', nav: true, load: () => pages().then(m => ({ default: m.RolesScreen })) },
     { id: 'clients', path: p.clients, need: { perm: 'members:admin' }, get title() { return t('iam.clients.title'); }, icon: 'key', nav: true, load: () => pages().then(m => ({ default: m.ClientsScreen })) },
     { id: 'organizations', path: p.organizations, need: { platformAdmin: true }, get title() { return t('iam.orgs.title'); }, icon: 'building', nav: true, load: () => pages().then(m => ({ default: m.OrganizationsScreen })) },
-    { id: 'organization', path: `${p.organizations}/:alias`, need: { platformAdmin: true }, get title() { return t('iam.orgs.one'); }, icon: 'building', nav: false, load: () => pages().then(m => ({ default: m.OrganizationScreen })) },
+    { id: 'organization', path: `${p.organizations}/${param('alias')}`, need: { platformAdmin: true }, get title() { return t('iam.orgs.one'); }, icon: 'building', nav: false, load: () => pages().then(m => ({ default: m.OrganizationScreen })) },
   ];
   return features.platform === false ? all.filter(r => !(r.need && 'platformAdmin' in r.need)) : all;
 }

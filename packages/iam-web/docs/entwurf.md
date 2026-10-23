@@ -199,8 +199,8 @@ interface IamRoute {
 Beispiel TanStack Router (Assets):
 
 ```tsx
-for (const r of iamRoutes) createRoute({ getParentRoute: () => adminRoute, path: r.path.replace('/verwalten', ''),
-  component: lazyRouteComponent(r.load, 'default') });
+for (const r of makeIamRoutes(paths, features, { param: tanstackParam })) createRoute({ getParentRoute: () => adminRoute,
+  path: r.path.replace('/verwalten', ''), component: lazyRouteComponent(r.load, 'default') });
 ```
 
 Beispiel React Router: `<Route path={r.path} lazy={async () => ({ Component: (await r.load()).default })} />`.

@@ -43,4 +43,4 @@ export { OrgName, useOrgSwitchItems, type OrgSwitchItem } from './rights/OrgSwit
 export { listAnd, listOr } from './texts/index.ts';
 export { formatNode } from './texts/node.tsx';
 export { containers, includedIn } from './roles.ts';
-export { IamNav, iamRoutes, makeIamRoutes, useIamNav, type IamNavItem, type IamRoute, type IamRouteId } from './routes.tsx';
+export { IamNav, iamRoutes, makeIamRoutes, tanstackParam, useIamNav, type IamNavItem, type IamRoute, type IamRouteId } from './routes.tsx';

@@ -57,6 +57,14 @@ export function EntraPage() {
 /** Status, Verbinden, Testanmeldung, «Nur Entra», Domänen, Aktualisieren und Trennen (eigene Organisation oder per Plattform). */
 export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLabel: string }) {
   const q = useEntra(alias);
+  const { paths } = useIamConfig();
+  // Rückkehrpfade des Servers (ENTRA_UI_PATH) müssen zu `paths.entra` passen, sonst kommt die Rückkehr nie an
+  useEffect(() => {
+    const d = q.data;
+    if (d?.consentPath && (d.consentPath !== `${paths.entra}/zustimmung` || (d.testPath && d.testPath !== `${paths.entra}/test`))) {
+      console.warn(`@vollholz/iam-web: Rückkehrpfade des Servers (${d.consentPath}, ${d.testPath ?? '–'}) passen nicht zu paths.entra (${paths.entra}); ENTRA_UI_PATH oder paths.entra anpassen.`);
+    }
+  }, [q.data, paths.entra]);
   const { Button, toast } = useIamUi();
   useIamText();
   const fid = useId();
@@ -158,9 +166,12 @@ function Steps({ c, onEnforce }: { c: EntraConnection; onEnforce: () => void }) 
   );
 }
 
+/** Passwort und Passkey bleiben trotz «Nur Entra» (z. B. Konto der Plattform-Administration), mit Grund. */
+const Kept = ({ m }: { m: EntraMember }) => (m.passwordKept ? <span className="iam-muted iam-small"> · {t('iam.entra.passwordKept', { reason: m.passwordKept })}</span> : null);
+
 /** Mitglieder, die die Anmeldung verlieren, als Liste. */
 function LostList({ members }: { members: EntraMember[] }) {
-  return <ul aria-label={t('iam.entra.lose')}>{members.map(m => <li key={m.email}>{m.name} <span className="iam-mono-s iam-muted">{m.email}</span> – {m.reason}</li>)}</ul>;
+  return <ul aria-label={t('iam.entra.lose')}>{members.map(m => <li key={m.email}>{m.name} <span className="iam-mono-s iam-muted">{m.email}</span> – {m.reason}<Kept m={m} /></li>)}</ul>;
 }
 
 /** Ergebnis für Mitglieder der Domänen: verknüpft oder nicht. */
@@ -223,6 +234,8 @@ function EnforceDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string 
   const [changed, setChanged] = useState<EntraMember[] | null>(null);
   const [ack, setAck] = useState(false);
   const lost = changed ?? pv.data?.members.filter(m => !m.linked) ?? [];
+  // Verknüpft, behalten aber Passwort und Passkey (nicht verknüpfte stehen mit Grund in der Liste oben)
+  const kept = pv.data?.members.filter(m => m.linked && m.passwordKept) ?? [];
   const run = useMutation({
     mutationFn: () => entraApi(alias).enforce(lost.map(m => m.email)),
     onSuccess: onDone,
@@ -240,6 +253,11 @@ function EnforceDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string 
           <label htmlFor={`${fid}-ack`} className="iam-chk"><input id={`${fid}-ack`} type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} /> {t('iam.entra.ack')}</label>
         </>
       ) : <p><Icon name="check" className="iam-ico" />{tn('iam.entra.allLinked', pv.data.members.length)}</p>}
+      {kept.length ? (
+        <ul className="iam-muted iam-small" aria-label={t('iam.entra.keptList')}>
+          {kept.map(m => <li key={m.email}>{m.name} <span className="iam-mono-s">{m.email}</span><Kept m={m} /></li>)}
+        </ul>
+      ) : null}
       {mine ? <p className="iam-muted iam-small"><Icon name="warn" className="iam-ico" />{t('iam.entra.youToo')}</p> : null}
       {changed ? <p className="iam-muted iam-small" role="status">{t('iam.entra.changed')}</p> : run.error ? <ErrorBox error={run.error} /> : null}
     </Dialog>
@@ -292,10 +310,10 @@ export function EntraConsentReturn() {
   const [body] = useState<EntraConsentReturn | null>(() => {
     const s = new URLSearchParams(search);
     const get = (k: string) => s.get(k) || undefined;
-    const state = get('state');
-    return state && STATE.test(state) ? {
-      state, ...(get('tenant') ? { tenant: get('tenant') } : {}), ...(get('admin_consent') ? { adminConsent: get('admin_consent') } : {}),
-      ...(get('error') ? { error: get('error') } : {}), ...(get('error_description') ? { errorDescription: get('error_description') } : {}),
+    const state = get('state'), code = get('code'), error = get('error');
+    // Code-Flow: `code` weist die Zustimmung nach, bei Abbruch `error`; ohne beides keine Rückkehr von Microsoft
+    return state && STATE.test(state) && (code || error) ? {
+      state, ...(code ? { code } : {}), ...(error ? { error } : {}), ...(get('error_description') ? { errorDescription: get('error_description') } : {}),
     } : null;
   });
   const [, kind, alias] = body ? STATE.exec(body.state)! : [];
@@ -312,6 +330,8 @@ export function EntraConsentReturn() {
   });
   // 404: `state` schon verwendet (z. B. nach einem Neuladen), abgelaufen oder fremd
   const used = complete.error instanceof ApiError && complete.error.status === 404;
+  // 409 `consent-unproven`: keine globale Administration bzw. Administration für privilegierte Rollen, Gast, falscher Tenant
+  const unproven = complete.error instanceof ApiError && complete.error.status === 409 && complete.error.problem.reason === 'consent-unproven';
   const back = target
     ? <Link className="iam-btn" to={organizationPath(paths.organizations, target)}>{t('iam.entra.backOrg')}</Link>
     : <Link className="iam-btn" to={paths.entra}>{t('iam.entra.next')}</Link>;
@@ -323,6 +343,7 @@ export function EntraConsentReturn() {
           : wrongOrg ? <Empty icon="warn" title={t('iam.entra.return.other')}>{t('iam.entra.return.otherText', { alias: alias ?? '' })} {back}</Empty>
           : complete.isPending || complete.isIdle ? <SkeletonRows rows={3} />
           : used ? <Empty icon="check" title={t('iam.entra.return.used')}>{t('iam.entra.return.usedText')} {back}</Empty>
+          : unproven ? <Empty icon="warn" title={t('iam.entra.return.unproven')}><p>{t('iam.entra.return.unprovenText')}</p>{back}</Empty>
           : complete.error ? <><ErrorBox error={complete.error} />{back}</>
           : (
             <>

@@ -156,14 +156,14 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 
   it('Rückkehr von Microsoft: meldet die Parameter der API und zeigt verknüpfte und nicht verknüpfte Mitglieder', async () => {
     const { calls } = setup(<EntraConsentReturn />, { 'POST /v1/admin/entra/consent/complete': () => json(RESULT) },
-      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&tenant=0f0e0d0c-0000-4000-8000-000000000001&admin_consent=True' });
+      { path: '/verwalten/anmeldung/zustimmung?code=0.AAA-code&state=o.demo.abc&session_state=x' });
     expect(await screen.findByText(/Verbunden mit «Demo AG \(Entra\)»/)).toBeInTheDocument();
     expect(screen.getByText(/1 Mitglied mit Microsoft verknüpft/)).toHaveTextContent('gehören einer anderen Organisation): muster.example');
     expect(screen.getByText(/Carla Gast/).closest('li')).toHaveTextContent('Gastkonto in Entra ID');
     expect(screen.getByRole('note')).toHaveTextContent('Nächster Schritt: Testanmeldung mit Microsoft');
     expect(screen.getByRole('link', { name: 'Weiter' })).toHaveAttribute('href', '/verwalten/anmeldung');
     const body = await calls.find(c => c.method === 'POST')!.clone().json();
-    expect(body).toEqual({ state: 'o.demo.abc', tenant: '0f0e0d0c-0000-4000-8000-000000000001', adminConsent: 'True' });
+    expect(body).toEqual({ state: 'o.demo.abc', code: '0.AAA-code' });
     // Parameter aus der Adresse entfernt (replace), das Ergebnis bleibt sichtbar
     expect(window.location.pathname).toBe('/verwalten/anmeldung/zustimmung');
     expect(window.location.search).toBe('');
@@ -172,7 +172,7 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 
   it('Rückkehr nach einem Neuladen (404 von der API): «Bereits abgeschlossen» statt Fehler', async () => {
     setup(<EntraConsentReturn />, { 'POST /v1/admin/entra/consent/complete': () => problem(404, 'Die Zustimmung ist abgelaufen, wurde schon verwendet …') },
-      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&admin_consent=True' });
+      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&code=c1' });
     expect(await screen.findByRole('heading', { name: 'Bereits abgeschlossen' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('link', { name: 'Weiter' })).toHaveAttribute('href', '/verwalten/anmeldung');
@@ -188,7 +188,7 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 
   it('Rückkehr mit `state` in fremdem Format: kein Aufruf, «Keine Rückkehr von Microsoft»', async () => {
     for (const state of ['x.demo.abc', 'o.Demo.abc', 'o.demo', 'o.demo.a/b', 'p..abc', `o.${'a'.repeat(64)}.abc`]) {
-      const { calls, unmount } = setup(<EntraConsentReturn />, {}, { path: `/verwalten/anmeldung/zustimmung?state=${encodeURIComponent(state)}` });
+      const { calls, unmount } = setup(<EntraConsentReturn />, {}, { path: `/verwalten/anmeldung/zustimmung?state=${encodeURIComponent(state)}&code=c1` });
       expect(await screen.findByRole('heading', { name: 'Keine Rückkehr von Microsoft' })).toBeInTheDocument();
       expect(calls.some(c => c.url.includes('/entra/'))).toBe(false);
       unmount();
@@ -197,19 +197,55 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 
   it('Rückkehr der Plattform-Administration: Organisation aus `state`, zurück zur Organisation', async () => {
     const { calls } = setup(<EntraConsentReturn />, { 'POST /v1/platform/organizations/muster/entra/consent/complete': () => json(RESULT) },
-      { path: '/verwalten/anmeldung/zustimmung?state=p.muster.abc&admin_consent=True' });
+      { path: '/verwalten/anmeldung/zustimmung?state=p.muster.abc&code=c1' });
     expect(await screen.findByText(/Verbunden mit/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Zurück zur Organisation' })).toHaveAttribute('href', '/verwalten/organisationen/muster');
     expect(calls.some(c => c.url.endsWith('/v1/platform/organizations/muster/entra/consent/complete'))).toBe(true);
   });
 
   it('Rückkehr für eine andere Organisation des Tabs: kein Aufruf, Hinweis; ohne Parameter: Hinweis', async () => {
-    const { calls, unmount } = setup(<EntraConsentReturn />, {}, { path: '/verwalten/anmeldung/zustimmung?state=o.muster.abc' });
+    const { calls, unmount } = setup(<EntraConsentReturn />, {}, { path: '/verwalten/anmeldung/zustimmung?state=o.muster.abc&code=c1' });
     expect(await screen.findByRole('heading', { name: 'Andere Organisation' })).toBeInTheDocument();
     expect(calls.some(c => c.url.includes('/entra/'))).toBe(false);
     unmount();
     setup(<EntraConsentReturn />, {}, { path: '/verwalten/anmeldung/zustimmung' });
     expect(await screen.findByRole('heading', { name: 'Keine Rückkehr von Microsoft' })).toBeInTheDocument();
+  });
+
+  it('Rückkehrpfade des Servers passen nicht zu paths.entra: Warnung in der Konsole', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    setup(<EntraScreen />, { 'GET /v1/admin/entra': () => json({ enabled: true, reason: null, connection: PENDING, consentPath: '/admin/entra/zustimmung', testPath: '/admin/entra/test' }) });
+    await screen.findByText('verbunden, noch nicht aktiv');
+    await waitFor(() => expect(warn.mock.calls.some(c => String(c[0]).includes('passen nicht zu paths.entra (/verwalten/anmeldung)'))).toBe(true));
+    warn.mockRestore();
+  });
+
+  it('Rückkehr mit `state`, aber ohne `code` und ohne `error`: «Keine Rückkehr von Microsoft», kein Aufruf', async () => {
+    const { calls } = setup(<EntraConsentReturn />, {}, { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&admin_consent=True' });
+    expect(await screen.findByRole('heading', { name: 'Keine Rückkehr von Microsoft' })).toBeInTheDocument();
+    expect(calls.some(c => c.url.includes('/entra/'))).toBe(false);
+  });
+
+  it('409 consent-unproven: Zustimmung nicht nachweisbar, mit Hinweis auf die nötige Rolle im Tenant', async () => {
+    setup(<EntraConsentReturn />, { 'POST /v1/admin/entra/consent/complete': () => problem(409, 'Nicht nachweisbar.', { reason: 'consent-unproven' }) },
+      { path: '/verwalten/anmeldung/zustimmung?state=o.demo.abc&code=c1' });
+    expect(await screen.findByRole('heading', { name: 'Zustimmung nicht nachweisbar' })).toBeInTheDocument();
+    expect(screen.getByText('Die Zustimmung muss eine globale Administration oder eine Administration für privilegierte Rollen des Microsoft-Verzeichnisses erteilen.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Weiter' })).toBeInTheDocument();
+  });
+
+  it('Vorschau «Nur Entra»: wer Passwort und Passkey behält, steht mit Grund neben der Person', async () => {
+    setup(<EntraScreen />, {
+      ...status({ ...PENDING, testedAt: AT, testedBy: 'Olga Extra' }),
+      'GET /v1/admin/entra/preview': () => json({ members: [
+        { email: 'anna@demo.example', name: 'Anna Admin', linked: true, reason: null, passwordKept: 'Konto der Plattform-Administration' },
+        { email: 'carla@demo.example', name: 'Carla Gast', linked: false, reason: 'Gastkonto in Entra ID', passwordKept: 'Notfallzugang' },
+      ] }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Nur Entra aktivieren …' }));
+    const dlg = await screen.findByRole('alertdialog', { name: '«Nur Entra» für «Demo AG» aktivieren?' });
+    expect(await within(dlg).findByRole('list', { name: 'Behalten Passwort und Passkey' })).toHaveTextContent('Anna Admin anna@demo.example · Passwort bleibt: Konto der Plattform-Administration');
+    expect(within(dlg).getByRole('list', { name: 'Verlieren die Anmeldung' })).toHaveTextContent('Carla Gast carla@demo.example – Gastkonto in Entra ID · Passwort bleibt: Notfallzugang');
   });
 
   it('Rückkehr der Testanmeldung meldet sie der API (jede Person der Organisation)', async () => {

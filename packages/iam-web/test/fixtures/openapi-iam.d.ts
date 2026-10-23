@@ -1154,11 +1154,10 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        adminConsent?: string;
+                        code?: string;
                         error?: string;
                         errorDescription?: string;
                         state: string;
-                        tenant?: string;
                     };
                 };
             };
@@ -1175,6 +1174,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -1280,6 +1280,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -1386,6 +1387,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -1482,6 +1484,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                         };
                     };
@@ -1566,6 +1569,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -3847,11 +3851,10 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        adminConsent?: string;
+                        code?: string;
                         error?: string;
                         errorDescription?: string;
                         state: string;
-                        tenant?: string;
                     };
                 };
             };
@@ -3868,6 +3871,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -3983,6 +3987,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -4099,6 +4104,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };
@@ -4205,6 +4211,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                         };
                     };
@@ -4307,6 +4314,7 @@ export interface paths {
                                 linked: boolean;
                                 name: string;
                                 reason: string | null;
+                                passwordKept?: string;
                             }[];
                             rejectedDomains: string[];
                         };

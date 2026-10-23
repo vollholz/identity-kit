@@ -188,13 +188,16 @@ export interface EntraConnection {
   refreshedAt: string;
   lastError: string | null;
 }
-export interface EntraStatus { enabled: boolean; reason: string | null; connection: EntraConnection | null }
-export interface EntraMember { name: string; email: string; linked: boolean; reason: string | null }
+/** `consentPath`, `testPath`: Rückkehrpfade des Servers (ENTRA_UI_PATH), müssen zu `paths.entra` passen; ältere Server ohne. */
+export interface EntraStatus { enabled: boolean; reason: string | null; connection: EntraConnection | null; consentPath?: string; testPath?: string }
+/** `passwordKept`: warum Passwort und Passkey bei «Nur Entra» bleiben (z. B. Konto der Plattform-Administration). */
+export interface EntraMember { name: string; email: string; linked: boolean; reason: string | null; passwordKept?: string }
 export interface EntraResult { connection: EntraConnection; members: EntraMember[]; rejectedDomains: string[] }
 export interface EntraPreview { members: EntraMember[] }
 export interface EntraConsentInput { tenant: string }
 export interface EntraConsentStart { entraTenantId: string; url: string }
-export interface EntraConsentReturn { state: string; tenant?: string; adminConsent?: string; error?: string; errorDescription?: string }
+/** Rückkehr von Microsoft (Code-Flow): `code` weist die Zustimmung nach, bei Abbruch `error`. */
+export interface EntraConsentReturn { state: string; code?: string; error?: string; errorDescription?: string }
 export interface EntraDomainsInput { domains: string[]; notLinked?: string[] }
 export interface EntraEnforceInput { notLinked?: string[] }
 

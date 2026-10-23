@@ -6,7 +6,7 @@
 import { lazy, StrictMode, Suspense, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../src/styles.css';
-import { historyRouter, IamNav, IamProvider, iamRoutes, type ClientGrant, type Member, type Organization, type Role } from '../../../src/index.ts';
+import { historyRouter, IamNav, IamProvider, makeIamRoutes, type ClientGrant, type EntraConnection, type Member, type Organization, type Role } from '../../../src/index.ts';
 import { CATALOG, json, ME, mockIamApi } from '../../../src/testing/index.tsx';
 import './page.css';
 
@@ -29,6 +29,14 @@ const org = (alias: string, name: string, o: Partial<Organization> = {}): Organi
   ({ id: `kc-${alias}`, alias, name, description: null, enabled: true, domains: [`${alias}.example`], tenant: { id: `t-${alias}`, status: 'active', createdAt: ago(100) }, ...o });
 let orgs: Organization[] = [org('demo', 'Demo AG', { domains: [] }), org('muster', 'Muster GmbH'), org('neu', 'Neu AG mit einem langen Namen', { tenant: null, domains: [] })];
 const setOrg = (alias: string, f: (o: Organization) => Organization) => { orgs = orgs.map(o => (o.alias === alias ? f(o) : o)); return orgs.find(o => o.alias === alias)!; };
+let entra: EntraConnection = {
+  entraTenantId: '0f0e0d0c-0000-4000-8000-000000000001', entraName: 'Demo AG (Entra)', domains: ['demo.example'], availableDomains: ['extra.example'], stage: 'pending',
+  testedAt: ago(0.5), testedBy: 'Anna Admin', enforcedAt: null, enforcedBy: null, testLoginPath: '/auth/login?idp=entra-001&org=demo', status: 'active', lastError: null,
+  connectedAt: ago(2), connectedBy: 'Anna Admin', refreshedAt: ago(1),
+};
+const entraMembers = [{ email: 'anna@demo.example', name: 'Anna Admin', linked: true, reason: null }, { email: 'carla@demo.example', name: 'Carla Check', linked: false, reason: 'In Entra ID nicht gefunden' }];
+const features = { entra: true };
+const routes = makeIamRoutes({}, features);
 const roles = () => ({
   items: [...CATALOG.roles.map(r => ({ ...r, custom: false, id: null, version: null, memberCount: members.filter(m => m.roles.includes(r.key)).length, createdAt: null, updatedAt: null })), ...custom],
   customPermissions: CATALOG.permissions.filter(p => !p.adminOnly).map(p => p.key), maxCustom: 50,
@@ -50,6 +58,20 @@ window.fetch = mockIamApi({
     members = members.map(x => (x.id === idOf(req) ? { ...x, roles: r } : x));
     return json(members.find(x => x.id === idOf(req)));
   }])),
+  'GET /v1/admin/entra': () => json({ enabled: true, reason: null, connection: entra }),
+  'GET /v1/admin/entra/preview': () => json({ members: entraMembers }),
+  'POST /v1/admin/entra/enforce': () => { entra = { ...entra, stage: 'enforced', enforcedAt: new Date().toISOString(), enforcedBy: 'Anna Admin' }; return json({ connection: entra, members: entraMembers, rejectedDomains: [] }); },
+  'GET /v1/platform/organizations/muster/entra': () => json({ enabled: true, reason: null, connection: null }),
+  'GET /v1/admin/members/entra-search': () => json({ more: false, items: [
+    { id: 'e-paula', name: 'Paula Plan', email: 'paula@demo.example', userPrincipalName: 'paula@demo.example', department: 'Planung', jobTitle: 'Planerin', selectable: true, reason: null },
+    { id: 'e-gast', name: 'Gina Gast', email: 'gina@gmail.example', userPrincipalName: 'gina_gmail.example#EXT#@demo.onmicrosoft.com', department: null, jobTitle: null, selectable: false, reason: 'Gastkonto in Entra ID' },
+  ] }),
+  'POST /v1/admin/members/entra': async req => {
+    const b = await req.json() as { roles: string[] };
+    const m = member('m-paula', 'Paula Plan', 'paula@demo.example', b.roles, { status: 'invited', lastSeenAt: null, createdAt: new Date().toISOString(), loginPath: '/auth/entra/entra-001?org=demo' });
+    members = [...members, m];
+    return json({ result: 'added', emailSent: false, member: m }, 202);
+  },
   'GET /v1/admin/clients': () => json({ items: clients }),
   'PUT /v1/admin/clients/notiz-2': async req => {
     const { description } = await req.json() as { description: string };
@@ -74,11 +96,11 @@ window.fetch = mockIamApi({
   },
 }, { me: ME }).fetch;
 
-const start = iamRoutes.find(r => r.id === new URLSearchParams(location.search).get('p')) ?? iamRoutes[0]!;
+const start = routes.find(r => r.id === new URLSearchParams(location.search).get('p')) ?? routes[0]!;
 history.replaceState(null, '', start.path.replace(':alias', 'muster'));
 
 /** Route zum Pfad; `:alias` passt auf einen Abschnitt (wie im Router der App). */
-const match = (path: string) => iamRoutes.find(r => new RegExp(`^${r.path.replace(/:[a-z]+/g, '[^/]+')}$`).test(path));
+const match = (path: string) => routes.find(r => new RegExp(`^${r.path.replace(/:[a-z]+/g, '[^/]+')}$`).test(path));
 
 function Pages() {
   const path = historyRouter.usePathname();
@@ -89,7 +111,7 @@ function Pages() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <IamProvider product="Notizen">
+    <IamProvider product="Notizen" features={features}>
       <div className="admin">
         <aside><IamNav /></aside>
         <main className="admin-main"><Pages /></main>

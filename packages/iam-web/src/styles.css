@@ -40,7 +40,7 @@
 
   /* Grundlage wie in Assets: Rahmen in der Breite enthalten; Bedienelemente übernehmen Schrift und Farbe; Fokus sichtbar */
   :where([class^="iam-"], [class*=" iam-"]), :where([class^="iam-"], [class*=" iam-"]) :where(*, *::before, *::after) { box-sizing: border-box }
-  :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button, .iam-seg button, .iam-rights-wb, .iam-rm-tg) { font: inherit; color: inherit; cursor: pointer }
+  :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button, .iam-seg button, .iam-rights-wb, .iam-rm-tg, .iam-entra-hit) { font: inherit; color: inherit; cursor: pointer }
   :where(.iam-search input, .iam-inp, .iam-tbl thead th button) { font: inherit; color: inherit }
   :where(details.iam-more > summary) { color: inherit }
   :where(.iam-pop input) { font: inherit; color: inherit }
@@ -550,5 +550,26 @@ tbody tr.iam-static:hover td{background:none}
 .iam-org-tbl td.iam-chev{width:40px;color:var(--iam-text-3)}
 .iam-org-context .iam-ico{flex:0 0 auto}
 .iam-client-scopes .iam-ico{flex:none;width:12px;height:12px;color:var(--iam-text-3);transform:translateY(1px)}
+/* Anmeldung über Microsoft Entra ID (aus Assets base.css, features/admin/admin.css) */
+.iam-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 14px;font-size:13px;margin:0;align-items:baseline}
+.iam-kv dt{color:var(--iam-text-2)}
+.iam-kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.iam-entra-search{flex:none;width:100%;margin:10px 0 8px}
+.iam-entra-hits-wrap{min-height:40px}
+.iam-entra-hits{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto}
+.iam-entra-hit,.iam-entra-picked{display:grid;grid-template-columns:minmax(0,1fr);row-gap:1px;width:100%;text-align:left;padding:7px 8px;border-radius:7px}
+.iam-entra-hit{border:0;background:none;color:inherit;cursor:pointer}
+.iam-entra-hit:hover:not([aria-disabled=true]){background:var(--iam-surface-2)}
+.iam-entra-hit[aria-disabled=true]{cursor:default;opacity:.6}
+.iam-entra-hit>*,.iam-entra-picked>*{overflow:hidden;text-overflow:ellipsis}
+.iam-entra-why{color:var(--iam-text-3)}
+.iam-entra-picked{border:1px solid var(--iam-line-2);background:var(--iam-surface-2);margin:10px 0 4px}
+.iam-entra-mail{display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:500}
+.iam-entra-link{display:flex;gap:8px;margin:4px 0 6px}
+.iam-kv code{font:12px var(--iam-font-mono)}
+.iam-entra-link .iam-inp{flex:1;min-width:0}
+label.iam-chk{display:flex;gap:8px;align-items:center}
+.iam-entra-steps{display:flex;flex-direction:column;gap:8px;line-height:1.5}
+.iam-entra-steps .iam-ico{width:14px;height:14px;margin-right:4px;vertical-align:-2px}
 .iam-b{font-weight:600}
 .iam-pb{padding-bottom:16px}

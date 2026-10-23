@@ -6,4 +6,5 @@ export { MemberList, MembersPage, RolePicker, type MemberListProps, type RolePic
 export { RolesPage } from './Roles.tsx';
 export { ClientList, ClientsPage, checkRightsHref, type ClientListProps } from './Clients.tsx';
 export { OrganizationPage, OrganizationsPage, organizationPath } from './Organizations.tsx';
-export { ClientsScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
+export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './Entra.tsx';
+export { ClientsScreen, EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';

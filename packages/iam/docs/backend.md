@@ -91,7 +91,7 @@ await migrate(cfg.db.adminUrl!, [
 ]);
 ```
 
-Die IAM-Migrationen laufen direkt nach `after`; nur `iam_009` wird ausgeführt.
+Die IAM-Migrationen laufen direkt nach `after`; ausgeführt werden nur `iam_009` und neuere IAM-Migrationen (ab 0.2.0 auch `iam_013`).
 
 ## 5. API
 
@@ -223,6 +223,19 @@ Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantSt
   groups claim › Directory roles). Ohne diesen Claim fehlt `wids` im ID-Token, und Verbinden scheitert mit 409
   `consent-unproven`: Die Zustimmung gilt nur mit Nachweis einer globalen Administration oder «Privileged Role
   Administrator» des Tenants.
+- **Link an die Entra-Administration (0.2):** Muss eine andere Person der Kunden-IT zustimmen, erzeugt die org-admin
+  einen Link (`POST …/entra/consent-links`). Die Oberfläche braucht dafür die öffentliche Seite
+  `<ENTRA_UI_PATH>/freigabe` (Token im Fragment, ruft `/v1/entra/handover/info` und `…/start`); die Rückkehrseite
+  `…/zustimmung` ruft bei `state` mit `h.` den öffentlichen `…/handover/complete`. Die Routen sind im Plugin öffentlich;
+  `@fastify/rate-limit` der App begrenzt sie auf 20 je Minute und IP (ohne das Plugin warnt der Start). Hinter einem
+  Reverse Proxy `trustProxy` von Fastify passend setzen (z. B. Anzahl Proxys), sonst zählt das Limit die Adresse des
+  Proxys für alle Anfragen bzw. eine gefälschte `X-Forwarded-For`.
+  **Verträglichkeit:** Links funktionieren erst mit `@vollholz/iam-web` ab 0.2 (Seite `…/freigabe`, Rückkehr mit
+  `h.`-state). Mit älterer Oberfläche keine Links erzeugen: Die Adresse führte auf eine fehlende Seite, und die
+  Rückkehrseite schickte den `state` an `…/consent/complete` (dort 404, nichts verbunden).
+  Offene Links verfallen, wenn die erzeugende Person entfernt wird oder `members:admin` verliert (Plattform-Links: die
+  Realm-Rolle) und beim Trennen der Verbindung; geprüft auch beim Start und bei der Rückkehr. Solange die Organisation
+  gesperrt ist, gilt kein Link (404).
 
 ## 9. Tests
 

@@ -67,10 +67,11 @@ const FOREIGN: { route: string; label: string; call: (i: Ids) => Call }[] = [
   { route: 'GET /v1/people/{id}', label: 'Client von A lesen', call: i => ({ method: 'GET', url: `/v1/people/${i.clientPrincipal}` }) },
   { route: 'GET /v1/people', label: 'Personen von A über ids', call: i => ({ method: 'GET', url: `/v1/people?ids=${i.person}&ids=${i.clientPrincipal}` }) },
   // Entra-Anbindung von A über die Plattform-Routen (B ohne platform-admin)
-  ...[['GET', ''], ['DELETE', ''], ['POST', '/consent'], ['POST', '/consent/complete'], ['GET', '/preview'], ['POST', '/enforce'], ['PUT', '/domains'], ['POST', '/refresh']].map(([method, sub]) => ({
+  ...[['GET', ''], ['DELETE', ''], ['POST', '/consent'], ['POST', '/consent/complete'], ['GET', '/preview'], ['POST', '/enforce'], ['PUT', '/domains'], ['POST', '/refresh'], ['POST', '/consent-links'], ['GET', '/consent-links']].map(([method, sub]) => ({
     route: `${method} /v1/platform/organizations/{alias}/entra${sub}`, label: `Entra von A: ${method} ${sub || '/'}`,
-    call: (i: Ids): Call => ({ method: method!, url: `/v1/platform/organizations/${i.alias}/entra${sub}`, ...({ '/consent': { body: { tenant: 'acme.example' } }, '/consent/complete': { body: { state: 'o.acme.abcdefghijk' } }, '/enforce': { body: {} }, '/domains': { body: { domains: ['acme.example'] } } } as Record<string, { body: unknown }>)[sub!] }),
+    call: (i: Ids): Call => ({ method: method!, url: `/v1/platform/organizations/${i.alias}/entra${sub}`, ...({ '/consent': { body: { tenant: 'acme.example' } }, '/consent-links': method === 'POST' ? { body: { tenant: 'acme.example' } } : undefined, '/consent/complete': { body: { state: 'o.acme.abcdefghijk' } }, '/enforce': { body: {} }, '/domains': { body: { domains: ['acme.example'] } } } as Record<string, { body: unknown } | undefined>)[sub!] }),
   })),
+  { route: 'DELETE /v1/platform/organizations/{alias}/entra/consent-links/{id}', label: 'Link der Entra-Administration von A widerrufen', call: i => ({ method: 'DELETE', url: `/v1/platform/organizations/${i.alias}/entra/consent-links/${crypto.randomUUID()}` }) },
   { route: 'GET /v1/platform/organizations/{alias}/members/entra-search', label: 'Entra-Suche in A', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/members/entra-search?q=alice` }) },
   { route: 'POST /v1/platform/organizations/{alias}/members/entra', label: 'Person aus Entra in A', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/members/entra`, body: { id: crypto.randomUUID() } }) },
   { route: 'DELETE /v1/acl/{id}', label: 'Zugriffsregel von A löschen', call: i => ({ method: 'DELETE', url: `/v1/acl/${i.acl}` }) },
@@ -100,7 +101,9 @@ const ENTRA_OWN = 'Entra (Kap. 9.4): Organisation nur aus dem Token, Verbindung 
 const OTHER: Record<string, string> = Object.fromEntries([
   'POST /v1/admin/entra/consent', 'POST /v1/admin/entra/consent/complete', 'GET /v1/admin/entra/preview', 'POST /v1/admin/entra/enforce', 'PUT /v1/admin/entra/domains',
   'POST /v1/admin/entra/refresh', 'DELETE /v1/admin/entra', 'POST /v1/admin/entra/test', 'GET /v1/admin/members/entra-search', 'POST /v1/admin/members/entra',
-].map(r => [r, ENTRA_OWN]));
+  'POST /v1/admin/entra/consent-links', 'GET /v1/admin/entra/consent-links', 'DELETE /v1/admin/entra/consent-links/{id}',
+].map(r => [r, ENTRA_OWN]).concat(['info', 'start', 'complete'].map(x => [`POST /v1/entra/handover/${x}`,
+  'Öffentlich ohne Anmeldung: nur über das Token des Links bzw. state (Hash, Mandant aus dem Alias, RLS); entra-handover.test.ts «Missbrauch …»'])));
 
 /** Routen der Beispiel-App (Fachrouten, nicht Teil des Pakets) und öffentliche Beschreibung. */
 const EXEMPT: Record<string, string> = {

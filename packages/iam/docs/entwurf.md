@@ -440,7 +440,7 @@ Ziel: Assets nutzt `@vollholz/iam@0.1.0`, ohne Verhaltensänderung; alle Tests v
 5. Module `auth` (ohne `ui.ts`), `admin`, ACL-Teil von `catalog/governance.ts` entfallen zugunsten der Module des
    Pakets; Worker und MCP-Dienst nutzen `MemberSync` bzw. `TokenExchanger`.
 6. Migrationen: `migrate(…, [dirMigrations('db/migrations'), iamMigrations({ product: 'assets', resourceTypes: […],
-   leafTypes: ['object'], adopted: ASSETS_ADOPTION })])`; nur `iam_009` läuft (6.4). Gleichheit nach
+   leafTypes: ['object'], adopted: ASSETS_ADOPTION })])`; ausgeführt werden nur `iam_009` und neuere (6.4). Gleichheit nach
    [6.4](#64-übernahme-in-assets) prüft schon die CI des Pakets.
 7. Tests von Assets, die in das Paket gewandert sind, bleiben in Assets **zusätzlich** bestehen, bis die Umstellung
    gemerged ist; danach entfernt Assets nur Duplikate, nie Prüfungen der Fachrouten oder des eigenen Katalogs.
@@ -800,3 +800,32 @@ Audit-Trigger darauf warten.
   - S5–S8: `GROUP_ROLE_PREFIX` geprüft (`GROUP_PREFIX_RE`), Realm im Dateinamen bereinigt; kein Passwort für Konten mit
     Identitätsanbieter; `X-Tenant`/`?org=` nach `ALIAS_PATTERN` (400); `TokenExchanger` tauscht nie ohne Scope des
     Katalogs, höchstens 10 000 Tokens im Zwischenspeicher.
+
+### 13.17 Link an die Entra-Administration (Kit 0.2)
+
+- Ziel: org-admins richten SSO selbst ein, auch wenn eine andere Person der Kunden-IT bei Microsoft zustimmen muss.
+  Bisher galt die Rückkehr nur in der Sitzung der startenden Person (`entra_consent.subject`).
+- `iam_013`: `entra_consent_link` (Mandant, Token-Hash, Entra-Tenant, erzeugende Person, Ablauf höchstens 24 Std.,
+  eingelöst, widerrufen, zustimmende Person, Fehler); `entra_consent.link_id`, `subject` dafür optional (genau eines).
+- Token `<alias>.<zufall>`: der Alias findet den Mandanten (`findTenant`), danach alles unter RLS über den Hash – keine
+  neue Funktion ohne Mandantenkontext. `state` des Links `h.<alias>.<zufall>`; PKCE und `nonce` wie bisher aus `state`.
+- Einlösen belegt den Link vor dem Nachweis (gleichzeitige Rückkehren: eine verbindet, die andere 404) und gibt ihn bei
+  einem Fehlschlag mit dem Fehler wieder frei. Verbunden wird mit einem Akteur aus der erzeugenden Person (ohne Token);
+  `entra.connected` mit `consentBy`, `viaLink`, `linkCreatedBy`.
+- `info` nennt neben Organisation und Produkt die erzeugende Person (`requestedBy`) und das Verzeichnis wie angegeben
+  (`tenant`, `entraTenantId`): Schutz gegen Phishing mit fremden Links. Höchstens 5 offene Links je Organisation (unter
+  der Sperre `admin:<alias>` gezählt), Erzeugen 10 pro Minute und Person. Das `tid` des ID-Tokens muss der Tenant des
+  Links sein (`verifyConsent`); ein Code aus einem anderen Tenant lässt sich am Token-Endpunkt nicht einlösen.
+- Öffentliche Routen `/v1/entra/handover/{info,start,complete}`: im Plugin immer öffentlich (Schutz über Token, `state`
+  und PKCE, kein CSRF nötig ohne Sitzung), `config.rateLimit` 20 je Minute und IP, `Cache-Control: no-store`.
+- Review #31: Eingelöst (`used_at`, zustimmende Person) in der Transaktion der Verbindung (Hook `onConnected` in
+  `connect`); ein während des Nachweises widerrufener Link bricht die Verbindung ab. Fehlschlag gibt den Link nur frei,
+  solange nicht verbunden. Beim Start und bei der Rückkehr prüft `requireCreator`, ob die erzeugende Person noch darf
+  (Mitglied mit `members:admin` bzw. Realm-Rolle; mit ROLE_SOURCE=client/both nur die Mitgliedschaft, die Rollen stehen
+  dort im Token) und ob die Organisation aktiv ist; sonst widerrufen (`creator-lost-access`). Entfernen und Zurückstufen über
+  die App widerrufen sofort (`revokeConsentLinksOf`), Trennen widerruft alle offenen Links. Liste: alle offenen, dazu 20
+  erledigte; erledigte Links nach 90 Tagen gelöscht (beim Erzeugen). `entra_consent` zeigt mit `(tenant_id, link_id)`
+  auf den Link. `entra.consent_failed` nur für abgelehnte oder nicht nachgewiesene Zustimmung (Fehler beim Verbinden:
+  `entra.connect_failed`). `info.notice`: den Namen des Entra-Tenants kennt die App vor der Zustimmung nicht (Graph
+  braucht die Zustimmung); angezeigt wird das Verzeichnis wie angegeben.
+

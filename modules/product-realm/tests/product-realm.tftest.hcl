@@ -16,7 +16,7 @@ variables {
   display_name    = "Beispiel"
   public_base_url = "https://beispiel.example.ch/"
   catalog = {
-    roles  = { "org-admin" = "Organisations-Admin", viewer = "Leser:in" }
+    roles  = { viewer = "Leser:in" }
     scopes = ["beispiel:read", "notes:write"]
   }
   theme_texts = {
@@ -69,8 +69,8 @@ run "ohne_schalter" {
     error_message = "Mapper nur am BFF-Client"
   }
   assert {
-    condition     = keys(keycloak_role.platform) == ["org-admin", "viewer"] && keycloak_role.platform["viewer"].description == "Leser:in"
-    error_message = "Client-Rollen aus catalog.roles mit Beschreibung"
+    condition     = keys(keycloak_role.platform) == ["org-admin", "viewer"] && keycloak_role.platform["viewer"].description == "Leser:in" && keycloak_role.platform["org-admin"].description == "Organisations-Admin"
+    error_message = "Client-Rollen: org-admin aus dem Modul, die übrigen aus catalog.roles mit Beschreibung"
   }
   assert {
     condition     = keycloak_openid_client_scope.permission["notes:write"].description == "Beispiel: notes:write"
@@ -222,11 +222,12 @@ run "product_project_suite" {
   expect_failures = [var.product]
 }
 
-run "katalog_ohne_org_admin" {
+# org-admin legt das Modul an; im Katalog der App wäre es eine zweite Quelle
+run "katalog_mit_org_admin" {
   command = plan
 
   variables {
-    catalog = { roles = { viewer = "Leser:in" }, scopes = [] }
+    catalog = { roles = { "org-admin" = "Organisations-Admin", viewer = "Leser:in" }, scopes = [] }
   }
 
   expect_failures = [var.catalog]
@@ -254,4 +255,122 @@ run "theme_farbe" {
   }
 
   expect_failures = [var.theme_texts]
+}
+
+run "maschinen_clients" {
+  command = plan
+
+  variables {
+    m2m = true
+    machine_clients = {
+      "acme-export" = {
+        organizations = ["acme"]
+        roles         = ["viewer"]
+        scopes        = ["beispiel:read"]
+        jwks          = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"acme\"}]}"
+      }
+      "monitoring" = {
+        description   = "System-Client des Betriebs"
+        organizations = ["zeta", "acme"]
+        roles         = ["org-admin", "viewer"]
+        scopes        = ["beispiel:read", "notes:write"]
+        jwks          = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"mon\"}]}"
+      }
+    }
+  }
+
+  assert {
+    condition = alltrue([for c in keycloak_openid_client.machine : c.service_accounts_enabled && !c.standard_flow_enabled && c.require_dpop_bound_tokens
+      && c.client_authenticator_type == "client-jwt" && c.access_token_lifespan == "300" && !c.use_refresh_tokens
+    && c.extra_config["beispiel.m2m"] == "true" && c.extra_config["beispiel.platform"] == "true"])
+    error_message = "Service Account, private_key_jwt, DPoP, 5 min, Markierungen <produkt>.m2m und <produkt>.platform"
+  }
+  assert {
+    condition     = keycloak_openid_client.machine["monitoring"].name == "Beispiel: monitoring" && keycloak_openid_client.machine["monitoring"].extra_config["jwks.string"] == jsonencode(jsondecode(var.machine_clients["monitoring"].jwks))
+    error_message = "Name und JWKS"
+  }
+  assert {
+    condition     = keycloak_openid_hardcoded_claim_protocol_mapper.machine_organization["monitoring"].claim_value == "[\"acme\",\"zeta\"]" && keycloak_openid_hardcoded_claim_protocol_mapper.machine_organization["acme-export"].claim_value_type == "JSON"
+    error_message = "Claim organization als JSON-Liste der Aliasse"
+  }
+  assert {
+    condition     = keys(keycloak_openid_client_service_account_role.machine) == ["acme-export/viewer", "monitoring/org-admin", "monitoring/viewer"]
+    error_message = "Client-Rollen je Client und Rolle"
+  }
+  assert {
+    condition     = keycloak_openid_client_default_scopes.machine["acme-export"].default_scopes == toset(["profile", "email", "roles", "web-origins", "acr", "basic", "beispiel:read"]) && length(keycloak_openid_client_optional_scopes.machine["monitoring"].optional_scopes) == 0
+    error_message = "Rechte-Scopes als Standard-Scopes, keine optionalen"
+  }
+  assert {
+    condition     = keys(keycloak_openid_audience_protocol_mapper.machine_api) == ["acme-export", "monitoring"] && length(keycloak_openid_audience_protocol_mapper.machine_mcp) == 0
+    error_message = "Zielgruppe <produkt>-api, ohne mcp keine Zielgruppe <produkt>-mcp"
+  }
+  assert {
+    condition     = join(",", output.machine_clients["monitoring"].organizations) == "acme,zeta"
+    error_message = "Ausgabe mit den Organisationen für die Freigabe"
+  }
+}
+
+run "maschinen_client_ohne_m2m" {
+  command = plan
+
+  variables {
+    machine_clients = {
+      "acme-export" = { organizations = ["acme"], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+    }
+  }
+
+  expect_failures = [keycloak_openid_client.machine]
+}
+
+run "maschinen_client_fremde_rolle" {
+  command = plan
+
+  variables {
+    m2m = true
+    machine_clients = {
+      "acme-export" = { organizations = ["acme"], roles = ["c-eigene"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+    }
+  }
+
+  expect_failures = [var.machine_clients]
+}
+
+run "maschinen_client_fremder_scope" {
+  command = plan
+
+  variables {
+    m2m = true
+    machine_clients = {
+      "acme-export" = { organizations = ["acme"], roles = ["viewer"], scopes = ["members:admin"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+    }
+  }
+
+  expect_failures = [var.machine_clients]
+}
+
+run "maschinen_client_reservierte_id" {
+  command = plan
+
+  variables {
+    m2m = true
+    machine_clients = {
+      "beispiel-admin" = { organizations = ["acme"], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+    }
+  }
+
+  expect_failures = [var.machine_clients]
+}
+
+run "maschinen_client_ohne_organisation" {
+  command = plan
+
+  variables {
+    m2m = true
+    machine_clients = {
+      "acme-export" = { organizations = [], roles = ["viewer"], jwks = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"eA\",\"y\":\"eQ\",\"kid\":\"a\"}]}" }
+    }
+  }
+
+  expect_failures = [var.machine_clients]
 }

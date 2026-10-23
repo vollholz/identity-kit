@@ -8,7 +8,7 @@ Herausgelöst aus vollholz/assets `infra/keycloak` (`3a148ae`); für Assets ergi
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version** in [`VERSION`](VERSION) (0.1.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (0.2.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -29,7 +29,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `product` | string | – | technischer Name `<produkt>` (`^[a-z][a-z0-9-]{1,30}[a-z0-9]$`); alle Namen folgen daraus (unten) |
 | `display_name` | string | – | Anzeigename `<Produkt>`: Realm, Theme, Namen der Clients, Texte der Scopes, SMTP-Absender, Betreff der Einladung |
 | `public_base_url` | string | – | Adresse der Oberfläche (`PUBLIC_BASE_URL`); daraus Redirect, Web-Origin, Logout-Adressen von `<produkt>-platform` |
-| `catalog` | object | – | Inhalt von `infra/keycloak/platform.json`: `roles = { <rolle> = <Beschreibung> }` (mit `org-admin`), `scopes = [<scope>, …]` |
+| `catalog` | object | – | Inhalt von `infra/keycloak/platform.json` (`catalog.platformJson()` aus `@vollholz/iam` ≥ 0.4.0): `roles = { <rolle> = <Beschreibung> }` **ohne** `org-admin` und `platform-admin` (beide legt das Modul an), `scopes = [<scope>, …]` |
 | `jwks` | map(string) | – | öffentliche Schlüssel (Inhalt von `keys/<produkt>-<client>.json`) für `platform`, `admin`, `sync` und mit `mcp` auch `mcp`; je genau ein EC-P-256-Schlüssel mit `kid`, ohne privaten Teil |
 | `theme_texts` | map(map(string)) | `{}` | Werte des Themes `identity` je Sprache (`themeAccent…` nur `#RRGGBB`, `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`, kurze Login-Titel); überschreiben alle anderen Texte |
 | `localization` | map(map(string)) | `{}` | weitere Realm-Texte der App je Sprache; überschreiben die Standardtexte |
@@ -38,6 +38,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `smtp` | object | `null` | ausgehende Mails über das **eigene Konto des Produkts**: `host`, `from`, `user` Pflicht (keine Vorgaben, damit keine App stillschweigend das Postfach einer anderen nutzt); `port` 587, `starttls` an, `ssl` aus, `reply_to` leer, `from_display_name` = `display_name` als Vorgaben. `null`: kein SMTP |
 | `smtp_password` | string, sensitiv | `""` | nur aus der Umgebung (`TF_VAR_smtp_password`); ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab |
 | `m2m` | bool | `false` | Maschinen-Clients der Organisationen (Kap. 12.1): Richtlinie `<produkt>-m2m-dpop` |
+| `machine_clients` | map(object) | `{}` | Maschinen-Clients als Code ([unten](#maschinen-clients)), Schlüssel = Client-ID: `organizations` (Aliasse; einer = Organisations-Client, mehrere = System-Client), `roles` (Rollen des Katalogs), `scopes` (Rechte-Scopes des Katalogs), `jwks` (öffentlicher Schlüssel), optional `name`, `description`, `mcp` (zusätzlich Zielgruppe `<produkt>-mcp`). Braucht `m2m` |
 | `mcp` | bool | `false` | MCP-Dienst (Kap. 12.2): `<produkt>-mcp`, `<produkt>-mcp-cli`, Scope `<produkt>-mcp`, `offline_access` für `<produkt>-mcp-cli` |
 | `mcp_cli_callback_port` | number | `8765` | fester Loopback-Port von `<produkt>-mcp-cli` |
 | `mcp_extra_redirect_uris` | list(string) | `[]` | weitere Weiterleitungen von `<produkt>-mcp-cli`, z. B. `https://claude.ai/api/mcp/auth_callback` |
@@ -47,7 +48,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `iac_client_id` | string | `<produkt>-iac` | IaC-Client, mit dem die Hilfsskripte sich anmelden |
 | `keycloak_url`, `keycloak_base_path` | string | `https://identity.project-suite.ch`, `""` | Instanz für Issuer und Hilfsskripte (wie der Provider) |
 
-Noch nicht: `person_api` und `system_clients` (Spezifikation B4, erst mit der ersten App, die sie braucht).
+Noch nicht: `person_api` (Spezifikation B4, erst mit der ersten App, die ihn braucht).
 
 ## Ausgaben
 
@@ -57,6 +58,7 @@ Noch nicht: `person_api` und `system_clients` (Spezifikation B4, erst mit der er
 | `issuer` | `OIDC_ISSUER_URL` der App |
 | `clients` | `{ bff, api, admin, sync, mcp, mcp_cli }` (Client-IDs; `mcp`, `mcp_cli` ohne `mcp` = `null`) |
 | `service_account_user_ids` | `{ admin, sync }` – Benutzer-IDs der Service Accounts |
+| `machine_clients` | je Maschinen-Client `organizations`, `roles`, `scopes` – die Organisationen geben ihn in der App frei |
 
 ## Was angelegt wird
 
@@ -66,10 +68,10 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 |---|---|
 | Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
 | Richtlinien | `<produkt>-code-flow` ✓, `<produkt>-confidential` ✓, `<produkt>-m2m-dpop` (`m2m`; Bedingung Attribut `<produkt>.m2m = true`) |
-| Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
+| Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`), Maschinen-Clients (`machine_clients`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
 | Mapper | `aud-api` und `groups` an den Personen-Clients, `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
 | Scopes | je Scope des Katalogs ein Client-Scope «<Produkt>: <scope>» ✓; vollständige Listen der Standard- und optionalen Scopes je Client |
-| Rollen, Gruppen ✓ | Realm-Rolle `platform-admin`, Client-Rollen von `<produkt>-platform` aus `catalog.roles`, Gruppe `/orgs` |
+| Rollen, Gruppen ✓ | Realm-Rolle `platform-admin`, Client-Rollen von `<produkt>-platform`: `org-admin` (Baukasten) und `catalog.roles` (App), Gruppe `/orgs` |
 | Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» und «…: Gruppen» mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
 | Texte ✓ | eine Lokalisierung je Sprache: Standardtexte, dann `localization`, dann `theme_texts` |
 
@@ -109,7 +111,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.1.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.2.0"
 
   product            = "notes"
   display_name       = "Notes"
@@ -129,6 +131,14 @@ module "realm" {
   smtp_password = var.smtp_password
 
   m2m = true
+  machine_clients = {
+    "notes-export" = {
+      organizations = ["acme"]
+      roles         = ["viewer"]
+      scopes        = ["notes:read"]
+      jwks          = file("${path.module}/keys/notes-export.json")
+    }
+  }
 }
 
 output "issuer" {
@@ -137,6 +147,30 @@ output "issuer" {
 ```
 
 Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes».
+
+## Maschinen-Clients
+
+`machine_clients` ersetzt die Einrichtung in der Konsole nach Vorlage (Spezifikation 12.1). Je Eintrag entsteht ein
+vertraulicher Client mit Service Account: `private_key_jwt` (ES256, JWKS aus `jwks`), DPoP-gebundene Tokens, 5 min,
+keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgruppe `<produkt>-api` (mit `mcp` auch
+`<produkt>-mcp`), fester Claim `organization` mit den Aliassen (JSON-Liste), die Client-Rollen aus `roles` am Service
+Account und die Scopes aus `scopes` als Standard-Scopes (keine optionalen).
+
+- **Organisations-Client**: eine Organisation; das Token gilt nur dort.
+- **System-Client**: mehrere Organisationen; je Aufruf `X-Tenant` (ohne Wahl 400 mit der Liste).
+- Wirksam wird ein Client in einer Organisation erst mit der **Freigabe** in der App («Verwalten › Maschinen-Clients»,
+  `members:admin`); ein falscher Alias öffnet so keine fremde Organisation. Die Ausgabe `machine_clients` nennt die
+  Organisationen, die freigeben müssen.
+- Erlaubt sind nur Rollen des Katalogs (auch `org-admin`; nie eigene Rollen `c-…`) und Scopes aus `catalog.scopes`.
+  Client-IDs der Clients des Produkts und eingebaute Clients von Keycloak sind gesperrt.
+- Der private Schlüssel bleibt beim Dienst, der den Client nutzt; im Repository der App liegt nur `keys/<client>.json`.
+
+## Umstieg auf 0.2.0
+
+`org-admin` kommt aus dem Baukasten: Das Modul legt die Client-Rolle selbst an (gleiche Adresse
+`keycloak_role.platform["org-admin"]`, gleiche Beschreibung «Organisations-Admin»; der Plan zeigt «No changes»).
+`platform.json` darf `org-admin` nicht mehr enthalten: mit `@vollholz/iam` ≥ 0.4.0 aus `catalog.platformJson()`
+erzeugen. Beides zusammen anheben.
 
 `kc.sh` wie in Assets, mit einer Änderung: Der SMTP-Test liegt nach `tofu init` im Modul. Alle Hilfsskripte lesen
 dieselben Angaben (`KEYCLOAK_URL` mit Basispfad, `KEYCLOAK_REALM`, `KEYCLOAK_IAC_CLIENT_ID`,

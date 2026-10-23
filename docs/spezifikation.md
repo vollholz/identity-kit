@@ -1,6 +1,6 @@
 # Spezifikation: IAM-Baukasten für Apps der Identity-Plattform
 
-Stand 2026-10-22 · Status: **Entwurf** · Ort: vollholz/identity-kit (bis 2026-10-22 vollholz/identity `docs/produkt-iam.md`) · Abgeleitet aus vollholz/assets (`3c11515`) und vollholz/identity (`667e6bf`)
+Stand 2026-10-23 · Status: **Entwurf** · Ort: vollholz/identity-kit (bis 2026-10-22 vollholz/identity `docs/produkt-iam.md`) · Abgeleitet aus vollholz/assets (`3c11515`) und vollholz/identity (`667e6bf`)
 
 Diese Spezifikation beschreibt die Identitäts- und Rechteverwaltung (IAM), die vollholz/assets umgesetzt und geprüft
 hat, so, dass ein **neues Produkt** sie vollständig übernimmt und an `https://identity.project-suite.ch` angehängt
@@ -219,7 +219,7 @@ den Realm.
 | Was | Soll |
 |---|---|
 | Realm-Rolle `platform-admin` | Plattform-Administration über alle Mandanten; vergibt nur eine Keycloak-Administration bzw. `org-bootstrap.ts` |
-| Client-Rollen von `<produkt>-platform` | genau die Rollen des Rechtekatalogs ([Kapitel 8](#8-rechtekatalog-des-produkts)), mit Beschreibung; Quelle `infra/keycloak/platform.json` |
+| Client-Rollen von `<produkt>-platform` | `org-admin` aus dem Realm-Modul (Baukasten) und die übrigen Rollen des Rechtekatalogs ([Kapitel 8](#8-rechtekatalog-des-produkts)), mit Beschreibung; Quelle der App-Rollen `infra/keycloak/platform.json` (ohne `org-admin`) |
 | Gruppe `/orgs` | Basis; darunter legt die App `/orgs/<alias>/<rolle>` an |
 
 Für Personen wirken die Rollen über die Gruppen `/orgs/<alias>/<rolle>` (je Organisation). Die Client-Rollen gelten
@@ -228,8 +228,8 @@ nur für Service Accounts von Maschinen-Clients ([6.2](#62-principal)).
 ### 3.6 Rechte-Scopes
 
 Je Scope des Rechtekatalogs ein Client-Scope (`include_in_token_scope = true`, Text «<Produkt>: <scope>»), optional für
-MCP- und Maschinen-Clients. Quelle ist `infra/keycloak/platform.json` (Rollen mit Beschreibung, Scopes), erzeugt aus dem
-Rechtekatalog im Code; ein Test prüft, dass die Datei aktuell ist (Referenz: assets `infra/keycloak/platform.ts`,
+MCP- und Maschinen-Clients. Quelle ist `infra/keycloak/platform.json` (Rollen der App mit Beschreibung, ohne `org-admin`;
+Scopes), erzeugt mit `catalog.platformJson()` aus dem Rechtekatalog im Code; ein Test prüft, dass die Datei aktuell ist (Referenz: assets `infra/keycloak/platform.ts`,
 `test/infra-keycloak.test.ts`).
 
 ### 3.7 Rechte der Service Accounts
@@ -448,8 +448,10 @@ Zuordnung. Die Namen stammen aus Assets, damit Assets unverändert bleibt.
 Ausserdem reserviert: der Präfix `c-` für Schlüssel eigener Rollen ([8.3](#83-eigene-rollen-der-organisation)); keine
 Rolle des Katalogs beginnt damit.
 
-Label und Gruppe der reservierten Namen sind fest; die **Beschreibung** darf die App an ihren Fachbereich anpassen
-(z. B. was «Organisation verwalten» umfasst). Reihenfolge: `org-admin` steht als erste Rolle im Katalog.
+Label und Gruppe der reservierten Namen sind fest und kommen aus dem Baukasten (`defineCatalog`); die App lässt sie weg.
+Nur die **Beschreibung**, die Ressourcentypen und die Stelle in der Reihenfolge darf die App bestimmen, indem sie ein
+reserviertes Recht ohne Label und Gruppe aufführt (z. B. was «Organisation verwalten» umfasst). `org-admin` steht als
+erste Rolle im Katalog; im Realm legt sie das Modul `product-realm` an, nicht `platform.json` der App.
 
 Ein Test prüft: jede reservierte Rolle und jedes reservierte Recht, das die App nutzt, hat Schlüssel, Label und Gruppe
 wie oben; `org-admin` enthält alle Rechte; `members:admin` steht in keinem Scope; eigene Schlüssel der App folgen
@@ -755,8 +757,8 @@ Konfiguration der App an.
 |---|---|---|---|---|---|---|
 | Oberfläche | Person | BFF, Code + PKCE, `private_key_jwt` | bleibt auf dem Server | `organization:*`, Wahl je Tab | Rolle ∧ Zugriffsregel | Standard |
 | API für Personen (Skripte, CLI) | Person | öffentlicher Client, Code + PKCE (Loopback, RFC 8252), DPoP empfohlen | Bearer/DPoP, `aud = <produkt>-api` | `organization:*`, `X-Tenant` | Rolle ∧ **Scope** ∧ Zugriffsregel | Schalter `person_api`; `azp` in `OIDC_PERSON_CLIENT_IDS`, scope-gebunden. **Neu:** In Assets erreichen Personen die API nur über BFF und MCP; Tokens eines anderen Clients gelten dort als Maschinen-Client |
-| Organisations-Client (M2M) | Maschine einer Organisation | Client Credentials, `private_key_jwt` | DPoP Pflicht (mTLS möglich), 5 min, kein Refresh | fester Claim mit einem Alias | Client-Rollen ∧ Scope ∧ Zugriffsregel | Vorlage, Konsole; **Freigabe** durch `members:admin` ([12.1](#121-maschinen-clients-muss-sobald-die-api-für-maschinen-offen-ist)) |
-| System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Client-Rollen ∧ Scope ∧ Zugriffsregel | im Realm-Modul (`system_clients`), Freigabe je Mandant wie M2M; nie `members:admin`. **Neu:** In Assets ist ein Maschinen-Client an genau eine Organisation gebunden und wird von Hand angelegt |
+| Organisations-Client (M2M) | Maschine einer Organisation | Client Credentials, `private_key_jwt` | DPoP Pflicht (mTLS möglich), 5 min, kein Refresh | fester Claim mit einem Alias | Client-Rollen ∧ Scope ∧ Zugriffsregel | Realm-Modul `machine_clients` (IaC der App); **Freigabe** durch `members:admin` ([12.1](#121-maschinen-clients-muss-sobald-die-api-für-maschinen-offen-ist)) |
+| System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min | Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Client-Rollen ∧ Scope ∧ Zugriffsregel | im Realm-Modul (`machine_clients` mit mehreren Organisationen), Freigabe je Mandant wie M2M; nie `members:admin` (in keinem Scope) |
 | App-zu-App | Dienst von Produkt B ruft API von Produkt A | wie System-Client im Realm von A | wie oben | wie System-Client | wie oben | System-Client in A; B verwahrt nur seinen privaten Schlüssel. Personen-Kontext über Realm-Grenzen nur mit Identity Brokering (offen) |
 | MCP | Person über KI-Host | öffentlicher MCP-Client, Code + PKCE; MCP-Dienst tauscht (RFC 8693) | `aud = <produkt>-mcp` → getauscht `<produkt>-api` | `X-Tenant` oder `?org=` | Rolle ∧ Scope ∧ Zugriffsregel | Schalter `mcp` ([12.2](#122-mcp-dienst-kann)) |
 | MCP für Maschinen | Agent ohne Person | Client Credentials an den MCP-Dienst | wie M2M | wie M2M | wie M2M | wie Organisations-Client, Audience `<produkt>-mcp` |
@@ -768,13 +770,16 @@ Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), k
 
 - OAuth 2 Client Credentials, ein Keycloak-Client je Integration und Organisation, `private_key_jwt` (Client-Geheimnis
   nur übergangsweise), DPoP-gebundene Tokens (alternativ mTLS), Access Token 5 min, keine Refresh-Tokens.
-- Einrichtung in der Keycloak-Konsole nach Vorlage: Service Account, *DPoP bound access tokens*, Audience
-  `<produkt>-api`, Hardcoded-Claim `organization = ["<alias>"]` (JSON), Client-Rollen von `<produkt>-platform`,
-  passende Rechte-Scopes, Attribute `<produkt>.platform = true`, `<produkt>.m2m = true`.
+- Einrichtung als Code im Repository der App: Eingabe `machine_clients` des Realm-Moduls (`product-realm` ≥ 0.2.0) mit
+  Organisationen, Rollen, Scopes und öffentlichem Schlüssel. Das Modul legt an: Service Account, *DPoP bound access
+  tokens*, Audience `<produkt>-api` (optional `<produkt>-mcp`), Hardcoded-Claim `organization = ["<alias>", …]` (JSON),
+  Client-Rollen von `<produkt>-platform`, Rechte-Scopes als Standard-Scopes, Attribute `<produkt>.platform = true`,
+  `<produkt>.m2m = true`. Freigegeben wird über Plan → Freigabe → Apply wie der übrige Realm.
 - **Danach Freigabe** durch die Verwaltung der Organisation (`members:admin`) in der App; ohne Freigabe 403. Ein falscher Mapper öffnet so keine fremde
   Organisation.
-- Die App legt Maschinen-Clients (noch) nicht selbst an: dafür bräuchte `<produkt>-admin` `manage-clients` bzw.
-  `create-client`, womit sich beliebige Mapper (fremde Organisation, `platform-admin`) setzen liessen.
+- Die App legt Maschinen-Clients zur Laufzeit nicht selbst an: dafür bräuchte `<produkt>-admin` `manage-clients` bzw.
+  `create-client`, womit sich beliebige Mapper (fremde Organisation, `platform-admin`) setzen liessen. Angelegt werden sie
+  deshalb nur über das Realm-Modul (`<produkt>-iac`, Code-Review und Freigabe).
 
 ### 12.2 MCP-Dienst (KANN)
 
@@ -897,7 +902,7 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Teil | Inhalt | Kapitel |
 |---|---|---|
 | **Vertrag** (sprachneutral) | Claims, Header (`X-Tenant`, `X-CSRF-Token`, `DPoP`), Endpunkte `/auth/*`, `/v1/authz/catalog`, `/v1/acl…`, `/v1/admin/*`, `/v1/platform/*`, Fehlerformat (RFC 9457) und Texte, JSON-Schema des Katalogs, Datenbankschema des IAM | 4–11 |
-| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`), `theme_texts`, `smtp`, Schalter `mcp`, `m2m`, `entra` (später `person_api`, `system_clients`, B4), `standard_texts` des Baukastens; dazu das Bootstrap-Modul `product-realm-bootstrap`. `kc.sh` und der `import`-Block gehören in die Vorlage | 2, 3 |
+| **OpenTofu-Modul** `product-realm` | Realm-Soll aus [Kapitel 3](#3-realm-des-produkts); Eingaben: `product`, `display_name`, `public_base_url`, `catalog` (`platform.json`), `theme_texts`, `smtp`, Schalter `mcp`, `m2m`, `entra`, Maschinen-Clients `machine_clients` (später `person_api`, B4), `standard_texts` des Baukastens; dazu das Bootstrap-Modul `product-realm-bootstrap`. `kc.sh` und der `import`-Block gehören in die Vorlage | 2, 3 |
 | **Backend-Paket** `@vollholz/iam` (Node 24, TypeScript, Fastify-Adapter) | Konfiguration, Token-Prüfung, Principal, BFF, Entscheidung mit App-Katalog, Zugriffsregeln, Verwaltung, Abgleich (Worker-Job), Freigaben, MCP-Token-Austausch, Audit-Schnittstelle, SQL-Migrationen des IAM | 5–7, 9, 10, 12 |
 | **Frontend-Paket** `@vollholz/iam-web` (React) | Sitzung und `/auth/me`, Organisation je Tab, `useAuthz()`, `useResourceCan()`, `MissingRight`, Routen-Guard, Rechte-Übersicht, Rollenmatrix, «Meine Rollen und Rechte», Verwalten › Zugang (Mitglieder, Rollen, Anmeldung, Maschinen-Clients), Zugriff, Organisationen | 11 |
 | **Test-Kit** `@vollholz/iam-testkit` | Wegwerf-Datenbank, Keycloak-Nachbildung, Testpersonen, Prüfung fremder Clients im Realm, Isolations-Durchlauf über die Routenliste, RLS-Prüfung, Katalogregeln, Konformitätstests des Vertrags (auch für Apps in anderen Sprachen) | 14 |
@@ -910,11 +915,11 @@ bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukaste
 | Was | Definiert in | Angelegt bzw. geführt | Wann | Wer ändert |
 |---|---|---|---|---|
 | Rechte (`note:read` …) | Katalog der App (Code) | nur in der App; nie in Keycloak | mit jedem Release | Entwicklung (Code-Review) |
-| Vordefinierte Rollen (Definition) | Katalog der App | Client-Rollen von `<produkt>-platform` im Realm, über das Realm-Modul aus `platform.json` | `kc.sh apply` bzw. Workflow «Keycloak» nach dem Release | Entwicklung; nie die App zur Laufzeit |
+| Vordefinierte Rollen (Definition) | `org-admin`: Baukasten; übrige: Katalog der App | Client-Rollen von `<produkt>-platform` im Realm, über das Realm-Modul (`org-admin` immer, die übrigen aus `platform.json`) | `kc.sh apply` bzw. Workflow «Keycloak» nach dem Release | Entwicklung; nie die App zur Laufzeit |
 | **Eigene Rollen** (Definition: Name, Rechte) | Organisation in der App | nur in der Datenbank der App (`tenant_role`); in Keycloak nur als Gruppe `/orgs/<alias>/c-…` für die Vergabe, **keine** Client-Rolle | zur Laufzeit | `members:admin` |
 | Scopes | Katalog der App | Client-Scopes im Realm, über das Realm-Modul | wie Rollen | Entwicklung |
 | Rollen-**Zuweisung** an Personen | – | Gruppen `/orgs/<alias>/<rolle>` im Realm; die App legt sie bei Bedarf an und setzt Mitglieder über die Admin-API (`<produkt>-admin`) | zur Laufzeit | `members:admin` in der App; `org-admin` nur `platform-admin` |
-| Rollen-Zuweisung an Maschinen-Clients | – | Client-Rollen am Service Account | beim Einrichten des Clients (Konsole bzw. IaC bei System-Clients) | Keycloak-Administration |
+| Rollen-Zuweisung an Maschinen-Clients | – | Client-Rollen am Service Account | über `machine_clients` des Realm-Moduls (IaC der App) | Entwicklung bzw. Betrieb (Code-Review, Freigabe) |
 | Organisationen, Mitgliedschaften, Konten | – | Keycloak; Spiegel in `tenant` und `principal` | zur Laufzeit | Plattform-Administration bzw. `members:admin` in der App |
 | Ressourcentypen und Kette | Katalog der App | nur in der App | mit jedem Release | Entwicklung |
 | Ressourcen (Objekte) | Fachmodell der App | nur in der Datenbank der App | zur Laufzeit | Personen mit den Rechten |
@@ -1045,7 +1050,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | identity › Bewusste Restrisiken |
 | Zwischenspeicher | Entzug einer Client-Freigabe wirkt auf anderen Instanzen nach ≤ 60 s, Entfernen einer Person nach ≤ 5 min | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |
 | Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen | Verwaltung kann entfernen |
-| Maschinen-Clients | nur über die Keycloak-Konsole nach Vorlage | Freigabe in der App |
+| Maschinen-Clients | nur als Code über das Realm-Modul (`machine_clients`), nicht zur Laufzeit aus der App | Freigabe in der App; Review des Repositorys |
 | Sicherheitsfunktionen der Datenbank | `resolve_tenant` und Plattform-Funktionen für die ganze Laufzeit-Rolle ausführbar (Schutz in der API) | kein beliebiges SQL (SQL-Injection geprüft); eigene Rolle als offener Punkt |
 | Organisation löschen | Alias könnte neu vergeben werden | sperren statt löschen; Bindung an `kc_org_id` |
 | Erste Anmeldung | Bindung einer leeren `kc_org_id` beim ersten Kontakt | bewusst (assets E11) |
@@ -1057,7 +1062,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | B1 | Wo liegt der Baukasten? | **entschieden 2026-10-22:** eigenes Repository `vollholz/identity-kit` (Vertrag, Modul, Pakete, Test-Kit, Vorlage); vollholz/identity bleibt Betrieb der Instanz und verweist darauf |
 | B2 | Verteilung | **entschieden 2026-10-22:** npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`) |
 | B3 | Frameworks | Backend zuerst nur Fastify, Frontend nur React; weitere Adapter erst bei Bedarf |
-| B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu sind nur `person_api` (Personen direkt an der API, ohne BFF/MCP) und `system_clients` (ein Client für mehrere Organisationen, per IaC); beide erst mit der ersten App, die sie braucht |
+| B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu ist nur noch `person_api` (Personen direkt an der API, ohne BFF/MCP), erst mit der ersten App, die ihn braucht. **Umgesetzt 2026-10-23:** Maschinen-Clients als Code (`machine_clients` in `product-realm` 0.2.0) für eine Organisation (Organisations-Client) oder mehrere (System-Client) |
 
 Offen und nicht Teil dieser Spezifikation: Identity Brokering zwischen Produkten (Single Sign-on über Realms),
 `full_scope_allowed` der Clients (assets Nr. 101), Kontingente je Mandant, Crypto-Shredding je Mandant.

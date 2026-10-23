@@ -13,6 +13,10 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **0.4.0:** `org-admin` kommt aus dem Baukasten bis in den Realm: `catalog.platformJson()` führt `org-admin` nicht mehr
+  (das Realm-Modul `product-realm` ≥ 0.2.0 legt die Rolle an; **brechend**: zusammen mit dem Modul anheben),
+  `iam-org-bootstrap` ergänzt die Gruppe `org-admin` selbst. Reservierte Rechte und Gruppen darf die App ohne Label und
+  Gruppe aufführen (nur Reihenfolge, Beschreibung, Ressourcentypen); Label und Gruppe kommen aus dem Baukasten.
 - **0.3.0:** Entra mit eigener App der Organisation (`PUT …/entra/app`, Migration `iam_014`): Tenant, Anwendungs-ID
   und Geheimnis der Kunden-App, geprüft bei Microsoft vor dem Speichern, Geheimnis verschlüsselt (`ENCRYPTION_KEYS`,
   Rotation `rewrapEntraSecrets`), Anbieter `entra-app-<alias>`, Ablauf des Geheimnisses mit Warnung. Link

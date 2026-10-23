@@ -18,6 +18,7 @@ import type { Principal } from '../principal.ts';
 import type { ResourceRef } from '../resources.ts';
 import { accountModule } from './account.ts';
 import { aclModule } from './acl.ts';
+import { bffModule } from './bff.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
 import type { IamModule, ModuleContext, OpenApiOverrides } from './routes.ts';
 
@@ -26,11 +27,11 @@ export interface SessionBridge {
   accessToken(req: FastifyRequest, reply: FastifyReply): Promise<{ token: string; csrfOk: boolean } | null>;
 }
 
-export type IamModuleName = 'account' | 'acl';
+export type IamModuleName = 'account' | 'acl' | 'bff';
 
 export interface IamPluginOptions {
   iam: Iam<any, any>;
-  /** Module des Pakets; Standard: alle, die Katalog und Konfiguration erlauben (`acl` nur mit Zugriffsregeln). */
+  /** Module des Pakets; Standard: alle, die Katalog und Konfiguration erlauben (`acl` mit Zugriffsregeln, `bff` mit `iam.bff`). */
   modules?: IamModuleName[];
   /** Fehlerbehandlung und 404 als problem+json (Standard `true`; `false`, wenn die App eigene hat). */
   errorHandler?: boolean;
@@ -42,7 +43,7 @@ export interface IamPluginOptions {
   apiPrefix?: string;
   /** Pfade ohne Anmeldung, `*` am Ende für ein Präfix (Assets: `/v1/openapi.json`, `/v1/docs`, `/v1/docs/*`). */
   publicPaths?: string[];
-  /** Sitzung der Oberfläche (Modul `bff`). */
+  /** Sitzung der Oberfläche; Standard `iam.bff`, wenn das Modul `bff` aktiv ist. */
   sessions?: SessionBridge;
   /** Tags, Zusammenfassungen und Beschreibungen der Routen des Pakets (Entwurf 13.4). */
   openapi?: OpenApiOverrides;
@@ -107,7 +108,9 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const realm = iam.catalog.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : [])] as IamModuleName[]);
+  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), ...(iam.bff ? ['bff'] : [])] as IamModuleName[]);
+  // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
+  const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
 
   await checkCookies(app, cfg.session.secrets);
@@ -128,8 +131,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
       const m = /^(Bearer|DPoP)\s+([\w.~+/-]+=*)$/i.exec(auth);
       if (!m) throw new HttpError(401, 'Authorization-Header ungültig', 'Erwartet «Bearer <token>» oder «DPoP <token>».', challenge);
       scheme = m[1]!.toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer'; token = m[2]!;
-    } else if (o.sessions) {
-      const s = await o.sessions.accessToken(req, reply);
+    } else if (sessions) {
+      const s = await sessions.accessToken(req, reply);
       if (s) {
         if (!reading(req.method) && !s.csrfOk) throw new HttpError(403, 'CSRF-Token fehlt oder ist ungültig', 'Header «X-CSRF-Token» aus /auth/me mitsenden.');
         token = s.token; req.source = 'ui';
@@ -194,7 +197,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
 
   // ---------- Module
   const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {} };
-  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule };
+  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, bff: bffModule };
   for (const n of names) await modules[n].register(app, ctx);
 }
 

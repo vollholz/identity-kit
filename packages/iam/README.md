@@ -11,12 +11,12 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-## Stand (Teil-PR 3)
+## Stand (Teil-PR 4)
 
 | Baustein | Inhalt |
 |---|---|
 | `loadIamConfig(env, { product, service })`, `IAM_VARS(product)`, `readVars`, `iamConfigErrors`, `iamConfig`, `iamWarnings` | Variablen nach Kap. 13 mit Standardwerten je Produkt, Pflicht je Dienst, Warnungen bei Client-Geheimnissen |
-| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, resourceTypes?, leafTypes?, adopted? })`, `dirMigrations(dir)` | Runner (wie Assets) und die Migrationen `iam_001`–`iam_010`; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
+| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, resourceTypes?, leafTypes?, adopted? })`, `dirMigrations(dir)` | Runner (wie Assets) und die Migrationen `iam_001`–`iam_012`; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
 | `db/bootstrap.sql` | Datenbankrollen nach Kap. 10.1 (psql-Variablen `p`, `db`, Passwörter) |
 | `withTx`, `withTenant`, `setContext`, `createPool` | Transaktion im Mandantenkontext (`app.tenant_id`, `app.principal_id`, Einstellungen der App) |
 | `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger) |
@@ -28,9 +28,13 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 | `OidcProvider`, `TokenVerifier` | Token-Prüfung: Signatur, Aussteller, Zielgruppe, nur Access Tokens, DPoP mit Replay-Schutz, mTLS |
 | `PrincipalResolver` | Principal aus dem Token: Organisation und Wahl, Person oder Client, Rollen und Gruppen der Organisation, Freigabe, Austritt, «Nur Entra», Zwischenspeicher mit `forget…` |
 | `AccessService`, `ResourceModel`, `flatResources`, `capabilities`, `canSchema` | Entscheidung (Rolle ∨ Freigabe) ∧ Scope ∧ Zugriffsregeln mit der Kette der App, Fähigkeiten `can`, Zugriffsstand für ETags |
+| `createIam(…)`, `readinessChecks(iam)` | Abhängigkeiten einmal gebaut (Verifier, Resolver, Entscheidung, Replay-Schutz, Audit); Prüfungen für `/readyz` der App |
+| `iamPlugin`, `need(perm, ref?)` | Fastify-Plugin: Anmeldung je Anfrage (Bearer, DPoP, mTLS, Sitzung mit CSRF), `req.principal`, `req.tx`, `req.need`, `req.needSomewhere`, `req.can`, `req.capabilities`, `req.audit`; Fehler als problem+json; `need` als preHandler |
+| Module `account`, `acl` | `GET /v1/me`, `GET /v1/authz/catalog`; `GET/POST /v1/acl`, `DELETE /v1/acl/:id`, `GET /v1/acl/effective` (echt und Simulation) |
+| `IAM_API_TAGS`, Option `openapi` | Tags der Routen; Tags, Texte und Feldbeschreibungen der App ersetzen die produktneutralen Standardtexte |
 
 ```ts
-import { AccessService, defineCatalog, dirMigrations, iamMigrations, loadIamConfig, migrate, PrincipalResolver } from '@vollholz/iam';
+import { createIam, createPool, defineCatalog, dirMigrations, IAM_API_TAGS, iamMigrations, iamPlugin, loadIamConfig, migrate, need, pgAudit } from '@vollholz/iam';
 
 export const catalog = defineCatalog({ product: 'notes', permissions: { 'note:read': { label: 'Notizen lesen', group: 'notes', description: '…' } },
   groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }], roles: { viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['tenant:read', 'note:read'] } },
@@ -41,6 +45,12 @@ await migrate(cfg.db.adminUrl!, [
   iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['note'] }),
   dirMigrations('db/migrations'),
 ]);
+
+// API: OpenAPI der App zuerst (sie sieht dann die Routen des Pakets), danach das Plugin, dann die Fachrouten
+const iam = createIam({ cfg, catalog, db: createPool(cfg.db.url, cfg, 'notes-api'), schema: 'notes', resources, audit: pgAudit({ schema: 'notes' }) });
+await app.register(swagger, { openapi: { tags: [...IAM_API_TAGS, …] } });
+await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json', '/v1/docs', '/v1/docs/*'] });
+app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', id: r.params.id })) }, …);
 ```
 
 Tests: `npm test` (mit PostgreSQL: `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; Rollen legen die Tests selbst an).

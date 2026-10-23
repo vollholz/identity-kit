@@ -16,13 +16,24 @@
     "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
   },
   "dependencies": {
+    "@sinclair/typebox": "0.34.52",
     "jose": "6.2.12"
   },
   "peerDependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@opentelemetry/api": "^1.9.0",
+    "fastify": "^5.0.0",
     "pg": "^8.13.0"
   },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": { "optional": true }
+  },
   "devDependencies": {
+    "@fastify/cookie": "11.1.2",
+    "@fastify/swagger": "9.9.1",
+    "@opentelemetry/api": "1.9.1",
     "@vollholz/iam-testkit": "0.2.0",
+    "fastify": "5.12.6",
     "pg": "8.23.1"
   }
 }

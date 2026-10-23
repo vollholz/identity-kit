@@ -43,6 +43,21 @@ Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in iden
 > Assets: `.npmrc`, `.github/scripts/identity-kit-access.sh`, `docs/einrichtung.md` › Zugang zu vollholz/identity-kit,
 > `.github/workflows/keycloak.yml`.
 
+### Repository ausserhalb von `vollholz`
+
+Liegt die App in einer anderen GitHub-Organisation oder bei einem anderen Anbieter (GitLab, Bitbucket, Azure DevOps),
+ändert sich nur der Zugang zum Kit; die App spricht mit `identity.project-suite.ch` wie jede andere.
+
+| Zugang | In `vollholz` | Ausserhalb |
+|---|---|---|
+| Doku und Code lesen | Mitglied der Organisation | *Outside collaborator* mit Read auf vollholz/identity-kit |
+| Pakete in der CI | *Manage Actions access* (gilt nur für Repositories in `vollholz`) | Maschinenkonto mit Leserecht auf den drei Paketen, dessen Token (classic) mit nur `read:packages` als Secret `NODE_AUTH_TOKEN` der CI; `.npmrc` unverändert |
+| Pakete lokal | eigenes Token (classic) mit `read:packages` | gleich (Outside collaborator oder Maschinenkonto) |
+| Realm-Module in der CI | Lese-Deploy-Key, Skript wie in Assets | gleich: der Deploy-Key gilt für das Repository, nicht für die Organisation. Ausserhalb von GitHub Actions die Umleitung aus `assets/.github/scripts/identity-kit-access.sh` (`git config url.<ssh>.insteadOf <https>` mit festem Host-Schlüssel von github.com) in die eigene CI übernehmen |
+| PRs in vollholz/identity (Schritt 2) | eigener PR | als *Outside collaborator* mit Read auf vollholz/identity (PR aus einem Fork) – oder nur den öffentlichen Schlüssel `keys/<name>-tofu.json` an die Plattform-Administration geben, die die beiden PRs stellt. Der private Teil bleibt immer bei der App |
+
+Je App ein eigener Deploy-Key und ein eigenes Maschinen-Token, damit sich ein Zugang einzeln widerrufen lässt.
+
 ## 2. Realm anlegen (einmalig, als Code)
 
 Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.

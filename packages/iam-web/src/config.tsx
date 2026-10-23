@@ -4,6 +4,7 @@
  */
 import { createContext, useContext, type ReactNode } from 'react';
 import type { Me } from './contract.ts';
+import type { IamPeople } from './people.tsx';
 import { historyRouter, type IamRouter } from './router.tsx';
 
 export interface IamPaths {
@@ -34,6 +35,27 @@ export const DEFAULT_PATHS: IamPaths = {
   organizations: '/verwalten/organisationen',
 };
 
+/** Eintrag einer Auswahl (Ressource im Dialog «Zugriffsregel hinzufügen»). */
+export interface IamPickOption { value: string; label: string; sub?: string }
+
+/**
+ * Ressourcen der Zugriffsregeln (docs/entwurf.md 1.7): Typen und Labels kommen aus dem Katalog, Namen, Auswahl und Kette
+ * der einzelnen Ressourcen kennt nur die App (Spezifikation 15.2). Ohne Zugriffsregeln entfällt der Adapter.
+ */
+export interface IamResources {
+  /** Name und Bekanntheit je Ressource; als Hook, damit die App ihre Abfragen (Cache) nutzt. `known`: `false` = geladen und unbekannt, `undefined` = nicht prüfbar. */
+  useResolver(): { name(type: string, id: string): string | undefined; known(type: string, id: string): boolean | undefined };
+  /** Auswahl im Dialog «Zugriffsregel hinzufügen» (Suche, höchstens 50). */
+  pick(type: string, query: string, signal: AbortSignal): Promise<IamPickOption[]>;
+  /**
+   * Kette über der Ressource (ohne sie selbst und ohne tenant, von oben), für Vorschau und AclHint. Als Hook, weil die
+   * Kette oft erst geladen werden muss: `undefined` = lädt noch, `[]` = keine Stufe darüber.
+   */
+  useChain?(type: string, id: string | null): { type: string; id: string; label: string }[] | undefined;
+  /** Typen ohne Freigabe (Blatt der Kette, Spezifikation 7.1); Standard: Typen mit `leaf` im Katalog. */
+  noGrant?: string[];
+}
+
 export interface IamFeatures {
   /** Zugriffsregeln; Standard: der Katalog enthält `acl:read`. */
   acl?: boolean;
@@ -57,10 +79,14 @@ export interface IamConfig {
   roleIcons?: Record<string, string>;
   /** Vorgewählte Rollen beim Einladen; Standard: die Rolle mit den wenigsten Rechten ausser org-admin. */
   inviteRoles?: string[];
-  /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14) für den Hinweis auf die Gruppen der Rollen; Standard `/orgs`. */
+  /** `GROUP_ROLE_PREFIX` für ältere Server, die ihn nicht in `/v1/admin/status` melden; Standard `/orgs`. */
   groupRolePrefix?: string;
   /** Erlaubte Hosts für die Zustimmung bei Microsoft (nur https); Standard `login.microsoftonline.com`. */
   entraConsentHosts?: string[];
+  /** Ressourcen der Zugriffsregeln; ohne zeigt die Zugriffsseite IDs statt Namen und keine Auswahl. */
+  resources?: IamResources;
+  /** Personenverzeichnis; Standard `GET /v1/people`. */
+  people?: IamPeople;
   onTenant?: (me: Me) => void;
   onLogout?: () => void;
 }

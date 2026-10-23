@@ -249,10 +249,18 @@ interface IamResources {
    * oft erst geladen werden muss: `undefined` = lädt noch, `[]` = keine Stufe darüber.
    */
   useChain?(type: string, id: string | null): { type: string; id: string; label: string }[] | undefined;
-  /** Auf welchen Typen keine Freigabe möglich ist (Blatt der Kette, Spezifikation 7.1); Standard: Blatt. */
+  /** Auf welchen Typen keine Freigabe möglich ist (Blatt der Kette, Spezifikation 7.1); Standard: Typen mit `leaf` im Katalog. */
   noGrant?: string[];
 }
 ```
+
+Umgesetzt in PR 6. Das Blatt kennt der Server (`ResourceDef.leaf` in `@vollholz/iam`); der Katalog
+(`GET /v1/authz/catalog`) liefert `leaf` noch nicht aus, deshalb liest die Oberfläche `resourceTypes[].leaf`, wenn es da
+ist, sonst gilt `noGrant` der App (Vertragsfrage). Fehlt beides, ist «Freigeben» im Dialog nur auf der Organisation
+möglich (vorsichtig, statt 422 vom Server), und die Konsole warnt einmal. Der Zusatz «(auch auf allem darunter)» in der Vorschau steht auf der
+Organisation und auf allen Typen ausser dem Blatt. Ohne Adapter zeigt die Seite IDs und nimmt die ID als Eingabe; ohne
+`useChain` rechnet die Vorschau nur mit Organisation und Ressource und sagt das. Für Tests und Testseiten erzeugt
+`staticResources(names, { parents, noGrant })` aus `./testing` einen Adapter aus festen Daten.
 
 ### 1.8 Personenverzeichnis
 

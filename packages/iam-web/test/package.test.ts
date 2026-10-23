@@ -20,7 +20,7 @@ describe('Paket', () => {
     expect(Object.keys(built).sort()).toEqual(Object.keys(src).sort());
     expect(readFileSync(join(dist, 'index.js'), 'utf8')).not.toMatch(/from ['"][^'"]+\.tsx?['"]/);
     const testing = await import(pathToFileURL(join(dist, 'testing', 'index.js')).href) as Record<string, unknown>;
-    expect(Object.keys(testing).sort()).toEqual(['CATALOG', 'ME', 'StaticIam', 'json', 'mockIamApi']);
+    expect(Object.keys(testing).sort()).toEqual(['CATALOG', 'ME', 'StaticIam', 'json', 'mockIamApi', 'staticResources']);
     const pages = await import(pathToFileURL(join(dist, 'pages', 'index.js')).href) as Record<string, unknown>;
     expect(Object.keys(pages).sort()).toEqual(Object.keys(await import('../src/pages/index.ts')).sort());
     // iamRoutes lädt die Seiten aus dist nach (dynamischer Import mit Endung .js)

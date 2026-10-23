@@ -151,7 +151,9 @@ problem+json und die Module:
 - **`events`** (`createIam`): Ereignisse wie `acl.changed` in derselben Transaktion, z. B. für eine Outbox der App.
 - **`readinessChecks(iam)`** für `/readyz` (Datenbank, Anmeldedienst).
 - **Mehrere Instanzen:** `SHARED_STATE=postgres` (Standard) hält Replay-Schutz für DPoP und Logout-Tokens sowie das
-  Rate-Limit (`pgRateLimitStore`) über alle Instanzen; `memory` nur für eine einzelne Instanz.
+  Rate-Limit (`pgRateLimitStore`) über alle Instanzen; `memory` nur für eine einzelne Instanz. Teilen sich mehrere
+  Umgebungen denselben Speicher (z. B. E2E und lokale App), trennt `RATE_LIMIT_NAMESPACE` ihre Zähler: Die Schlüssel
+  des Pakets lauten dann `<namespace>:<produkt>:…`.
 
 ## 6. Worker
 

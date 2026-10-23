@@ -57,6 +57,10 @@ test('Form und Bereiche', () => {
   for (const v of ['orgs', '/orgs/', 'orgs/']) assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: v }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/orgs', v);
   assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: 'kunden/orgs' }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/kunden/orgs');
   for (const v of ['/', 'a//b', '//orgs', '/mit leer']) assert.match(errorsOf({ ...base, GROUP_ROLE_PREFIX: v }).join('\n'), /GROUP_ROLE_PREFIX: Gruppenpfad/, v);
+  // RATE_LIMIT_NAMESPACE: Vorsatz der Rate-Limit-Schlüssel (leer: keiner)
+  assert.equal(loadIamConfig(base, { product: 'notes', service: 'api' }).ops.rateLimitNamespace, '');
+  assert.equal(loadIamConfig({ ...base, RATE_LIMIT_NAMESPACE: 'e2e' }, { product: 'notes', service: 'api' }).ops.rateLimitNamespace, 'e2e');
+  for (const v of ['mit leer', 'a:b', 'x'.repeat(65)]) assert.match(errorsOf({ ...base, RATE_LIMIT_NAMESPACE: v }).join('\n'), /RATE_LIMIT_NAMESPACE/, v);
   assert.equal(parseDuration('0'), 0);
   assert.equal(parseDuration('90s'), 90_000);
 });

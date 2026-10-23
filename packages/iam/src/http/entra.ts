@@ -121,7 +121,9 @@ export const entraModule: IamModule = {
     };
     const byAlias = (req: FastifyRequest) => platform(req, (req.params as { alias: string }).alias);
     /** Personensuche in Entra ID: je Person 30 Anfragen pro Minute (jede Suche ruft Microsoft Graph und Keycloak). */
-    const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
+    // Schlüssel der Rate-Limits: `<RATE_LIMIT_NAMESPACE>:<produkt>:…` (Vorsatz nur, wenn gesetzt)
+    const rlPrefix = `${iam.cfg.ops.rateLimitNamespace ? `${iam.cfg.ops.rateLimitNamespace}:` : ''}${iam.catalog.product}:`;
+    const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${rlPrefix}entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
 
     // ---------------------------------------------------------------- Personen aus Entra ID
     const memberRoutes = (base: string, tags: string[], scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
@@ -218,7 +220,7 @@ export const entraModule: IamModule = {
 
     // ---------------------------------------------------------------- Link an die Entra-Administration
     /** Links erzeugen: je Person 10 pro Minute (dazu höchstens 5 offene je Organisation). */
-    const linkLimit = { max: 10, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-link:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
+    const linkLimit = { max: 10, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${rlPrefix}entra-link:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
     const linkRoutes = (base: string, scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
       const p = withAlias ? { params: AliasParams } : {};
       app.post(`${base}/consent-links`, {
@@ -254,7 +256,7 @@ export const entraModule: IamModule = {
 
     // Öffentlich (ohne Anmeldung, siehe plugin.ts): Seite der Entra-Administration. Je IP 20 Anfragen pro Minute; keine
     // Daten ausser Name der Organisation und Produkt; nie zwischengespeichert
-    const handoverLimit = { max: 20, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${iam.catalog.product}:entra-handover:${req.ip}` };
+    const handoverLimit = { max: 20, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${rlPrefix}entra-handover:${req.ip}` };
     const publicRoute = (path: string, summary: string, description: string, body: TSchema, response: TSchema, fn: (b: any) => Promise<unknown>) =>
       app.post(`${prefix}/entra/handover/${path}`, {
         schema: routeSchema(ctx, 'POST', `${prefix}/entra/handover/${path}`, { tags: [TAG], summary, description, body, security: [], response: { 200: response } }),

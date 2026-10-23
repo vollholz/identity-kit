@@ -397,6 +397,21 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.deepEqual([r.status, r.body.reason], [409, 'consent-error'], 'state gehört zur Organisation (nicht 404)');
   });
 
+  test('RATE_LIMIT_NAMESPACE: Vorsatz vor allen Rate-Limit-Schlüsseln des Pakets', async () => {
+    const seen = new Map<string, { keyGenerator: (r: unknown) => string }>();
+    const e2e = await notesApp({
+      db: t.runtime, issuer: idp.issuer, keycloakFetch: kc.fetch, entraFetch: ms.fetch,
+      env: { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests', ...ENTRA, RATE_LIMIT_NAMESPACE: 'e2e' },
+      before: async a => { a.addHook('onRoute', r => { const rl = (r.config as { rateLimit?: { keyGenerator: (r: unknown) => string } } | undefined)?.rateLimit; if (rl) seen.set(`${r.method} ${r.url}`, rl); }); },
+    });
+    try {
+      const req = { principal: { tenantId: 't1', subject: 's1' }, ip: '1.2.3.4' };
+      assert.equal(seen.get('POST /v1/entra/handover/info')!.keyGenerator(req), 'e2e:notes:entra-handover:1.2.3.4');
+      assert.equal(seen.get('POST /v1/admin/entra/consent-links')!.keyGenerator(req), 'e2e:notes:entra-link:t1:s1');
+      assert.equal(seen.get('GET /v1/admin/members/entra-search')!.keyGenerator(req), 'e2e:notes:entra-search:t1:s1');
+    } finally { await e2e.app.close(); }
+  });
+
   test('Trennen: offene Links verfallen', async () => {
     const l = await newLink();
     assert.equal((await call(anna(), 'DELETE', '/v1/admin/entra')).status, 204);

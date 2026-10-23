@@ -7,10 +7,11 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
 import {
-  bypassRoleProblems, grantedTableProblems, publicExecuteProblems, publicSchemaProblems, securityDefinerProblems, tenantTableProblems,
+  bypassRoleProblems, grantedTableProblems, publicExecuteProblems, publicSchemaProblems, readViewProblems, securityDefinerProblems, tenantTableProblems,
 } from '@vollholz/iam-testkit';
 import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
+import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 
@@ -27,12 +28,16 @@ const POLICIES = [
   'notes.tenant.tenant_self PERMISSIVE ALL notes_app USING (id = app.tenant_id()) CHECK (id = app.tenant_id())',
   // Besitzer-Funktionen (SECURITY DEFINER), die über alle Mandanten lesen; die Variable setzt nur die Funktion selbst
   "notes.entra_connection.entra_scan PERMISSIVE SELECT notes_owner USING (current_setting('app.entra_scan'::text, true) = 'on'::text) CHECK -",
+  // Erste Organisation (iam-org-bootstrap, A20): die Besitzer-Rolle schreibt im Kontext des Mandanten
+  'notes.principal.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  'notes.authz_tuple.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  'notes.audit_log.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
 ];
 
 /** SECURITY-DEFINER-Funktionen mit Begründung. */
 const SECURITY_DEFINER: Record<string, string> = {
   'app.resolve_tenant(p_alias text, p_kc_org_id text, p_name text, p_create boolean)': 'Mandant auflösen, bevor der Kontext gesetzt ist; liefert nur die ID',
-  'app.bump_acl_version()': 'Trigger: Version des Mandanten nach Änderung an Zugriffsregeln und eigenen Rollen',
+  'app.bump_acl_version()': 'Trigger: Version des Mandanten nach Änderung an Tupeln und Freigabestufen',
   'app.suspended_tenants()': 'Worker: gesperrte Mandanten ohne Kontext',
   'app.platform_tenants()': 'Plattform-Administration: Mandanten aller Organisationen (API prüft platform-admin)',
   'app.set_tenant_status(p_id uuid, p_status text)': 'Plattform-Administration: sperren und entsperren',
@@ -45,7 +50,7 @@ const PUBLIC_EXEC = "EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefa
 const norm = (sql: string | null) => (sql === null ? '-' : sql.replace(/\s+/g, ' ').trim());
 
 describe('PostgreSQL RLS (IAM)', { skip }, () => {
-  const db = productDb({ resourceTypes: ['tenant', 'note'], leafTypes: ['note'] });
+  const db = productDb({ model: notesModel });
   let t: Awaited<ReturnType<typeof db.create>>;
   let A: string, B: string;
 
@@ -55,15 +60,17 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     A = await r('alpha'); B = await r('beta');
     await withTenant(t.runtime, { tenantId: A }, async tx => {
       await tx.query("INSERT INTO notes.principal (tenant_id, kind, subject, display_name) VALUES ($1, 'user', 'u-a', 'Anna')", [A]);
-      await tx.query("INSERT INTO notes.client_grant (tenant_id, client_id) VALUES ($1, 'export')", [A]);
-      await tx.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, principal_type, principal_ref, permission) VALUES ($1, 'tenant', 'role', 'editor', 'note:read')", [A]);
+      await tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'editor', 'org')", [A]);
     });
   });
   after(async () => { await t?.drop(); });
 
   test('Prüfungen des Test-Kits: Mandantentabellen, Rechte, SECURITY DEFINER, PUBLIC, Rollen', async () => {
-    assert.deepEqual(await tenantTableProblems(t.inspect, { appRole: 'notes_app', minTables: 9 }), []);
-    assert.deepEqual(await grantedTableProblems(t.inspect, { roles: ['notes_app', 'notes_sched'], minTables: 13, withoutTenant: WITHOUT_TENANT }), []);
+    assert.deepEqual(await tenantTableProblems(t.inspect, { appRole: 'notes_app', minTables: 8 }), []);
+    assert.deepEqual(await grantedTableProblems(t.inspect, { roles: ['notes_app', 'notes_sched'], minTables: 12, withoutTenant: WITHOUT_TENANT }), []);
+    assert.deepEqual(await readViewProblems(t.inspect, { schema: 'notes', appRole: 'notes_app' }), []);
+    const tables = (await t.inspect.query<{ t: string }>("SELECT tablename AS t FROM pg_tables WHERE schemaname = 'notes' ORDER BY 1")).rows.map(r => r.t);
+    for (const gone of ['acl_entry', 'tenant_role', 'client_grant']) assert.ok(!tables.includes(gone), `${gone} entfällt`);
     assert.deepEqual(await securityDefinerProblems(t.inspect, { allowed: SECURITY_DEFINER }), []);
     assert.deepEqual(await publicSchemaProblems(t.inspect, { schemas: ['app', 'notes'] }), []);
     assert.deepEqual(await publicExecuteProblems(t.inspect, { schemas: ['app', 'notes'], strict: true }), []);
@@ -102,24 +109,24 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
   });
 
   test('auch die Besitzer-Rolle sieht ohne Kontext keine Mandantendaten (FORCE RLS)', async () => {
-    for (const tbl of ['principal', 'client_grant', 'acl_entry']) assert.equal((await t.admin.query(`SELECT count(*)::int AS n FROM notes.${tbl}`)).rows[0].n, 0, tbl);
+    for (const tbl of ['principal', 'authz_tuple', 'audit_log']) assert.equal((await t.admin.query(`SELECT count(*)::int AS n FROM notes.${tbl}`)).rows[0].n, 0, tbl);
   });
 
   test('ohne Mandantenkontext sind keine Zeilen sichtbar', async () => {
     assert.equal((await t.runtime.query('SELECT count(*)::int AS n FROM notes.principal')).rows[0].n, 0);
     assert.equal((await t.runtime.query('SELECT count(*)::int AS n FROM notes.tenant')).rows[0].n, 0);
-    await assert.rejects(t.runtime.query("INSERT INTO notes.client_grant (tenant_id, client_id) VALUES ($1, 'x')", [A]), /row-level security/);
+    await assert.rejects(t.runtime.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'viewer', 'org')", [A]), /row-level security/);
   });
 
   test('Mandant B sieht keine Daten von A und kann keine für A schreiben', async () => {
     await withTenant(t.runtime, { tenantId: B }, async tx => {
-      for (const tbl of ['principal', 'client_grant', 'acl_entry']) assert.equal((await tx.query(`SELECT count(*)::int AS n FROM notes.${tbl}`)).rows[0].n, 0, tbl);
+      for (const tbl of ['principal', 'authz_tuple']) assert.equal((await tx.query(`SELECT count(*)::int AS n FROM notes.${tbl}`)).rows[0].n, 0, tbl);
       assert.deepEqual((await tx.query('SELECT alias FROM notes.tenant')).rows, [{ alias: 'beta' }]);
       assert.equal((await tx.query("UPDATE notes.principal SET display_name = 'gehackt' WHERE subject = 'u-a'")).rowCount, 0);
       assert.equal((await tx.query("UPDATE notes.tenant SET name = 'gehackt' WHERE id = $1", [A])).rowCount, 0);
     });
     await assert.rejects(withTenant(t.runtime, { tenantId: B }, tx =>
-      tx.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, principal_type, principal_ref, permission) VALUES ($1, 'tenant', 'role', 'x', 'note:read')", [A])), /row-level security/);
+      tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'viewer', 'org')", [A])), /row-level security/);
     // Mandantenzeile: nur Name und Einstellungen schreibbar
     await assert.rejects(withTenant(t.runtime, { tenantId: B }, tx => tx.query("UPDATE notes.tenant SET status = 'active' WHERE id = $1", [B])), /permission denied/);
   });
@@ -134,24 +141,41 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     } finally { c.release(); }
   });
 
-  test('Zugriffsregeln: Freigabe nie auf einem Blatt, Ressource leer genau beim Mandanten, nur bekannte Typen', async () => {
-    const ins = (type: string, id: string | null, effect: string) => withTenant(t.runtime, { tenantId: A }, tx => tx.query(
-      "INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, $2, $3, 'role', 'editor', 'note:read', $4)", [A, type, id, effect]));
+  test('Tupel: Subjekt nach Muster, leer genau bei org, Clients nur an org, Relation und Typ aus dem Modell, eindeutig', async () => {
+    const ins = (subject: string, relation: string, type: string, id: string | null) => withTenant(t.runtime, { tenantId: A }, tx => tx.query(
+      'INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type, object_id) VALUES ($1, $2, $3, $4, $5)', [A, subject, relation, type, id]));
     const id = '00000000-0000-4000-8000-000000000001';
-    await assert.rejects(ins('note', id, 'grant'), /acl_entry_grant_resource_check/);
-    await assert.rejects(ins('tenant', id, 'deny'), /acl_entry_check/);
-    await assert.rejects(ins('schema', id, 'deny'), /acl_entry_resource_type_check/);
-    await assert.rejects(ins('tenant', null, 'allow'), /acl_entry_effect_check/);
-    await ins('note', id, 'deny');
+    await assert.rejects(ins('user:x', 'viewer', 'org', null), /authz_tuple_subject_check/);
+    await assert.rejects(ins('group:ABC', 'viewer', 'org', null), /authz_tuple_subject_check/);
+    await assert.rejects(ins(`user:${id}`, 'viewer', 'org', id), /authz_tuple_org_check/);
+    await assert.rejects(ins(`user:${id}`, 'viewer', 'folder', null), /authz_tuple_org_check/);
+    await assert.rejects(ins(`client:${id}`, 'viewer', 'folder', id), /authz_tuple_client_check/);
+    await assert.rejects(ins(`user:${id}`, 'boss', 'org', null), /authz_tuple_relation_check/);
+    await assert.rejects(ins(`user:${id}`, 'viewer', 'schema', id), /authz_tuple_object_type_check/);
+    await ins(`user:${id}`, 'viewer', 'folder', id);
+    await assert.rejects(ins(`user:${id}`, 'viewer', 'folder', id), /authz_tuple_unique/);
+    await ins(`client:${id}`, 'viewer', 'org', null);
+    await assert.rejects(ins(`client:${id}`, 'viewer', 'org', null), /authz_tuple_unique/, 'NULLS NOT DISTINCT an org');
   });
 
-  test('Änderungen an Zugriffsregeln und eigenen Rollen erhöhen acl_version', async () => {
+  test('Änderungen an Tupeln und Freigabestufen erhöhen acl_version', async () => {
     const v = async () => Number((await withTenant(t.runtime, { tenantId: A }, tx => tx.query('SELECT acl_version FROM notes.tenant'))).rows[0].acl_version);
     const v0 = await v();
-    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("INSERT INTO notes.tenant_role (tenant_id, key, label, permissions) VALUES ($1, 'c-leser', 'Leser', '{note:read}')", [A]));
+    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'viewer', 'org')", [A]));
     const v1 = await v();
-    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("DELETE FROM notes.acl_entry WHERE permission = 'note:read' AND effect = 'deny'"));
-    assert.ok(v1 > v0 && (await v()) > v1);
+    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("UPDATE notes.principal SET clearance = 1 WHERE subject = 'u-a'"));
+    const v2 = await v();
+    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("UPDATE notes.principal SET display_name = 'Anna M.' WHERE subject = 'u-a'"));
+    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("DELETE FROM notes.authz_tuple WHERE relation = 'viewer' AND subject = 'org:members'"));
+    assert.ok(v1 > v0 && v2 > v1, 'Tupel und Freigabestufe');
+    assert.equal(await v(), v2 + 1, 'Name ändert nichts, Löschen schon');
+    const pB = await withTenant(t.runtime, { tenantId: B }, async tx => Number((await tx.query('SELECT acl_version FROM notes.tenant')).rows[0].acl_version));
+    assert.equal(pB, 1, 'anderer Mandant unberührt');
+  });
+
+  test('Freigabestufe: 0..2, Break-Glass nur mit Ablauf', async () => {
+    await assert.rejects(withTenant(t.runtime, { tenantId: A }, tx => tx.query("UPDATE notes.principal SET clearance = 3 WHERE subject = 'u-a'")), /principal_clearance_check/);
+    await assert.rejects(withTenant(t.runtime, { tenantId: A }, tx => tx.query("UPDATE notes.principal SET clearance_boost = 2 WHERE subject = 'u-a'")), /principal_clearance_boost/);
   });
 
   test('Audit-Log ist unveränderlich und verkettet', async () => {

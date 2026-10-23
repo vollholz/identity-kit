@@ -93,7 +93,7 @@ export interface NotesApp { app: FastifyInstance; iam: Iam<string, NotesState>; 
 /** Notiz-App mit dem Plugin; `env` für die Konfiguration, `plugin` für die Optionen des Plugins. */
 export async function notesApp(o: {
   db: Db; issuer: string; env?: Record<string, string>; plugin?: Partial<IamPluginOptions>; before?: (app: FastifyInstance) => Promise<void>;
-  model?: Model<string>; resources?: ResourceModel<NotesState>; bff?: BffOptions;
+  model?: Model<string>; resources?: ResourceModel<NotesState> | null; bff?: BffOptions;
   /** Keycloak-Admin-API (Modul `admin`, z. B. `KeycloakFake.fetch`). */
   keycloakFetch?: typeof fetch;
   /** Microsoft (Modul `entra`, z. B. `EntraFake.fetch`) und Wartezeiten nach der Zustimmung. */
@@ -105,9 +105,9 @@ export async function notesApp(o: {
 }): Promise<NotesApp> {
   const events: NotesApp['events'] = [];
   const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}) });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}) });
   // Wie docs/backend.md verlangt: unbekannte Felder ergeben 422 statt still zu verschwinden
-  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });
+  const app = Fastify({ logger: process.env.TEST_LOG ? { level: 'error' } : false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });
   await o.before?.(app);
   await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], ...o.plugin });
@@ -201,4 +201,18 @@ export async function team(db: Db, tenantId: string, name: string, parent: strin
 /** Ansicht im Mandanten. */
 export async function view(db: Db, tenantId: string, name: string): Promise<string> {
   return full(db, tenantId, async tx => (await tx.query<{ id: string }>('INSERT INTO notes.view (tenant_id, name) VALUES ($1, $2) RETURNING id', [tenantId, name])).rows[0]!.id);
+}
+
+/** Person mit Rolle an org (Tupel `user:<id> <rolle> org`), Mandant bei Bedarf angelegt; liefert die ID des Principals. */
+export async function member(db: Db, alias: string, sub: string, role: string | null = null, clearance: Level = 0): Promise<string> {
+  const tenantId = await tenant(db, alias);
+  const id = await person(db, tenantId, sub, { clearance });
+  if (role) await grant(db, tenantId, `user:${id}`, role).catch(() => undefined);
+  return id;
+}
+
+/** Rolle an org für die Person aus diesen Claims (je Organisation im Token) vergeben; liefert die Claims unverändert. */
+export async function withRole<C extends Record<string, unknown>>(db: Db, c: C, role: string | null, clearance: Level = 0): Promise<C> {
+  for (const org of c.organization as string[]) await member(db, org, c.sub as string, role, clearance);
+  return c;
 }

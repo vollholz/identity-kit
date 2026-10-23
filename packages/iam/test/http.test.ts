@@ -1,6 +1,6 @@
 /**
  * Anmeldung und Dekorationen des Plugins über HTTP (aus Assets test/platform/auth.test.ts, produktneutral mit der
- * Beispiel-App «notes»): 401/403/400 als problem+json, Rollen nur der gewählten Organisation, DPoP (Schema, Replay,
+ * Beispiel-App «notes»): 401/403/400 als problem+json, Rollen aus Tupeln der gewählten Organisation (nie aus dem Token), DPoP (Schema, Replay,
  * DPOP_MODE), mTLS, nur Access Tokens, kodierte Pfade, ASCII-Aliasse, Sitzung mit CSRF, Herkunft `mcp`, Cookies mit
  * SESSION_SECRET, Span-Attribut, `need` als preHandler, `can` und Fähigkeiten, `readinessChecks`.
  */
@@ -13,13 +13,12 @@ import { context, ROOT_CONTEXT, trace, type Context, type ContextManager, type S
 import Fastify from 'fastify';
 import pg from 'pg';
 import { dpopKey, startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
-import { withTenant } from '../src/db.ts';
 import { iamPlugin } from '../src/http/plugin.ts';
 import { readinessChecks } from '../src/iam.ts';
 import { OidcProvider, TokenVerifier } from '../src/tokens.ts';
-import { notesCatalog } from './support/catalogs.ts';
 import { skipDb } from './support/db.ts';
-import { claims, folderWithNote, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
+import { claims, folderWithNote, grant, member, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
+import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 
@@ -78,20 +77,19 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     assert.equal(await warnings({}), 0, 'Test-Server wie docs/backend.md');
   });
 
-  test('Person: Mandant aus Organisation, Rollen aus Gruppen (und Client-Rollen mit ROLE_SOURCE=both)', async () => {
-    const r = await me(await bearer(claims.user({ org: 'acme', groupRoles: ['editor'] })));
+  test('Person: Mandant aus Organisation, Rollen aus Tupeln an org', async () => {
+    await member(t.runtime, 'acme', 'p-editor', 'editor');
+    const r = await me(await bearer(claims.user({ org: 'acme', sub: 'p-editor' })));
     assert.equal(r.statusCode, 200, r.body);
     const b = r.json();
     assert.deepEqual([b.tenant.alias, b.principal.kind, b.roles, b.tokenBinding], ['acme', 'user', ['editor'], 'none']);
-    assert.ok(b.permissions.includes('note:write') && !b.permissions.includes('acl:admin'));
-    const both = await build({ env: { ROLE_SOURCE: 'both' } });
-    const r2 = await me(await bearer(claims.user({ org: 'acme', groupRoles: ['viewer'], roles: ['editor'] })), both.app);
-    assert.deepEqual(r2.json().roles.sort(), ['editor', 'viewer']);
+    assert.ok(b.permissions.includes('note:write') && !b.permissions.includes('members:admin'));
   });
 
-  test('Gruppenrollen einer anderen Organisation gelten nicht', async () => {
-    const c = { ...claims.user({ org: 'acme' }), groups: ['/orgs/other/org-admin'] };
-    assert.deepEqual((await me(await bearer(c))).json().roles, []);
+  test('Rollen im Token (Client-Rollen, Gruppenpfade) gelten nie', async () => {
+    const c = { ...claims.user({ org: 'acme' }), groups: ['/orgs/acme/org-admin'], resource_access: { 'notes-platform': { roles: ['org-admin', 'editor'] } } };
+    const b = (await me(await bearer(c))).json();
+    assert.deepEqual([b.roles, b.permissions], [[], []]);
   });
 
   test('falsche Zielgruppe, abgelaufen, fremder Schlüssel → 401', async () => {
@@ -120,19 +118,19 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
   test('Maschinen-Client ohne DPoP wird verweigert (DPOP_MODE=required-for-clients)', async () => {
     await tenant(t.runtime, 'acme', 'importer');
     const strict = await build({ env: { DPOP_MODE: 'required-for-clients' } });
-    const r = await me(await bearer(claims.client({ clientId: 'importer', org: 'acme', roles: ['editor'], scopes: ['notes:read'] })), strict.app);
+    const r = await me(await bearer(claims.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read'] })), strict.app);
     assert.equal(r.statusCode, 401);
     assert.match(r.headers['www-authenticate'] as string, /DPoP/);
-    // Abgewiesen vor dem Resolver: kein Principal, keine letzten Rollen
+    // Abgewiesen vor dem Resolver: der Principal wird nicht berührt
     await tenant(t.runtime, 'acme', 'ohne-dpop');
-    assert.equal((await me(await bearer(claims.client({ clientId: 'ohne-dpop', org: 'acme', roles: ['editor'], scopes: ['notes:read'] })), strict.app)).statusCode, 401);
-    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.principal WHERE client_id = 'ohne-dpop'")).rows[0].n, 0);
+    assert.equal((await me(await bearer(claims.client({ clientId: 'ohne-dpop', org: 'acme', scopes: ['notes:read'] })), strict.app)).statusCode, 401);
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.principal WHERE client_id = 'ohne-dpop' AND last_seen_at IS NOT NULL")).rows[0].n, 0);
   });
 
-  test('Maschinen-Client mit DPoP: Rechte = Rollen ∩ Scopes', async () => {
+  test('Maschinen-Client mit DPoP: Rechte = Rollen aus Tupeln ∩ Scopes', async () => {
     const k = await dpopKey();
     await tenant(t.runtime, 'acme', 'importer');
-    const tok = await idp.token(claims.client({ clientId: 'importer', org: 'acme', roles: ['editor'], scopes: ['notes:read'] }), { jkt: k.jkt });
+    const tok = await idp.token(claims.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read'] }), { jkt: k.jkt });
     const r = await me({ authorization: `DPoP ${tok}`, dpop: await k.proof('GET', ME, tok) });
     assert.equal(r.statusCode, 200, r.body);
     const b = r.json();
@@ -143,7 +141,7 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
   test('DPoP: falsche Methode, URL, Schlüssel, ath, Replay und Bearer-Schema werden abgelehnt', async () => {
     const k = await dpopKey(), other = await dpopKey();
     await tenant(t.runtime, 'acme', 'importer');
-    const tok = await idp.token(claims.client({ clientId: 'importer', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }), { jkt: k.jkt });
+    const tok = await idp.token(claims.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read'] }), { jkt: k.jkt });
     const cases: [string, Record<string, string>][] = [
       ['Methode', { authorization: `DPoP ${tok}`, dpop: await k.proof('POST', ME, tok) }],
       ['URL', { authorization: `DPoP ${tok}`, dpop: await k.proof('GET', 'http://api.test/v1/other', tok) }],
@@ -211,7 +209,7 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     const cert = new X509Certificate(CERT_PEM);
     const der = cert.raw.toString('base64');
     await tenant(t.runtime, 'acme', 'mtls-client');
-    const c = claims.client({ clientId: 'mtls-client', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] });
+    const c = claims.client({ clientId: 'mtls-client', org: 'acme', scopes: ['notes:read'] });
     const tok = await idp.token({ ...c, cnf: { 'x5t#S256': createHash('sha256').update(cert.raw).digest('base64url') } });
     const call = (h?: string, token = tok) => me({ authorization: `Bearer ${token}`, ...(h !== undefined ? { 'x-client-cert': h } : {}) }, m.app);
     for (const [label, h] of [['PEM, URL-kodiert (nginx)', encodeURIComponent(CERT_PEM)], ['DER, base64 (Caddy)', der], ['RFC 9440', `:${der}:`]]) {
@@ -267,15 +265,17 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
       assert.equal(r.statusCode, 201, r.body);
       return (await t.inspect.query("SELECT source, client_id FROM notes.audit_log WHERE action = 'folder.created' AND resource_id = $1", [r.json().id])).rows[0];
     };
-    assert.deepEqual(await sources(await bearer(claims.user({ org: 'acme', groupRoles: ['editor'] }))), { source: 'api', client_id: 'notes-platform' });
-    const viaMcp = { ...claims.user({ org: 'acme', groupRoles: ['editor'] }), azp: 'notes-mcp', scope: 'openid notes:read notes:write' };
+    await member(t.runtime, 'acme', 'p-editor', 'editor');
+    assert.deepEqual(await sources(await bearer(claims.user({ org: 'acme', sub: 'p-editor' }))), { source: 'api', client_id: 'notes-platform' });
+    const viaMcp = { ...claims.user({ org: 'acme', sub: 'p-editor' }), azp: 'notes-mcp', scope: 'openid notes:read notes:write' };
     assert.deepEqual(await sources(await bearer(viaMcp)), { source: 'mcp', client_id: 'notes-mcp' });
-    const exchanged = { ...claims.client({ clientId: 'import', org: 'acme', roles: ['editor'], scopes: ['notes:read', 'notes:write'] }), azp: 'notes-mcp' };
+    const exchanged = { ...claims.client({ clientId: 'import', org: 'acme', scopes: ['notes:read', 'notes:write'] }), azp: 'notes-mcp' };
     assert.deepEqual(await sources(await bearer(exchanged)), { source: 'mcp', client_id: 'notes-mcp' });
   });
 
   test('Sitzung der Oberfläche: Token aus der Sitzung, Herkunft «ui», schreibend nur mit CSRF-Token', async () => {
-    const tok = await idp.token(claims.user({ org: 'acme', groupRoles: ['editor'] }));
+    await member(t.runtime, 'acme', 'p-editor', 'editor');
+    const tok = await idp.token(claims.user({ org: 'acme', sub: 'p-editor' }));
     const s = await build({ plugin: { sessions: { accessToken: async req => (req.headers.cookie === 'sid=1' ? { token: tok, csrfOk: req.headers['x-csrf-token'] === 'ok' } : null) } } });
     assert.equal((await s.app.inject({ method: 'GET', url: '/v1/me', headers: { cookie: 'sid=1' } })).statusCode, 200);
     assert.equal((await s.app.inject({ method: 'GET', url: '/v1/me', headers: { cookie: 'sid=2' } })).statusCode, 401, 'ohne gültige Sitzung');
@@ -323,7 +323,8 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
   });
 
   test('Fehler: Schema 422 mit Feldpfaden, problemTypeBase; eigene Fehlerbehandlung der App möglich', async () => {
-    const h = await bearer(claims.user({ org: 'acme', groupRoles: ['editor'] }));
+    await member(t.runtime, 'acme', 'p-editor', 'editor');
+    const h = await bearer(claims.user({ org: 'acme', sub: 'p-editor' }));
     const bad = await n.app.inject({ method: 'POST', url: '/v1/folders', headers: h, payload: { name: '' } });
     assert.equal(bad.statusCode, 422);
     assert.deepEqual(bad.json().errors.map((e: { path: string }) => e.path), ['/name']);
@@ -336,8 +337,10 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
   test('need als preHandler, can und Fähigkeiten mit einmal geladenen Zugriffsregeln', async () => {
     const A = await tenant(t.runtime, 'acme');
     const { folder, note } = await folderWithNote(t.runtime, A, 'Projekt');
-    const viewer = await bearer(claims.user({ org: 'acme', groupRoles: ['viewer'] }));
-    const editor = await bearer(claims.user({ org: 'acme', groupRoles: ['editor'] }));
+    await member(t.runtime, 'acme', 'p-viewer', 'viewer');
+    const editorId = await member(t.runtime, 'acme', 'p-editor', 'editor');
+    const viewer = await bearer(claims.user({ org: 'acme', sub: 'p-viewer' }));
+    const editor = await bearer(claims.user({ org: 'acme', sub: 'p-editor' }));
     const nobody = await bearer(claims.user({ org: 'acme' }));
     assert.equal((await n.app.inject({ method: 'GET', url: `/v1/folders/${folder}`, headers: viewer })).json().name, 'Projekt');
     const denied = await n.app.inject({ method: 'GET', url: `/v1/folders/${folder}`, headers: nobody });
@@ -347,12 +350,17 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     let loads = 0;
     n.iam.access.load = (tenantId: string) => { loads++; return load(tenantId); };
     try {
-      assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: true, can: { write: true } });
+      assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: true, can: { write: true, share: true } });
       assert.equal(loads, 2, 'need (AccessService) und einmal für can und Fähigkeiten');
     } finally { n.iam.access.load = load; }
-    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', $2, 'role', 'editor', 'note:write', 'deny')", [A, folder]));
-    assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: false, can: { write: false } }, 'Verbot auf dem Ordner wirkt auf die Notiz');
-    assert.equal(notesCatalog.capabilities.note!.write, 'note:write');
+    // Neues Tupel wirkt sofort (acl_version): Rolle viewer am Ordner gibt der Person mit viewer an org nichts Neues, editor am Ordner schon
+    const viewerNote = () => n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: viewer }).then(r => r.json());
+    assert.deepEqual(await viewerNote(), { id: note, write: false, can: { write: false, share: false } });
+    const pid = (await t.inspect.query("SELECT id FROM notes.principal WHERE subject = 'p-viewer' AND tenant_id = $1", [A])).rows[0].id;
+    await grant(t.runtime, A, `user:${pid}`, 'editor', { type: 'folder', id: folder });
+    assert.deepEqual(await viewerNote(), { id: note, write: true, can: { write: true, share: true } }, 'Rolle am Ordner wirkt auf die Notiz');
+    assert.ok(editorId);
+    assert.equal(notesModel.capabilities.note!.write, 'note:write');
   });
 });
 
@@ -366,8 +374,8 @@ test('needsToken: Präfix und öffentliche Pfade, entschieden am Routenmuster un
   assert.equal(needsToken('/v1', pub, undefined, '/healthz'), false);
   assert.equal(needsToken('/api', pub, undefined, '/api/x'), true, 'eigenes Präfix');
   const app = Fastify();
-  // Ohne Katalog mit Zugriffsregeln kein Modul acl
-  const iam = { cfg: { session: { secrets: [] }, publicBaseUrl: 'http://x' }, catalog: { acl: false, product: 'x' } } as never;
-  app.register(iamPlugin, { iam, modules: ['acl'] });
-  await assert.rejects(async () => { await app.ready(); }, /Modul «acl» braucht Zugriffsregeln/);
+  // Entfernte Module (acl, roles) melden sich beim Start statt still zu fehlen
+  const iam = { cfg: { session: { secrets: [] }, publicBaseUrl: 'http://x' }, model: notesModel } as never;
+  app.register(iamPlugin, { iam, modules: ['acl' as never] });
+  await assert.rejects(async () => { await app.ready(); }, /Unbekanntes Modul «acl»/);
 });

@@ -74,7 +74,7 @@ describe('Token-Prüfung', () => {
 
   test('DPoP: falsche Methode, URL, Schlüssel, ath, Alter, ohne Proof und Replay werden abgelehnt', async () => {
     const k = await dpopKey(), other = await dpopKey();
-    const tok = await idp.token({ ...claims.client({ clientId: 'importer', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }), typ: 'DPoP' }, { jkt: k.jkt });
+    const tok = await idp.token({ ...claims.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read'] }), typ: 'DPoP' }, { jkt: k.jkt });
     const cases: [string, string | undefined, RegExp][] = [
       ['Methode', await k.proof('POST', URL, tok), /htm/],
       ['URL', await k.proof('GET', 'http://api.test/v1/other', tok), /htu/],
@@ -95,7 +95,7 @@ describe('Token-Prüfung', () => {
   test('A6: mTLS – Zertifikat als PEM (URL-kodiert) oder DER/base64, Unlesbares → 401', async () => {
     const cert = new X509Certificate(CERT_PEM);
     const der = cert.raw.toString('base64');
-    const c = claims.client({ clientId: 'mtls-client', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] });
+    const c = claims.client({ clientId: 'mtls-client', org: 'acme', scopes: ['notes:read'] });
     const tok = await idp.token({ ...c, cnf: { 'x5t#S256': createHash('sha256').update(cert.raw).digest('base64url') } });
     for (const [label, h] of [['PEM, URL-kodiert (nginx)', encodeURIComponent(CERT_PEM)], ['DER, base64 (Caddy)', der], ['RFC 9440', `:${der}:`], ['PEM ohne Zeilenumbrüche', CERT_PEM.replace(/\n/g, ' ')]]) {
       assert.equal((await verify(tok, { cert: h })).binding, 'mtls', label);

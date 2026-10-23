@@ -10,13 +10,13 @@ import type { Principal } from '../principal.ts';
 import type { Iam } from '../iam.ts';
 
 export interface OpenApiOverrides {
-  /** Tag des Pakets → Tag der App (z. B. `{ 'Verwaltung: Zugriff': 'Verwaltung: ACL' }`). */
+  /** Tag des Pakets → Tag der App (z. B. `{ 'Zugriff': 'Freigaben' }`). */
   tags?: Record<string, string>;
-  /** Je Route (`'<METHOD> <url>'`, z. B. `'GET /v1/acl'`): Zusammenfassung, Beschreibung, Tags. */
+  /** Je Route (`'<METHOD> <url>'`, z. B. `'GET /v1/access'`): Zusammenfassung, Beschreibung, Tags. */
   routes?: Record<string, { summary?: string; description?: string; tags?: string[] }>;
   /**
    * Beschreibung eines Felds: `'<Titel des Schemas>.<pfad>'` oder `'<METHOD> <url> <Status|body|querystring|params|headers>.<pfad>'`,
-   * Listen mit `[]` (z. B. `'AuthzCatalog.permissions[].resources'`, `'GET /v1/me 200.grantedPermissions'`).
+   * Listen mit `[]` (z. B. `'AuthzCatalog.permissions[].resources'`, `'GET /v1/me 200.somewhere'`).
    */
   fields?: Record<string, string>;
 }
@@ -39,11 +39,9 @@ export interface IamModule {
 export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Konto', description: 'Angemeldete Person oder Maschine, Mandant und Rechte (`/v1/me`).' },
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
-  { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
-  { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder der eigenen Organisation einladen, entfernen und ihre Rollen setzen (Rolle org-admin).' },
+  { name: 'Zugriff', description: 'Wer hat Zugriff, warum, Freigaben an Orten (Wer – Rolle – Ort), Break-Glass.' },
+  { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder und Maschinen-Clients der eigenen Organisation: einladen, entfernen, Rollen an der Organisation und Freigabestufe setzen (Recht «Mitglieder und Rollen verwalten»).' },
   { name: 'Verwaltung: Anmeldung über Microsoft Entra ID', description: 'Organisation mit ihrem Entra-Tenant verbinden, «Nur Entra» aktivieren, Personen aus Entra ID hinzufügen.' },
-  { name: 'Verwaltung: Rollen', description: 'Vordefinierte und eigene Rollen der Organisation; eigene anlegen, ändern und löschen (Rolle org-admin).' },
-  { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
   { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },
   { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },
 ];

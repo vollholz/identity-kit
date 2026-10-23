@@ -160,6 +160,14 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   // ---------- Anmeldung pro Anfrage (Bearer/DPoP oder Sitzung der Oberfläche)
   app.decorateRequest('principal', null);
   app.decorateRequest('source', 'api');
+  // Tupel einmal je Anfrage (Fähigkeiten über Listen ohne erneutes Laden)
+  const access = iam.access as AccessService<string, unknown>;
+  const acls = new WeakMap<FastifyRequest, Promise<TenantAccess>>();
+  const aclOf = (req: FastifyRequest) => {
+    let a = acls.get(req);
+    if (!a) { a = access.load(req.requirePrincipal().tenantId); acls.set(req, a); }
+    return a;
+  };
   app.addHook('onRequest', async (req, reply) => {
     if (!needsToken(prefix, isPublic, req.routeOptions.url, req.url)) return;
     const auth = req.headers.authorization;
@@ -193,20 +201,15 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     }
     const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
     if (req.source !== 'ui' && p.clientId && p.clientId === cfg.mcp.clientId) req.source = 'mcp';
-    p.clearance = iam.access.clearanceOf(p, await iam.access.load(p.tenantId));
+    // Stand der Tupel dieser Anfrage: Freigabestufe am Principal, danach `can` und Fähigkeiten ohne erneutes Laden
+    const acl = iam.access.load(p.tenantId);
+    acls.set(req, acl as Promise<TenantAccess>);
+    p.clearance = iam.access.clearanceOf(p, await acl);
     req.principal = p;
     otel?.trace.getActiveSpan()?.setAttribute(spanAttribute, p.tenantAlias);
   });
 
   // ---------- Dekorationen
-  const access = iam.access as AccessService<string, unknown>;
-  // Tupel einmal je Anfrage (Fähigkeiten über Listen ohne erneutes Laden)
-  const acls = new WeakMap<FastifyRequest, Promise<TenantAccess>>();
-  const aclOf = (req: FastifyRequest) => {
-    let a = acls.get(req);
-    if (!a) { a = access.load(req.requirePrincipal().tenantId); acls.set(req, a); }
-    return a;
-  };
   app.decorateRequest('requirePrincipal', function (this: FastifyRequest) {
     if (!this.principal) throw new HttpError(401, 'Nicht angemeldet', undefined, challenge);
     return this.principal;
@@ -242,6 +245,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   // ---------- Module
   const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {}, ...(o.people ? { people: o.people } : {}) };
   const modules: Record<IamModuleName, IamModule> = { account: accountModule, access: accessModule, admin: adminModule, bff: bffModule, 'break-glass': breakGlassModule, clients: clientsModule, entra: entraModule, people: peopleModule };
+  const unknown = names.filter(n => !Object.hasOwn(modules, n));
+  if (unknown.length) throw new Error(`Unbekanntes Modul ${unknown.map(n => `«${n}»`).join(', ')} (verfügbar: ${Object.keys(modules).join(', ')})`);
   for (const n of names) await modules[n].register(app, ctx);
 }
 

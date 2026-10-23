@@ -52,7 +52,7 @@ export async function listClients(tx: Tx, schema: string, roleOrder: readonly st
             count(t.id) FILTER (WHERE t.object_type <> 'org')::int AS places
        FROM ${schema}.principal p JOIN ${schema}.authz_tuple t ON t.subject = 'client:' || p.id
       WHERE p.kind = 'client' ${clientId ? 'AND p.client_id = $1' : ''}
-      GROUP BY p.id ORDER BY p.client_id`, clientId ? [clientId] : [])).rows;
+      GROUP BY p.tenant_id, p.id ORDER BY p.client_id`, clientId ? [clientId] : [])).rows;
   return rows.map(r => ({
     clientId: r.client_id, principalId: r.id, description: r.description, roles: roleOrder.filter(x => r.roles.includes(x)), clearance: r.clearance, places: r.places,
     createdAt: r.created_at, createdBy: r.created_by_name, lastUsedAt: r.last_seen_at, lastScopes: r.last_scopes,

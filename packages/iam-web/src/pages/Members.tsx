@@ -21,7 +21,7 @@ import type { InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts
 import { useIamConfig } from '../config.tsx';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
-import { ADMIN_ROLE as ADMIN, type Permission } from '../permissions.ts';
+import { ADMIN_ROLE as ADMIN, isCustomRole, type Permission } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { RightsOverview, roleSummary } from '../rights/RightsOverview.tsx';
 import { RoleCompare, RoleMatrix } from '../rights/RoleMatrix.tsx';
@@ -43,6 +43,16 @@ const STATUS = {
 
 /** Link zum Weitergeben (Anmeldung über Microsoft für Personen aus Entra ID, die sich noch nie angemeldet haben). */
 const absolute = (path: string) => `${window.location.origin}${path}`;
+
+/** Alle Mitgliederlisten (eigene Organisation und Plattformansicht), für die Invalidierung nach Änderungen. */
+const MEMBER_LISTS = ['iam', 'admin', 'members'] as const;
+
+/**
+ * Würde Entfernen oder der Entzug von org-admin die letzte aktive Person mit org-admin treffen (409 des Servers)? Aktiv
+ * zählt wie auf dem Server; ein deaktiviertes Konto mit org-admin ohne weitere aktive Admin-Person bleibt ebenfalls.
+ */
+const lastAdmin = (m: Member, activeAdmins: number) =>
+  m.roles.includes(ADMIN) && (m.status === 'active' ? activeAdmins <= 1 : m.status === 'disabled' && activeAdmins === 0);
 
 type SortKey = 'name' | 'seen';
 /** «Zuletzt aktiv»: noch nie aktiv gilt als ältester Wert. */
@@ -115,7 +125,8 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
   const label = useMemo(() => Object.fromEntries(roles.map(r => [r.key, r.label])), [roles]);
   const adminLabel = label[ADMIN] ?? ADMIN;
   const api = memberApi(alias);
-  const refresh = () => qc.invalidateQueries({ queryKey: iamKeys.members(alias) });
+  // Rechte wirken sofort (8.3), auch für die eigene Person: Mitgliederlisten (eigene und Plattformansicht) und /auth/me neu laden
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: MEMBER_LISTS }), qc.invalidateQueries({ queryKey: iamKeys.me })]);
   const copyLink = (m: Member) => { void navigator.clipboard?.writeText(absolute(m.loginPath!)).then(() => toast.show(t('iam.members.linkCopied', { name: m.name })), () => undefined); };
 
   const resend = useMutation({
@@ -164,7 +175,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
   const removeBlock = (m: Member): string | null => {
     if (!platform && m.id === self) return t('iam.members.block.self');
     if (!platform && m.roles.includes(ADMIN)) return m.status === 'invited' ? t('iam.members.block.adminInvite', { role: adminLabel }) : t('iam.members.block.admin', { role: adminLabel });
-    if (m.roles.includes(ADMIN) && m.status === 'active' && admins <= 1) return t('iam.members.block.last', { role: adminLabel });
+    if (lastAdmin(m, admins)) return t('iam.members.block.last', { role: adminLabel });
     return null;
   };
   const addLabel = t('iam.members.invite');
@@ -244,7 +255,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
         <RoleMatrix roles={roles} caption={t('iam.matrix.caption')} />
       </details>
       {inviting ? <InviteDialog alias={alias} orgLabel={orgLabel} roles={roles} platform={platform} rolesManageable={rolesManageable} onClose={() => setInviting(false)} onDone={async () => { await refresh(); }} /> : null}
-      {editing ? <RolesDialog alias={alias} orgLabel={orgLabel} member={editing} roles={roles} platform={platform} rolesManageable={rolesManageable} self={self} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await refresh(); }} /> : null}
+      {editing ? <RolesDialog alias={alias} orgLabel={orgLabel} member={editing} roles={roles} platform={platform} rolesManageable={rolesManageable} self={self} activeAdmins={admins} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await refresh(); }} /> : null}
       {removing ? <RemoveConfirm member={removing} orgLabel={orgLabel} busy={remove.isPending} error={remove.error} onClose={() => { remove.reset(); setRemoving(null); }} onConfirm={() => remove.mutate(removing)} /> : null}
     </section>
   );
@@ -368,12 +379,15 @@ interface InviteProps { alias: string | null; orgLabel: string; roles: RoleInfo[
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
- * Vorgabe beim Einladen: `inviteRoles` der App (nur Rollen, die es gibt), sonst die Rolle mit den wenigsten Rechten
- * ausser org-admin (Notiz-App und Assets: Leser:in).
+ * Vorgabe beim Einladen: `inviteRoles` der App (nur Rollen, die es gibt; Rollen nur für die Plattform-Administration
+ * ausserhalb der Plattformansicht nie, sonst wäre jedes Einladen ein 403), sonst die vordefinierte Rolle mit den
+ * wenigsten Rechten ausser org-admin (Notiz-App und Assets: Leser:in). Eigene Rollen der Organisation (`c-…`) nie:
+ * eine schmale eigene Rolle würde sonst Vorgabe für jede Einladung; bei Gleichstand gilt die Reihenfolge des Katalogs.
  */
-function defaultRoles(roles: RoleInfo[], configured?: string[]): string[] {
-  if (configured) return configured.filter(k => roles.some(r => r.key === k));
-  const least = [...roles].filter(r => r.key !== ADMIN && !r.adminOnly).sort((a, b) => a.permissions.length - b.permissions.length)[0];
+function defaultRoles(roles: RoleInfo[], configured: string[] | undefined, platform: boolean): string[] {
+  const allowed = (r: RoleInfo) => platform || !r.adminOnly;
+  if (configured) return configured.filter(k => roles.some(r => r.key === k && allowed(r)));
+  const least = roles.filter(r => r.key !== ADMIN && !r.adminOnly && !isCustomRole(r.key)).sort((a, b) => a.permissions.length - b.permissions.length)[0];
   return least ? [least.key] : [];
 }
 
@@ -382,7 +396,7 @@ function InviteDialog({ alias, orgLabel, roles, platform, rolesManageable, onClo
   const fid = useId();
   const [d, setD] = useState({ email: '', firstName: '', lastName: '' });
   const { inviteRoles } = useIamConfig();
-  const [sel, setSel] = useState<Set<string>>(() => new Set(rolesManageable ? defaultRoles(roles, inviteRoles) : []));
+  const [sel, setSel] = useState<Set<string>>(() => new Set(rolesManageable ? defaultRoles(roles, inviteRoles, platform) : []));
   const [result, setResult] = useState<InviteResult | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const send = useMutation({
@@ -436,14 +450,16 @@ function InviteDialog({ alias, orgLabel, roles, platform, rolesManageable, onClo
  * Änderung an org-admin ab, alle übrigen Rollen sind darin enthalten), in Instanzen mit Rollen aus Keycloak niemand:
  * dann nur ansehen, mit «Schliessen». Sonst Auswahl mit Rechte-Übersicht und «+ n Rechte, − m Rechte».
  */
-function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable, self, onClose, onSaved }: { alias: string | null; orgLabel: string; member: Member; roles: RoleInfo[]; platform: boolean; rolesManageable: boolean; self?: string; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { Dialog, Button, toast } = useIamUi();
+function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable, self, activeAdmins, onClose, onSaved }: { alias: string | null; orgLabel: string; member: Member; roles: RoleInfo[]; platform: boolean; rolesManageable: boolean; self?: string; activeAdmins: number; onClose: () => void; onSaved: () => Promise<void> }) {
+  const { Dialog, Button, Icon, toast } = useIamUi();
+  const authz = useAuthz();
   const fid = useId();
   const viewOnly = !rolesManageable || (!platform && member.roles.includes(ADMIN));
   const [sel, setSel] = useState<Set<string>>(() => new Set(member.roles));
   const [confirming, setConfirming] = useState(false);
   const save = useMutation({
-    mutationFn: () => memberApi(alias).setRoles(member.id, [...sel]),
+    // nur Rollen, die es (noch) gibt: eine inzwischen gelöschte eigene Rolle würde sonst 422 auslösen
+    mutationFn: () => memberApi(alias).setRoles(member.id, [...sel].filter(k => roles.some(r => r.key === k))),
     onSuccess: async () => { toast.show(t('iam.roles.saved', { name: member.name, org: orgLabel })); await onSaved(); },
     onError: () => setConfirming(false),
   });
@@ -461,14 +477,20 @@ function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable
     );
   }
   const added = [...sel].filter(r => !member.roles.includes(r)), removed = member.roles.filter(r => !sel.has(r));
-  const critical = removed.includes(ADMIN) || added.includes(ADMIN) || (!sel.size && member.roles.length > 0);
-  const submit = () => { if (!added.length && !removed.length) return onClose(); if (critical) setConfirming(true); else save.mutate(); };
+  // Letzte aktive Person mit org-admin: Entzug lehnt der Server ab (409) – gesperrt mit Grund, wie beim Entfernen
+  const lastBlock = removed.includes(ADMIN) && lastAdmin(member, activeAdmins) ? t('iam.members.block.last', { role: name(ADMIN) }) : null;
+  // Sich selbst «Mitglieder und Rollen verwalten» entziehen: danach ist diese Seite für die Person zu
+  const can = (keys: Iterable<string>) => [...keys].some(k => k === ADMIN || roles.find(r => r.key === k)?.permissions.includes('members:admin'));
+  const losesOwn = member.id === self && can(member.roles) && !can(sel);
+  const critical = removed.includes(ADMIN) || added.includes(ADMIN) || (!sel.size && member.roles.length > 0) || losesOwn;
+  const submit = () => { if (lastBlock) return; if (!added.length && !removed.length) return onClose(); if (critical) setConfirming(true); else save.mutate(); };
   return (
     <>
       <Dialog title={title} onClose={onClose} onSubmit={submit} width={600}
-        footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" busy={save.isPending}>{t('iam.common.save')}</Button></>}>
+        footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" busy={save.isPending} aria-disabled={lastBlock ? true : undefined} aria-describedby={lastBlock ? `${fid}-last` : undefined}>{t('iam.common.save')}</Button></>}>
         {intro}
         <RolePicker roles={roles} value={sel} onChange={setSel} platform={platform} idBase={`${fid}-r`} />
+        {lastBlock ? <p id={`${fid}-last`} className="iam-ferr" role="alert"><Icon name="warn" className="iam-ico" />{lastBlock}</p> : null}
         <DialogRights roles={sel} before={member.roles} />
         {save.error && !confirming ? <ErrorBox error={save.error} /> : null}
       </Dialog>
@@ -477,6 +499,7 @@ function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable
           {removed.includes(ADMIN) ? <p>{t('iam.roles.loseAdmin', v)}</p> : null}
           {added.includes(ADMIN) ? <p>{t('iam.roles.gainAdmin', v)}</p> : null}
           {!sel.size ? <p>{t('iam.roles.noneLeft', v)}</p> : null}
+          {losesOwn ? <p>{t('iam.roles.loseOwnAdmin', { perm: authz.permLabel('members:admin'), org: orgLabel })}</p> : null}
         </Confirm>
       ) : null}
     </>

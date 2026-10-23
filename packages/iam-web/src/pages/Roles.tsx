@@ -16,6 +16,7 @@ import { useAuthz, useRoles } from '../authz.ts';
 import { useIamConfig } from '../config.tsx';
 import type { Role, RoleList } from '../contract.ts';
 import { iamKeys } from '../keys.ts';
+import { ApiError } from '../problem.ts';
 import { ADMIN_ROLE } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { RightsOverview, roleSummary } from '../rights/RightsOverview.tsx';
@@ -44,12 +45,18 @@ export function RolesPage() {
   const items = q.data?.items ?? [];
   const builtin = items.filter(r => !r.custom), custom = items.filter(r => r.custom);
   const full = !!q.data && custom.length >= q.data.maxCustom;
-  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: iamKeys.roles }), qc.invalidateQueries({ queryKey: iamKeys.adminStatus })]);
+  // Rechte der Rollen wirken sofort (8.3): Rollen, Status, Mitgliederlisten und /auth/me (eigene Rechte) neu laden
+  const refresh = () => Promise.all([iamKeys.roles, iamKeys.adminStatus, ['iam', 'admin', 'members'], iamKeys.me].map(queryKey => qc.invalidateQueries({ queryKey })));
+  // 412: inzwischen geändert – Liste mit der aktuellen Version neu laden, der nächste Versuch nimmt sie
+  const onStale = (e: unknown) => { if (e instanceof ApiError && e.status === 412) void qc.invalidateQueries({ queryKey: iamKeys.roles }); };
   const remove = useMutation({
-    mutationFn: (r: Role) => roleApi.remove(r),
+    mutationFn: (r: Role) => roleApi.remove(items.find(x => x.key === r.key) ?? r),
+    onError: onStale,
     onSuccess: async (_r, role) => { setDeleting(null); await refresh(); toast.show(t('iam.rolesPage.deleted', { role: role.label, org })); },
   });
   const create = (from: Role | null = null) => setEditing({ role: null, from });
+  /** Grund, warum keine weitere eigene Rolle entstehen kann (Erstellen, Kopieren, Vorlage). */
+  const fullWhy = full ? t('iam.rolesPage.full', { n: q.data!.maxCustom }) : null;
   const createButton = (variant: 'primary' | 'default' = 'primary') => (
     <Button variant={variant} icon="plus" onClick={() => create()} disabled={full} title={full ? t('iam.rolesPage.full', { n: q.data!.maxCustom }) : undefined}>{t('iam.rolesPage.create')}</Button>
   );
@@ -64,7 +71,7 @@ export function RolesPage() {
               <div className="iam-sec-h"><h2 id={`${fid}-b`}>{t('iam.rolesPage.builtin')}</h2><span>{builtin.length}</span></div>
               <p className="iam-muted iam-small iam-roles-intro">{t('iam.rolesPage.builtinIntro')}</p>
               <ul className="iam-role-list">
-                {builtin.map(r => <RoleRow key={r.key} role={r} onTemplate={() => create(r)} />)}
+                {builtin.map(r => <RoleRow key={r.key} role={r} full={fullWhy} onTemplate={() => create(r)} />)}
               </ul>
             </section>
             <section aria-labelledby={`${fid}-c`} className="iam-roles-sec">
@@ -72,7 +79,7 @@ export function RolesPage() {
               <p className="iam-muted iam-small iam-roles-intro">{t('iam.rolesPage.customIntro', { org })}</p>
               {custom.length ? (
                 <ul className="iam-role-list">
-                  {custom.map(r => <RoleRow key={r.key} role={r} onEdit={() => setEditing({ role: r, from: null })} onTemplate={() => create(r)} onDelete={() => setDeleting(r)} />)}
+                  {custom.map(r => <RoleRow key={r.key} role={r} full={fullWhy} onEdit={() => setEditing({ role: r, from: null })} onTemplate={() => create(r)} onDelete={() => setDeleting(r)} />)}
                 </ul>
               ) : (
                 <div className="iam-role-empty">
@@ -86,7 +93,7 @@ export function RolesPage() {
       </div></div>
       <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code>GET /v1/roles · POST /v1/roles · PATCH /v1/roles/&#123;key&#125; · DELETE /v1/roles/&#123;key&#125;</code></div>
       {editing && q.data ? (
-        <RoleDialog list={q.data} editing={editing} orgLabel={org} onClose={() => setEditing(null)}
+        <RoleDialog list={q.data} editing={editing} orgLabel={org} onStale={onStale} onClose={() => setEditing(null)}
           onDone={async (r, created) => { setEditing(null); await refresh(); toast.show(created ? t('iam.rolesPage.created', { role: r.label, org }) : t('iam.rolesPage.saved', { role: r.label })); }} />
       ) : null}
       {deleting ? (
@@ -101,7 +108,7 @@ export function RolesPage() {
 }
 
 /** Zeile einer Rolle: Symbol, Name, Kurzbeschreibung, Zahlen, «Rechte» zum Aufklappen und Menü «Mehr». */
-function RoleRow({ role: r, onEdit, onTemplate, onDelete }: { role: Role; onEdit?: () => void; onTemplate: () => void; onDelete?: () => void }) {
+function RoleRow({ role: r, full, onEdit, onTemplate, onDelete }: { role: Role; full: string | null; onEdit?: () => void; onTemplate: () => void; onDelete?: () => void }) {
   const { Button, Icon, Menu } = useIamUi();
   const { roleIcons } = useIamConfig();
   const [open, setOpen] = useState(false);
@@ -130,7 +137,7 @@ function RoleRow({ role: r, onEdit, onTemplate, onDelete }: { role: Role; onEdit
             {close => (
               <>
                 {onEdit ? <MenuItem icon="edit" label={t('iam.rolesPage.edit')} onPick={() => { close(); onEdit(); }} /> : null}
-                <MenuItem icon="copy" label={t(r.custom ? 'iam.rolesPage.copy' : 'iam.rolesPage.template')} onPick={() => { close(); onTemplate(); }} />
+                <MenuItem icon="copy" label={t(r.custom ? 'iam.rolesPage.copy' : 'iam.rolesPage.template')} why={full} onPick={() => { close(); onTemplate(); }} />
                 {onDelete ? <MenuItem icon="trash" label={t('iam.rolesPage.deleteItem')} danger onPick={() => { close(); onDelete(); }} /> : null}
               </>
             )}
@@ -148,7 +155,7 @@ function RoleRow({ role: r, onEdit, onTemplate, onDelete }: { role: Role; onEdit
 }
 
 /** Erstellen (leer oder mit Vorlage) und Bearbeiten einer eigenen Rolle. */
-function RoleDialog({ list, editing, orgLabel, onClose, onDone }: { list: RoleList; editing: Editing; orgLabel: string; onClose: () => void; onDone: (r: Role, created: boolean) => Promise<void> }) {
+function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { list: RoleList; editing: Editing; orgLabel: string; onStale: (e: unknown) => void; onClose: () => void; onDone: (r: Role, created: boolean) => Promise<void> }) {
   const { Dialog, Button, Icon } = useIamUi();
   const fid = useId();
   const authz = useAuthz();
@@ -159,15 +166,18 @@ function RoleDialog({ list, editing, orgLabel, onClose, onDone }: { list: RoleLi
   const [description, setDescription] = useState(role?.description ?? (from?.custom ? from.description : ''));
   const [perms, setPerms] = useState<ReadonlySet<string>>(() => new Set((start?.permissions ?? ['tenant:read']).filter(p => allowed.has(p))));
   const [err, setErr] = useState<{ label?: string; perms?: string }>({});
-  const dropped = from ? from.permissions.filter(p => !allowed.has(p)) : [];
+  // Rechte, die eine eigene Rolle nicht (mehr) enthalten darf: aus der Vorlage oder beim Bearbeiten aus der Rolle selbst
+  const dropped = (start?.permissions ?? []).filter(p => !allowed.has(p));
   const save = useMutation({
     mutationFn: () => {
       // Reihenfolge des Katalogs, unabhängig von der Reihenfolge des Anklickens
       const permissions = (authz.catalog?.permissions ?? []).map(p => p.key).filter(k => perms.has(k));
       const body = { label: label.trim(), description: description.trim(), permissions };
-      return role ? roleApi.update(role, body) : roleApi.create(body);
+      // aktuelle Version aus der Liste (nach einem 412 neu geladen), sonst die beim Öffnen
+      return role ? roleApi.update(list.items.find(r => r.key === role.key) ?? role, body) : roleApi.create(body);
     },
     onSuccess: r => onDone(r, !role),
+    onError: onStale,
   });
   const toggle = (k: string) => setPerms(s => { const x = new Set(s); if (!x.delete(k)) x.add(k); return x; });
   const takeOver = (key: string) => {

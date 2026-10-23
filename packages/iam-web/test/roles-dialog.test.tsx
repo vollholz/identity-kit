@@ -216,3 +216,32 @@ describe('Rechte mit Änderung gegenüber bisher', () => {
     expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: [] });
   });
 });
+
+describe('Letzte Admin-Person und eigene Rechte (Plattform)', () => {
+  const platform = (items: Member[], self?: string, routes: Record<string, MockHandler> = {}) => renderIam(
+    <MemberList alias="demo" roles={ROLES} platform rolesManageable self={self} orgLabel="Demo AG" />,
+    { 'GET /v1/platform/organizations/demo/members': () => json({ items }), ...routes }).calls;
+
+  it('Entzug von org-admin bei der letzten aktiven Admin-Person: gesperrt mit Grund, kein Aufruf', async () => {
+    const calls = platform([ANNA, CARLA]);
+    const dlg = await open('Anna', 'bearbeiten');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Organisations-Admin' }));
+    const alert = within(dlg).getByRole('alert');
+    expect(alert).toHaveTextContent('Letzter Organisations-Admin – zuerst einer weiteren Person diese Rolle geben.');
+    const save = within(dlg).getByRole('button', { name: 'Speichern' });
+    expect(save).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(save);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(calls.some(c => c.method === 'PUT')).toBe(false);
+  });
+
+  it('sich selbst «Mitglieder und Rollen verwalten» entziehen: Warnung in der Rückfrage', async () => {
+    platform([ANNA, OSKAR], ANNA.id, { [`PUT /v1/platform/organizations/demo/members/${ANNA.id}/roles`]: () => json({ ...ANNA, roles: ['editor'] }) });
+    const dlg = await open('Anna', 'bearbeiten');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Organisations-Admin' }));
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Bearbeiter:in' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
+    const confirm = await screen.findByRole('alertdialog', { name: 'Wichtige Änderung bestätigen' });
+    expect(confirm).toHaveTextContent('Du entziehst dir selbst «Mitglieder und Rollen verwalten» in «Demo AG».');
+  });
+});

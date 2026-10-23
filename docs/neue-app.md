@@ -176,19 +176,19 @@ export const model = defineModel({
   },
   groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }],
   roles: {
-    editor: { label: 'Bearbeiter:in', description: 'Liest und ändert Notizen und gibt Zugriff darauf frei.', permissions: ['tenant:read', 'note:read', 'note:write', 'access:read', 'access:admin'] },
+    editor: { label: 'Bearbeiter:in', description: 'Liest und ändert Notizen und gibt Zugriff darauf frei.', permissions: ['tenant:read', 'note:read', 'note:write', 'access:admin'] },
     viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['tenant:read', 'note:read'] },
   },
   scopes: { 'notes:read': { text: 'Notizen lesen', permissions: ['tenant:read', 'note:read'] }, 'notes:write': { text: 'Notizen ändern', permissions: ['note:write'] } },
   types: {
-    folder: { label: 'Ordner', parent: 'org', roles: ['editor', 'viewer'] },
+    folder: { label: 'Ordner', parent: 'org', roles: ['editor', 'viewer'], read: 'note:read' },
     note: { label: 'Notiz', parent: 'folder', roles: ['editor', 'viewer'], leaf: true, read: 'note:read', write: 'note:write' },
   },
 });
 ```
 
 - `org-admin` (alle Rechte, `org` mit allen Rollen) und die reservierten Rechte (`tenant:read`, `members:admin`,
-  `access:read`, `access:admin` …) und Gruppen ergänzt das Paket. Die Rollenbeschreibung nennt jede Rechtegruppe der
+  `access:admin` …) und Gruppen ergänzt das Paket. Die Rollenbeschreibung nennt jede Rechtegruppe der
   Rolle (hier «Notiz», «Zugriff»), sonst bricht `defineModel` ab. Die App führt reservierte Rechte unter `permissions`
   nicht auf; nur um Reihenfolge, Beschreibung oder `resources` zu bestimmen, nennt sie eines ohne Label und Gruppe
   (z. B. `'access:admin': {}`, ebenso `{ key: 'access' }` unter `groups`).
@@ -205,16 +205,29 @@ export const resources: ResourceModel<Map<string, string>> = {
   chain: (folderOf, ref) => ref.type === 'org' ? [{ type: 'org' }]
     : ref.type === 'folder' ? [{ type: 'org' }, ref]
     : [{ type: 'org' }, { type: 'folder', id: folderOf.get(ref.id!) ?? null }, ref],
+  // Zwischenspeicher der Kette: version muss sich mit jedem Anlegen und Verschieben ändern (updated_at per Trigger)
+  version: async tx => (await tx.query(`SELECT count(*) || ':' || coalesce(max(updated_at)::text, '') AS v FROM notes.note`)).rows[0].v,
   exists: async (tx, ref) => ((await tx.query(`SELECT 1 FROM notes.${ref.type} WHERE id = $1`, [ref.id])).rowCount ?? 0) > 0,
 };
 ```
 
-- Lese-Policy der Blatt-Tabelle (Spezifikation [7.6](spezifikation.md#76-lesesicht-je-anfrage)), als Migration der App:
+- Policies der Blatt-Tabelle (Spezifikation [7.6](spezifikation.md#76-lesesicht-je-anfrage)), als Migration der App –
+  lesen **und** schreiben, sonst schützt die Datenbank nur die Mandantengrenze:
 
 ```sql
 CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT USING (
   app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id, app.read_relations()));
+CREATE POLICY note_insert ON notes.note AS RESTRICTIVE FOR INSERT WITH CHECK (
+  app.write_all() OR folder_id = ANY (app.write_types()));
+CREATE POLICY note_update ON notes.note AS RESTRICTIVE FOR UPDATE
+  USING (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations()))
+  WITH CHECK (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations()));
+CREATE POLICY note_delete ON notes.note AS RESTRICTIVE FOR DELETE USING (
+  app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations()));
 ```
+
+  Die Einstellungen sind je Anfrage mit den Scopes des Tokens geschnitten; Tupel zählen nur mit passender Rolle und
+  passendem Scope.
 
 - Nur Typen direkt unter der Organisation: `flatResources({ tables: { folder: 'notes.folder' } })`.
 
@@ -393,9 +406,15 @@ Vorlagen in [ausrollen.md](ausrollen.md).
 
 ```sh
 KEYCLOAK_TF_URL=https://identity.project-suite.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
-  npx iam-org-bootstrap --catalog infra/keycloak/platform.json --alias solutions --name "Solutions" \
-  --email anna@example.ch --first Anna --last Admin --roles org-admin --platform-admin
+DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
+  npx iam-org-bootstrap --alias solutions --name "Solutions" \
+  --email anna@example.ch --first Anna --last Admin --platform-admin
 ```
+
+In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); in der
+Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal, das Tupel `org-admin` an der
+Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). Rollen stehen nicht mehr in Keycloak (Spezifikation
+[9.1](spezifikation.md#91-regeln)).
 
 **Entra ID: beim Betreiber nichts.** Keine Entra-App der Plattform, `ENTRA_CLIENT_ID` bleibt leer. Jede
 Kunden-Organisation verbindet sich selbst mit einer **eigenen App-Registrierung** in ihrem Tenant: unter Verwalten ›

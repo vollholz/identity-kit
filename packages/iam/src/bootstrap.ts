@@ -26,7 +26,10 @@ export interface OrgBootstrapOptions {
   lastName?: string;
   /** Rollen der Person, Standard org-admin. */
   roles?: string[];
-  /** Alle Rollen des Katalogs (`Object.keys(JSON.parse(catalog.platformJson()).roles)`); für jede entsteht eine Gruppe. */
+  /**
+   * Rollen des Katalogs (`Object.keys(JSON.parse(catalog.platformJson()).roles)`); für jede entsteht eine Gruppe.
+   * `org-admin` kommt aus dem Baukasten und wird immer ergänzt (platform.json führt es ab 0.4.0 nicht mehr).
+   */
   catalogRoles: string[];
   /** GROUP_ROLE_PREFIX, Standard `/orgs`. */
   groupRolePrefix?: string;
@@ -40,13 +43,16 @@ export interface OrgBootstrapOptions {
 
 export interface OrgBootstrapResult { orgId: string | null; userId: string | null; steps: string[]; passwordFile: string | null }
 
+/** Rollen des Katalogs mit der reservierten Rolle org-admin vorne. */
+const withAdmin = (roles: readonly string[]) => [ADMIN_ROLE, ...roles.filter(r => r !== ADMIN_ROLE)];
+
 /** Prüft die Eingaben; Fehlertexte für die Kommandozeile. */
 export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email' | 'roles' | 'catalogRoles'>): string[] {
   const out: string[] = [];
   if (!ALIAS_PATTERN.test(o.alias)) out.push('Alias: Kleinbuchstaben, Ziffern, «-» und «_», beginnt mit Buchstabe oder Ziffer (höchstens 63 Zeichen)');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) out.push('E-Mail-Adresse ungültig');
-  if (!o.catalogRoles.includes(ADMIN_ROLE)) out.push(`Katalog ohne Rolle ${ADMIN_ROLE} (platform.json des Katalogs angeben)`);
-  for (const r of o.roles ?? []) if (!o.catalogRoles.includes(r)) out.push(`Unbekannte Rolle ${r} (erlaubt: ${o.catalogRoles.join(', ')})`);
+  const known = withAdmin(o.catalogRoles);
+  for (const r of o.roles ?? []) if (!known.includes(r)) out.push(`Unbekannte Rolle ${r} (erlaubt: ${known.join(', ')})`);
   return out;
 }
 
@@ -96,7 +102,7 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
 
   // Rollengruppen <prefix>/<alias>/<rolle>, jede Stufe einzeln
   const groups = new Map<string, string | null>();
-  for (const r of o.catalogRoles) {
+  for (const r of withAdmin(o.catalogRoles)) {
     let parent: string | null = null, path = '', missing = false;
     for (const name of [...prefix.split('/'), alias, r]) {
       path += `/${name}`;

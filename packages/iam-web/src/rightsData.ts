@@ -8,7 +8,7 @@
  * - Änderung anderswo (anderer Browser, andere Person): sobald /auth/me einen anderen Zugriffsstand (`accessTag`), andere
  *   Rollen oder Rechte meldet als vorher, also beim Zurückkehren in den Tab (wenn /auth/me älter als eine Minute ist) und
  *   nach jedem 403. `accessTag` ändert sich mit jeder Zugriffsregel, auch mit Freigaben und Verboten auf einzelnen
- *   Ressourcen; Server ohne `accessTag` (vor `@vollholz/iam` 0.4.0) bemerken nur geänderte Rollen und Rechte.
+ *   Ressourcen; Server ohne `accessTag` (vor `@vollholz/iam` 0.5.0) bemerken nur geänderte Rollen und Rechte.
  */
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';

@@ -20,7 +20,9 @@ function errorsOf(input: unknown): string[] {
 describe(`Katalog von Assets (${assetsFixture.source})`, () => {
   test('GET /v1/authz/catalog wie Assets, platform.json byte-gleich', () => {
     assert.deepEqual(withoutAdditions(assetsCatalog.toJSON()), assetsFixture.expected);
-    assert.equal(assetsCatalog.platformJson(), assetsFixture.platformJson);
+    // platform.json ohne org-admin (legt das Realm-Modul ab 0.2.0 selbst an), sonst wie in Assets
+    const { 'org-admin': _admin, ...roles } = (JSON.parse(assetsFixture.platformJson) as { roles: Record<string, string> }).roles;
+    assert.equal(assetsCatalog.platformJson(), `${JSON.stringify({ ...JSON.parse(assetsFixture.platformJson), roles }, null, 2)}\n`);
     assert.deepEqual(assetsCatalog.warnings, []);
   });
 
@@ -64,12 +66,12 @@ describe('defineCatalog: Ergänzungen und Reihenfolge', () => {
     assert.deepEqual(j.groups.map(g => g.key), ['tenant', 'notes', 'members', 'access']);
     assert.deepEqual(j.roles.map(r => r.key), ['org-admin', 'editor', 'viewer']);
     assert.deepEqual(j.roles[0]!.permissions, j.permissions.map(p => p.key));
-    assert.equal(j.roles[0]!.description, 'Verwaltet die Organisation vollständig: Organisation, Notizen, Mitglieder und Rollen, Zugriff. Enthält alle anderen Rollen.');
+    assert.equal(j.roles[0]!.description, 'Verwaltet die Organisation vollständig: Organisation, Notizen, Mitglieder und Rollen und Zugriff. Enthält alle anderen Rollen.');
     assert.deepEqual(j.resourceTypes, [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz', leaf: true }], 'Blatt ausgeliefert (resourceTypes[].leaf)');
     assert.deepEqual(notesCatalog.resourceTypes.filter(t => t.leaf).map(t => t.key), ['note']);
     assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'members:admin']);
     assert.deepEqual(checkCatalog(j, { product: 'notes', acl: true }), { errors: [], warnings: [] });
-    assert.equal(notesCatalog.platformJson(), `${JSON.stringify({ roles: { 'org-admin': 'Organisations-Admin', editor: 'Bearbeiter:in', viewer: 'Leser:in' }, scopes: ['notes:read', 'notes:write'] }, null, 2)}\n`);
+    assert.equal(notesCatalog.platformJson(), `${JSON.stringify({ roles: { editor: 'Bearbeiter:in', viewer: 'Leser:in' }, scopes: ['notes:read', 'notes:write'] }, null, 2)}\n`);
   });
 
   test('Funktionen: tenant:admin und audit:read nur auf Wunsch, ohne Ressourcen keine Zugriffsregeln', () => {
@@ -198,4 +200,43 @@ test('erzeugte Beschreibung von org-admin ohne Stichwort einer Gruppe: klare Mel
   assert.ok(errors.some(e => /Rolle «org-admin»: die erzeugte Beschreibung nennt die Rechtegruppe «notes» nicht .*eigene Beschreibung für org-admin angeben/.test(e)), errors.join(' | '));
   const own = { ...i, groups: [{ key: 'notes', label: 'Texte', match: 'notiz' }], roles: { ...i.roles, 'org-admin': { label: 'Organisations-Admin', description: 'Verwaltet Notizen, Mitglieder und den Zugriff der Organisation.', permissions: [] } } };
   assert.deepEqual(errorsOf(own), []);
+});
+
+test('reservierte Rechte und Gruppen ohne Label und Gruppe: Werte aus dem Baukasten, Reihenfolge der App', () => {
+  const c = defineCatalog({
+    product: 'notes',
+    permissions: {
+      'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.' },
+      'acl:read': {},
+      'members:admin': { description: 'Mitglieder der Notizablage verwalten.' },
+      'acl:admin': {},
+    },
+    groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }, { key: 'access' }, { key: 'members' }],
+    roles: { viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['note:read'] } },
+    scopes: { 'notes:read': { text: 'Notizen lesen', permissions: ['note:read'] } },
+    resources: { note: { label: 'Notiz' } },
+  });
+  const j = c.toJSON();
+  assert.deepEqual(j.permissions.map(p => p.key), ['tenant:read', 'note:read', 'acl:read', 'members:admin', 'acl:admin']);
+  assert.deepEqual(j.permissions.find(p => p.key === 'acl:read'), { key: 'acl:read', label: 'Zugriff lesen', group: 'access', description: 'Zugriffsregeln und wirksame Rechte sehen.', resources: ['tenant'], adminOnly: true });
+  assert.equal(j.permissions.find(p => p.key === 'members:admin')!.description, 'Mitglieder der Notizablage verwalten.');
+  assert.deepEqual(j.groups.map(g => [g.key, g.label]), [['tenant', 'Organisation'], ['notes', 'Notizen'], ['access', 'Zugriff'], ['members', 'Mitglieder und Rollen']]);
+  assert.equal(j.roles[0]!.key, 'org-admin');
+});
+
+test('eigene Rechte und Gruppen brauchen Label, Gruppe und Beschreibung', () => {
+  const i = notesInput();
+  const errors = errorsOf({ ...i, permissions: { ...i.permissions, 'note:other': {} }, groups: [...i.groups, { key: 'extra' }] });
+  for (const m of [/Recht «note:other»: Label fehlt/, /Recht «note:other»: Beschreibung fehlt/, /Recht «note:other»: Gruppe fehlt/, /Gruppe «extra»: Label fehlt/]) assert.ok(errors.some(e => m.test(e)), `${m} in ${errors.join(' | ')}`);
+});
+
+test('erzeugte Beschreibung von org-admin: Rechtegruppen in Anzeigereihenfolge, zuletzt mit «und»', () => {
+  const c = defineCatalog({
+    product: 'notes',
+    permissions: { 'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.' }, 'acl:read': {} },
+    groups: [{ key: 'access' }, { key: 'notes', label: 'Notizen', match: 'notiz' }],
+    roles: { viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['note:read'] } },
+    resources: { note: { label: 'Notiz' } },
+  });
+  assert.equal(c.roles.get(ADMIN_ROLE)!.description, 'Verwaltet die Organisation vollständig: Organisation, Zugriff, Notizen und Mitglieder und Rollen. Enthält alle anderen Rollen.');
 });

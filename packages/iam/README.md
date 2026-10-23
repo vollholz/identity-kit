@@ -13,12 +13,18 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
-- **0.4.0:** Rechtekatalog mit Voraussetzungen der Oberfläche (`permissions[].requires`) und Aufgaben für den
+- **0.5.0:** Rechtekatalog mit Voraussetzungen der Oberfläche (`permissions[].requires`) und Aufgaben für den
   Rollendialog (`tasks`), beides optional und geprüft (bekannte Rechte, keine Selbstvoraussetzung, Aufgaben vollständig
   und ohne Rechte nur für `org-admin`); vordefinierte Rollen ohne ihre Voraussetzungen als Hinweis (`warnings`).
   `GET /v1/authz/catalog` liefert beides nur, wo gesetzt. Für die Warnungen und Aufgaben in `@vollholz/iam-web` 0.4.0.
   `/auth/me` liefert `accessTag` (Fingerabdruck des Zugriffsstands wie für ETags, null ohne Mandant): Daran erkennt die
   Oberfläche auch Änderungen an Zugriffsregeln einzelner Bereiche, die Rollen und Rechte der Person nicht ändern.
+- **0.4.0:** `org-admin` kommt aus dem Baukasten bis in den Realm: `catalog.platformJson()` führt `org-admin` nicht mehr
+  (das Realm-Modul `product-realm` ≥ 0.2.0 legt die Rolle an; **brechend**: zusammen mit dem Modul anheben),
+  `iam-org-bootstrap` ergänzt die Gruppe `org-admin` selbst. Reservierte Rechte und Gruppen darf die App ohne Label und
+  Gruppe aufführen (nur Reihenfolge, Beschreibung, Ressourcentypen); Label und Gruppe kommen aus dem Baukasten.
+  Rollen, Scopes, Fähigkeiten und MCP-Werkzeuge bestimmen den Typ der Rechte nicht mehr mit (`NoInfer`). Die erzeugte
+  Beschreibung von `org-admin` nennt die Rechtegruppen in Anzeigereihenfolge («A, B und C»).
 - **0.3.0:** Entra mit eigener App der Organisation (`PUT …/entra/app`, Migration `iam_014`): Tenant, Anwendungs-ID
   und Geheimnis der Kunden-App, geprüft bei Microsoft vor dem Speichern, Geheimnis verschlüsselt (`ENCRYPTION_KEYS`,
   Rotation `rewrapEntraSecrets`), Anbieter `entra-app-<alias>`, Ablauf des Geheimnisses mit Warnung. Link

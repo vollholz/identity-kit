@@ -20,7 +20,9 @@ npm i -E @vollholz/iam-web@0.4.0
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
 `@vollholz/iam` (BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft; ab iam-web 0.2.0 mit `@vollholz/iam`
 0.2.0 oder neuer (Link an die Entra-Administration), für die eigene App-Registrierung (iam-web 0.3.0) mit
-`@vollholz/iam` 0.3.0 oder neuer. Mit älteren Servern bleibt es bei der Zustimmung zur App der Plattform.
+`@vollholz/iam` 0.3.0 oder neuer. Mit älteren Servern bleibt es bei der Zustimmung zur App der Plattform. Für Aufgaben
+und Voraussetzungen im Rollendialog und `accessTag` (iam-web 0.4.0) braucht es `@vollholz/iam` 0.5.0; ältere Server
+liefern sie nicht, dann fehlen Aufgaben und Warnungen, und nur geänderte Rollen und Rechte laden die Daten neu.
 
 | Import | Inhalt |
 |---|---|

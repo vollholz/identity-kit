@@ -46,7 +46,7 @@ export interface Me {
   grantedPermissions: Permission[];
   /**
    * Fingerabdruck des Zugriffsstands (Zugriffsregeln, eigene Rollen, Kette der Ressourcen, Rollen der Person); ändert er
-   * sich, sind Fähigkeiten (`can`) im Cache veraltet. Null ohne Mandant. Server vor `@vollholz/iam` 0.4.0 liefern es nicht;
+   * sich, sind Fähigkeiten (`can`) im Cache veraltet. Null ohne Mandant. Server vor `@vollholz/iam` 0.5.0 liefern es nicht;
    * das Paket behandelt das Fehlen wie null.
    */
   accessTag: string | null;

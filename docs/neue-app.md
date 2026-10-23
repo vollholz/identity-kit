@@ -12,10 +12,11 @@ dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), da
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 0.4.0 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 0.5.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 0.4.0 | GitHub Packages |
 | `@vollholz/iam-testkit` (Tests) | 0.5.0 | GitHub Packages |
-| `product-realm`, `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `<modul>-v0.1.0` |
+| `product-realm` (OpenTofu) | 0.2.0 | Git-Tag `product-realm-v0.2.0` |
+| `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `product-realm-bootstrap-v0.1.0` |
 
 ---
 
@@ -131,7 +132,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.1.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.2.0"
 
   product         = "notes"
   display_name    = "Notes"
@@ -149,10 +150,10 @@ Angewendet wird per eigenem Workflow `.github/workflows/keycloak.yml` als `notes
 Request prüft nur (fmt, validate, tflint, Tests); ein Push auf `main` (oder «Run workflow» mit `apply`) läuft
 Plan → Freigabe (Environment `production`) → Apply genau dieses Plans → Kontrollplan, der «No changes» zeigen muss.
 Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan` gehen auch lokal. Weitere Schalter
-(`smtp`, `m2m`, `mcp`, Texte): README des Moduls.
+(`smtp`, `m2m`, `mcp`, Texte) und Maschinen-Clients als Code (`machine_clients`, statt in der Konsole): README des Moduls.
 
 > Assets: `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `infra/keycloak/platform.ts` (schreibt
-> `platform.json`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
+> `platform.json` aus `catalog.platformJson()`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
 > `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
 > `IDENTITY_KIT_DEPLOY_KEY`, mit `smtp` zusätzlich `SMTP_PASSWORD`).
 
@@ -181,7 +182,11 @@ export const catalog = defineCatalog({
 ```
 
 - `org-admin` und die reservierten Rechte (`tenant:read`, `members:admin`, `acl:read`, `acl:admin` …) ergänzt das Paket.
-- `catalog.platformJson()` ergibt `infra/keycloak/platform.json` (Schritt 3, `iam-org-bootstrap`); nach jeder Änderung
+  Die App führt sie nicht auf; nur wenn sie Reihenfolge, Beschreibung oder Ressourcentypen eines reservierten Rechts
+  bestimmen will, nennt sie es ohne Label und Gruppe (z. B. `'acl:read': {}` an der gewünschten Stelle, ebenso
+  `{ key: 'access' }` unter `groups`). Label und Gruppe kommen immer aus dem Baukasten.
+- `catalog.platformJson()` ergibt `infra/keycloak/platform.json` (Schritt 3, `iam-org-bootstrap`), ohne `org-admin` (legt
+  das Realm-Modul an); nach jeder Änderung
   am Katalog neu schreiben.
 - Ressourcen (nur mit `resources`, für Zugriffsregeln): ein `ResourceModel` der App. Für einfache Fälle ohne Kette
   `flatResources({ tables: { folder: 'notes.folder', note: 'notes.note' } })`.

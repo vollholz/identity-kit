@@ -4,7 +4,11 @@
  * Die App beschreibt Rechte, Gruppen, Rollen, Scopes, Ressourcentypen, Fähigkeiten und MCP-Werkzeuge an einer Stelle;
  * `defineCatalog` ergänzt die reservierten Namen (Kap. 8.1), gibt `org-admin` alle Rechte, prüft die Regeln und bricht
  * bei Verstössen mit allen Befunden ab (`CatalogError`). Daraus entstehen die Antwort von `GET /v1/authz/catalog`
- * (`toJSON`), `infra/keycloak/platform.json` (`platformJson`) und die Hilfen der Entscheidung.
+ * (`toJSON`), `infra/keycloak/platform.json` (`platformJson`, ohne `org-admin`: die Rolle legt das Realm-Modul an) und
+ * die Hilfen der Entscheidung.
+ *
+ * Reservierte Rechte und Gruppen führt die App nur auf, wenn sie Reihenfolge, Beschreibung oder Ressourcentypen
+ * bestimmen will; Label und Gruppe kommen dann aus dem Baukasten (angeben darf sie sie nur gleich).
  *
  * Reihenfolge: wie in der Eingabe (die App bestimmt sie); `org-admin` steht zuerst unter den Rollen, `tenant` zuerst
  * unter den Ressourcentypen. Fehlt Reserviertes, wird es ergänzt: Rechte `tenant:*` vorne, die übrigen hinten; Gruppe
@@ -24,9 +28,12 @@ const PERMISSION_KEY = /^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/;
 const NAME_KEY = /^[a-z][a-z0-9-]*$/;
 
 export interface PermissionDef<R extends string = string> {
-  label: string;
-  group: string;
-  description: string;
+  /** Bei reservierten Rechten (Kap. 8.1) weglassen: kommt aus dem Baukasten. */
+  label?: string;
+  /** Bei reservierten Rechten weglassen. */
+  group?: string;
+  /** Bei reservierten Rechten optional (Standardtext des Baukastens), sonst Pflicht. */
+  description?: string;
   /** Ressourcentypen, auf denen eine Zugriffsregel für das Recht wirkt (mit `tenant`); ohne Zugriffsregeln `['tenant']`. */
   resources?: readonly R[];
   /** `false`: nur für Personen, in keinem Scope (Auflage 8; `members:admin` immer). */
@@ -43,7 +50,8 @@ export interface TaskDef<P extends string = string> { label: string; description
 
 export interface GroupDef {
   key: string;
-  label: string;
+  /** Bei reservierten Gruppen weglassen: kommt aus dem Baukasten. */
+  label?: string;
   /** Stichwort(e) für die Beschreibung jeder Rolle mit Rechten dieser Gruppe (Gross/klein egal); ohne: keine Prüfung. */
   match?: string | RegExp | readonly string[];
 }
@@ -60,15 +68,15 @@ export interface CatalogInput<P extends string = string> {
   permissions: Record<P, PermissionDef>;
   groups: readonly GroupDef[];
   /** Vordefinierte Rollen; `org-admin` darf mit Beschreibung dabei sein (Rechte bekommt es immer alle). */
-  roles: Record<string, RoleDef<P | string>>;
-  scopes?: Record<string, { text: string; permissions: readonly (P | string)[] }>;
+  roles: Record<string, RoleDef<NoInfer<P> | string>>;
+  scopes?: Record<string, { text: string; permissions: readonly (NoInfer<P> | string)[] }>;
   /** Ressourcentypen der Zugriffsregeln (ohne oder mit `tenant`); fehlt es, gibt es keine Zugriffsregeln (Kap. 8.2). */
   resources?: Record<string, ResourceDef>;
   /** Fähigkeit → Recht je Ressourcentyp (Felder `can` der Antworten). */
-  capabilities?: Record<string, Record<string, P | string>>;
-  mcpTools?: Record<string, McpToolDef<P | string>>;
+  capabilities?: Record<string, Record<string, NoInfer<P> | string>>;
+  mcpTools?: Record<string, McpToolDef<NoInfer<P> | string>>;
   /** Aufgaben für eigene Rollen (nur Rechte, die eine eigene Rolle enthalten darf). */
-  tasks?: Record<string, TaskDef<P | string>>;
+  tasks?: Record<string, TaskDef<NoInfer<P> | string>>;
   features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean };
 }
 
@@ -151,7 +159,7 @@ export interface Catalog<P extends string = string> {
   /** «Objekte ändern» (object:write) für Meldungen. */
   permissionText(p: string): string;
   toJSON(): AuthzCatalogJson;
-  /** Inhalt von `infra/keycloak/platform.json` für das Realm-Modul. */
+  /** Inhalt von `infra/keycloak/platform.json` für das Realm-Modul: Rollen der App (ohne `org-admin`) und Scopes. */
   platformJson(): string;
 }
 
@@ -190,7 +198,12 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     const r = RESERVED_PERMISSIONS[k];
     (k.startsWith('tenant:') ? front : back).push([k, { ...r, resources: ['tenant'] }]);
   }
-  const ordered: [string, PermissionDef][] = [...front, ...own, ...back];
+  // Reservierte Rechte der App: Label, Gruppe und (ohne eigene) Beschreibung aus dem Baukasten
+  const reservedDef = (k: string, d: PermissionDef): PermissionDef => {
+    const r = (RESERVED_PERMISSIONS as Record<string, { label: string; group: string; description: string }>)[k];
+    return r ? { ...d, label: d.label ?? r.label, group: d.group ?? r.group, description: d.description ?? r.description } : d;
+  };
+  const ordered: [string, PermissionDef][] = [...front, ...own.map(([k, d]): [string, PermissionDef] => [k, reservedDef(k, d)]), ...back];
   const permissions = ordered.map(([k]) => k as Q);
   if (new Set(permissions).size !== permissions.length) errors.push('Rechte mehrfach');
   for (const [k, d] of ordered) {
@@ -201,7 +214,7 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
 
   // ---------------------------------------------------------------- Gruppen mit reservierten
   const usedGroups = new Set(ordered.map(([, d]) => d.group));
-  const groupsIn = [...input.groups];
+  const groupsIn = input.groups.map(g => ({ ...g, label: g.label ?? RESERVED_GROUPS[g.key]?.label }));
   const haveGroup = new Set(groupsIn.map(g => g.key));
   const gFront: GroupDef[] = [], gBack: GroupDef[] = [];
   for (const [k, r] of Object.entries(RESERVED_GROUPS)) {
@@ -209,7 +222,7 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     (k === 'tenant' ? gFront : gBack).push({ key: k, label: r.label, match: r.match });
   }
   const groupDefs = [...gFront, ...groupsIn, ...gBack];
-  const groups = groupDefs.map(g => ({ key: g.key, label: g.label, match: matcher(g.match ?? RESERVED_GROUPS[g.key]?.match), source: g.match ?? RESERVED_GROUPS[g.key]?.match }));
+  const groups = groupDefs.map(g => ({ key: g.key, label: g.label ?? '', match: matcher(g.match ?? RESERVED_GROUPS[g.key]?.match), source: g.match ?? RESERVED_GROUPS[g.key]?.match }));
   const groupKeys = new Set<string>();
   for (const g of groups) {
     if (groupKeys.has(g.key)) errors.push(`Gruppe «${g.key}» mehrfach`);
@@ -228,12 +241,13 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     if (!PERMISSION_KEY.test(k)) errors.push(`Recht «${k}»: Schlüssel nicht <bereich>:<verb> (${PERMISSION_KEY})`);
     if (!d.label?.trim()) errors.push(`Recht «${k}»: Label fehlt`);
     if (!d.description?.trim()) errors.push(`Recht «${k}»: Beschreibung fehlt`);
-    if (!groupKeys.has(d.group)) errors.push(`Recht «${k}»: Gruppe «${d.group}» nicht im Katalog`);
+    if (!d.group) errors.push(`Recht «${k}»: Gruppe fehlt`);
+    else if (!groupKeys.has(d.group)) errors.push(`Recht «${k}»: Gruppe «${d.group}» nicht im Katalog`);
     const resources = [...(d.resources ?? ['tenant'])];
     if (!resources.length) errors.push(`Recht «${k}»: ohne Ressourcentyp`);
     else if (!resources.includes('tenant')) errors.push(`Recht «${k}»: Ressourcentypen ohne «tenant»`);
     for (const r of resources) if (!typeKeys.has(r)) errors.push(`Recht «${k}»: Ressourcentyp «${r}» nicht im Katalog`);
-    info.set(k as Q, { key: k, label: d.label, group: d.group, description: d.description, resources, adminOnly: false, personOnly: d.scope === false || k === 'members:admin', requires: [...new Set(d.requires ?? [])] });
+    info.set(k as Q, { key: k, label: d.label ?? '', group: d.group ?? '', description: d.description ?? '', resources, adminOnly: false, personOnly: d.scope === false || k === 'members:admin', requires: [...new Set(d.requires ?? [])] });
   }
   const isPermission = (v: string): v is Q => info.has(v as Q);
   for (const i of info.values()) {
@@ -251,8 +265,13 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
     const missing = permissions.filter(p => !adminIn.permissions.includes(p));
     if (adminIn.permissions.length && missing.length) errors.push(`Rolle «${ADMIN_ROLE}» hat nicht alle Rechte (fehlen: ${missing.join(', ')}); Rechte weglassen, dann ergänzt sie der Katalog`);
   }
-  const groupNames = (perms: readonly string[]) => [...new Set(perms.map(p => info.get(p as Q)?.group).filter(Boolean))].map(g => groups.find(x => x.key === g)?.label ?? g);
-  const adminDescription = adminIn?.description ?? `Verwaltet die Organisation vollständig: ${groupNames(permissions).join(', ')}. Enthält alle anderen Rollen.`;
+  // Labels der Rechtegruppen in Anzeigereihenfolge, das letzte mit «und»: «A, B und C»
+  const groupNames = (perms: readonly string[]) => {
+    const used = new Set(perms.map(p => info.get(p as Q)?.group));
+    const labels = groups.filter(g => used.has(g.key)).map(g => g.label);
+    return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} und ${labels.at(-1)}` : labels.join('');
+  };
+  const adminDescription = adminIn?.description ?? `Verwaltet die Organisation vollständig: ${groupNames(permissions)}. Enthält alle anderen Rollen.`;
   const roles = new Map<string, { label: string; description: string; permissions: readonly Q[] }>();
   roles.set(ADMIN_ROLE, { label: ADMIN_LABEL, description: adminDescription, permissions: [...permissions] });
   for (const [key, r] of rolesIn) {
@@ -373,6 +392,7 @@ export function defineCatalog<const P extends string>(input: CatalogInput<P>): C
       mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly })),
       ...(tasks.length ? { tasks: tasks.map(x => ({ key: x.key, label: x.label, description: x.description, permissions: [...x.permissions] })) } : {}),
     }),
-    platformJson: () => `${JSON.stringify({ roles: Object.fromEntries([...roles].map(([k, r]) => [k, r.label])), scopes: [...scopes.keys()] }, null, 2)}\n`,
+    // org-admin legt das Realm-Modul selbst an (product-realm ab 0.2.0); hier nur die Rollen der App
+    platformJson: () => `${JSON.stringify({ roles: Object.fromEntries([...roles].filter(([k]) => k !== ADMIN_ROLE).map(([k, r]) => [k, r.label])), scopes: [...scopes.keys()] }, null, 2)}\n`,
   };
 }

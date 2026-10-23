@@ -173,7 +173,7 @@ App an (`packages/iam` `idpRepresentation()`); sie legt dazu je Anbieter den Map
 | `config.syncMode` | `FORCE` (bei jeder Anmeldung überschreiben) |
 
 Voraussetzungen ausserhalb des Moduls: In der Entra-App-Registrierung muss der Gruppen-Claim im ID-Token stehen
-(Objekt-IDs); das Benutzerattribut `entra_groups` muss im User Profile des Realms zulässig sein.
+(Objekt-IDs); das Modul deklariert `entra_groups` im User Profile des Realms (nur mit `entra`; mehrwertig, nur `admin` sieht und ändert es). `keycloak_realm_user_profile` ersetzt das ganze Profil; die Standardattribute von Keycloak 26.8 (username, email, firstName, lastName) stehen darum mit drin. Eigene Attribute oder Änderungen am Profil ausserhalb des Moduls gehen mit `entra` verloren.
 
 ## Hilfsskripte
 

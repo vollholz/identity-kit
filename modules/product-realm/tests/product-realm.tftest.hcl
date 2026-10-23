@@ -61,7 +61,7 @@ run "ohne_schalter" {
     condition = (length(keycloak_realm_client_policy_profile_policy.m2m_dpop) + length(keycloak_openid_client.mcp) + length(keycloak_openid_client.mcp_cli)
       + length(keycloak_openid_client_scope.mcp) + length(keycloak_authentication_flow.entra_first_login)
       + length(keycloak_openid_client_service_account_role.manage_identity_providers) + length(keycloak_openid_user_session_note_protocol_mapper.identity_provider)
-    + length(keycloak_openid_user_attribute_protocol_mapper.entra_groups)) == 0
+    + length(keycloak_openid_user_attribute_protocol_mapper.entra_groups) + length(keycloak_realm_user_profile.entra)) == 0
     error_message = "Ohne Schalter weder M2M-Richtlinie noch MCP noch Entra"
   }
   assert {
@@ -122,6 +122,14 @@ run "alle_schalter" {
     }
   }
 
+  assert {
+    condition     = toset([for a in keycloak_realm_user_profile.entra[0].attribute : a.name]) == toset(["username", "email", "firstName", "lastName", "entra_groups"])
+    error_message = "User Profile: Standardattribute von Keycloak bleiben, dazu entra_groups"
+  }
+  assert {
+    condition     = one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).multivalued && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].edit == toset(["admin"]) && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].view == toset(["admin"])
+    error_message = "entra_groups: mehrwertig, nur admin sieht und ändert"
+  }
   assert {
     condition     = keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].user_attribute == "entra_groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].claim_name == "groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].multivalued
     error_message = "Mapper entra-groups: Benutzerattribut entra_groups (mehrwertig) → Claim groups am BFF-Client"

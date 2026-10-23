@@ -6,17 +6,18 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
 import { aclChecks, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
 
 const skip = await skipDb();
 
 describe('IAM-Migrationen: Parameter', () => {
-  test('Dateien iam_001 … iam_011 in Reihenfolge, Stand der Übernahme dabei', () => {
+  test('Dateien iam_001 … iam_012 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
-    assert.equal(names.at(-1), 'iam_011_resolve_tenant_strict.sql');
+    assert.equal(names.at(-1), 'iam_012_acl_unique.sql');
     for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
   });
 
@@ -83,7 +84,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     const note = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.note'::regclass")).rows[0];
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(again, { applied: [], adopted: [], skipped: 12 });
+    assert.deepEqual(again, { applied: [], adopted: [], skipped: 13 });
     const log: string[] = [];
     await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra], m => log.push(m));
     assert.deepEqual(log, [], 'Abgleich ohne Änderung meldet nichts');
@@ -157,7 +158,7 @@ describe('Übernahme (adopted)', { skip }, () => {
   test('Objekte vorhanden, Marke angewendet: bis zur Grundlage eingetragen, Späteres ausgeführt', async () => {
     const r = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual(r.adopted, iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name));
-    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql']);
+    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
     const again = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual([again.applied, again.adopted], [[], []]);
   });
@@ -197,7 +198,7 @@ describe('Übernahme (adopted)', { skip }, () => {
     const f = await fresh.create();
     try {
       const order = (await f.inspect.query<{ name: string }>('SELECT name FROM public.schema_migrations ORDER BY applied_at, name')).rows.map(r => r.name);
-      assert.deepEqual(order.slice(-4), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', '050_needs_iam_009.sql']);
+      assert.deepEqual(order.slice(-5), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', '050_needs_iam_009.sql']);
     } finally { await f.drop(); }
   });
 
@@ -222,5 +223,27 @@ describe('Produkt mit Bindestrich gegen PostgreSQL', { skip }, () => {
     const id = (await t.runtime.query<{ id: string }>("SELECT app.resolve_tenant('alpha', null, 'alpha', true) AS id")).rows[0]!.id;
     assert.ok(id);
     assert.equal((await t.inspect.query("SELECT pg_get_userbyid(nspowner) AS o FROM pg_namespace WHERE nspname = 'iam_kit'")).rows[0].o, 'iam_kit_owner');
+  });
+});
+
+describe('iam_012: keine doppelten Zugriffsregeln', { skip }, () => {
+  const iam = iamMigrations({ product: 'notes' });
+  const db = productDb({ iam: false, sources: [{ ...iam, migrations: iam.migrations.filter(m => m.name < 'iam_012') }] });
+  let t: Awaited<ReturnType<typeof db.create>>;
+  before(async () => { t = await db.create(); });
+  after(async () => { await t?.drop(); });
+
+  test('bestehende Duplikate entfernt (der älteste bleibt, auch mit NULL), danach eindeutig', async () => {
+    const A = (await t.runtime.query<{ id: string }>("SELECT app.resolve_tenant('alpha', null, 'alpha', true) AS id")).rows[0]!.id;
+    const insert = async (c: pg.ClientBase, effect = 'deny', ref = 'viewer') => (await c.query<{ id: string }>(
+      `INSERT INTO notes.acl_entry (tenant_id, resource_type, principal_type, principal_ref, permission, effect) VALUES ($1, 'tenant', 'role', $2, 'note:read', $3) RETURNING id`, [A, ref, effect])).rows[0]!.id;
+    const ids: string[] = [];
+    for (const [effect, ref] of [['deny', 'viewer'], ['deny', 'viewer'], ['deny', 'viewer'], ['restrict', 'viewer'], ['deny', 'editor']]) ids.push(await withTenant(t.runtime, { tenantId: A }, tx => insert(tx, effect, ref)));
+    const r = await migrate(t.adminUrl, [iam]);
+    assert.deepEqual(r.applied, ['iam_012_acl_unique.sql']);
+    const left = (await t.inspect.query<{ id: string }>('SELECT id FROM notes.acl_entry ORDER BY created_at, id')).rows.map(x => x.id);
+    assert.deepEqual(left.sort(), [ids[0]!, ids[3]!, ids[4]!].sort(), 'ein Duplikat bleibt (das älteste), andere Wirkung und Rolle bleiben');
+    await assert.rejects(withTenant(t.runtime, { tenantId: A }, tx => insert(tx)), (e: { code?: string }) => e.code === '23505');
+    assert.equal((await t.inspect.query("SELECT relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.acl_entry'::regclass")).rows[0].f, true, 'FORCE RLS wieder an');
   });
 });

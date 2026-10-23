@@ -253,7 +253,8 @@ entfallen):
 | `iam_008_entra.sql` | `entra_connection`, `entra_consent`, `app.entra_login_alias`, `app.entra_free_slot`, `app.entra_domains_taken` | 046 |
 | `iam_009_tenant_role_key.sql` | Primärschlüssel von `tenant_role` = `(tenant_id, id)` (A6); läuft auch in Assets normal | – (neu) |
 | `iam_010_revoke_public_execute.sql` | kein EXECUTE für PUBLIC auf Funktionen in `app` und `<schema>`; `app.audit_hash` ausdrücklich für `_app` und `_sched` | 051 (vollholz/assets#24) |
-| `iam_011_resolve_tenant_strict.sql` | `app.resolve_tenant`: Alias roh gegen das ASCII-Muster prüfen, nur A–Z falten (kein `lower()`, Kelvin-Zeichen); scheitert das Binden der Organisations-ID, kein Mandant | 052 (folgt; Befunde aus dem Review von #10) |
+| `iam_011_resolve_tenant_strict.sql` | `app.resolve_tenant`: Alias roh gegen das ASCII-Muster prüfen, nur A–Z falten (kein `lower()`, Kelvin-Zeichen); scheitert das Binden der Organisations-ID, kein Mandant | 052 (vollholz/assets#26) |
+| `iam_012_acl_unique.sql` | keine doppelten Zugriffsregeln: eindeutiger Index über Ressource, Subjekt, Recht und Wirkung (`NULLS NOT DISTINCT`); bestehende Duplikate entfernt (der älteste bleibt) | 053 (folgt; Befund aus der Prüfung von #17) |
 
 Bis `iam_008` entsprechen die Rechte der Funktionen genau Assets 049, auch wo PUBLIC noch ausführen darf
 (`app.tenant_id()`, `app.principal_id()`, `app.secure_tenant_tables()`, `app.audit_hash()`, `app.audit_chain()`);
@@ -554,3 +555,40 @@ Audit-Trigger darauf warten.
 
 `db/bootstrap.sql` im Paket ist die Vorlage für Kap. 10.1 (psql-Variablen `p`, `db`, `owner_pw`, `runtime_pw`,
 `worker_pw`; idempotent, ungültiger Name bricht ab). `create-iam-app` ruft sie auf, statt eine Kopie anzulegen.
+
+### 13.10 Plugin und Module `account`, `acl` (Teil-PR 4)
+
+- **`createIam`** liefert zusätzlich `tx(p, fn)` (Mandantenkontext mit `resources.dbContext`), `fullTx(p, fn)` (mit
+  `resources.fullContext`) und `memberAccess` (echte Rollen und Gruppen anderer Personen; setzt das Modul `admin` in
+  Teil 6b, bis dahin Simulation).
+- **Optionen des Plugins** zusätzlich zu 3.2: `publicPaths` (`*` am Ende = Präfix), `sessions` (`SessionBridge` des Moduls
+  `bff`), `openapi`, `spanAttribute`, `problemSchemas` (Standard `true`: Fehlerschemas als Komponenten und übliche
+  Fehlerantworten je Route unter `apiPrefix`, wie Assets). Standard für `problemTypeBase`: `<PUBLIC_BASE_URL>/probleme/`;
+  `WWW-Authenticate` nennt `realm="<product>"`.
+- **`openapi.fields`**: Schlüssel `'<Titel des Schemas>.<pfad>'` oder `'<METHOD> <url> <Status|body|querystring>.<pfad>'`,
+  Listen mit `[]`. Standard-Tags des Pakets: `Konto`, `Verwaltung: Zugriff` (Assets ersetzt durch `Verwaltung: ACL`).
+- **Dekorationen**: `req.can(perm, ref?, hint?)` lädt die Zugriffsregeln einmal je Anfrage; `req.capabilities()` liefert
+  eine Funktion `(kind, id, hint?) => Fähigkeiten` für Listen. `/readyz` bleibt in der App (`readinessChecks(iam)`).
+- **Cookies**: Ohne `@fastify/cookie` registriert es das Plugin mit `SESSION_SECRET`; ist es schon registriert, muss es
+  mit denselben Geheimnissen signieren (sonst Abbruch beim Start). Das Plugin lädt `@fastify/cookie` erst beim
+  Registrieren; Worker und Skripte nutzen das Paket ohne Fastify. Telemetrie (`@opentelemetry/api`) ist ein optionaler
+  Peer: ohne fehlt nur das Span-Attribut.
+- **Modul `acl`**: Existenz der Ressource über `ResourceModel.exists` mit voller Lesesicht (13.3), Hinweise für viele
+  Ressourcen über `hints` (Schlüssel `<type>:<id>`), Zusatzfelder über `effectiveExtra`/`effectiveExtraSchema` (13.2).
+  Die Meldung zu Freigaben auf Blättern lautet produktneutral «Freigaben gelten für Bereiche (…), nicht für einzelne
+  Ressourcen vom Typ «…».» (Assets: «… nicht für einzelne Objekte.»; der Pfad `/effect` bleibt gleich). Ereignis
+  `acl.changed` über `events`.
+- **Getauschte Tokens** (Entscheid der Hauptsession zu Teil 3): Regeln vom Typ `client` – `deny` wirkt für `clientId`
+  (MCP-Dienst) oder `grantId` (ursprünglicher Client), `grant` und `restrict` nur für `grantId`; die Simulation in
+  `/v1/acl/effective?client=` setzt beide auf die angefragte Client-ID.
+- **Prüfung von #17** (Entscheide der Hauptsession):
+  - Keine Duplikate: `POST /v1/acl` lehnt einen gleichen Eintrag (Ressource, Subjekt, Recht, Wirkung) mit 422 ab;
+    `iam_012` setzt dafür einen eindeutigen Index `NULLS NOT DISTINCT` (gleichzeitige Anfragen → 409).
+  - `acl:admin` gilt auf der Ressource des Eintrags (Anlegen und Löschen): Ein Verbot von `acl:admin` auf X sperrt das
+    Verwalten der Zugriffsregeln von X und darunter. Wirkt nur, wenn der Katalog `acl:admin` auf weiteren
+    Ressourcentypen führt (reserviert: nur `tenant`, wie Assets).
+  - `/v1/acl/effective`: Maschinen-Clients, die entfernt sind oder keine Freigabe mehr haben, gelten als Simulation;
+    `scopes` begrenzen auch eine simulierte Person mit `principal`.
+  - Cookies: `@fastify/cookie` muss mit dem ersten Geheimnis von `SESSION_SECRET` signieren und jedes annehmen
+    (Rotation). `DPOP_MODE` wird vor dem Resolver geprüft (abgewiesene Tokens schreiben nichts); alle 401 tragen
+    `WWW-Authenticate`.

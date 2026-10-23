@@ -153,6 +153,11 @@ export class PrincipalResolver {
     this.personClients = cfg.tenancy.personClients.length ? cfg.tenancy.personClients : [cfg.oidc.bffClientId, cfg.mcp.clientId];
   }
 
+  /** Person oder Maschinen-Client nach den Claims (wie in `resolve`), ohne Datenbank. */
+  kindOf(claims: VerifiedToken['claims']): Principal['kind'] {
+    return isClient(claims, this.personClients) ? 'client' : 'user';
+  }
+
   /**
    * @param requestedTenant optional gewünschter Mandant (Header `X-Tenant` bzw. Wahl der Sitzung), muss im Token
    *   enthalten sein. Ungültige Aliasse (ALIAS_PATTERN nach ASCII-Kleinschreibung) im Wunsch oder im Claim → 403.

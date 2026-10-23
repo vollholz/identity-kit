@@ -36,7 +36,20 @@ export class OidcProvider {
     try { return await this.pending; } catch (e) { if (this.disc) return this.disc; throw e; }
   }
 
+  /**
+   * Prüfung für `/readyz`: Discovery ohne Zwischenspeicher und ohne Rückfall auf die bisherige, mit Zeitlimit. Ändert
+   * nichts an der Discovery des Verifiers.
+   */
+  async probe(): Promise<void> { await this.load(); }
+
   private async fetchDiscovery(): Promise<Discovery> {
+    const d = await this.load();
+    this.disc = d; this.fetchedAt = Date.now();
+    this.jwks = createRemoteJWKSet(new URL(d.jwks_uri), { cooldownDuration: 30_000, cacheMaxAge: 600_000, timeoutDuration: this.timeoutMs });
+    return d;
+  }
+
+  private async load(): Promise<Discovery> {
     // Netzwerkfehler, Zeitlimit und unlesbare Antworten → 503, nicht 401 (sonst gälten bei einem Ausfall alle als abgemeldet)
     const down = (why: string) => new HttpError(503, 'Anmeldedienst nicht erreichbar', `Discovery ${why}`);
     let res: Response, d: Discovery;
@@ -45,8 +58,6 @@ export class OidcProvider {
     try { d = await res.json() as Discovery; } catch { throw down('ohne JSON'); }
     if (typeof d?.issuer !== 'string') throw down('ohne issuer');
     if (d.issuer.replace(/\/$/, '') !== this.issuer) throw new HttpError(503, 'Anmeldedienst falsch konfiguriert', 'Issuer stimmt nicht mit OIDC_ISSUER_URL überein');
-    this.disc = d; this.fetchedAt = Date.now();
-    this.jwks = createRemoteJWKSet(new URL(d.jwks_uri), { cooldownDuration: 30_000, cacheMaxAge: 600_000, timeoutDuration: this.timeoutMs });
     return d;
   }
 

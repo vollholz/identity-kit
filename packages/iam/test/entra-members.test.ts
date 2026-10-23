@@ -1,7 +1,7 @@
 /**
  * Modul `entra`: Personen aus Microsoft Entra ID vorab hinzufügen (aus Assets test/platform/entra-members.test.ts,
  * produktneutral mit der Beispiel-App «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
- * das nachgebildete Microsoft (support/entra-fake.ts).
+ * das nachgebildete Microsoft (`EntraFake` des Test-Kits).
  * Schwerpunkte: Suche nur im eigenen Tenant und ohne Hinweis auf andere Organisationen, Person in Graph neu gelesen
  * (Regel notLinkable), Konto ohne Passwort bzw. bestehendes Konto, Verknüpfung über die Objekt-ID (409 bei fremder
  * Verknüpfung), gleiche Antwort für neue und bestehende Konten, «eingeladen» bis zum ersten Zugriff, E-Mail von Keycloak
@@ -9,10 +9,9 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import { KeycloakFake, startMockIdp, type FakeOrg, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
+import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { entraAddress } from '../src/admin.ts';
 import { skipDb } from './support/db.ts';
-import { EntraFake, type FakeTenant } from './support/entra-fake.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();

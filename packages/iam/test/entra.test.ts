@@ -1,7 +1,7 @@
 /**
  * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (aus Assets test/platform/entra.test.ts,
  * produktneutral mit der Beispiel-App «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
- * das nachgebildete Microsoft (support/entra-fake.ts).
+ * das nachgebildete Microsoft (`EntraFake` des Test-Kits).
  * Schwerpunkte: Admin-Zustimmung (state einmal gültig, an Person, Organisation und Tenant gebunden), nur verifizierte
  * Domänen, keine Domäne einer anderen Organisation (ohne sie zu nennen), Verknüpfung nur über die Objekt-ID und ohne
  * Gäste, Passwörter entfernt, «Nur Entra» im Resolver, nicht selbst aussperren, Trennen, Plätze für Redirect-URIs,
@@ -10,11 +10,10 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { KeycloakFake, startMockIdp, type FakeOrg, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
+import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { brokerRedirectUris, idpRepresentation } from '../src/entra.ts';
 import { EntraGraph, notLinkable, type EntraUser } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
-import { EntraFake, type FakeTenant } from './support/entra-fake.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();

@@ -1,13 +1,27 @@
 /**
- * Nachgebildete Microsoft-Endpunkte für src/graph.ts (aus Assets test/platform/entra-fake.ts) als `fetch`-Ersatz: OpenID-Konfiguration je
- * Tenant (Tenant-ID oder verifizierte Domain), Token mit Client Credentials (nur nach Zustimmung, richtiges Geheimnis)
- * und Graph `/organization` und `/users` (Filter nach UPN oder mail, `$search` mit ConsistencyLevel: eventual). Verhalten wie Microsoft, soweit die Plattform es
- * nutzt: unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215.
+ * Nachgebildete Microsoft-Endpunkte für die Entra-Anbindung von `@vollholz/iam` (`src/graph.ts`, aus Assets
+ * test/platform/entra-fake.ts) als `fetch`-Ersatz: OpenID-Konfiguration je Tenant (Tenant-ID oder verifizierte Domain),
+ * Token mit Client Credentials (nur nach Zustimmung, richtiges Geheimnis) und Graph `/organization` und `/users` (Filter
+ * nach UPN oder mail, `$search` mit ConsistencyLevel: eventual). Verhalten wie Microsoft, soweit die Plattform es nutzt:
+ * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215.
  */
 import { randomUUID } from 'node:crypto';
-import type { EntraUser } from '../../src/graph.ts';
 
-export interface FakeTenant { id: string; name: string; domains: string[]; users: EntraUser[]; consented: boolean }
+/** Person in Entra ID, Felder wie `$select` der Entra-Anbindung. */
+export interface FakeEntraUser {
+  id: string;
+  userPrincipalName: string;
+  mail: string | null;
+  displayName: string | null;
+  givenName: string | null;
+  surname: string | null;
+  userType: string | null;
+  accountEnabled: boolean | null;
+  department?: string | null;
+  jobTitle?: string | null;
+}
+
+export interface FakeTenant { id: string; name: string; domains: string[]; users: FakeEntraUser[]; consented: boolean }
 
 export class EntraFake {
   readonly tenants = new Map<string, FakeTenant>();
@@ -24,8 +38,8 @@ export class EntraFake {
     this.tenants.set(t.id, t);
     return t;
   }
-  user(t: FakeTenant, upn: string, o: Partial<EntraUser> = {}): EntraUser {
-    const u: EntraUser = { id: randomUUID(), userPrincipalName: upn, mail: upn, displayName: upn, givenName: null, surname: null, userType: 'Member', accountEnabled: true, ...o };
+  user(t: FakeTenant, upn: string, o: Partial<FakeEntraUser> = {}): FakeEntraUser {
+    const u: FakeEntraUser = { id: randomUUID(), userPrincipalName: upn, mail: upn, displayName: upn, givenName: null, surname: null, userType: 'Member', accountEnabled: true, ...o };
     t.users.push(u);
     return u;
   }

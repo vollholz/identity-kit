@@ -12,7 +12,7 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import { EntraFake, KeycloakFake, startMockIdp, type FakeEntraUser, type FakeOrg, type FakeTenant, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import { CONSENT_ADMIN_ROLES } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, full, member, notesApp, notesDb, withRole, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 type Res = { status: number; body: any; headers: Record<string, unknown> };
@@ -31,7 +31,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
   let onEntra: ((url: string) => Promise<void>) | null = null;
 
   const person = (x: FakeUser, org: string, roles: string[], extra: Record<string, unknown> = {}) =>
-    idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
+    withRole(t.runtime, claims.user({ sub: x.id, org, email: x.email, name: `${x.firstName} ${x.lastName}` }), roles[0] ?? null).then(c => idp.token({ ...c, ...extra }));
   async function call(who: string | Promise<string> | null, method: string, url: string, body?: unknown): Promise<Res> {
     const r = await app.app.inject({ method: method as 'GET', url, headers: who ? { authorization: `Bearer ${await who}` } : {}, ...(body !== undefined ? { payload: body as object } : {}) });
     return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null, headers: r.headers };
@@ -64,9 +64,8 @@ describe('Link an die Entra-Administration', { skip }, () => {
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
     u.otto = kc.user('otto', { email: 'otto@demo.example', firstName: 'Otto', lastName: 'Zweit' });
     u.paula = kc.user('paula', { email: 'paula@ops.example', firstName: 'Paula', lastName: 'Plattform' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.carla, ['viewer']); kc.member(demo, u.otto, ['org-admin']);
-    for (const alias of ['demo', 'muster', 'ops']) for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/${alias}/${r}`);
-    kc.member(ops, u.paula, ['org-admin']);
+    kc.member(demo, u.anna); kc.member(demo, u.carla); kc.member(demo, u.otto);
+    kc.member(ops, u.paula);
     kc.realmRoleMappings.set(u.paula.id, new Set(['platform-admin']));
     contoso = ms.tenant('Demo AG (Entra)', ['demo.example', 'demoag.onmicrosoft.com']);
     ms.user(contoso, 'anna@demo.example');
@@ -267,20 +266,25 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.ok(await linkRow(open.id));
   });
 
-  test('Rechte ausserhalb der App entzogen (Keycloak): beim Start und bei der Rückkehr 404, Link widerrufen, nichts verbunden', async () => {
-    const adminGroup = kc.groupPath('/orgs/demo/org-admin').id;
+  test('Rolle ausserhalb des Links entzogen (Tupel): beim Start und bei der Rückkehr 404, Link widerrufen, nichts verbunden', async () => {
+    const ottoAdmin = async (on: boolean) => {
+      if (on) await member(t.runtime, 'demo', u.otto.id, 'org-admin');
+      else {
+        const tenantId = (await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'demo'")).rows[0].id;
+        await full(t.runtime, tenantId, tx => tx.query(`DELETE FROM notes.authz_tuple WHERE relation = 'org-admin' AND subject = (SELECT 'user:' || id FROM notes.principal WHERE subject = $1)`, [u.otto.id]));
+      }
+    };
     const a = await newLink(undefined, otto());
-    kc.userGroups.get(u.otto.id)!.delete(adminGroup);
+    await ottoAdmin(false);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/start', { token: a.token })).status, 404, 'Start');
     assert.ok((await linkRow(a.id)).revoked_at);
     assert.equal((await auditOf('entra.consent_link_revoked')).at(-1)!.data.reason, 'creator-lost-access');
-    kc.userGroups.get(u.otto.id)!.add(adminGroup);
     const b = await newLink(undefined, otto());
     const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: b.token }));
-    kc.userGroups.get(u.otto.id)!.delete(adminGroup);
+    await ottoAdmin(false);
     try {
       assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(start.url, ga, { wids: GA }))).status, 404, 'Rückkehr');
-    } finally { kc.userGroups.get(u.otto.id)!.add(adminGroup); }
+    } finally { await ottoAdmin(true); }
     const row = await linkRow(b.id);
     assert.ok(row.revoked_at && !row.used_at);
     assert.equal((await auditOf('entra.reconnected')).filter(x => x.data.viaLink === b.id).length, 0);
@@ -366,8 +370,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
   test('Alias mit einem Zeichen: Token mit 45 Zeichen, Link funktioniert', async () => {
     const org = kc.org('a', 'A AG');
     const ada = kc.user('ada', { email: 'ada@a.example', firstName: 'Ada', lastName: 'A' });
-    kc.member(org, ada, ['org-admin']);
-    for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/a/${r}`);
+    kc.member(org, ada);
     const who = person(ada, 'a', ['org-admin']);
     ok(await call(who, 'GET', '/v1/me'));
     const l = await newLink({ tenant: fremd.id }, who);
@@ -381,8 +384,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
   test('Alias in Keycloak mit Grossbuchstaben: Token und states mit kanonischem Alias, Links und eigenes Verbinden funktionieren', async () => {
     const org = kc.org('Gross', 'Gross AG');
     const gina = kc.user('gina', { email: 'gina@gross.example', firstName: 'Gina', lastName: 'Gross' });
-    kc.member(org, gina, ['org-admin']);
-    for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/Gross/${r}`);
+    kc.member(org, gina);
     const who = person(gina, 'gross', ['org-admin']);
     ok(await call(who, 'GET', '/v1/me'));
     const l = await newLink({ tenant: fremd.id }, who);

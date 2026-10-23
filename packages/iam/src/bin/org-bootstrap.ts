@@ -38,7 +38,7 @@ if (errors.length) fail(errors.join('\n'));
 const base = (env.KEYCLOAK_TF_URL ?? fail('KEYCLOAK_TF_URL fehlt')).replace(/\/$/, '');
 const realm = env.KEYCLOAK_TF_REALM ?? fail('KEYCLOAK_TF_REALM fehlt');
 if (realm === 'master') fail('Realm master ist nicht erlaubt');
-const dbUrl = env.DATABASE_ADMIN_URL ?? (a['dry-run'] ? null : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App)'));
+const dbUrl = env.DATABASE_ADMIN_URL ||  (a['dry-run'] ? null : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App)'));
 const key = env.KEYCLOAK_IAC_PRIVATE_KEY ?? (env.KEYCLOAK_IAC_PRIVATE_KEY_B64 ? Buffer.from(env.KEYCLOAK_IAC_PRIVATE_KEY_B64, 'base64').toString('utf8') : fail('KEYCLOAK_IAC_PRIVATE_KEY(_B64) fehlt'));
 
 const issuer = `${base}/realms/${realm}`;

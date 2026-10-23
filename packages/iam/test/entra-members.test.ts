@@ -13,7 +13,7 @@ import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, t
 import { entraAddress } from '../src/admin.ts';
 import { CONSENT_ADMIN_ROLES } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, member, notesApp, notesDb, withRole, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 
@@ -38,8 +38,12 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
   let demo: FakeOrg, muster: FakeOrg, contoso: FakeTenant;
   const oid = {} as Record<'anna' | 'berta' | 'neu' | 'neu2' | 'gast' | 'aus' | 'fremd' | 'carl' | 'dora', string>;
 
+  /** Rollen an org aus den Tupeln (sortiert). */
+  const rolesIn = async (alias: string, sub: string) => (await t.inspect.query<{ r: string }>(
+    `SELECT a.relation AS r FROM notes.authz_tuple a JOIN notes.principal p ON a.subject = 'user:' || p.id JOIN notes.tenant x ON x.id = p.tenant_id
+      WHERE x.alias = $1 AND p.subject = $2 AND a.object_type = 'org' ORDER BY 1`, [alias, sub])).rows.map(r => r.r);
   const person = (x: { id: string; email: string; firstName?: string; lastName?: string }, org: string, roles: string[], extra: Record<string, unknown> = {}) =>
-    idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName ?? ''} ${x.lastName ?? ''}`.trim() || x.email }), ...extra });
+    withRole(t.runtime, claims.user({ sub: x.id, org, email: x.email, name: `${x.firstName ?? ''} ${x.lastName ?? ''}`.trim() || x.email }), roles[0] ?? null).then(c => idp.token({ ...c, ...extra }));
   async function call(who: string | Promise<string>, method: string, url: string, body?: unknown): Promise<Res> {
     const r = await app.app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${await who}` }, ...(body !== undefined ? { payload: body as object } : {}) });
     return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null };
@@ -48,7 +52,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
   const auditOf = async (alias: string, action: string) => (await t.inspect.query<{ data: any }>(
     'SELECT a.data FROM notes.audit_log a JOIN notes.tenant t ON t.id = a.tenant_id WHERE t.alias = $1 AND a.action = $2 ORDER BY a.seq', [alias, action])).rows;
   const anna = () => person(u.anna, 'demo', ['org-admin'], { identity_provider: 'entra-001' });
-  const paula = () => idp.token({ ...claims.user({ sub: 'paula', org: 'ops', groupRoles: ['org-admin'], email: 'paula@ops.example', name: 'Paula Plattform' }), realm_access: { roles: ['platform-admin'] } });
+  const paula = () => withRole(t.runtime, claims.user({ sub: 'paula', org: 'ops', email: 'paula@ops.example', name: 'Paula Plattform' }), 'org-admin').then(c => idp.token({ ...c, realm_access: { roles: ['platform-admin'] } }));
   const search = async (q: string, who = anna()) => ok(await call(who, 'GET', `/v1/admin/members/entra-search?q=${encodeURIComponent(q)}`));
   const add = (id: string, roles: string[] = ['viewer'], extra: Record<string, unknown> = {}, who = anna()) => call(who, 'POST', '/v1/admin/members/entra', { id, roles, ...extra });
   const routeConfig = new Map<string, Record<string, unknown>>();
@@ -62,8 +66,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     // Berta hat schon ein Konto (Mitglied von Muster) mit Passwort; die Adresse liegt in der Domäne der Demo AG
     u.berta = kc.user('berta', { email: 'berta@demo.example', firstName: 'Berta', lastName: 'Beraterin' });
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(muster, u.berta, ['viewer']); kc.member(muster, u.mona, ['org-admin']);
-    for (const alias of ['demo', 'muster']) for (const r of ['org-admin', 'viewer', 'editor']) kc.groupPath(`/orgs/${alias}/${r}`);
+    kc.member(demo, u.anna); kc.member(muster, u.berta); await member(t.runtime, 'muster', u.berta.id, 'viewer'); kc.member(muster, u.mona);
     kc.smtp = true;
 
     contoso = ms.tenant('Demo AG (Entra)', ['demo.example', 'demoag.onmicrosoft.com', 'frei.example']);
@@ -95,7 +98,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
 
   test('Suche: nur verbundene Organisation, nur org-admin bzw. Plattform, Mindestlänge; ConsistencyLevel für $search', async () => {
     assert.equal((await call(person(u.mona, 'muster', ['org-admin']), 'GET', '/v1/admin/members/entra-search?q=nina')).body.reason, 'entra-not-connected');
-    assert.equal((await call(person(u.anna, 'demo', ['viewer']), 'GET', '/v1/admin/members/entra-search?q=nina')).status, 403);
+    assert.equal((await call(person({ id: 'vera', email: 'vera@demo.example' }, 'demo', ['viewer']), 'GET', '/v1/admin/members/entra-search?q=nina')).status, 403);
     assert.equal((await call(anna(), 'GET', '/v1/admin/members/entra-search?q=n')).status, 422);
     assert.equal((await call(anna(), 'GET', `/v1/admin/members/entra-search?q=${encodeURIComponent('"" \\')}`)).status, 422, 'nur Anführungszeichen');
     const r = await search('nina');
@@ -146,7 +149,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     assert.deepEqual([acc.password, acc.requiredActions, acc.firstName, acc.lastName], [false, [], 'Nina', 'Neu']);
     assert.ok(kc.orgMembers.get(demo.id)!.has(acc.id), 'Mitglied vor der ersten Anmeldung');
     assert.deepEqual(kc.links.get(acc.id)!.get('entra-001'), { userId: oid.neu, userName: 'nina.neu@demoag.onmicrosoft.com' });
-    assert.deepEqual(kc.rolesOf(demo, acc), ['editor', 'viewer']);
+    assert.deepEqual(await rolesIn('demo', acc.id), ['editor', 'viewer']);
     const mail = kc.mails.at(-1)!;
     assert.deepEqual([mail.userId, mail.kind, mail.actions], [acc.id, 'actions', ['VERIFY_EMAIL']]);
     const q = new URLSearchParams(mail.query);
@@ -156,21 +159,22 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     // Liste: eingeladen (aus der Einladung), mit Link; nicht im Personenverzeichnis
     const m = (await list()).find(x => x.email === 'nina.neu@demo.example');
     assert.deepEqual([m.id, m.status, m.loginPath], [r.member.id, 'invited', '/auth/entra/entra-001?org=demo']);
-    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.principal WHERE subject = $1 AND removed_at IS NULL", [acc.id])).rows[0].n, 0);
+    // Die Einladung legt den Principal an (A16): Rollen sind Tupel an ihm
+    assert.equal((await t.inspect.query("SELECT id FROM notes.principal WHERE subject = $1 AND removed_at IS NULL", [acc.id])).rows[0].id, r.member.principalId);
     assert.equal((await add(oid.neu)).status, 409, 'schon eingeladen');
     assert.equal((await search('nina')).items[0].reason, 'Bereits eingeladen');
   });
 
   test('bestehendes Konto (andere Organisation): verwendet statt neu angelegt; Antwort wie für ein neues Konto', async () => {
     const before = kc.users.size;
-    const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
+    const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', principalId: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
     const rb = ok(await add(oid.berta), 202);
     const rn = ok(await add(oid.neu2), 202);
     assert.deepEqual(neutral(rb), neutral(rn));
     assert.equal(kc.users.size, before + 1, 'nur für Noah ein neues Konto');
     assert.ok(kc.orgMembers.get(demo.id)!.has(u.berta.id) && kc.orgMembers.get(muster.id)!.has(u.berta.id), 'Mitglied beider Organisationen');
     assert.equal(kc.links.get(u.berta.id)!.get('entra-001')!.userId, oid.berta);
-    assert.deepEqual([u.berta.password, kc.rolesOf(muster, u.berta)], [true, ['viewer']], 'Passwort (Stufe pending) und Rollen in Muster bleiben');
+    assert.deepEqual([u.berta.password, await rolesIn('muster', u.berta.id)], [true, ['viewer']], 'Passwort (Stufe pending) und Rollen in Muster bleiben');
     // Protokoll ohne Angabe, ob das Konto neu ist
     const a = (await auditOf('demo', 'member.added_from_entra')).at(-2)!;
     assert.deepEqual(Object.keys(a.data).sort(), ['email', 'emailSent', 'entraId', 'roles']);
@@ -217,14 +221,14 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     assert.equal(r.accountDeleted, false);
     assert.ok(kc.users.has(u.berta.id) && kc.orgMembers.get(muster.id)!.has(u.berta.id) && !kc.orgMembers.get(demo.id)!.has(u.berta.id));
     assert.equal(kc.links.get(u.berta.id)!.size, 0, 'Verknüpfung gelöst');
-    assert.equal(kc.rolesOf(demo, u.berta).length, 0);
+    assert.equal((await rolesIn('demo', u.berta.id)).length, 0);
     // danach wieder wählbar
     assert.equal((await search('nina')).items[0].selectable, true);
   });
 
   test('Fehler mitten im Hinzufügen: selbst angelegtes Konto zurückgenommen; bestehendes ohne Mitgliedschaft, Verknüpfung und Rollen', async () => {
-    const viewer = [...kc.groups.values()].find(g => g.path === '/orgs/demo/viewer')!;
-    kc.fail = [{ re: new RegExp(`^PUT /users/[^/]+/groups/${viewer.id}$`), status: 500 }];
+    // Letzter Schritt in Keycloak (Verknüpfung) scheitert: Mitgliedschaft und Konto zurückgenommen, keine Tupel
+    kc.fail = [{ re: /^POST \/users\/[^/]+\/federated-identity\//, status: 500 }];
     try {
       const before = kc.users.size;
       assert.equal((await add(oid.dora)).status, 502);
@@ -235,6 +239,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
       assert.equal(kc.links.get(u.berta.id)!.size, 0);
     } finally { kc.fail = []; }
     assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.member_invitation WHERE lower(email) IN ('dora@demo.example', 'berta@demo.example') AND accepted_at IS NULL")).rows[0].n, 0);
+    assert.deepEqual(await rolesIn('demo', u.berta.id), []);
     // Alles zurückgenommen: kein Eintrag `…_failed` (er listete nur Schritte, die in Keycloak geblieben sind)
     assert.equal((await auditOf('demo', 'member.entra_add_failed')).length, 0);
   });
@@ -266,12 +271,4 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     }
   });
 
-  test('eigene Rolle, die eine andere Instanz gelöscht hat: 422, keine neue Gruppe (Prüfung ohne Zwischenspeicher)', async () => {
-    const r = ok(await call(anna(), 'POST', '/v1/roles', { label: 'Aus Entra', permissions: ['note:read'] }), 201);
-    await list(); // Rollen der Organisation im Zwischenspeicher
-    await t.inspect.query('UPDATE notes.tenant_role SET deleted_at = now() WHERE key = $1', [r.key]);
-    const id = ms.user(contoso, 'rolf@demo.example', { displayName: 'Rolf Rolle' }).id;
-    assert.equal((await add(id, ['viewer', r.key])).status, 422);
-    assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${r.key}`), 'Gruppe nicht neu angelegt');
-  });
 });

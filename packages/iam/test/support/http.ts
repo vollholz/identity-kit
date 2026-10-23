@@ -5,7 +5,7 @@
  */
 import swagger from '@fastify/swagger';
 import { Type } from '@sinclair/typebox';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { claimsFor } from '@vollholz/iam-testkit';
 import { pgAudit } from '../../src/audit.ts';
 import type { BffOptions } from '../../src/bff.ts';
@@ -52,13 +52,17 @@ export async function notesApp(o: {
   catalog?: Catalog<string>; resources?: ResourceModel<Map<string, string>>; bff?: BffOptions;
   /** Keycloak-Admin-API (Modul `admin`, z. B. `KeycloakFake.fetch`). */
   keycloakFetch?: typeof fetch;
+  /** Microsoft (Modul `entra`, z. B. `EntraFake.fetch`) und Wartezeiten nach der Zustimmung. */
+  entraFetch?: typeof fetch; entraRetryMs?: number[];
+  /** Optionen der Fastify-Instanz (z. B. `ajv` wie Assets: unbekannte Felder ablehnen statt entfernen). */
+  fastify?: FastifyServerOptions;
   /** Nach allen Routen, vor `ready` (z. B. Testsonden). */
   after?: (app: FastifyInstance) => Promise<void> | void;
 }): Promise<NotesApp> {
   const events: NotesApp['events'] = [];
   const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}) });
-  const app = Fastify({ logger: false });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), catalog: o.catalog ?? notesCatalog, db: o.db, schema: 'notes', resources: o.resources ?? notesResources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}) });
+  const app = Fastify({ logger: false, ...o.fastify });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });
   await o.before?.(app);
   await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], ...o.plugin });

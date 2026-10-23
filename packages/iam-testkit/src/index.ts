@@ -2,6 +2,7 @@ export { testDatabases, withDb, type TestDatabaseOptions, type TestDatabases, ty
 export { startMockIdp, dpopKey, type MockIdp, type MockIdpOptions } from './idp.ts';
 export { claimsFor, type ClaimsOptions, type PersonClaims, type ServiceAccountClaims } from './claims.ts';
 export { KeycloakFake, type FakeIdp, type FakeOrg, type FakeUser } from './keycloak-fake.ts';
+export { EntraFake, type FakeEntraUser, type FakeTenant } from './entra-fake.ts';
 export { tenantTableProblems, grantedTableProblems, securityDefinerProblems, publicExecuteProblems, publicSchemaProblems, bypassRoleProblems } from './rls.ts';
 export {
   checkCatalog, ADMIN_ROLE, RESERVED_PERMISSIONS, RESERVED_GROUPS, CUSTOM_ROLE_PREFIX, PLATFORM_ADMIN_ROLE,

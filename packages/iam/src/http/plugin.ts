@@ -21,6 +21,7 @@ import { aclModule } from './acl.ts';
 import { adminModule } from './admin.ts';
 import { bffModule } from './bff.ts';
 import { clientsModule } from './clients.ts';
+import { entraModule } from './entra.ts';
 import { defaultPeoplePermissions, peopleModule } from './people.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
 import { rolesModule } from './roles.ts';
@@ -31,13 +32,13 @@ export interface SessionBridge {
   accessToken(req: FastifyRequest, reply: FastifyReply): Promise<{ token: string; csrfOk: boolean } | null>;
 }
 
-export type IamModuleName = 'account' | 'acl' | 'admin' | 'bff' | 'clients' | 'people' | 'roles';
+export type IamModuleName = 'account' | 'acl' | 'admin' | 'bff' | 'clients' | 'entra' | 'people' | 'roles';
 
 export interface IamPluginOptions {
   iam: Iam<any, any>;
   /**
    * Module des Pakets; Standard: alle, die Katalog und Konfiguration erlauben (`acl` mit Zugriffsregeln, `bff` mit
-   * `iam.bff`; `admin` immer, ohne Verwaltungs-Client mit 503 nach Kap. 9.1 Nr. 11).
+   * `iam.bff`; `admin` und `entra` immer, ohne Verwaltungs-Client bzw. Entra-App mit 503 nach Kap. 9.1 Nr. 11).
    */
   modules?: IamModuleName[];
   /** Fehlerbehandlung und 404 als problem+json (Standard `true`; `false`, wenn die App eigene hat). */
@@ -124,7 +125,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   // `modules` verlangt, meldet das Modul den Fehler
   const people = !o.modules && (!!o.people || defaultPeoplePermissions(iam.catalog).some(x => iam.catalog.isPermission(x)));
   if (!o.modules && !people) app.log.warn('Modul «people» nicht geladen: kein Recht öffnet das Verzeichnis (Option people.permissions oder Lese-Scope <produkt>:read)');
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
+  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'entra', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
   // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
   const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
@@ -213,7 +214,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
 
   // ---------- Module
   const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {}, ...(o.people ? { people: o.people } : {}) };
-  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, admin: adminModule, bff: bffModule, clients: clientsModule, people: peopleModule, roles: rolesModule };
+  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, admin: adminModule, bff: bffModule, clients: clientsModule, entra: entraModule, people: peopleModule, roles: rolesModule };
   for (const n of names) await modules[n].register(app, ctx);
 }
 

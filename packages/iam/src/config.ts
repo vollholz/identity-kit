@@ -112,6 +112,7 @@ export function IAM_VARS(product: string): VarSpec[] {
     { name: 'ENTRA_CLIENT_ID', kind: 'string', group: 'Anmeldung über Microsoft Entra ID', default: '', description: 'Anwendungs-ID der mandantenfähigen App in Microsoft Entra ID. Ohne Angabe ist die Anmeldung über Entra ID abgeschaltet. Braucht die Verwaltung (`KEYCLOAK_MGMT_CLIENT_ID`).' },
     { name: 'ENTRA_CLIENT_SECRET', kind: 'string', group: 'Anmeldung über Microsoft Entra ID', secret: true, fileAllowed: true, description: 'Geheimnis der Entra-App (Tokens für Microsoft Graph, Identitätsanbieter in Keycloak).' },
     { name: 'ENTRA_IDP_SLOTS', kind: 'int', group: 'Anmeldung über Microsoft Entra ID', default: '100', description: 'Anzahl der in der Entra-App eingetragenen Redirect-URIs `…/broker/entra-001/endpoint` bis `…/entra-<n>/endpoint`. 1 bis 250.' },
+    { name: 'ENTRA_UI_PATH', kind: 'string', group: 'Anmeldung über Microsoft Entra ID', default: '/verwalten/anmeldung', description: 'Seite «Anmeldung» der Oberfläche (`paths.entra` in `@vollholz/iam-web`). Rückkehr nach der Admin-Zustimmung: `<pfad>/zustimmung` (als Redirect-URI in der Entra-App eingetragen), nach der Testanmeldung: `<pfad>/test`.' },
     { name: 'ENTRA_TIMEOUT', kind: 'duration', group: 'Anmeldung über Microsoft Entra ID', default: '10s', description: 'Zeitlimit je Aufruf bei Microsoft (Anmeldung, Graph).' },
 
     { name: 'DPOP_MODE', kind: 'enum', group: 'Maschinenzugriff (M2M)', values: ['off', 'optional', 'required-for-clients', 'required'], default: 'required-for-clients', description: 'DPoP-Pflicht. `required-for-clients`: Maschinen-Clients müssen sendergebundene Tokens verwenden, Personen (über BFF) nicht.' },
@@ -145,7 +146,7 @@ export interface IamConfig {
   /** Verwaltung über die Keycloak-Admin-API; `clientId` null = abgeschaltet. */
   mgmt: { clientId: string | null; privateKey: string | null; clientSecret: string | null; adminUrl: string | null; inviteLifespanSec: number; inviteMinMs: number; timeoutMs: number };
   /** Anmeldung über Microsoft Entra ID je Organisation; `clientId` null = abgeschaltet. */
-  entra: { clientId: string | null; clientSecret: string | null; slots: number; timeoutMs: number };
+  entra: { clientId: string | null; clientSecret: string | null; slots: number; timeoutMs: number; uiPath: string };
   /** Abgleich der Mitglieder im Worker; `clientId` null oder `intervalMs` 0 = abgeschaltet. */
   memberSync: { clientId: string | null; privateKey: string | null; clientSecret: string | null; intervalMs: number };
   session: { secrets: string[]; ttlMs: number; idleMs: number };
@@ -225,6 +226,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
     if (!raw.ENTRA_CLIENT_SECRET) errors.push('ENTRA_CLIENT_ID gesetzt: ENTRA_CLIENT_SECRET (bzw. _FILE) fehlt');
     if (!raw.KEYCLOAK_MGMT_CLIENT_ID) errors.push('ENTRA_CLIENT_ID gesetzt: KEYCLOAK_MGMT_CLIENT_ID fehlt – die Anmeldung über Entra ID richtet die Plattform über die Verwaltung in Keycloak ein');
   }
+  if (raw.ENTRA_UI_PATH !== undefined && (!/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH) || raw.ENTRA_UI_PATH.split('/').some(x => x === '.' || x === '..'))) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
   if (raw.GROUP_ROLE_PREFIX !== undefined && !/^\/?[^\s/]+(\/[^\s/]+)*\/?$/.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
@@ -262,7 +264,7 @@ export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
     tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), roleSource: s('ROLE_SOURCE') as IamConfig['tenancy']['roleSource'], roleClientId: s('ROLE_CLIENT_ID'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), groupRolePrefix: normalizeGroupPrefix(s('GROUP_ROLE_PREFIX')), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
     m2m: { dpopMode: s('DPOP_MODE') as IamConfig['m2m']['dpopMode'], dpopMaxAgeSec: Math.round(d('DPOP_MAX_AGE') / 1000), mtlsHeader: opt('MTLS_HEADER') },
     mgmt: { clientId: opt('KEYCLOAK_MGMT_CLIENT_ID'), privateKey: opt('KEYCLOAK_MGMT_PRIVATE_KEY'), clientSecret: opt('KEYCLOAK_MGMT_CLIENT_SECRET'), adminUrl: opt('KEYCLOAK_MGMT_URL')?.replace(/\/$/, '') ?? null, inviteLifespanSec: Math.round(d('KEYCLOAK_MGMT_INVITE_LIFESPAN') / 1000), inviteMinMs: d('KEYCLOAK_MGMT_INVITE_MIN_TIME'), timeoutMs: d('KEYCLOAK_MGMT_TIMEOUT') },
-    entra: { clientId: opt('ENTRA_CLIENT_ID'), clientSecret: opt('ENTRA_CLIENT_SECRET'), slots: n('ENTRA_IDP_SLOTS'), timeoutMs: d('ENTRA_TIMEOUT') },
+    entra: { clientId: opt('ENTRA_CLIENT_ID'), clientSecret: opt('ENTRA_CLIENT_SECRET'), slots: n('ENTRA_IDP_SLOTS'), timeoutMs: d('ENTRA_TIMEOUT'), uiPath: s('ENTRA_UI_PATH').replace(/\/+$/, '') },
     memberSync: { clientId: opt('KEYCLOAK_SYNC_CLIENT_ID'), privateKey: opt('KEYCLOAK_SYNC_PRIVATE_KEY'), clientSecret: opt('KEYCLOAK_SYNC_CLIENT_SECRET'), intervalMs: d('MEMBER_SYNC_INTERVAL') },
     session: { secrets: list('SESSION_SECRET'), ttlMs: d('SESSION_TTL'), idleMs: d('SESSION_IDLE_TIMEOUT') },
     encryptionKeys: raw.ENCRYPTION_KEYS ? parseEncryptionKeys(raw.ENCRYPTION_KEYS) : [],

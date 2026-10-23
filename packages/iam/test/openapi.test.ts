@@ -24,6 +24,9 @@ const IAM_ROUTES = [
   'DELETE /v1/platform/organizations/{alias}/members/{id}', 'POST /v1/platform/organizations/{alias}/members/{id}/invitation',
   'GET /v1/platform/organizations', 'POST /v1/platform/organizations', 'GET /v1/platform/organizations/{alias}', 'PATCH /v1/platform/organizations/{alias}',
   'POST /v1/platform/organizations/{alias}/suspend', 'POST /v1/platform/organizations/{alias}/resume', 'GET /v1/platform/organizations/{alias}/roles',
+  ...['/v1/admin/entra', '/v1/platform/organizations/{alias}/entra'].flatMap(b => [`GET ${b}`, `DELETE ${b}`, `POST ${b}/consent`, `POST ${b}/consent/complete`, `GET ${b}/preview`, `POST ${b}/enforce`, `PUT ${b}/domains`, `POST ${b}/refresh`]),
+  ...['/v1/admin/members', '/v1/platform/organizations/{alias}/members'].flatMap(b => [`GET ${b}/entra-search`, `POST ${b}/entra`]),
+  'POST /v1/admin/entra/test', 'POST /v1/platform/entra/refresh',
   'GET /v1/roles', 'POST /v1/roles', 'GET /v1/roles/{key}', 'PATCH /v1/roles/{key}', 'DELETE /v1/roles/{key}', 'GET /v1/people', 'GET /v1/people/{id}',
 ];
 
@@ -72,7 +75,9 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     }
     assert.equal(op('POST /v1/admin/members').requestBody.required, true);
     assert.ok(op('POST /v1/admin/members').responses['202']);
-    for (const s of ['Member', 'Organization', 'Role', 'Person']) assert.ok(doc.components.schemas[s], s);
+    for (const s of ['Member', 'Organization', 'Role', 'Person', 'EntraConnection']) assert.ok(doc.components.schemas[s], s);
+    const entra = op('GET /v1/admin/entra').responses['200'].content['application/json'].schema;
+    assert.ok(['consentPath', 'testPath'].every(k => entra.required.includes(k)), 'Rückkehrpfade im Status');
     assert.deepEqual(op('POST /v1/roles').requestBody.content['application/json'].schema.properties.permissions.items.enum, [...notesCatalog.permissions], 'Rechte aus dem Katalog der App');
     assert.ok(op('PATCH /v1/roles/{key}').parameters.some((x: { name: string; in: string }) => x.name === 'if-match' && x.in === 'header'));
     const roles = op('GET /v1/platform/organizations/{alias}/roles').responses['200'].content['application/json'].schema;

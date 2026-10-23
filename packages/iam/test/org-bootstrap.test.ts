@@ -30,10 +30,18 @@ describe('Ersteinrichtung einer Organisation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'iam-bootstrap-'));
   after(() => rmSync(dir, { recursive: true, force: true }));
 
-  test('Eingaben: Alias, E-Mail, Rollen aus dem Katalog, Katalog mit org-admin', () => {
+  test('Eingaben: Alias, E-Mail, Rollen aus dem Katalog; org-admin auch ohne Eintrag in platform.json', () => {
     assert.deepEqual(orgBootstrapErrors({ alias: 'demo', email: 'a@demo.example', roles: ['org-admin', 'viewer'], catalogRoles: ROLES }), []);
+    assert.deepEqual(orgBootstrapErrors({ alias: 'demo', email: 'a@demo.example', roles: ['org-admin', 'viewer'], catalogRoles: ['viewer'] }), []);
     const e = orgBootstrapErrors({ alias: 'Böse Firma', email: 'kaputt', roles: ['chef'], catalogRoles: ['viewer'] }).join('\n');
-    for (const m of [/Alias/, /E-Mail/, /ohne Rolle org-admin/, /Unbekannte Rolle chef/]) assert.match(e, m);
+    for (const m of [/Alias/, /E-Mail/, /Unbekannte Rolle chef \(erlaubt: org-admin, viewer\)/]) assert.match(e, m);
+  });
+
+  test('platform.json ohne org-admin (ab 0.4.0): Gruppe org-admin entsteht trotzdem', async () => {
+    const fake = new KeycloakFake();
+    assert.ok(!ROLES.includes('org-admin'));
+    await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', catalogRoles: ROLES, platformAdminRole: 'platform-admin' });
+    assert.ok(paths(fake).includes('/orgs/demo/org-admin'));
   });
 
   test('legt Organisation, Gruppen aller Rollen, Person mit Rollen und Realm-Rolle an; zweiter Lauf ändert nichts', async () => {

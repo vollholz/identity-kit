@@ -37,7 +37,11 @@ export const catalog = defineCatalog({
 ```
 
 - `org-admin` und die reservierten Rechte (`tenant:read`, `members:admin`, `acl:read`, `acl:admin` …) ergänzt das Paket.
-- `catalog.platformJson()` ergibt `infra/keycloak/platform.json` für das Realm-Modul und `iam-org-bootstrap`.
+  Die App führt sie nicht auf; nur wenn sie Reihenfolge, Beschreibung oder Ressourcentypen eines reservierten Rechts
+  bestimmen will, nennt sie es ohne Label und Gruppe (z. B. `'acl:read': {}` an der gewünschten Stelle, ebenso
+  `{ key: 'access' }` unter `groups`). Label und Gruppe kommen immer aus dem Baukasten.
+- `catalog.platformJson()` ergibt `infra/keycloak/platform.json` für das Realm-Modul und `iam-org-bootstrap` – ohne
+  `org-admin`: die Rolle legt das Realm-Modul (`product-realm` ≥ 0.2.0) an, `iam-org-bootstrap` ergänzt ihre Gruppe.
 - Mit `resources` gibt es Zugriffsregeln (Modul `acl`). Die Kette der Ressourcen liefert die App als `ResourceModel`
   (`flatResources` für einfache Fälle).
 - Einen geprüften Katalog sichert der Test `checkCatalog(GET /v1/authz/catalog)` aus dem Test-Kit.

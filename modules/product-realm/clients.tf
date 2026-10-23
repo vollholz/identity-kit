@@ -210,9 +210,14 @@ resource "keycloak_role" "platform_admin" {
   description = "Plattform-Administration über alle Mandanten"
 }
 
-# Rollen des Rechtekatalogs als Client-Rollen von <produkt>-platform (ROLE_CLIENT_ID)
+# Rollen als Client-Rollen von <produkt>-platform (ROLE_CLIENT_ID): die reservierte Rolle org-admin aus dem Baukasten
+# (Spezifikation 8.1, in jeder App gleich), dazu die Rollen aus dem Katalog der App
+locals {
+  roles = merge({ "org-admin" = "Organisations-Admin" }, var.catalog.roles)
+}
+
 resource "keycloak_role" "platform" {
-  for_each    = var.catalog.roles
+  for_each    = local.roles
   realm_id    = local.realm
   client_id   = keycloak_openid_client.platform.id
   name        = each.key

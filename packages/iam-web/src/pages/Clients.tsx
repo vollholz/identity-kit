@@ -42,7 +42,7 @@ export function ClientsPage() {
       <AdminHead icon="key" title={t('iam.clients.title')} sub={t('iam.clients.sub', { org })}
         actions={<Button variant="primary" icon="plus" onClick={() => setAdding(true)}>{t('iam.clients.grant')}</Button>} />
       <div className="iam-body"><div className="iam-int"><ClientList alias={null} orgLabel={org} adding={adding} onAdding={setAdding} /></div></div>
-      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code>GET /v1/admin/clients · PUT /v1/admin/clients/&#123;clientId&#125; · DELETE /v1/admin/clients/&#123;clientId&#125;</code></div>
+      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code tabIndex={0}>GET /v1/admin/clients · PUT /v1/admin/clients/&#123;clientId&#125; · DELETE /v1/admin/clients/&#123;clientId&#125;</code></div>
     </>
   );
 }

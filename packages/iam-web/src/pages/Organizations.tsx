@@ -3,7 +3,7 @@
  * umbenennen, Domänen pflegen, sperren und entsperren sowie Mitglieder (inklusive org-admin) und Maschinen-Clients jeder
  * Organisation verwalten. Die Detailansicht sagt, welche Organisation bearbeitet wird und in welcher die Person
  * angemeldet ist; Kopfzeile und Kontomenü zeigen die eigene. Herkunft: vollholz/assets
- * `web/src/features/admin/Organizations.tsx`; der Abschnitt «Anmeldung (Microsoft Entra ID)» folgt mit der Seite «Anmeldung».
+ * `web/src/features/admin/Organizations.tsx`. Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)».
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';
@@ -21,6 +21,7 @@ import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
 import { ClientList } from './Clients.tsx';
+import { EntraSection } from './Entra.tsx';
 import { MemberList } from './Members.tsx';
 
 const ALIAS = /^[a-z0-9][a-z0-9_-]{0,62}$/;
@@ -88,7 +89,7 @@ export function OrganizationsPage() {
           </div>
         ))}
       </div></div>
-      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code>GET /v1/platform/organizations · POST /v1/platform/organizations</code></div>
+      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code tabIndex={0}>GET /v1/platform/organizations · POST /v1/platform/organizations</code></div>
       {creating ? <CreateOrg onClose={() => setCreating(false)} onCreated={o => { setCreating(false); open(o); }} /> : null}
     </>
   );
@@ -150,7 +151,7 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
   const fromPath = useAliasFromPath();
   const alias = given ?? fromPath;
   const { Button, Icon } = useIamUi();
-  const { paths } = useIamConfig();
+  const { paths, features } = useIamConfig();
   useIamText();
   const { status, gate, page } = useGate(t('iam.orgs.one'));
   const { me } = useIam();
@@ -183,6 +184,7 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
             <OrgForm org={q.data} />
             <MemberList alias={q.data.alias} roles={status!.roles} platform rolesManageable={status!.rolesManageable} self={me.person.subject} orgLabel={q.data.name} />
             {q.data.tenant ? <ClientList alias={q.data.alias} orgLabel={q.data.name} /> : null}
+            {features.entra ? <EntraSection alias={q.data.alias} orgLabel={q.data.name} /> : null}
           </>
         ))}
       </div></div>

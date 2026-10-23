@@ -2,7 +2,9 @@
  * Verwalten › Zugang › Mitglieder (Spezifikation 9.2): Personen der eigenen Organisation einladen, Rollen zuweisen und
  * entziehen, entfernen. Die Rollen selbst stehen unter Zugang › Rollen (Roles.tsx). Dieselbe Liste nutzt die
  * Plattform-Administration für eine beliebige Organisation (`alias`). Herkunft: vollholz/assets
- * `web/src/features/admin/Members.tsx`; das Hinzufügen aus Microsoft Entra ID folgt mit der Seite «Anmeldung».
+ * `web/src/features/admin/Members.tsx`. Mit Entra ID verbunden (nur mit `features.entra`): «Person hinzufügen» sucht im
+ * Verzeichnis der Organisation; externe Personen weiterhin «Per E-Mail einladen». Offene Einladungen aus Entra ID:
+ * «Anmeldelink kopieren».
  *
  * - Je Zeile höchstens «Rollen» (bei Organisations-Admins «Ansehen») und das Menü «Mehr», damit alle Zeilen gleich hoch
  *   bleiben. Was die API ablehnen würde, steht gesperrt mit Grund im Menü, statt zu fehlen oder erst beim Bestätigen zu
@@ -13,11 +15,11 @@
  * - Liste filterbar nach Name/E-Mail, Rolle und Recht («Wer hat Recht X?», nur aus den Rollen), sortierbar nach Person und
  *   «Zuletzt aktiv»; darunter aufklappbar die Rollenmatrix. Filter und Sortierung nur im Zustand der Komponente.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useId, useMemo, useState } from 'react';
-import { memberApi, useAdminStatus, useMembers } from '../admin.ts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { memberApi, useAdminStatus, useEntra, useMembers } from '../admin.ts';
 import { useAuthz } from '../authz.ts';
-import type { InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts';
+import type { EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Member, RoleInfo } from '../contract.ts';
 import { useIamConfig } from '../config.tsx';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
@@ -52,15 +54,17 @@ const roleNames = (keys: readonly string[], roles: readonly RoleInfo[]) => keys.
 /** Seite «Mitglieder» der eigenen Organisation (Recht `members:admin` prüft der Guard der Route). */
 export function MembersPage() {
   const { me, orgName: org } = useIam();
-  const { groupRolePrefix = '/orgs' } = useIamConfig();
+  const { groupRolePrefix = '/orgs', features } = useIamConfig();
   const { Button } = useIamUi();
   useIamText();
   const status = useAdminStatus();
   const [inviting, setInviting] = useState(false);
+  // Mit Entra ID verbunden: hinzufügen aus dem Verzeichnis (nur mit features.entra; Fehler beim Lesen: wie nicht verbunden)
+  const connected = !!useEntra(null, !!features.entra && !!status.data?.enabled).data?.connection;
   return (
     <>
       <AdminHead icon="users" title={t('iam.members.title')} sub={t('iam.members.sub', { org })}
-        actions={status.data?.enabled ? <Button variant="primary" icon="plus" onClick={() => setInviting(true)}>{t('iam.members.invite')}</Button> : null} />
+        actions={status.data?.enabled ? <Button variant="primary" icon="plus" onClick={() => setInviting(true)}>{t(connected ? 'iam.members.add' : 'iam.members.invite')}</Button> : null} />
       <div className="iam-body"><div className="iam-int">
         {status.isPending ? <SkeletonRows rows={4} /> : status.error ? <ErrorState error={status.error} onRetry={() => void status.refetch()} /> : !status.data.enabled ? (
           <Empty icon="cog" title={t('iam.members.off.title')}>
@@ -70,7 +74,7 @@ export function MembersPage() {
           </Empty>
         ) : <MemberList alias={null} roles={status.data.roles} platform={false} rolesManageable={status.data.rolesManageable} self={me.person.subject} orgLabel={org} inviting={inviting} onInviting={setInviting} />}
       </div></div>
-      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code>GET /v1/admin/members · POST /v1/admin/members · PUT /v1/admin/members/&#123;id&#125;/roles</code></div>
+      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code tabIndex={0}>GET /v1/admin/members · POST /v1/admin/members{connected ? ' · GET /v1/admin/members/entra-search · POST /v1/admin/members/entra' : ''} · PUT /v1/admin/members/&#123;id&#125;/roles</code></div>
     </>
   );
 }
@@ -167,7 +171,10 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
     if (m.roles.includes(ADMIN) && m.status === 'active' && admins <= 1) return t('iam.members.block.last', { role: adminLabel });
     return null;
   };
-  const addLabel = t('iam.members.invite');
+  // Mit Entra ID verbunden: hinzufügen aus dem Verzeichnis (nur mit features.entra; Fehler beim Lesen: wie nicht verbunden)
+  const { features } = useIamConfig();
+  const connected = !!useEntra(alias, !!features.entra).data?.connection;
+  const addLabel = t(connected ? 'iam.members.add' : 'iam.members.invite');
 
   return (
     <section aria-labelledby={`${fid}-h`}>
@@ -196,7 +203,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
       {permFilter ? <p className="iam-muted iam-small iam-member-acl">{t('iam.members.byRightNote', { perm: authz.permLabel(permFilter as Permission) })}</p> : null}
       {!rolesManageable ? <div className="iam-warnbox iam-mb-s" role="note"><Icon name="warn" className="iam-ico" /><span>{t('iam.members.rolesFixed')}</span></div> : null}
       {q.isPending ? <SkeletonRows rows={4} cols={5} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.length ? (
-        <Empty icon="users" title={t('iam.members.none.title')} action={<Button variant="primary" onClick={() => setInviting(true)}>{addLabel}</Button>}>{t(platform ? 'iam.members.none.platform' : 'iam.members.none.text', { org: orgLabel })}</Empty>
+        <Empty icon="users" title={t('iam.members.none.title')} action={<Button variant="primary" onClick={() => setInviting(true)}>{addLabel}</Button>}>{t(connected ? (platform ? 'iam.members.noneAdd.platform' : 'iam.members.noneAdd.text') : platform ? 'iam.members.none.platform' : 'iam.members.none.text', { org: orgLabel })}</Empty>
       ) : !rows.length ? (
         <Empty title={t('iam.members.noHits.title')} action={<Button onClick={resetFilters}>{t('iam.members.reset')}</Button>}>{needle && !roleFilter && !permFilter ? t('iam.members.noHits.text', { q: filter }) : t('iam.members.noHits.filters')}</Empty>
       ) : (
@@ -243,7 +250,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
         <summary>{t('iam.members.matrix')}</summary>
         <RoleMatrix roles={roles} caption={t('iam.matrix.caption')} />
       </details>
-      {inviting ? <InviteDialog alias={alias} orgLabel={orgLabel} roles={roles} platform={platform} rolesManageable={rolesManageable} onClose={() => setInviting(false)} onDone={async () => { await refresh(); }} /> : null}
+      {inviting ? <AddDialog connected={connected} alias={alias} orgLabel={orgLabel} roles={roles} platform={platform} rolesManageable={rolesManageable} onClose={() => setInviting(false)} onDone={async () => { await refresh(); }} /> : null}
       {editing ? <RolesDialog alias={alias} orgLabel={orgLabel} member={editing} roles={roles} platform={platform} rolesManageable={rolesManageable} self={self} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await refresh(); }} /> : null}
       {removing ? <RemoveConfirm member={removing} orgLabel={orgLabel} busy={remove.isPending} error={remove.error} onClose={() => { remove.reset(); setRemoving(null); }} onConfirm={() => remove.mutate(removing)} /> : null}
     </section>
@@ -375,6 +382,106 @@ function defaultRoles(roles: RoleInfo[], configured?: string[]): string[] {
   if (configured) return configured.filter(k => roles.some(r => r.key === k));
   const least = [...roles].filter(r => r.key !== ADMIN && !r.adminOnly).sort((a, b) => a.permissions.length - b.permissions.length)[0];
   return least ? [least.key] : [];
+}
+
+/** «Person hinzufügen»: mit Entra-Verbindung zuerst die Suche im Verzeichnis, daneben «Per E-Mail einladen»; sonst einladen. */
+function AddDialog({ connected, ...p }: InviteProps & { connected: boolean }) {
+  const [email, setEmail] = useState(!connected);
+  return email ? <InviteDialog {...p} /> : <EntraAddDialog {...p} onEmail={() => setEmail(true)} />;
+}
+
+/**
+ * Person aus Microsoft Entra ID hinzufügen: suchen (ab 2 Zeichen, verzögert), eine wählbare Person auswählen – nicht
+ * wählbare stehen ausgegraut mit Grund –, Rollen wie beim Einladen, E-Mail oder nur Link. Danach ist die Person sofort
+ * Mitglied und «eingeladen», bis sie sich über Microsoft anmeldet.
+ */
+function EntraAddDialog({ alias, orgLabel, roles, platform, rolesManageable, onClose, onDone, onEmail }: InviteProps & { onEmail: () => void }) {
+  const { Dialog, Button, Icon, toast } = useIamUi();
+  const { inviteRoles } = useIamConfig();
+  const fid = useId();
+  const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
+  useEffect(() => { const h = setTimeout(() => setTerm(q.trim()), 300); return () => clearTimeout(h); }, [q]);
+  const hits = useQuery({ queryKey: [...iamKeys.members(alias), 'entra-search', term], enabled: term.length >= 2, staleTime: 30_000, queryFn: ({ signal }) => memberApi(alias).entraSearch(term, signal) });
+  const [picked, setPicked] = useState<EntraCandidate | null>(null);
+  const [sel, setSel] = useState<Set<string>>(() => new Set(rolesManageable ? defaultRoles(roles, inviteRoles) : []));
+  const [sendEmail, setSendEmail] = useState(true);
+  const [result, setResult] = useState<EntraAddResult | null>(null);
+  const add = useMutation({
+    mutationFn: (body: EntraAddInput) => memberApi(alias).addFromEntra(body),
+    onSuccess: async r => {
+      await onDone();
+      if (r.emailSent) { toast.show(t('iam.entraAdd.added', { name: r.member.name, org: orgLabel })); onClose(); }
+      else setResult(r);
+    },
+  });
+  const submit = () => {
+    if (!picked) { document.getElementById(`${fid}-q`)?.focus(); return; }
+    add.mutate({ id: picked.id, roles: [...sel], sendEmail });
+  };
+  const detail = (c: { jobTitle: string | null; department: string | null }) => [c.jobTitle, c.department].filter(Boolean).join(' · ');
+  if (result) {
+    const link = result.member.loginPath ? absolute(result.member.loginPath) : null;
+    const names = roleNames(result.member.roles, roles);
+    return (
+      <Dialog title={t('iam.entraAdd.doneTitle', { name: result.member.name })} onClose={onClose} width={560} footer={<Button variant="primary" data-autofocus onClick={onClose}>{t('iam.common.close')}</Button>}>
+        <p>{t(names.length ? (names.length === 1 ? 'iam.entraAdd.doneRole' : 'iam.entraAdd.doneRoles') : 'iam.entraAdd.done', { name: result.member.name, org: orgLabel, roles: names.join(', ') })}</p>
+        {sendEmail ? <div className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t('iam.entraAdd.noMail')}</span></div> : null}
+        {link ? <>
+          <label htmlFor={`${fid}-link`}>{t('iam.entraAdd.link')}</label>
+          <div className="iam-entra-link">
+            <input id={`${fid}-link`} className="iam-inp iam-mono-s" readOnly value={link} onFocus={e => e.target.select()} />
+            <Button icon="copy" onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast.show(t('iam.entraAdd.copied')), () => undefined); }}>{t('iam.entraAdd.copy')}</Button>
+          </div>
+          <p className="iam-muted iam-small">{t('iam.entraAdd.linkHint')}</p>
+        </> : null}
+      </Dialog>
+    );
+  }
+  const items = hits.data?.items ?? [];
+  return (
+    <Dialog title={t('iam.entraAdd.title', { org: orgLabel })} onClose={onClose} onSubmit={submit} width={600}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" disabled={!picked} busy={add.isPending}>{add.isPending ? <Loading inline label={t('iam.entraAdd.adding')} /> : <><Icon name="plus" className="iam-ico" />{t('iam.entraAdd.confirm')}</>}</Button></>}>
+      <p className="iam-muted iam-small">{t('iam.entraAdd.intro')}</p>
+      {!picked ? <>
+        <label className="iam-search iam-entra-search"><Icon name="search" className="iam-ico" /><span className="iam-sr">{t('iam.entraAdd.search')}</span>
+          <input id={`${fid}-q`} type="search" placeholder={t('iam.entraAdd.searchHint')} value={q} onChange={e => setQ(e.target.value)} autoComplete="off" data-autofocus /></label>
+        <div aria-live="polite" className="iam-entra-hits-wrap">
+          {term.length < 2 ? <p className="iam-muted iam-small">{t('iam.entraAdd.min')}</p>
+            : hits.isPending ? <Loading inline label={t('iam.entraAdd.searching')} />
+            : hits.error ? <ErrorBox error={hits.error} compact />
+            : !items.length ? <p className="iam-muted iam-small">{t('iam.entraAdd.none')}</p>
+            : <ul className="iam-entra-hits" aria-label={t('iam.entraAdd.hits')}>
+                {items.map(c => (
+                  <li key={c.id}>
+                    <button type="button" className="iam-entra-hit" disabled={!c.selectable} onClick={() => setPicked(c)} aria-describedby={c.reason ? `${fid}-${c.id}-r` : undefined}>
+                      <span className="iam-b">{c.name}</span><span className="iam-mono-s iam-muted">{c.email}</span>
+                      {detail(c) ? <span className="iam-muted iam-small">{detail(c)}</span> : null}
+                      {c.reason ? <span id={`${fid}-${c.id}-r`} className="iam-small iam-entra-why">{c.reason}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>}
+          {hits.data?.more ? <p className="iam-note">{t('iam.entraAdd.more')}</p> : null}
+        </div>
+        <p className="iam-muted iam-small">{t('iam.entraAdd.external')} <button type="button" className="iam-linkbtn" onClick={onEmail}>{t('iam.entraAdd.byEmail')}</button></p>
+      </> : <>
+        <div className="iam-entra-picked">
+          <span className="iam-b">{picked.name}</span><span className="iam-mono-s iam-muted">{picked.email}</span>
+          {detail(picked) ? <span className="iam-muted iam-small">{detail(picked)}</span> : null}
+          <button type="button" className="iam-linkbtn" onClick={() => { setPicked(null); add.reset(); }}>{t('iam.entraAdd.other')}</button>
+        </div>
+        {rolesManageable ? <>
+          <RolePicker roles={roles} value={sel} onChange={setSel} platform={platform} idBase={`${fid}-r`} />
+          {sel.size ? null : <p className="iam-note">{t('iam.invite.noRole')}</p>}
+          <DialogRights roles={sel} />
+        </> : null}
+        <label className="iam-chk iam-entra-mail" htmlFor={`${fid}-mail`}><input id={`${fid}-mail`} type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> {t('iam.entraAdd.sendMail')}</label>
+        <p className="iam-muted iam-small">{t(sendEmail ? 'iam.entraAdd.mailHint' : 'iam.entraAdd.noMailHint')}</p>
+      </>}
+      {add.error ? <ErrorBox error={add.error} /> : null}
+    </Dialog>
+  );
 }
 
 function InviteDialog({ alias, orgLabel, roles, platform, rolesManageable, onClose, onDone }: InviteProps) {

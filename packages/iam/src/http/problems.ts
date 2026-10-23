@@ -69,7 +69,9 @@ export function registerProblemSchemas(app: FastifyInstance, prefix: string) {
   app.addHook('onRoute', route => {
     const schema = route.schema as Record<string, any> | undefined;
     if (!route.url.startsWith(`${prefix}/`) || !schema || schema.hide) return;
-    const response: Record<string, unknown> = (schema.response ??= {});
+    // Kopie: Antwortschemas wie `Deleted` teilen sich mehrere Routen; sonst erhielte jede die Fehler der anderen
+    const response: Record<string, unknown> = { ...schema.response };
+    schema.response = response;
     for (const method of [route.method].flat()) {
       for (const [status, name] of Object.entries(problemResponses(method, route.url, schema))) {
         if (response[status] !== undefined || response[`${status[0]}xx`] !== undefined) continue;

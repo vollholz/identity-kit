@@ -9,7 +9,7 @@
  *   2. Listen und Konto: nur Daten von B
  *   3. Vollständigkeit: jede Route des Pakets ist hier abgedeckt; Routen der Beispiel-App sind begründet ausgenommen
  * Jeder Aufruf muss die gemeinte Route erreichen und die Schemaprüfung bestehen (sonst prüfte er nichts).
- * Die weiteren Module (Rollen, Entra) kommen mit ihren Teil-PRs hinzu. Die Verwaltung (Modul `admin`) läuft gegen den
+ * Die Entra-Anbindung kommt mit Teil-PR 7 hinzu. Die Verwaltung (Modul `admin`) läuft gegen den
  * `KeycloakFake` des Test-Kits; Plattform-Routen prüfen, dass B ohne platform-admin für A und Unbekanntes gleich 403 erhält.
  */
 import assert from 'node:assert/strict';
@@ -57,6 +57,14 @@ const FOREIGN: { route: string; label: string; call: (i: Ids) => Call }[] = [
   { route: 'PUT /v1/platform/organizations/{alias}/members/{id}/roles', label: 'Rollen in A setzen', call: i => ({ method: 'PUT', url: `/v1/platform/organizations/${i.alias}/members/${i.member}/roles`, body: { roles: ['viewer'] } }) },
   { route: 'POST /v1/platform/organizations/{alias}/members/{id}/invitation', label: 'Einladung in A erneut senden', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/members/${i.invitation}/invitation` }) },
   { route: 'DELETE /v1/platform/organizations/{alias}/members/{id}', label: 'aus A entfernen', call: i => ({ method: 'DELETE', url: `/v1/platform/organizations/${i.alias}/members/${i.member}` }) },
+  // Rollen und Personen von A
+  { route: 'GET /v1/roles/{key}', label: 'eigene Rolle von A lesen', call: i => ({ method: 'GET', url: `/v1/roles/${i.role}` }) },
+  { route: 'PATCH /v1/roles/{key}', label: 'eigene Rolle von A ändern', call: i => ({ method: 'PATCH', url: `/v1/roles/${i.role}`, body: { description: 'fremd' } }) },
+  { route: 'DELETE /v1/roles/{key}', label: 'eigene Rolle von A löschen', call: i => ({ method: 'DELETE', url: `/v1/roles/${i.role}` }) },
+  { route: 'POST /v1/acl', label: 'Zugriffsregel für die eigene Rolle von A', call: i => ({ method: 'POST', url: '/v1/acl', body: { resourceType: 'tenant', principalType: 'role', principalRef: i.role, permission: 'note:read', effect: 'deny' } }) },
+  { route: 'GET /v1/people/{id}', label: 'Person von A lesen', call: i => ({ method: 'GET', url: `/v1/people/${i.person}` }) },
+  { route: 'GET /v1/people/{id}', label: 'Client von A lesen', call: i => ({ method: 'GET', url: `/v1/people/${i.clientPrincipal}` }) },
+  { route: 'GET /v1/people', label: 'Personen von A über ids', call: i => ({ method: 'GET', url: `/v1/people?ids=${i.person}&ids=${i.clientPrincipal}` }) },
   { route: 'DELETE /v1/acl/{id}', label: 'Zugriffsregel von A löschen', call: i => ({ method: 'DELETE', url: `/v1/acl/${i.acl}` }) },
 ];
 
@@ -71,6 +79,11 @@ const LISTS: { route: string; url: string }[] = [
   { route: 'GET /v1/admin/clients', url: '/v1/admin/clients' },
   { route: 'GET /v1/admin/status', url: '/v1/admin/status' },
   { route: 'GET /v1/admin/members', url: '/v1/admin/members' },
+  { route: 'GET /v1/roles', url: '/v1/roles' },
+  { route: 'GET /v1/people', url: '/v1/people' },
+  { route: 'GET /v1/people', url: '/v1/people?q=alice' },
+  { route: 'GET /v1/people', url: '/v1/people?kind=client' },
+  { route: 'GET /v1/people', url: '/v1/people?kind=client&q=geheim' },
 ];
 
 /** Routen der Beispiel-App (Fachrouten, nicht Teil des Pakets) und öffentliche Beschreibung. */
@@ -115,13 +128,18 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     tok.gus = await idp.token(claims.user({ org: 'globex', sub: gus.id, groupRoles: ['org-admin'], name: 'Gus Globex', email: 'gus@globex.example' }));
     tok.client = await idp.token(claims.client({ clientId: 'geheim-client', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }));
     a.person = JSON.parse((await as('alice', { method: 'GET', url: '/v1/me' })).text).principal.id;
-    assert.equal((await as('client', { method: 'GET', url: '/v1/me' })).status, 200);
+    const me = await as('client', { method: 'GET', url: '/v1/me' });
+    assert.equal(me.status, 200);
+    a.clientPrincipal = JSON.parse(me.text).principal.id;
     a.client = 'geheim-client';
     a.alias = 'acme';
     a.member = alice.id;
     const inv = await as('alice', { method: 'POST', url: '/v1/admin/members', body: { email: 'geheim-a-person@acme.example', firstName: 'GEHEIM-A', roles: ['viewer'] } });
     assert.equal(inv.status, 202, inv.text);
     a.invitation = JSON.parse(inv.text).member.id;
+    const role = await as('alice', { method: 'POST', url: '/v1/roles', body: { label: 'Geheimrolle A', description: 'GEHEIM-A', permissions: ['note:read'] } });
+    assert.equal(role.status, 201, role.text);
+    a.role = JSON.parse(role.text).key;
     ({ folder: a.folder!, note: a.note! } = await folderWithNote(t.runtime, A, 'GEHEIM-A Ordner'));
     const e = await as('alice', { method: 'POST', url: '/v1/acl', body: { resourceType: 'folder', resourceId: a.folder, principalType: 'user', principalRef: 'geheim-a-principal', permission: 'note:read', effect: 'deny' } });
     assert.equal(e.status, 201, e.text);
@@ -133,11 +151,13 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
   test('1. fremde IDs: gleiche Antwort wie eine unbekannte ID, ohne Daten von A', async () => {
     const problems: string[] = [];
     for (const f of FOREIGN) {
-      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : k === 'alias' ? unknownKey('org') : crypto.randomUUID()) });
+      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : k === 'alias' ? unknownKey('org') : k === 'role' ? unknownKey('c-unbekannt') : crypto.randomUUID()) });
       const cf = f.call(foreign.ids), cu = f.call(unknown.ids);
       const rf = await as('gus', cf), ru = await as('gus', cu);
       for (const [r, c] of [[rf, cf], [ru, cu]] as const) { const u = unreached(r, c.method, f.route); if (u) problems.push(`${f.label}: ${u}`); }
-      problems.push(...leaks(rf.text, { markers: MARKERS.filter(m => !cf.url.includes(m)), ids: Object.values(a).filter(v => !cf.url.includes(v)) }).map(x => `${f.label}: ${x}`));
+      // Was B selbst nennt (Pfad oder Body), darf als Echo zurückkommen
+      const input = `${cf.url} ${JSON.stringify(cf.body ?? '')}`;
+      problems.push(...leaks(rf.text, { markers: MARKERS.filter(m => !input.includes(m)), ids: Object.values(a).filter(v => !input.includes(v)) }).map(x => `${f.label}: ${x}`));
       const same = (r: ProbeResponse, used: Map<string, string>) => ({ status: r.status, body: normalize(r.text, new Map([...used].map(([k, v]) => [k, v]))) });
       // Die Client-ID ist eine Eingabe von B (Echo im Namen): im Vergleich durch ihren Schlüssel ersetzt
       const f1 = same(rf, foreign.used), u1 = same(ru, unknown.used);
@@ -150,6 +170,8 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     assert.deepEqual(kc.rolesOf(orgA, alice), ['org-admin'], 'Rollen von alice in A unverändert');
     assert.ok(kc.orgMembers.get(orgA.id)!.has(alice.id) && orgA.enabled && orgA.name === 'GEHEIM-A AG', 'Mitgliedschaft und Organisation A unverändert');
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.member_invitation WHERE id = $1 AND accepted_at IS NULL', [a.invitation])).rows[0].n, 1, 'Einladung von A offen');
+    assert.deepEqual((await t.inspect.query("SELECT description, version, deleted_at FROM notes.tenant_role WHERE key = $1", [a.role])).rows, [{ description: 'GEHEIM-A', version: 1, deleted_at: null }], 'Rolle von A unverändert');
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.acl_entry WHERE principal_ref = $1", [a.role])).rows[0].n, 0, 'keine Regel für die Rolle von A');
     // Eigene Freigaben von B aus den Aufrufen (Eingaben von B) entfernen, damit die Listen in 2. nur Daten von B ohne Echo zeigen
     await t.inspect.query("DELETE FROM notes.client_grant g USING notes.tenant t WHERE t.id = g.tenant_id AND t.alias = 'globex'");
   });
@@ -184,6 +206,14 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     assert.ok(kc.users.has(alice.id), 'Konto von alice bleibt');
     assert.deepEqual(kc.rolesOf(orgA, alice), ['org-admin'], 'Rollen von alice in A unverändert');
     covered.set('POST /v1/admin/members', 'Eindeutigkeit nur im Mandanten (Einladung einer Adresse aus A)');
+  });
+
+  test('3b. Eigene Rolle mit dem Namen der Rolle von A: angelegt mit demselben technischen Namen, nicht «-2»', async () => {
+    const r = await as('gus', { method: 'POST', url: '/v1/roles', body: { label: 'Geheimrolle A', permissions: ['note:read'] } });
+    assert.equal(r.status, 201, r.text);
+    assert.equal(JSON.parse(r.text).key, a.role, 'Schlüssel je Mandant');
+    assert.deepEqual(JSON.parse((await as('gus', { method: 'GET', url: '/v1/roles' })).text).items.filter((x: { custom: boolean }) => x.custom).map((x: { description: string }) => x.description), [''], 'nur die eigene Rolle');
+    covered.set('POST /v1/roles', 'Eindeutigkeit nur im Mandanten (Name und technischer Name der Rolle von A)');
   });
 
   test('4. Vollständigkeit: jede Route des Pakets geprüft, Routen der App begründet ausgenommen', () => {

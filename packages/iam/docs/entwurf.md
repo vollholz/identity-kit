@@ -326,6 +326,7 @@ Assets hat dieselben Objekte schon aus 001–049 und darf diese Dateien nicht ä
 | `acl` | `GET/POST /v1/acl`, `DELETE /v1/acl/:id`, `GET /v1/acl/effective` (echt und Simulation) | `resources` | `catalog/governance.ts`, `member-access.ts` |
 | `admin` | `/v1/admin/status`, `/v1/admin/members…`, `/v1/platform/organizations…` | `KEYCLOAK_MGMT_CLIENT_ID` (sonst 503 nach 9.1 Nr. 11) | `modules/admin/{index,service,sync}.ts`, `ops/tenants.ts` |
 | `roles` | `GET/POST /v1/roles`, `GET/PATCH/DELETE /v1/roles/:key` | immer lesbar; Ändern mit Verwaltung | `modules/admin/roles.ts` |
+| `people` | `GET /v1/people`, `GET /v1/people/:id` (Personenverzeichnis, Vertrag der Oberflächen-Bausteine) | Option `people.permissions` (Standard: Fachrechte von `<produkt>:read`, `acl:read`) | `modules/catalog/people.ts` |
 | `clients` | `/v1/admin/clients…`, `/v1/platform/organizations/:alias/clients…` | ohne Verwaltungs-Client nutzbar | `modules/admin/clients.ts` |
 | `entra` (KANN) | `/v1/admin/entra…`, `/v1/platform/organizations/:alias/entra…`, `/v1/platform/entra/refresh` | `ENTRA_CLIENT_ID` + Verwaltung | `modules/admin/{entra,graph}.ts` |
 | Worker-Job | `MemberSync` (Advisory-Lock, `MEMBER_SYNC_INTERVAL`, Client `-sync`) | `KEYCLOAK_SYNC_CLIENT_ID` | `worker/member-sync.ts`, `modules/admin/sync.ts` |
@@ -681,6 +682,26 @@ Audit-Trigger darauf warten.
 - **`sync`** (`src/sync.ts`, aus Assets `modules/admin/sync.ts` und `worker/member-sync.ts`): `orgMatches`,
   `syncTenantName`, `syncTenantMembers`, `syncAllMembers` mit `{ schema, audit }` als erstem Parameter;
   `new MemberSync(cfg, db, { schema, audit?, log?, fetch? })` wie 3.1 (Sperre `LOCKS.memberSync`).
-- **Offen**: `GET /v1/people`, `GET /v1/people/{id}` (Spez. 9.2 und 15.2: im Plugin, Vertrag der
-  Oberflächen-Bausteine; Assets `modules/catalog/people.ts`) sind noch keinem Teil-PR zugeordnet. Vorschlag: mit 6c.
-  Die Tests hier prüfen das Personenverzeichnis über die Tabelle `principal`.
+- `GET /v1/people`, `GET /v1/people/{id}` (Spez. 9.2 und 15.2) kommen mit Teil-PR 6c (entschieden 2026-10-23); die Tests
+  hier prüfen das Personenverzeichnis über die Tabelle `principal`.
+
+### 13.14 Module `roles` und `people` (Teil-PR 6c)
+
+- **Modul `roles`** (`src/http/roles.ts`, aus Assets `modules/admin/roles.ts`): `GET/POST /v1/roles`,
+  `GET/PATCH/DELETE /v1/roles/:key` mit `If-Match` (412), Grabstein (`deleted_at`, Schlüssel nie wieder vergeben),
+  Löschen entfernt zuerst die Gruppe in Keycloak (über `iam.admin`, wenn eingerichtet), dann die ACL-Einträge der
+  Rolle. Lesen mit `tenant:read`, Ändern nur Personen mit `members:admin`; Rechte eigener Rollen aus
+  `customRolePermissions` des Katalogs (Schema mit den Rechten der App als `enum`). Standardmässig aktiv, Tag
+  `Verwaltung: Rollen`. Liste und Rolle im selben Format wie `…/platform/organizations/{alias}/roles` (`roleList`).
+- **Modul `people`** (`src/http/people.ts`, aus Assets `modules/catalog/people.ts`): Liste mit Suche, Cursor und
+  Sammelabfrage `ids` (höchstens 100), einzeln auch Clients und entfernte Personen; Sicht auf E-Mail (Personen,
+  Verwaltende) und letzten Zugriff (nur `acl:read` oder `tenant:admin`) wie Assets. Recht: eines aus der Plugin-Option
+  `people.permissions` irgendwo (`canSomewhere`); Standard (`defaultPeoplePermissions`) die Fachrechte des Lese-Scopes
+  `<produkt>:read` ohne reservierte, dazu `acl:read` (Spez. 9.2 «lesendes Fachrecht bzw. acl:read»). Assets übergibt
+  `['object:read']` (dort heute nur dieses Recht). Standardmässig aktiv, Tag `Personen`.
+- **Bausteine** in `routes.ts`: `Limit`, `Cursor`, `NextCursor`, `encodeCursor`, `decodeCursor`, `likePattern`, `etag`,
+  `ifMatchVersion` (aus Assets `http/route-kit.ts`).
+- **Fehlerantworten je Route** (`registerProblemSchemas`): Der Hook ergänzte bisher das Antwortobjekt der Route selbst;
+  geteilte Objekte wie `Deleted` erhielten so die Fehler aller Routen (z. B. 412 für jedes `DELETE`, sobald eine Route
+  `If-Match` kennt). Jetzt eine Kopie je Route. Assets: `http/app.ts:452`, gleich betroffen (16 Routen mit `Deleted`).
+- Die Isolationstests decken damit alle Routen des Pakets ausser der Entra-Anbindung (Teil 7) ab.

@@ -12,6 +12,11 @@ export interface IamPaths {
   members: string;
   roles: string;
   clients: string;
+  /**
+   * Seite «Anmeldung» (Entra ID). Die Rückkehrseiten liegen darunter: `<entra>/zustimmung` (Zustimmung bei Microsoft)
+   * und `<entra>/test` (Testanmeldung). Beide müssen zu den Redirect-URIs der Entra-App und zu `ENTRA_*` des Servers
+   * passen; wer den Pfad ändert, ändert ihn dort mit (Spezifikation 9.2).
+   */
   entra: string;
   access: string;
   organizations: string;
@@ -54,6 +59,8 @@ export interface IamConfig {
   inviteRoles?: string[];
   /** `GROUP_ROLE_PREFIX` des Servers (Spezifikation 14) für den Hinweis auf die Gruppen der Rollen; Standard `/orgs`. */
   groupRolePrefix?: string;
+  /** Erlaubte Hosts für die Zustimmung bei Microsoft (nur https); Standard `login.microsoftonline.com`. */
+  entraConsentHosts?: string[];
   onTenant?: (me: Me) => void;
   onLogout?: () => void;
 }

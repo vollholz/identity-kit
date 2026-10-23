@@ -91,7 +91,7 @@ export function RolesPage() {
           </>
         )}
       </div></div>
-      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code>GET /v1/roles · POST /v1/roles · PATCH /v1/roles/&#123;key&#125; · DELETE /v1/roles/&#123;key&#125;</code></div>
+      <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code tabIndex={0}>GET /v1/roles · POST /v1/roles · PATCH /v1/roles/&#123;key&#125; · DELETE /v1/roles/&#123;key&#125;</code></div>
       {editing && q.data ? (
         <RoleDialog list={q.data} editing={editing} orgLabel={org} onStale={onStale} onClose={() => setEditing(null)}
           onDone={async (r, created) => { setEditing(null); await refresh(); toast.show(created ? t('iam.rolesPage.created', { role: r.label, org }) : t('iam.rolesPage.saved', { role: r.label })); }} />

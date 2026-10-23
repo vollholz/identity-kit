@@ -38,6 +38,8 @@ export interface IamProviderProps {
   inviteRoles?: string[];
   /** `GROUP_ROLE_PREFIX` des Servers, falls nicht `/orgs` (Hinweis auf die Gruppen der Rollen unter «Mitglieder»). */
   groupRolePrefix?: string;
+  /** Weitere Hosts für die Zustimmung bei Microsoft (z. B. nationale Clouds); Standard `login.microsoftonline.com`. */
+  entraConsentHosts?: string[];
   /** Nach jedem /auth/me mit Person und Organisation (z. B. Bereich persönlicher Einstellungen). */
   onTenant?: (me: Me) => void;
   /** Beim Abmelden, vor der Weiterleitung (z. B. persönliche Einstellungen im Browser löschen). */
@@ -46,7 +48,7 @@ export interface IamProviderProps {
 }
 
 export function IamProvider(props: IamProviderProps) {
-  const { product, brand, locale = 'de', texts, queryClient, router, paths, features, legacyTabKey, components, roleGroups, roleIcons, inviteRoles, groupRolePrefix, onTenant, onLogout, children } = props;
+  const { product, brand, locale = 'de', texts, queryClient, router, paths, features, legacyTabKey, components, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, onTenant, onLogout, children } = props;
   const outer = useContext(QueryClientContext);
   const [own] = useState(() => (queryClient || outer ? null : new QueryClient()));
   const client = queryClient ?? outer ?? own!;
@@ -55,8 +57,8 @@ export function IamProvider(props: IamProviderProps) {
   // Texte vor dem Zeichnen der Kinder setzen (modulweit, auch für Code ohne React)
   const textState = useMemo(() => { configureTexts({ locale, texts: texts ?? {} }); return { locale, version: Date.now() }; }, [locale, texts]);
   const config = useMemo<IamConfig>(() => ({
-    product, brand, paths: { ...DEFAULT_PATHS, ...paths }, features: features ?? {}, router: router ?? historyRouter, roleGroups, roleIcons, inviteRoles, groupRolePrefix, onTenant, onLogout,
-  }), [product, brand, paths, features, router, roleGroups, roleIcons, inviteRoles, groupRolePrefix, onTenant, onLogout]);
+    product, brand, paths: { ...DEFAULT_PATHS, ...paths }, features: features ?? {}, router: router ?? historyRouter, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, onTenant, onLogout,
+  }), [product, brand, paths, features, router, roleGroups, roleIcons, inviteRoles, groupRolePrefix, entraConsentHosts, onTenant, onLogout]);
   return (
     <QueryClientProvider client={client}>
       <IamTextProvider value={textState}>

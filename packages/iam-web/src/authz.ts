@@ -10,6 +10,7 @@ import { iamFetch } from './client.ts';
 import { useIamConfig, type RoleGroup } from './config.tsx';
 import type { AuthzCatalog, CatalogRole, PermissionInfo, Role, RoleList } from './contract.ts';
 import { iamKeys } from './keys.ts';
+import { useIamMaybe } from './session.tsx';
 import { ADMIN_ROLE, isCustomRole, type Permission } from './permissions.ts';
 import { currentLocale, t } from './texts/index.ts';
 import { useIamText } from './texts/react.tsx';
@@ -104,7 +105,9 @@ export function useRoles(enabled = true) {
 export function useAuthz(): Authz {
   const { roleGroups } = useIamConfig();
   const q = useAuthzCatalog();
-  // Eigene Rollen der Organisation: fehlen sie (kein Recht, Fehler), zeigen die Helfer ihren Schlüssel
-  const roles = useRoles();
+  // Eigene Rollen der Organisation (GET /v1/roles braucht tenant:read auf Ebene der Organisation; ohne würde jede Seite
+  // ein 403 und damit eine erneute Prüfung von /auth/me auslösen). Fehlen sie, zeigen die Helfer ihren Schlüssel.
+  const session = useIamMaybe();
+  const roles = useRoles(session ? session.can('tenant:read') : true);
   return useMemo(() => makeAuthz(withCustomRoles(q.data, roles.data?.items), roleGroups), [q.data, roles.data, roleGroups]);
 }

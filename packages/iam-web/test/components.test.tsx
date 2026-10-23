@@ -340,6 +340,13 @@ describe('Knopf und Tabelle', () => {
     link.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     expect(linkClick).not.toHaveBeenCalled();
+    // ohne href: auch Mittelklick und «In neuem Tab öffnen» navigieren nicht; bleibt fokussierbar
+    expect(link).not.toHaveAttribute('href');
+    expect(link).toHaveAttribute('tabindex', '0');
+    link.focus();
+    expect(link).toHaveFocus();
+    rerender(<Button href="/auth/login" onClick={linkClick}>Weiter</Button>);
+    expect(screen.getByRole('link', { name: 'Weiter' })).toHaveAttribute('href', '/auth/login');
   });
 
   it('Tabelle: Rahmenklassen und Stapeln unter 760 px', () => {

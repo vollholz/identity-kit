@@ -13,8 +13,8 @@
  * Herkunft: vollholz/assets `web/src/auth/session.tsx`.
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { authFetch, loginUrl, onForbidden, onSessionExpired, setCsrfToken, setTenant } from './client.ts';
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { authFetch, loginUrl, onForbidden, onSessionExpired, reportStatus, setCsrfToken, setTenant } from './client.ts';
 import { useIamConfig, type IamConfig } from './config.tsx';
 import type { Me, SwitchResult } from './contract.ts';
 import { iamKeys } from './keys.ts';
@@ -70,11 +70,21 @@ function applyMe(me: Me, config: IamConfig) {
   config.onTenant?.(me);
 }
 
-/** Alle Daten ausser /auth/me aus dem Cache: nichts aus einer anderen Organisation weiterzeigen. */
-function clearTenantData(qc: QueryClient) {
-  qc.removeQueries({ predicate: q => !(q.queryKey[0] === iamKeys.me[0] && q.queryKey[1] === iamKeys.me[1]) });
+const notMe = { predicate: (q: { queryKey: readonly unknown[] }) => !(q.queryKey[0] === iamKeys.me[0] && q.queryKey[1] === iamKeys.me[1]) };
+
+/**
+ * Alle Daten ausser /auth/me aus dem Cache: nichts aus einer anderen Organisation oder von einer anderen Person
+ * weiterzeigen. Laufende Abfragen werden abgebrochen, damit keine späte Antwort die alten Daten zurückschreibt; die
+ * Kinder der Sitzung werden danach neu eingehängt (Schlüssel aus Person und Organisation) und laden neu.
+ */
+async function clearTenantData(qc: QueryClient) {
+  await qc.cancelQueries(notMe);
+  qc.removeQueries(notMe);
   qc.getMutationCache().clear();
 }
+
+/** Person und Organisation einer Antwort von /auth/me; ändert sich der Wert, gehört der Cache jemand anderem. */
+const scopeOf = (me: Me | undefined) => (me ? `${me.person.subject}:${me.tenant?.id ?? ''}` : '');
 
 async function getMe(): Promise<Me> {
   const r = await authFetch('/auth/me');
@@ -93,8 +103,9 @@ async function fetchMe(qc: QueryClient, config: IamConfig): Promise<Me> {
     me = await getMe();
   }
   if (me.tenant) writeTabOrg({ sub: me.person.subject, alias: me.tenant.alias, name: tenantName(me) });
-  const before = qc.getQueryData<Me>(iamKeys.me)?.tenant?.id;
-  if (before && me.tenant && before !== me.tenant.id) clearTenantData(qc);
+  // Andere Organisation (neue ID) oder andere Person im selben Tab (z. B. in einem anderen Tab ab- und neu angemeldet)
+  const before = qc.getQueryData<Me>(iamKeys.me);
+  if (before && scopeOf(before) !== scopeOf(me)) await clearTenantData(qc);
   applyMe(me, config);
   return me;
 }
@@ -129,14 +140,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const switchOrg = useCallback(async (alias: string) => {
     try {
       const r = await authFetch('/auth/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ org: alias, returnTo: config.paths.home }) });
-      if (!r.ok) throw await errorFrom(r);
+      // 401: «Sitzung abgelaufen» wie bei jeder Anfrage (11.1); 403: /auth/me neu prüfen
+      if (!r.ok) { reportStatus(r.status); throw await errorFrom(r); }
       let p: Partial<SwitchResult> = {};
       try { p = (await r.json()) as SwitchResult; } catch { /* leer */ }
       const me = qc.getQueryData<Me>(iamKeys.me);
       if (me) writeTabOrg({ sub: me.person.subject, alias, name: orgName(me, alias) });
       qc.clear();
       window.location.assign(p.redirect ?? config.paths.home);
-    } catch (e) { toast.error(e, t('iam.session.switchFailed')); }
+    } catch (e) {
+      // 401 zeigt schon «Sitzung abgelaufen»
+      if (!(e instanceof ApiError && e.status === 401)) toast.error(e, t('iam.session.switchFailed'));
+    }
   }, [qc, toast, config.paths.home]);
   const logout = useCallback(async () => {
     let r: Response;
@@ -195,7 +210,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
   return (
     <Ctx.Provider value={value}>
-      {children}
+      {/* Neu einhängen bei anderer Person oder Organisation: Komponenten der App zeigen nie Daten von vorher */}
+      <Fragment key={scopeOf(me)}>{children}</Fragment>
       {expired ? (
         <Dialog title={t('iam.session.expired.title')} onClose={() => setExpired(false)} role="alertdialog" width={440} initialFocus="[data-confirm]" top
           footer={<><Button variant="ghost" onClick={() => setExpired(false)}>{t('iam.session.expired.later')}</Button><Button data-confirm variant="primary" href={loginUrl()}>{t('iam.session.login')}</Button></>}>
@@ -233,6 +249,9 @@ export function Gate({ title, text, children }: { title: string; text: string; c
 }
 
 /** Sitzung mit Person, Organisation und Rechten; nur innerhalb von `IamProvider` (bzw. `StaticIam` in Tests). */
+/** Sitzung, falls vorhanden (für Bausteine, die auch ohne Sitzung funktionieren). */
+export const useIamMaybe = (): IamSession | null => useContext(Ctx);
+
 export function useIam(): IamSession {
   const s = useContext(Ctx);
   if (!s) throw new Error('IamProvider fehlt');

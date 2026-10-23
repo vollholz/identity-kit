@@ -11,10 +11,12 @@ import { orgAlias } from '../principal.ts';
 import { HIDDEN, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const FORM = 'application/x-www-form-urlencoded';
+/** Anbieter für Microsoft Entra ID: Plätze der App der Plattform (`entra-001` …) oder eigene App (`entra-app-<alias>`). */
+const ENTRA_IDP_PATTERN = '^entra-([0-9]{3}|app-[a-z0-9][a-z0-9_-]{0,62})$';
 const TAG_UI = 'Anmeldung (Oberfläche)';
 const Query = Type.Object({
   returnTo: Type.Optional(Type.String({ maxLength: 2048 })), org: Type.Optional(Type.String({ maxLength: 63 })),
-  idp: Type.Optional(Type.String({ pattern: '^entra-[0-9]{3}$', description: 'Anmeldung direkt über diesen Anbieter (Testanmeldung über Microsoft Entra ID); erzwingt eine neue Anmeldung' })),
+  idp: Type.Optional(Type.String({ pattern: ENTRA_IDP_PATTERN, description: 'Anmeldung direkt über diesen Anbieter (Testanmeldung über Microsoft Entra ID); erzwingt eine neue Anmeldung' })),
 });
 
 function wantsJson(accept: unknown) { return typeof accept === 'string' && accept.includes('application/json'); }
@@ -51,7 +53,7 @@ export const bffModule: IamModule = {
       scope.get('/auth/entra/:idp', {
         schema: schema('GET', '/auth/entra/:idp', {
           tags: [TAG_UI], summary: 'Anmeldung über Microsoft Entra ID (Link der Einladung)', security: [],
-          params: Type.Object({ idp: Type.String({ pattern: '^entra-[0-9]{3}$' }) }),
+          params: Type.Object({ idp: Type.String({ pattern: ENTRA_IDP_PATTERN }) }),
           querystring: Type.Object({ org: Type.Optional(Type.String({ maxLength: 63 })) }),
         }),
       }, async (req: FastifyRequest, reply: FastifyReply) => {

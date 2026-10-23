@@ -829,3 +829,24 @@ Audit-Trigger darauf warten.
   `entra.connect_failed`). `info.notice`: den Namen des Entra-Tenants kennt die App vor der Zustimmung nicht (Graph
   braucht die Zustimmung); angezeigt wird das Verzeichnis wie angegeben.
 
+
+### 13.18 Eigene App der Organisation (Kit 0.3)
+
+- Entscheid des Owners: Kunden haben mit einer Entra-App des Betreibers nichts zu tun. Jede Organisation verbindet mit
+  einer eigenen App in ihrem Tenant; die App der Plattform (ENTRA_CLIENT_ID) bleibt optional und ist ohne die Variable
+  aus. Portiert aus Assets #22 (dort Migration 050, nicht gemergt), angepasst ans Paket.
+- `iam_014`: `entra_connection.app_client_id`, `app_secret_enc` (AES-256-GCM `v1.<keyId>.<iv>.<tag>.<ct>`, AAD
+  `entra_connection:<mandant>:<anwendungs-id>`), `app_secret_expires_at`; Alias `entra-app-<alias>` zusätzlich zu den
+  Plätzen; `entra_consent_link.kind`. Rotation: `rewrapEntraSecrets` (Aufruf aus dem Rotationsskript der App).
+- `EntraGraph` mit `own`: Fehler bei Microsoft mit `reason` für die Eingaben der Organisation; `checkApp` prüft die
+  Rollen im Token (Graph-Tokens sind JWTs, gelesen ohne Signaturprüfung, sie kommen direkt von Microsoft), liest die
+  Organisation und – nur mit Application.Read.All o. ä. – den Ablauf über `passwordCredentials.hint` (erste drei Zeichen;
+  mehrere passende: das früheste Ende). Fehlende Berechtigung und fehlende Administratorzustimmung sind im Token nicht
+  unterscheidbar (keine Rolle) und ergeben beide `missing-permissions`.
+- `connect` nimmt die App als Parameter (`graphFor` für die übrigen Wege); `connectApp` und der Link mit
+  `kind: 'credentials'` (`handoverApp`) teilen sich Belegen, Einlösen in der Transaktion der Verbindung und Freigeben mit
+  der Zustimmung über einen Link (`claim`, `redeem`). Der Tenant des Credentials-Links ist bei der Erzeugung fest:
+  sonst könnte, wer den Link hat, ein beliebiges Verzeichnis anhängen.
+- Tenant suchen geht ohne App (OpenID-Konfiguration); `directory` ist ein `EntraGraph` ohne Zugangsdaten.
+- Bestehende, von Hand angelegte Anbieter übernimmt das Paket nicht (Entscheid Hauptsession): vor dem Neuverbinden in
+  Keycloak löschen; verknüpft wird beim Verbinden über die Objekt-ID.

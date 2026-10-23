@@ -9,7 +9,7 @@ Tests für Apps mit dem Baukasten (Spezifikation Kap. 14). Herkunft: vollholz/as
 | `startMockIdp({ audience, realm?, exchange? })`, `dpopKey()` | Discovery, JWKS, Tokens, Token Exchange (RFC 8693) mit DPoP, DPoP-Proofs |
 | `claimsFor({ personClientId, roleClientId?, groupPrefix? })` | `user()` und `client()`: Claims wie Keycloak (Organisationen, Rollengruppen, Service Accounts) |
 | `KeycloakFake` | Admin-API als `fetch`-Ersatz: Organisationen, Konten, Gruppen, Einladungen, Identity Provider; ab 0.3.0 Gruppennamen mit «/» abgelehnt (400), Präfixe mit mehreren Stufen also Stufe für Stufe anlegen |
-| `EntraFake` (ab 0.3.0) | Microsoft Entra ID als `fetch`-Ersatz für die Entra-Anbindung: OpenID-Konfiguration je Tenant, Zustimmung mit Anmeldung (`approve`: Code-Flow mit PKCE, ID-Token mit `wids`, Gast, eigenem JWKS), Token mit Client Credentials (Zustimmung, Geheimnis, Verzögerung), Graph `/organization` und `/users` mit `$filter` und `$search` |
+| `EntraFake` (ab 0.3.0) | Microsoft Entra ID als `fetch`-Ersatz für die Entra-Anbindung: OpenID-Konfiguration je Tenant, Zustimmung mit Anmeldung (`approve`: Code-Flow mit PKCE, ID-Token mit `wids`, Gast, eigenem JWKS), Token mit Client Credentials (Zustimmung, Geheimnis, Verzögerung), Graph `/organization` und `/users` mit `$filter` und `$search`; ab 0.4.0 eigene Apps je Tenant (`app`) |
 | `checkCatalog(GET /v1/authz/catalog, { product?, acl?, members? })` | reservierte Namen, Schlüsselregeln, Vollständigkeit (Kap. 8); ab 0.2.0 Stichwörter der Gruppen in Rollenbeschreibungen (`groups[].match`) und Rechte nur für Personen (`personOnly`), wenn der Katalog sie liefert |
 | `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`, `publicExecuteProblems`, `bypassRoleProblems` | allgemeine RLS-Prüfungen; liefern Befunde als Liste |
 | `routeCollector`, `installProbes`, `unreached`, `idSource`, `normalize`, `leaks`, `coverageProblems`, `routesOf`, `openApiPath` | Gerüst für den Isolations-Durchlauf über alle Routen |
@@ -30,6 +30,10 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **0.4.0:** `EntraFake.app(tenant, o)`: eigene App einer Organisation in ihrem Tenant (`FakeApp`: eigenes Geheimnis,
+  erteilte Anwendungsberechtigungen als `roles` im Token, Graph prüft sie mit 403, `passwordCredentials` unter
+  `/applications(appId='…')` nur mit Application.Read.All). Wie Microsoft: App eines anderen Tenants AADSTS700016,
+  falsches Geheimnis AADSTS7000215, abgelaufen AADSTS7000222.
 - **0.3.1:** `KeycloakFake` mit `PUT /users/{id}/reset-password` (temporär: Pflichtaktion «Passwort setzen»)
   und `GET /roles/{name}` für die Ersteinrichtung (`orgBootstrap`); `checkCatalog` kennt `resourceTypes[].leaf`.
 - **0.3.0:** `EntraFake` (vorher nur in den Tests von `@vollholz/iam`) mit `FakeTenant` und `FakeEntraUser`, dazu

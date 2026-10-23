@@ -90,6 +90,9 @@ export async function setTenantStatus(ctx: TenantsContext, admin: Admin, runtime
  * Besitzer-Rolle (Betriebsskript): die Laufzeit darf die Mandantenzeile nicht ändern. Vergisst den Mandanten in
  * `ctx.resolver` (sonst nach spätestens 60 s). E-Mail-Adressen werden nur ASCII klein geschrieben verglichen (`lower()`
  * faltete das Kelvin-Zeichen zu «k»).
+ * Nicht atomar: Personen umhängen, Organisations-ID setzen und Protokoll laufen in drei Transaktionen (die Besitzer-Rolle
+ * sieht `principal` und `audit_log` unter FORCE RLS nicht, die Laufzeit darf `kc_org_id` nicht ändern). Scheitert das
+ * Protokoll, ist der Mandant umgehängt ohne `tenant.relinked`: den Eintrag von Hand nachtragen.
  */
 export async function relinkTenant(
   ctx: TenantsContext, admin: pg.ClientBase | Db, runtime: Db, alias: string, kcOrgId: string, subjects: Record<string, string> = {}, actor?: TenantActor,

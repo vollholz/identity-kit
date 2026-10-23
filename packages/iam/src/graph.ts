@@ -8,6 +8,11 @@
  * verifizierten Domänen (`Organization.Read.All`) und Personen (`User.Read.All`, für die Verknüpfung bestehender Konten und das
  * Hinzufügen aus Entra ID).
  *
+ * Eigene App der Organisation (`own`, Kit 0.3): gleicher Ablauf mit Anwendungs-ID und Geheimnis einer App im Tenant der
+ * Organisation. Fehler nennen dann die Eingaben der Organisation (`reason`: `wrong-tenant`, `invalid-secret`,
+ * `secret-expired`, `invalid-client`, `missing-permissions`) statt ENTRA_CLIENT_SECRET; `checkApp` prüft die erteilten
+ * Anwendungsberechtigungen und liest, wenn erlaubt, den Ablauf des Geheimnisses.
+ *
  * Wie keycloak.ts kennt diese Klasse keine Mandantengrenze; welcher Tenant zu welcher Organisation gehört, entscheidet
  * entra.ts. Adressen von Microsoft sind fest (kein SSRF über Eingaben); die Tenant-ID wird vor jeder Verwendung geprüft.
  */
@@ -72,20 +77,47 @@ export function notLinkable(u: EntraUser, domains: readonly string[], email?: st
   return null;
 }
 
-/** Fehler bei Microsoft → verständlicher Fehler der Plattform (Code von Entra, ohne Interna der Antwort). */
+/** Fehler bei Microsoft → verständlicher Fehler der Plattform (Code von Entra, ohne Interna der Antwort; `reason` für die Oberfläche). */
 export class EntraError extends HttpError {
   readonly code: string;
-  constructor(status: number, title: string, detail: string, code = '') { super(status, title, detail); this.code = code; }
+  constructor(status: number, title: string, detail: string, code = '', reason?: string) { super(status, title, detail, {}, reason ? { reason } : {}); this.code = code; }
 }
 
 type Fetch = typeof fetch;
 
+/** Berechtigung einer eigenen App in Microsoft Graph, mit Grund (Anleitung für die Kunden-IT). */
+export interface AppPermission { name: string; type: 'Application' | 'Delegated'; why: string; optional: boolean }
+/** Berechtigungen, die eine eigene App braucht; Anwendungsberechtigungen mit Administratorzustimmung im Tenant. */
+export const OWN_APP_PERMISSIONS: readonly AppPermission[] = [
+  { name: 'User.Read', type: 'Delegated', why: 'Anmeldung der Personen über Microsoft', optional: false },
+  { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses lesen', optional: false },
+  { name: 'User.Read.All', type: 'Application', why: 'Personen suchen und ihre Konten verknüpfen', optional: false },
+  { name: 'Application.Read.All', type: 'Application', why: 'Ablauf des geheimen Clientschlüssels lesen (Erinnerung vor dem Ablauf)', optional: true },
+];
+const REQUIRED_ROLES = OWN_APP_PERMISSIONS.filter(p => p.type === 'Application' && !p.optional).map(p => p.name);
+/** Anwendungsberechtigungen, mit denen die App ihr eigenes Geheimnis (Ablauf) lesen kann; optional. */
+const APP_READ_ROLES = ['Application.Read.All', 'Application.ReadWrite.All', 'Application.ReadWrite.OwnedBy'];
+
+/** Zugang einer App. `own`: App der Organisation in ihrem eigenen Tenant (nicht die der Plattform). */
+export interface EntraAppConfig { clientId: string; clientSecret: string; timeoutMs: number; own?: boolean }
+
+/** Ergebnis von `checkApp`: Organisation, erteilte Rollen und – nur mit Application.Read.All o. ä. – Ablauf des Geheimnisses. */
+export interface AppCheck { organization: EntraOrganization; roles: string[]; secretExpiresAt: Date | null }
+
+/** Rollen (`roles`) aus einem Zugriffstoken von Microsoft lesen, ohne Prüfung der Signatur (Token kommt direkt von Microsoft). */
+function tokenRoles(token: string): string[] | null {
+  try {
+    const p = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { roles?: unknown };
+    return Array.isArray(p.roles) ? p.roles.map(String) : [];
+  } catch { return null; }
+}
+
 export class EntraGraph {
-  private readonly cfg: { clientId: string; clientSecret: string; timeoutMs: number };
+  private readonly cfg: EntraAppConfig;
   private readonly fetchImpl: Fetch;
   private readonly tokens = new Map<string, { value: string; until: number }>();
 
-  constructor(cfg: { clientId: string; clientSecret: string; timeoutMs: number }, fetchImpl: Fetch = fetch) {
+  constructor(cfg: EntraAppConfig, fetchImpl: Fetch = fetch) {
     this.cfg = cfg; this.fetchImpl = fetchImpl;
   }
 
@@ -173,6 +205,13 @@ export class EntraGraph {
       // AADSTS-Code ohne Beschreibung (die kann Interna enthalten); 7000215/7000222: Geheimnis falsch bzw. abgelaufen
       const code = /AADSTS\d+/.exec(String(r.data?.error_description ?? ''))?.[0] ?? String(r.data?.error ?? r.status);
       const secret = /AADSTS7000(215|222)/.test(code);
+      if (this.cfg.own) {
+        // Eigene App: Eingaben der Organisation – sagen, welche nicht stimmt (700016: keine App mit dieser ID im Tenant)
+        if (/AADSTS7000222/.test(code)) throw new EntraError(409, 'Geheimnis abgelaufen', `Das Geheimnis der App ist abgelaufen (${code}). In der App einen neuen geheimen Clientschlüssel anlegen und eintragen.`, code, 'secret-expired');
+        if (secret) throw new EntraError(409, 'Geheimnis abgelehnt', `Microsoft lehnt das Geheimnis der App ab (${code}). Den Wert (nicht die ID) des geheimen Clientschlüssels angeben.`, code, 'invalid-secret');
+        if (/AADSTS700016/.test(code)) throw new EntraError(409, 'App nicht im Tenant', `Im Tenant gibt es keine App mit dieser Anwendungs-ID (${code}). Stimmen Tenant und Anwendungs-ID?`, code, 'wrong-tenant');
+        throw new EntraError(409, 'App nicht nutzbar', `Microsoft stellt der App kein Token aus (${code}). Stimmen Tenant, Anwendungs-ID und Geheimnis?`, code, 'invalid-client');
+      }
       throw new EntraError(secret ? 503 : 409, secret ? 'Entra-App falsch eingerichtet' : 'Keine Zustimmung im Tenant',
         secret ? `Microsoft lehnt das Geheimnis der App ab (${code}). ENTRA_CLIENT_SECRET prüfen.` : `Microsoft stellt kein Token für den Tenant aus (${code}). Hat eine Administration des Tenants der App zugestimmt?`, code);
     }
@@ -189,9 +228,38 @@ export class EntraGraph {
     if (r.status >= 300) {
       const code = String(r.data?.error?.code ?? r.status);
       throw new EntraError(r.status === 403 || r.status === 401 ? 409 : 502, r.status === 403 ? 'Recht in Entra ID fehlt' : 'Microsoft Graph nicht verfügbar',
-        `${what}: Microsoft Graph antwortet mit ${r.status} (${code})${r.status === 403 ? '. Fehlt die Admin-Zustimmung für eine Berechtigung der App?' : ''}.`, code);
+        `${what}: Microsoft Graph antwortet mit ${r.status} (${code})${r.status !== 403 ? '' : this.cfg.own
+          ? `. Fehlen der App die Anwendungsberechtigungen ${REQUIRED_ROLES.join(' und ')} (Microsoft Graph) mit Administratorzustimmung?`
+          : '. Fehlt die Admin-Zustimmung für eine Berechtigung der App?'}.`, code, r.status === 403 && this.cfg.own ? 'missing-permissions' : undefined);
     }
     return r.data as T;
+  }
+
+  /**
+   * Eigene App prüfen (vor dem Speichern): frisches Token im Tenant (Nachweis, dass Anwendungs-ID und Geheimnis zu einer
+   * App genau dieses Tenants gehören), erteilte Anwendungsberechtigungen aus dem Token (`roles`; fehlt eine aus
+   * OWN_APP_PERMISSIONS: 409 `missing-permissions` mit `missing`), Organisation lesen. Darf die App Anwendungen lesen
+   * (Application.Read.All o. ä.), liest sie den Ablauf ihres Geheimnisses (passwordCredentials, über `hint` = die ersten
+   * drei Zeichen; mehrere passende: das früheste Ende); sonst null.
+   */
+  async checkApp(tenantId: string): Promise<AppCheck> {
+    const roles = tokenRoles(await this.token(tenantId, true));
+    const missing = roles ? REQUIRED_ROLES.filter(r => !roles.includes(r)) : [];
+    if (missing.length) {
+      const e = new EntraError(409, 'Berechtigung fehlt', `Der App fehlen Anwendungsberechtigungen in Microsoft Graph: ${missing.join(', ')}. Hinzufügen und für den Tenant die Administratorzustimmung erteilen (eingetragen ohne Zustimmung zählt nicht).`, '', 'missing-permissions');
+      e.extra.missing = missing;
+      throw e;
+    }
+    const organization = await this.organization(tenantId);
+    let secretExpiresAt: Date | null = null;
+    if (GUID_RE.test(this.cfg.clientId) && roles?.some(r => APP_READ_ROLES.includes(r))) {
+      const app = await this.get<{ passwordCredentials?: { hint?: string | null; endDateTime?: string | null }[] }>(tenantId,
+        `/applications(appId='${this.cfg.clientId}')?$select=passwordCredentials`, { what: 'App lesen' }).catch(() => null);
+      const ends = (app?.passwordCredentials ?? []).filter(p => p.hint && this.cfg.clientSecret.startsWith(p.hint) && p.endDateTime)
+        .map(p => new Date(p.endDateTime!)).filter(d => !Number.isNaN(d.getTime())).sort((a, b) => a.getTime() - b.getTime());
+      secretExpiresAt = ends[0] ?? null;
+    }
+    return { organization, roles: roles ?? [], secretExpiresAt };
   }
 
   /** Organisation des Tenants mit ihren verifizierten Domänen (klein geschrieben). */

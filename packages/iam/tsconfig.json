@@ -7,5 +7,5 @@
   },
   "include": ["src", "test", "scripts"],
   // Entfallen mit Authz neu (Spezifikation Kap. 9.2, 10.2); Löschung offen, siehe PR «Zu löschen»
-  "exclude": ["src/catalog.ts", "src/http/acl.ts", "src/http/roles.ts", "test/acl.test.ts", "test/roles.test.ts", "test/assets-schema.test.ts", "scripts/assets-catalog.ts", "scripts/assets-schema.ts"]
+  "exclude": ["src/catalog.ts", "src/http/acl.ts", "src/http/roles.ts", "test/acl.test.ts", "test/roles.test.ts", "test/assets-schema.test.ts", "test/catalog.test.ts", "test/support/catalogs.ts", "test/support/assets-resources.ts", "scripts/assets-catalog.ts", "scripts/assets-schema.ts"]
 }

@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
+    "test": "node --test --test-reporter=spec $(ls test/*.test.ts | grep -v -x -e test/acl.test.ts -e test/roles.test.ts -e test/assets-schema.test.ts -e test/catalog.test.ts)"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",

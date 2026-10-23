@@ -412,7 +412,8 @@ Der Rechtekatalog steht an **einer** Stelle im Code (`authz/permissions.ts`) und
 - `GET /v1/authz/catalog`: Rechte (mit `adminOnly`), Gruppen, Rollen (mit Rechten, `adminOnly`), Scopes,
   Ressourcentypen (und MCP-Werkzeuge), für jede angemeldete Person und jeden Client, ohne Rechteprüfung. Ergänzt um
   `groups[].match` (Stichwörter der Gruppe als regulärer Ausdruck, [8.2](#82-regeln-für-den-katalog)) und
-  `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind), jeweils nur, wo gesetzt; für Assets
+  `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind) und `resourceTypes[].leaf` (`true` für
+  Blätter der Kette: dort keine Freigaben), jeweils nur, wo gesetzt; für Assets
   ist die Antwort die bisherige plus diese Felder.
 - Die Oberfläche hat **keine** eigenen Listen und Labels; ein Test prüft, dass ihr Typ `Permission` genau dem Katalog
   entspricht.

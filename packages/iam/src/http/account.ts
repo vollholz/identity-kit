@@ -30,7 +30,7 @@ export function authzCatalogSchema(catalog: Catalog) {
       permissions: Type.Array(PermissionT), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }),
     })),
     scopes: Type.Array(Type.Object({ key: Type.String(), text: Type.String(), permissions: Type.Array(PermissionT) }), { description: 'OAuth-Scopes für Maschinen-Clients und MCP' }),
-    resourceTypes: Type.Array(Type.Object({ key: ResourceTypeT, label: Type.String() })),
+    resourceTypes: Type.Array(Type.Object({ key: ResourceTypeT, label: Type.String(), leaf: Type.Optional(Type.Boolean({ description: 'Blatt der Kette: keine Freigaben (grant) auf diesem Typ, nur Verbote und Beschränkungen (fehlt sonst)' })) })),
     mcpTools: Type.Array(Type.Object({
       name: Type.String(), title: Type.String(), permission: PermissionT,
       scope: Nullable(Type.String({ description: `Scope, den das Recht im Token braucht; null beim Standard-Scope \`${catalog.product}:read\`` })),

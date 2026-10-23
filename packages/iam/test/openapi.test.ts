@@ -1,7 +1,7 @@
 /**
  * OpenAPI-Beschreibung der Routen des Pakets (Entwurf 13.4): Tags aus `IAM_API_TAGS`, Zusammenfassungen, übliche
  * Fehlerantworten (problem+json), Ersetzungen der App (Tags, Texte, Felder), Antwort von `GET /v1/authz/catalog` ohne
- * Verlust durch die Serialisierung (auch mit den ergänzten Feldern `match` und `personOnly`).
+ * Verlust durch die Serialisierung (auch mit den ergänzten Feldern `match`, `personOnly` und `leaf`).
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
@@ -100,6 +100,7 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     assert.deepEqual(perm.properties.key.enum, [...notesCatalog.permissions]);
     assert.ok(!perm.required.includes('personOnly') && perm.properties.personOnly);
     assert.ok(!s.properties.groups.items.required.includes('match') && s.properties.groups.items.properties.match);
+    assert.ok(!s.properties.resourceTypes.items.required.includes('leaf') && s.properties.resourceTypes.items.properties.leaf);
     assert.match(s.properties.mcpTools.items.properties.scope.anyOf[0].description, /Standard-Scope `notes:read`/);
   });
 
@@ -107,6 +108,7 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     const r = await n.app.inject({ method: 'GET', url: '/v1/authz/catalog', headers: { authorization: `Bearer ${await idp.token(claims.user({ org: 'acme' }))}` } });
     assert.deepEqual(r.json(), notesCatalog.toJSON());
     assert.ok(r.json().permissions.some((p: { personOnly?: boolean }) => p.personOnly) && r.json().groups.some((g: { match?: string }) => g.match));
+    assert.deepEqual(r.json().resourceTypes.filter((t: { leaf?: boolean }) => t.leaf).map((t: { key: string }) => t.key), ['note'], 'Blatt nur, wo gesetzt');
   });
 
   test('Ersetzungen der App: Tags, Zusammenfassung, Beschreibung, Felder (Titel oder Route)', async () => {

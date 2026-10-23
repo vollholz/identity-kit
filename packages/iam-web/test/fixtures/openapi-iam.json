@@ -4200,6 +4200,10 @@
              },
              "label": {
               "type": "string"
+             },
+             "leaf": {
+              "description": "Blatt der Kette: keine Freigaben (grant) auf diesem Typ, nur Verbote und Beschränkungen (fehlt sonst)",
+              "type": "boolean"
              }
             },
             "required": [

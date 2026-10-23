@@ -2539,6 +2539,8 @@ export interface paths {
                                 /** @enum {string} */
                                 key: "tenant" | "schema" | "type" | "object" | "connection" | "credential";
                                 label: string;
+                                /** @description Blatt der Kette: keine Freigaben (grant) auf diesem Typ, nur Verbote und Beschränkungen (fehlt sonst) */
+                                leaf?: boolean;
                             }[];
                             roles: {
                                 adminOnly: boolean;

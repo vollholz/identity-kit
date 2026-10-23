@@ -10,7 +10,7 @@ import { ADMIN_ROLE, CatalogError, defineCatalog, type AuthzCatalogJson, type Ca
 import { assetsCatalog, assetsFixture, assetsInput, notesCatalog, notesInput } from './support/catalogs.ts';
 
 /** Antwort ohne die Felder, die das Paket ergänzt. */
-const withoutAdditions = (j: AuthzCatalogJson) => ({ ...j, permissions: j.permissions.map(({ personOnly: _p, ...p }) => p), groups: j.groups.map(({ match: _m, ...g }) => g) });
+const withoutAdditions = (j: AuthzCatalogJson) => ({ ...j, permissions: j.permissions.map(({ personOnly: _p, ...p }) => p), groups: j.groups.map(({ match: _m, ...g }) => g), resourceTypes: j.resourceTypes.map(({ leaf: _l, ...r }) => r) });
 
 /** Befunde von defineCatalog (leer = gültig). */
 function errorsOf(input: unknown): string[] {
@@ -65,7 +65,7 @@ describe('defineCatalog: Ergänzungen und Reihenfolge', () => {
     assert.deepEqual(j.roles.map(r => r.key), ['org-admin', 'editor', 'viewer']);
     assert.deepEqual(j.roles[0]!.permissions, j.permissions.map(p => p.key));
     assert.equal(j.roles[0]!.description, 'Verwaltet die Organisation vollständig: Organisation, Notizen, Mitglieder und Rollen, Zugriff. Enthält alle anderen Rollen.');
-    assert.deepEqual(j.resourceTypes, [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz' }]);
+    assert.deepEqual(j.resourceTypes, [{ key: 'tenant', label: 'Organisation' }, { key: 'folder', label: 'Ordner' }, { key: 'note', label: 'Notiz', leaf: true }], 'Blatt ausgeliefert (resourceTypes[].leaf)');
     assert.deepEqual(notesCatalog.resourceTypes.filter(t => t.leaf).map(t => t.key), ['note']);
     assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'members:admin']);
     assert.deepEqual(checkCatalog(j, { product: 'notes', acl: true }), { errors: [], warnings: [] });

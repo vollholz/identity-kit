@@ -609,11 +609,15 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   Standard 15; höchstens 5 offene je Organisation, sonst 409 `too-many-links`). Er ist an Organisation, Mandant und
   Entra-Tenant gebunden, einmal einlösbar, widerrufbar
   (`DELETE …/consent-links/{id}`), nur als SHA-256 gespeichert und steht im Fragment: `<paths.entra>/freigabe#<token>`.
-  `GET …/consent-links` zeigt Zustand (`open`, `expired`, `revoked`, `connected` mit zustimmender Person, `failed` mit
-  Fehler). Die öffentliche Seite braucht keine Sitzung: `POST /v1/entra/handover/info` (Name der Organisation, Produkt,
-  `requestedBy` und `tenant` wie bei der Erzeugung angegeben, damit die Entra-Administration fremde Links erkennt), `…/start` (Adresse zu Microsoft), Rückkehr über `<paths.entra>/zustimmung` mit `state` `h.<alias>.…` an
-  `POST /v1/entra/handover/complete`. Gleicher Nachweis wie oben; verbunden wird im Namen der Erzeugerin, `consentBy` und
-  `viaLink` im Audit. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404; Ratenbegrenzung je IP, `no-store`. Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
+  `GET …/consent-links` zeigt alle offenen und die letzten 20 erledigten Links mit Zustand (`open`, `expired`, `revoked`,
+  `connected` mit zustimmender Person, `failed` mit Fehler). Offene Links verfallen, wenn die erzeugende Person entfernt
+  wird oder `members:admin` verliert (Plattform: die Realm-Rolle) und beim Trennen; geprüft auch beim Start und bei der
+  Rückkehr. Gesperrte Organisation: kein Link gilt (404). Die öffentliche Seite braucht keine Sitzung: `POST /v1/entra/handover/info` (Name der Organisation, Produkt,
+  `requestedBy` und `tenant` wie bei der Erzeugung angegeben, damit die Entra-Administration fremde Links erkennt, dazu
+  `notice`: Die verifizierten Domänen des Verzeichnisses gehen an die Organisation; den Namen des Entra-Tenants kennt die
+  App vor der Zustimmung nicht), `…/start` (Adresse zu Microsoft), Rückkehr über `<paths.entra>/zustimmung` mit `state` `h.<alias>.…` an
+  `POST /v1/entra/handover/complete`. Gleicher Nachweis wie oben; verbunden wird im Namen der erzeugenden Person, `consentBy` und
+  `viaLink` im Audit; eingelöst in derselben Transaktion wie die Verbindung. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404; Ratenbegrenzung je IP, `no-store`. Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
   `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`); `GET …/entra` nennt beide
   (`consentPath`, `testPath`), `testLoginPath` führt mit `returnTo` auf `testPath`. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
   `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei

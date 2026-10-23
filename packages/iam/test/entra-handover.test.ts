@@ -24,9 +24,11 @@ describe('Link an die Entra-Administration', { skip }, () => {
   let t: Awaited<ReturnType<typeof db.create>>, idp: MockIdp, app: NotesApp;
   const kc = new KeycloakFake();
   const ms = new EntraFake();
-  const u = {} as Record<'anna' | 'carla' | 'mona' | 'paula', FakeUser>;
+  const u = {} as Record<'anna' | 'carla' | 'mona' | 'paula' | 'otto', FakeUser>;
   let demo: FakeOrg, contoso: FakeTenant, fremd: FakeTenant, ga: FakeEntraUser;
   const routeConfig = new Map<string, Record<string, unknown>>();
+  /** Vor jedem Aufruf bei Microsoft (Adresse), z. B. um mitten im Nachweis den Link zu widerrufen. */
+  let onEntra: ((url: string) => Promise<void>) | null = null;
 
   const person = (x: FakeUser, org: string, roles: string[], extra: Record<string, unknown> = {}) =>
     idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
@@ -36,6 +38,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
   }
   const ok = (r: Res, status = 200) => { assert.equal(r.status, status, JSON.stringify(r.body)); return r.body; };
   const anna = () => person(u.anna, 'demo', ['org-admin']);
+  const otto = () => person(u.otto, 'demo', ['org-admin']);
   const mona = () => person(u.mona, 'muster', ['org-admin']);
   const paula = () => person(u.paula, 'ops', ['org-admin'], { realm_access: { roles: ['platform-admin'] } });
   const auditOf = async (action: string) => (await t.inspect.query<{ data: any; actor_name: string }>(
@@ -59,20 +62,22 @@ describe('Link an die Entra-Administration', { skip }, () => {
     u.anna = kc.user('anna', { email: 'anna@demo.example', firstName: 'Anna', lastName: 'Admin' });
     u.carla = kc.user('carla', { email: 'carla@demo.example', firstName: 'Carla', lastName: 'Leserin' });
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
+    u.otto = kc.user('otto', { email: 'otto@demo.example', firstName: 'Otto', lastName: 'Zweit' });
     u.paula = kc.user('paula', { email: 'paula@ops.example', firstName: 'Paula', lastName: 'Plattform' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.carla, ['viewer']);
+    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.carla, ['viewer']); kc.member(demo, u.otto, ['org-admin']);
     for (const alias of ['demo', 'muster', 'ops']) for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/${alias}/${r}`);
     kc.member(ops, u.paula, ['org-admin']);
+    kc.realmRoleMappings.set(u.paula.id, new Set(['platform-admin']));
     contoso = ms.tenant('Demo AG (Entra)', ['demo.example', 'demoag.onmicrosoft.com']);
     ms.user(contoso, 'anna@demo.example');
     ga = ms.user(contoso, 'it-admin@demoag.onmicrosoft.com', { displayName: 'Ivo IT' });
     fremd = ms.tenant('Fremd AG', ['fremd.example']);
     app = await notesApp({
-      db: t.runtime, issuer: idp.issuer, keycloakFetch: kc.fetch, entraFetch: ms.fetch, entraRetryMs: [0],
+      db: t.runtime, issuer: idp.issuer, keycloakFetch: kc.fetch, entraFetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => { await onEntra?.(String(input instanceof Request ? input.url : input)); return ms.fetch(input, init); }) as typeof fetch, entraRetryMs: [0],
       env: { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests', KEYCLOAK_MGMT_INVITE_MIN_TIME: '0', ...ENTRA },
       before: async a => { a.addHook('onRoute', r => { routeConfig.set(`${r.method} ${r.url}`, r.config as Record<string, unknown>); }); },
     });
-    for (const tok of [anna(), mona(), paula()]) ok(await call(tok, 'GET', '/v1/me'));
+    for (const tok of [anna(), otto(), mona(), paula()]) ok(await call(tok, 'GET', '/v1/me'));
   });
   after(async () => { await app?.app.close(); await idp?.close(); await t?.drop(); });
   // Jeder Test mit eigenen Links (höchstens 5 offene je Organisation)
@@ -98,12 +103,13 @@ describe('Link an die Entra-Administration', { skip }, () => {
   test('öffentlich ohne Anmeldung: nur Organisation, Produkt, wer fragt, Verzeichnis und Ablauf; nie zwischengespeichert; unbekannt immer 404; Ratenbegrenzung je IP', async () => {
     const l = await newLink();
     const r = await call(null, 'POST', '/v1/entra/handover/info', { token: l.token });
-    assert.deepEqual(Object.keys(ok(r)).sort(), ['entraTenantId', 'expiresAt', 'organization', 'product', 'requestedBy', 'tenant']);
+    assert.deepEqual(Object.keys(ok(r)).sort(), ['entraTenantId', 'expiresAt', 'notice', 'organization', 'product', 'requestedBy', 'tenant']);
     assert.deepEqual([r.body.organization, r.body.product], [(await t.inspect.query("SELECT name FROM notes.tenant WHERE alias = 'demo'")).rows[0].name, 'notes']);
     assert.deepEqual([r.body.requestedBy, r.body.tenant, r.body.entraTenantId], ['Anna Admin', 'demo.example', contoso.id], 'wer fragt und für welches Verzeichnis (gegen fremde Links)');
     assert.equal(r.headers['cache-control'], 'no-store');
     const bad = [`${l.token.slice(0, -1)}x`, l.token.replace(/^demo\./, 'muster.'), `gibtsnicht.${'a'.repeat(43)}`];
     for (const token of bad) assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token })).status, 404, token);
+    for (const token of [`${l.token}x`, `Demo.${l.token.split('.')[1]}`, `${l.token.slice(0, -1)}=`]) assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token })).status, 422, `Format: ${token}`);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: 'kurz' })).status, 422);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: `x.${'a'.repeat(43)}` })).status, 404, 'Alias mit einem Zeichen: Token mit 45 Zeichen gültig geformt');
     for (const x of ['info', 'start', 'complete']) {
@@ -189,7 +195,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await linkRow(l.id)).revoked_at, null);
   });
 
-  test('verbinden über den Link: Nachweis wie beim eigenen Verbinden, im Namen der Erzeugerin, zustimmende Person im Protokoll; danach eingelöst', async () => {
+  test('verbinden über den Link: Nachweis wie beim eigenen Verbinden, im Namen der erzeugenden Person, zustimmende Person im Protokoll; danach eingelöst', async () => {
     const l = await newLink();
     const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
     const url = new URL(start.url);
@@ -200,6 +206,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await t.inspect.query('SELECT entra_tenant_id::text AS t FROM notes.entra_connection')).rows[0].t, contoso.id);
     const a = (await auditOf('entra.connected')).at(-1)!;
     assert.deepEqual([a.actor_name, a.data.consentBy.name, a.data.viaLink, a.data.linkCreatedBy], ['Anna Admin', 'Ivo IT', l.id, 'Anna Admin']);
+    assert.equal((await auditOf('entra.consent_started')).at(-1)!.data.viaLink, l.id, 'Start im Protokoll');
     const item = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === l.id);
     assert.deepEqual([item.status, item.approverName, item.error], ['connected', 'Ivo IT', null]);
     assert.ok(ok(await call(anna(), 'GET', '/v1/admin/entra')).connection, 'org-admin sieht «verbunden»');
@@ -240,5 +247,122 @@ describe('Link an die Entra-Administration', { skip }, () => {
 
   test('mit einem anderen Tenant verbunden: Link für einen anderen Tenant 409', async () => {
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent-links', { tenant: fremd.id })).status, 409);
+  });
+
+  test('Liste: alle offenen und die letzten 20 erledigten Links; erledigte nach 90 Tagen gelöscht', async () => {
+    const open = await newLink();
+    await t.inspect.query(`INSERT INTO notes.entra_consent_link (tenant_id, token_hash, entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, revoked_at)
+      SELECT tenant_id, md5(random()::text || g), entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, now() + g * interval '1 second', now() + interval '1 hour', now()
+        FROM notes.entra_consent_link, generate_series(1, 22) g WHERE id = $1`, [open.id]);
+    const items = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items as any[];
+    assert.ok(items.some(x => x.id === open.id), 'offener Link trotz 22 neueren erledigten');
+    assert.equal(items.filter(x => x.status !== 'open').length, 20);
+    const old = (await t.inspect.query(`INSERT INTO notes.entra_consent_link (tenant_id, token_hash, entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at)
+      SELECT tenant_id, md5(random()::text), entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, now() - interval '100 days', now() - interval '100 days' + interval '15 minutes'
+        FROM notes.entra_consent_link WHERE id = $1 RETURNING id`, [open.id])).rows[0].id;
+    await newLink();
+    assert.equal(await linkRow(old), undefined, 'alt: gelöscht');
+    assert.ok(await linkRow(open.id));
+  });
+
+  test('Rechte ausserhalb der App entzogen (Keycloak): beim Start und bei der Rückkehr 404, Link widerrufen, nichts verbunden', async () => {
+    const adminGroup = kc.groupPath('/orgs/demo/org-admin').id;
+    const a = await newLink(undefined, otto());
+    kc.userGroups.get(u.otto.id)!.delete(adminGroup);
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/start', { token: a.token })).status, 404, 'Start');
+    assert.ok((await linkRow(a.id)).revoked_at);
+    assert.equal((await auditOf('entra.consent_link_revoked')).at(-1)!.data.reason, 'creator-lost');
+    kc.userGroups.get(u.otto.id)!.add(adminGroup);
+    const b = await newLink(undefined, otto());
+    const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: b.token }));
+    kc.userGroups.get(u.otto.id)!.delete(adminGroup);
+    try {
+      assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(start.url, ga, { wids: GA }))).status, 404, 'Rückkehr');
+    } finally { kc.userGroups.get(u.otto.id)!.add(adminGroup); }
+    const row = await linkRow(b.id);
+    assert.ok(row.revoked_at && !row.used_at);
+    assert.equal((await auditOf('entra.reconnected')).filter(x => x.data.viaLink === b.id).length, 0);
+  });
+
+  test('erzeugende Person verliert members:admin oder wird entfernt: ihre offenen Links verfallen sofort (creator-lost)', async () => {
+    const a = await newLink(undefined, otto());
+    const keep = await newLink();
+    ok(await call(paula(), 'PUT', `/v1/platform/organizations/demo/members/${u.otto.id}/roles`, { roles: ['viewer'] }));
+    assert.ok((await linkRow(a.id)).revoked_at, 'zurückgestuft: widerrufen');
+    assert.equal((await linkRow(keep.id)).revoked_at, null, 'Links anderer Personen bleiben');
+    const ev = (await auditOf('entra.consent_link_revoked')).at(-1)!;
+    assert.deepEqual([ev.data.linkIds, ev.data.reason], [[a.id], 'creator-lost']);
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: a.token })).status, 404);
+    ok(await call(paula(), 'PUT', `/v1/platform/organizations/demo/members/${u.otto.id}/roles`, { roles: ['org-admin'] }));
+    const b = await newLink(undefined, otto());
+    ok(await call(paula(), 'PUT', `/v1/platform/organizations/demo/members/${u.otto.id}/roles`, { roles: ['org-admin', 'viewer'] }));
+    assert.equal((await linkRow(b.id)).revoked_at, null, 'weiter org-admin: bleibt');
+    const removed = await call(paula(), 'DELETE', `/v1/platform/organizations/demo/members/${u.otto.id}`);
+    assert.ok(removed.status < 300, JSON.stringify(removed.body));
+    assert.ok((await linkRow(b.id)).revoked_at, 'entfernt: widerrufen');
+  });
+
+  test('Plattform-Link: verbindet im Namen der Plattform-Administration; ohne Realm-Rolle 404 und widerrufen', async () => {
+    const create = async () => {
+      const r = ok(await call(paula(), 'POST', '/v1/platform/organizations/demo/entra/consent-links', { tenant: contoso.id }), 201);
+      return { ...r, token: new URL(r.url).hash.slice(1) as string };
+    };
+    const p = await create();
+    ok(await viaLink(p.token));
+    const a = (await auditOf('entra.reconnected')).at(-1)!;
+    assert.deepEqual([a.actor_name, a.data.viaLink, a.data.consentBy.name], ['Paula Plattform', p.id, 'Ivo IT']);
+    const q = await create();
+    kc.realmRoleMappings.set(u.paula.id, new Set());
+    try {
+      assert.equal((await call(null, 'POST', '/v1/entra/handover/start', { token: q.token })).status, 404);
+    } finally { kc.realmRoleMappings.set(u.paula.id, new Set(['platform-admin'])); }
+    assert.ok((await linkRow(q.id)).revoked_at);
+  });
+
+  test('falscher state: Alias getauscht, o./p.-state an handover/complete, h.-state an consent/complete → 404; der richtige Weg geht danach', async () => {
+    const l = await newLink();
+    const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    const back = ms.approve(start.url, ga, { wids: GA });
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', { ...back, state: back.state.replace(/^h\.demo\./, 'h.muster.') })).status, 404, 'Alias getauscht');
+    for (const pre of ['o.', 'p.']) assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', { ...back, state: back.state.replace(/^h\./, pre) })).status, 404, pre);
+    assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', back)).status, 404, 'h.-state an consent/complete');
+    assert.equal((await call(paula(), 'POST', '/v1/platform/organizations/demo/entra/consent/complete', back)).status, 404, 'h.-state an die Plattform');
+    ok(await call(null, 'POST', '/v1/entra/handover/complete', back));
+    assert.ok((await linkRow(l.id)).used_at);
+  });
+
+  test('während des Nachweises widerrufen: nichts verbunden, Link nicht eingelöst', async () => {
+    const l = await newLink();
+    const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    onEntra = async url => {
+      if (!url.includes('/oauth2/v2.0/token')) return;
+      onEntra = null;
+      assert.equal((await call(anna(), 'DELETE', `/v1/admin/entra/consent-links/${l.id}`)).status, 204);
+    };
+    try {
+      const r = await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(start.url, ga, { wids: GA }));
+      assert.equal(r.status, 404, JSON.stringify(r.body));
+    } finally { onEntra = null; }
+    const row = await linkRow(l.id);
+    assert.ok(row.revoked_at && !row.used_at && !row.approver_name);
+    assert.equal((await auditOf('entra.reconnected')).filter(x => x.data.viaLink === l.id).length, 0);
+  });
+
+  test('gesperrte Organisation: Link gilt nicht (404); nach dem Entsperren wieder', async () => {
+    const l = await newLink();
+    const s1 = await call(paula(), 'POST', '/v1/platform/organizations/demo/suspend', {});
+    assert.ok(s1.status < 300, JSON.stringify(s1.body));
+    try {
+      assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: l.token })).status, 404);
+      assert.equal((await call(null, 'POST', '/v1/entra/handover/start', { token: l.token })).status, 404);
+    } finally { assert.ok((await call(paula(), 'POST', '/v1/platform/organizations/demo/resume', {})).status < 300); }
+    ok(await call(null, 'POST', '/v1/entra/handover/info', { token: l.token }));
+  });
+
+  test('Trennen: offene Links verfallen', async () => {
+    const l = await newLink();
+    assert.equal((await call(anna(), 'DELETE', '/v1/admin/entra')).status, 204);
+    assert.ok((await linkRow(l.id)).revoked_at);
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: l.token })).status, 404);
   });
 });

@@ -24,12 +24,16 @@ CREATE TABLE {{schema}}.entra_consent_link (
   revoked_at timestamptz,
   approver_name text CHECK (length(approver_name) <= 256),
   error_reason text CHECK (length(error_reason) <= 64),
-  error_detail text CHECK (length(error_detail) <= 1000)
+  error_detail text CHECK (length(error_detail) <= 1000),
+  UNIQUE (tenant_id, id)
 );
 CREATE INDEX entra_consent_link_created ON {{schema}}.entra_consent_link (tenant_id, created_at DESC);
 
 ALTER TABLE {{schema}}.entra_consent ALTER COLUMN subject DROP NOT NULL;
-ALTER TABLE {{schema}}.entra_consent ADD COLUMN link_id uuid REFERENCES {{schema}}.entra_consent_link(id);
+ALTER TABLE {{schema}}.entra_consent ADD COLUMN link_id uuid;
+-- Mit tenant_id: eine Zustimmung zeigt nie auf den Link eines anderen Mandanten; alte Links nehmen ihre Zustimmungen mit
+ALTER TABLE {{schema}}.entra_consent ADD CONSTRAINT entra_consent_link_fk FOREIGN KEY (tenant_id, link_id)
+  REFERENCES {{schema}}.entra_consent_link (tenant_id, id) ON DELETE CASCADE;
 ALTER TABLE {{schema}}.entra_consent ADD CONSTRAINT entra_consent_origin CHECK ((subject IS NULL) <> (link_id IS NULL));
 
 SELECT app.secure_tenant_tables();

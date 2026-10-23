@@ -45,7 +45,8 @@ describe(`Gleichheit mit Assets (${fixture.source})`, { skip }, () => {
   test(`iam_001 … ${IAM_BASELINE}, iam_010, iam_011, iam_012 = Assets 001–053`, async () => {
     const expected = structuredClone(fixture.snapshot) as SchemaSnapshot & { tables: Record<string, { indexes: Record<string, string> }> };
     for (const [table, index] of APP_OWNED) delete expected.tables[table]!.indexes[index];
-    const actual = await schemaSnapshot(t.inspect as pg.ClientBase, 'assets');
+    // Nur Tabellen im Abzug: spätere IAM-Tabellen (iam_013 …) gibt es in Assets 053 noch nicht
+    const actual = await schemaSnapshot(t.inspect as pg.ClientBase, 'assets', Object.keys(fixture.snapshot.tables));
     assert.deepEqual(diffSnapshots(actual, expected), []);
   });
 });

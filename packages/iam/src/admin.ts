@@ -460,6 +460,24 @@ export class AdminService {
     return { roles: rolesFromClaims(claims, asciiLower(org.alias), t).filter(r => known.has(r)), groups: tenantGroups(claims, asciiLower(org.alias), t) };
   }
 
+  /** Hat eine Person mit diesen Rollen `members:admin`? Eigene Rollen mit ihren Rechten (unter RLS des Mandanten in `tx`). */
+  async managesMembers(tx: Tx, roles: string[]): Promise<boolean> {
+    const custom = (await tx.query<{ key: string; permissions: string[] }>(`SELECT key, permissions FROM ${this.S}.tenant_role WHERE deleted_at IS NULL`)).rows;
+    return this.deps.catalog.permissionsForRoles(roles, new Map(custom.map(r => [r.key, r.permissions]))).has('members:admin');
+  }
+
+  /**
+   * Offene Links an die Entra-Administration, die diese Person für die Organisation erzeugt hat, widerrufen: Sie darf
+   * keine mehr erzeugen (entfernt oder ohne `members:admin`). Links der Plattform-Administration bleiben.
+   */
+  async revokeConsentLinksOf(w: Pick<Work, 'tx' | 'tenantId' | 'log'>, subject: string) {
+    const ids = (await w.tx.query<{ id: string }>(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now()
+      WHERE created_by_subject = $1 AND NOT platform AND used_at IS NULL AND revoked_at IS NULL RETURNING id`, [subject])).rows.map(r => r.id);
+    if (!ids.length) return;
+    await w.tx.query(`UPDATE ${this.S}.entra_consent SET expires_at = now() WHERE link_id = ANY($1::uuid[]) AND used_at IS NULL`, [ids]);
+    await w.log({ action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: w.tenantId, data: { linkIds: ids, reason: 'creator-lost' } });
+  }
+
   /** Mitglied bzw. eingeladene Person nach der ID von aussen (Mitglieds- oder Einladungs-ID). */
   async member(s: Scope, id: string): Promise<Member> {
     const m = (await this.listMembers(s)).find(x => x.id === id);
@@ -747,6 +765,7 @@ export class AdminService {
         // Austritt erst jetzt, nach dem Entfernen in Keycloak: clock_timestamp() statt now() (Beginn der Transaktion,
         // vor dem Entfernen) – sonst höbe ein Token aus der Zwischenzeit (iat ≥ removed_at) den Austritt wieder auf
         await tx.query(`UPDATE ${this.S}.principal SET removed_at = clock_timestamp() WHERE kind = 'user' AND subject = $1`, [userId]);
+        await this.revokeConsentLinksOf({ tx, tenantId, log }, userId);
         await log({ action: t.invitation ? 'member.invitation_withdrawn' : 'member.removed', resourceType: 'member', resourceId: t.id,
           data: { email: t.invitation?.email ?? t.user?.email ?? null, roles, ...(s.platform ? { accountDeleted } : {}) } });
         return { accountDeleted: s.platform && accountDeleted, tenantId, userId };
@@ -782,7 +801,7 @@ export class AdminService {
     await this.checkRoles(s, roles);
     if (!this.rolesManageable) throw conflict('Rollen kommen aus Client-Rollen von Keycloak (ROLE_SOURCE=client) und lassen sich hier nicht verwalten.');
     const org = await this.org(s.alias);
-    await this.locked(s, org, { action: 'member.roles_change_failed', resourceType: 'member', resourceId: id }, async ({ tx, log, done }) => {
+    await this.locked(s, org, { action: 'member.roles_change_failed', resourceType: 'member', resourceId: id }, async ({ tx, tenantId, log, done }) => {
       await this.recheckRoles(s, org, roles);
       const t = await this.target(tx, org, id);
       const current = await this.rolesOf(org.alias, t.userId);
@@ -796,6 +815,7 @@ export class AdminService {
       for (const r of add) { await this.kc.joinGroup(t.userId, groups.get(r)!.id); done({ step: 'role_added', role: r }); }
       for (const r of del) { await this.kc.leaveGroup(t.userId, groups.get(r)!.id); done({ step: 'role_removed', role: r }); }
       await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: t.id, data: { added: add, removed: del, roles } });
+      if (!(await this.managesMembers(tx, roles))) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);
     });
     return this.member(s, id);
   }

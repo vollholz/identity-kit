@@ -78,7 +78,7 @@ const EntraResult = Type.Object({
   rejectedDomains: Type.Array(Type.String(), { description: 'Verifizierte Domänen, die bereits einer anderen Organisation zugeordnet sind (welcher, bleibt verborgen)' }),
 });
 const ConsentLink = Type.Object({
-  id: Type.String({ format: 'uuid' }), entraTenantId: Type.String(), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
+  id: Type.String({ format: 'uuid' }), entraTenantId: Type.String({ format: 'uuid' }), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
   status: Type.Union(['open', 'expired', 'revoked', 'connected', 'failed'].map(x => Type.Literal(x))),
   usedAt: Nullable(DateTime), approverName: Nullable(Type.String({ description: 'Person, die bei Microsoft zugestimmt hat' })),
   error: Nullable(Type.Object({ reason: Type.String(), detail: Type.String() })),
@@ -98,6 +98,10 @@ export const entraModule: IamModule = {
     if (!app.getSchema('Member')) throw new Error('Modul «entra» braucht das Modul «admin» (davor registriert)');
     app.addSchema(EntraConnection);
     app.addSchema(ConsentLink);
+    // Öffentliche Routen ohne Limit wären ungeschützt: deutlich warnen (das Plugin registriert die App)
+    app.addHook('onReady', async () => {
+      if (iam.entra && !app.hasDecorator('rateLimit')) app.log.warn('Modul «entra»: @fastify/rate-limit ist nicht registriert, die öffentlichen Routen /entra/handover/* sind unbegrenzt');
+    });
 
     const on = (): { svc: AdminService; ent: EntraService } => {
       if (!iam.admin || !iam.entra) throw new HttpError(503, 'Verwaltung nicht eingerichtet', OFF_DETAIL);
@@ -225,7 +229,7 @@ export const entraModule: IamModule = {
             validMinutes: Type.Optional(Type.Integer({ minimum: 5, maximum: 1440, description: 'Gültigkeit in Minuten (Standard 15, höchstens 24 Stunden)' })),
           }, { additionalProperties: false }),
           description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf (höchstens 5 offene je Organisation, sonst 409 \`too-many-links\`; 10 pro Minute und Person): \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator»).`,
-          response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), url: Type.String(), entraTenantId: Type.String(), expiresAt: DateTime }) },
+          response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), url: Type.String(), entraTenantId: Type.String({ format: 'uuid' }), expiresAt: DateTime }) },
         }),
         config: { rateLimit: linkLimit },
       }, async (req, reply) => { const sc = await scope(req); return reply.status(201).send(await on().ent.createConsentLink(sc, req.body as { tenant: string; validMinutes?: number })); });
@@ -256,13 +260,14 @@ export const entraModule: IamModule = {
         schema: routeSchema(ctx, 'POST', `${prefix}/entra/handover/${path}`, { tags: [TAG], summary, description, body, security: [], response: { 200: response } }),
         config: { rateLimit: handoverLimit },
       }, async (req, reply) => { reply.header('cache-control', 'no-store'); return fn(req.body); });
-    const Token = Type.Object({ token: Type.String({ minLength: 45, maxLength: 120, description: 'Token aus dem Fragment des Links' }) }, { additionalProperties: false });
-    publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation und Produkt für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
+    const Token = Type.Object({ token: Type.String({ maxLength: 107, pattern: '^[a-z0-9][a-z0-9_-]{0,62}\\.[A-Za-z0-9_-]{43}$', description: 'Token aus dem Fragment des Links: `<alias>.<43 Zeichen base64url>`' }) }, { additionalProperties: false });
+    publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation, Produkt, wer fragt, Verzeichnis und Hinweis für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
       Token, Type.Object({
         organization: Type.String(), product: Type.String(),
         requestedBy: Type.String({ description: 'Name der Person, die den Link erzeugt hat' }),
         tenant: Type.String({ description: 'Verzeichnis (Domäne bzw. Tenant-ID) wie bei der Erzeugung angegeben' }),
-        entraTenantId: Type.String({ description: 'Tenant-ID, in dem zugestimmt werden muss' }), expiresAt: DateTime,
+        entraTenantId: Type.String({ format: 'uuid', description: 'Tenant-ID, in dem zugestimmt werden muss' }), expiresAt: DateTime,
+        notice: Type.String({ description: 'Hinweis für die Seite: Was die Zustimmung bewirkt (verifizierte Domänen gehen an die Organisation)' }),
       }), b => on().ent.handoverInfo(b.token));
     publicRoute('start', 'Link der Entra-Administration: Zustimmung starten', 'Ohne Anmeldung. Adresse der Zustimmung bei Microsoft (Code-Flow mit PKCE, `prompt=admin_consent`); Rückkehr auf dieselbe Seite wie beim eigenen Verbinden, `state` mit `h.`. Wiederholbar, solange der Link offen ist.',
       Token, Type.Object({ url: Type.String() }), b => on().ent.handoverStart(b.token));

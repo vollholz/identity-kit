@@ -575,6 +575,15 @@ tbody tr.iam-static:hover td{background:none}
 label.iam-chk{display:flex;gap:8px;align-items:center}
 .iam-entra-steps{display:flex;flex-direction:column;gap:8px;line-height:1.5}
 .iam-entra-steps .iam-ico{width:14px;height:14px;margin-right:4px;vertical-align:-2px}
+/* Eigene App-Registrierung: Anleitung, Felder (Dialog und öffentliche Seite) */
+.iam-entra-guide{display:flex;flex-direction:column;gap:10px;line-height:1.5;padding-left:20px;margin:4px 0 14px}
+.iam-entra-perms{margin:6px 0;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.iam-entra-perms code{overflow-wrap:anywhere}
+.iam-form .iam-hint.iam-ferr{color:var(--iam-bad)}
+.iam-gate-card:has(.iam-handover-form){max-width:640px}
+.iam-handover-form{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.iam-handover-form .iam-form{grid-template-columns:minmax(0,1fr);width:100%}
+.iam-handover-form .iam-form .iam-hint{grid-column:1}
 /* Verwalten › Zugriff (Assets base.css, app.css, features/acl/acl.css) */
 .iam-field .iam-inp{width:100%;height:34px}
 .iam-pickbtn.iam-inp{text-align:left;cursor:pointer;justify-content:space-between}

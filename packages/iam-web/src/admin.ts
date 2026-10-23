@@ -9,7 +9,7 @@ import { ifMatch, iamFetch } from './client.ts';
 import type {
   AdminStatus, ClientGrant, ClientGrantList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
   EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Member, MemberList, Organization, OrganizationInput,
-  HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
+  EntraOwnAppInput, HandoverCredentialsInput, HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
 } from './contract.ts';
 import { useIamConfig } from './config.tsx';
 import { iamKeys } from './keys.ts';
@@ -105,6 +105,8 @@ export function entraApi(alias: string | null) {
     enforce: (notLinked: string[]) => iamFetch<EntraResult>(`${base}/enforce`, { method: 'POST', body: { notLinked } }),
     refresh: () => iamFetch<EntraResult>(`${base}/refresh`, { method: 'POST' }),
     disconnect: () => iamFetch<void>(base, { method: 'DELETE' }),
+    /** Eigene App-Registrierung verbinden oder ihr Secret wechseln (ab iam 0.3.0). */
+    ownApp: (body: EntraOwnAppInput) => iamFetch<EntraResult>(`${base}/app`, { method: 'PUT', body }),
     /** Links an die Entra-Administration: anlegen (Link mit Token, nur jetzt sichtbar), Liste, widerrufen. */
     links: {
       create: (body: ConsentLinkInput) => iamFetch<ConsentLinkCreated>(`${base}/consent-links`, { method: 'POST', body }),
@@ -126,6 +128,8 @@ export const handoverApi = {
   info: (token: string) => iamFetch<HandoverInfo>('/v1/entra/handover/info', { method: 'POST', body: { token } satisfies HandoverToken, anonymous: true }),
   start: (token: string) => iamFetch<HandoverStart>('/v1/entra/handover/start', { method: 'POST', body: { token } satisfies HandoverToken, anonymous: true }),
   complete: (body: EntraConsentReturn) => iamFetch<HandoverResult>('/v1/entra/handover/complete', { method: 'POST', body, anonymous: true }),
+  /** Eigene App-Registrierung über den Link eintragen (ab iam 0.3.0). */
+  credentials: (body: HandoverCredentialsInput) => iamFetch<HandoverResult>('/v1/entra/handover/credentials', { method: 'POST', body, anonymous: true }),
 };
 
 /** Testanmeldung festhalten (immer die eigene Organisation dieses Tabs; jede Person der Organisation). */

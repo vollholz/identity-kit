@@ -65,6 +65,27 @@ const here = () => (typeof window === 'undefined' ? '/' : `${window.location.pat
 export const isLocalPath = (p: string): boolean => p.startsWith('/') && !/^\/[/\\@]/.test(p);
 
 /**
+ * Anmeldelink vom Server (`testLoginPath`, `Mitglied.loginPath`) als absolute Adresse: nur ein Pfad unter «/auth/»
+ * dieser Herkunft, sonst `null` (dann zeigt die Oberfläche keinen Knopf und keinen Link).
+ */
+export function authLink(path: string | null | undefined): string | null {
+  if (!path || !isLocalPath(path) || !path.startsWith('/auth/')) return null;
+  const base = typeof window === 'undefined' ? origin : window.location.origin;
+  try {
+    const url = new URL(path, base);
+    return url.origin === base && url.pathname.startsWith('/auth/') ? url.href : null;
+  } catch { return null; }
+}
+
+/** Adresse für die Zustimmung bei Microsoft: nur https und ein Host aus `hosts`. */
+export function isConsentUrl(url: string, hosts: readonly string[]): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && !u.username && !u.password && hosts.includes(u.hostname.toLowerCase());
+  } catch { return false; }
+}
+
+/**
  * Anmeldung beim BFF mit Rücksprung; `org` wählt die Organisation vor (5.1). Ein `returnTo` ausserhalb der App (absolut,
  * «//…») wird zu «/»; der BFF prüft zusätzlich (5.2).
  */

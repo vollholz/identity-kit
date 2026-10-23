@@ -285,7 +285,8 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 
 | Endpunkt | Verhalten |
 |---|---|
-| `GET /auth/login?returnTo=&org=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. |
+| `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-\d{3}$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
+| `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-\d{3}$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
 | `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
 | `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles`, `permissions` (effektiv), `grantedPermissions` (immer, leer ohne Freigaben; [7.1](#71-entscheidung)), `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds`. Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
@@ -545,14 +546,18 @@ Organisationen und Mitgliedern, `docs/mandantentrennung.md` › Verwaltung.
 | `GET /v1/roles`, `GET /v1/roles/{key}` (vordefinierte und eigene, `memberCount` nur mit `members:admin`, `maxCustom`, `customPermissions`) | `tenant:read` |
 | `POST /v1/roles`, `PATCH /v1/roles/{key}`, `DELETE /v1/roles/{key}` | `members:admin`, nur Personen |
 | `GET/POST/PUT/DELETE /v1/admin/entra…` ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) | `members:admin` |
+| `POST /v1/admin/entra/test` (Testanmeldung melden; die Sitzung muss über den Anbieter angemeldet sein) | jede Person der Organisation |
+| `GET /v1/admin/members/entra-search?q=` (Personen im Verzeichnis, `selectable` und `reason`), `POST /v1/admin/members/entra` (`id`, `roles`, `sendEmail`; vorab anlegen und verknüpfen) | `members:admin`, nur mit Entra-Verbindung |
 | `GET /v1/admin/clients`, `PUT/DELETE /v1/admin/clients/{clientId}` (Freigabe von Maschinen-Clients, ohne Verwaltungs-Client nutzbar) | `members:admin` |
 | `GET /v1/people` (Suche `q`, `ids` bis 100 je Aufruf), `GET /v1/people/{id}`: Personenverzeichnis der Organisation (Mitglieder ohne `removed_at`, für Auswahlen und Zugriffsregeln) | Recht irgendwo (`canSomewhere`) eines lesenden Fachrechts bzw. `acl:read`; Vertrag für die Oberflächen-Bausteine |
 | `GET/POST /v1/platform/organizations`, `GET/PATCH /v1/platform/organizations/{alias}`, `POST …/{alias}/suspend`, `POST …/{alias}/resume` (Body optional `reason`) | `platform-admin` |
-| `…/v1/platform/organizations/{alias}/members…`, `…/{alias}/clients…` (wie oben) | `platform-admin` |
+| `…/v1/platform/organizations/{alias}/members…` (auch `…/members/entra-search`, `…/members/entra`), `…/{alias}/clients…`, `…/{alias}/entra…` (wie oben) | `platform-admin` |
 | `GET /v1/platform/organizations/{alias}/roles` (nur lesend, Format wie `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation, `memberCount`, `maxCustom`, `customPermissions`; noch nie benutzt: nur vordefinierte) | `platform-admin` |
 
 Datentyp Mitglied: `id`, `principalId`, `username`, `name`, `email`, `status` (`active` | `invited` | `disabled`),
-`roles`, `lastSeenAt` (letzter Zugriff auf die App), `createdAt`. Organisation: `id` (Keycloak), `alias`, `name`,
+`roles`, `lastSeenAt` (letzter Zugriff auf die App), `createdAt`, `loginPath` (nur bei einer offenen Einladung aus
+Entra ID: `/auth/entra/{idp}?org=…`, sonst `null`; die Oberfläche übernimmt nur Pfade unter `/auth/` der eigenen
+Herkunft). Organisation: `id` (Keycloak), `alias`, `name`,
 `description`, `enabled`, `domains`, `tenant` (`id`, `status`, `createdAt` oder `null`).
 
 ### 9.3 Abgleich ins Personenverzeichnis
@@ -580,6 +585,12 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   (`enforced`) mit bestätigter Liste der Personen, die die Anmeldung verlieren. Nur verifizierte Domänen, die keine
   andere Organisation hat; Gastkonten nie verknüpfen. `state` 15 min, einmalig, an Person, Organisation und Tenant
   gebunden.
+- Rückkehrseiten der Oberfläche: `<paths.entra>/zustimmung` (Zustimmung bei Microsoft, sendet `state`, `tenant`,
+  `admin_consent`, `error`, `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die
+  Testanmeldung). Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
+  `ENTRA_*` des Servers passen. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
+  `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei
+  `login.microsoftonline.com` (per Konfiguration erweiterbar).
 - Mit «Nur Entra» prüft der Resolver, dass die Sitzung über den Anbieter angemeldet ist (`identity_provider`), sonst 403
   `entra-login-required`; Einladen in die Domänen wird abgelehnt.
 - Personen aus Entra suchen, vorab anlegen und verknüpfen, Rollen setzen (Teil 2). Austritte über Graph/SCIM offen

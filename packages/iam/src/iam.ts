@@ -4,6 +4,7 @@
  * dient auch ausserhalb von Fastify (Tests, MCP-Dienst, Skripte).
  */
 import { AccessService } from './access.ts';
+import { Bff, type BffOptions } from './bff.ts';
 import type { AuditPort } from './audit.ts';
 import type { Catalog } from './catalog.ts';
 import type { IamConfig } from './config.ts';
@@ -38,6 +39,11 @@ export interface IamOptions<P extends string = string, S = unknown> {
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
   fetch?: typeof fetch;
+  /**
+   * Anmeldung der Oberfläche: gebaut, wenn `OIDC_BFF_CLIENT_SECRET` oder `OIDC_BFF_PRIVATE_KEY` gesetzt ist (dann sind
+   * `SESSION_SECRET` und in Produktion `ENCRYPTION_KEYS` Pflicht); `false` schaltet es ab (z. B. MCP-Dienst).
+   */
+  bff?: false | BffOptions;
 }
 
 export interface Iam<P extends string = string, S = unknown> {
@@ -52,6 +58,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly verifier: TokenVerifier;
   readonly resolver: PrincipalResolver;
   readonly access: AccessService<P, S>;
+  /** Anmeldung der Oberfläche (`SessionBridge` des Plugins, Modul `bff`) oder null. */
+  readonly bff: Bff | null;
   /** Echte Rollen und Gruppen anderer Personen (setzt das Modul `admin`). */
   memberAccess: MemberAccess | null;
   /** Transaktion im Mandantenkontext des Principals mit dem Kontext der App (`resources.dbContext`). */
@@ -65,11 +73,15 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const replay = o.replay ?? (o.cfg.ops.sharedState === 'postgres' ? new PgReplayStore(o.db, schema) : new MemoryReplayStore());
   const resources = o.resources ?? null;
   const access = new AccessService<P, S>(o.db, { catalog: o.catalog, schema, resources });
+  const provider = new OidcProvider(o.cfg.oidc.issuer, o.fetch);
+  const wantsBff = o.bff !== false && !!(o.cfg.oidc.bffClientSecret || o.cfg.oidc.bffPrivateKey);
+  const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.catalog.product }) : null;
   return {
     cfg: o.cfg, catalog: o.catalog, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
-    verifier: new TokenVerifier(new OidcProvider(o.cfg.oidc.issuer, o.fetch), o.cfg, replay),
+    verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver: new PrincipalResolver(o.db, o.cfg, { schema }),
     access,
+    bff,
     memberAccess: null,
     async tx(p, fn) {
       const settings = resources?.dbContext ? await resources.dbContext(p, access as AccessService) : undefined;

@@ -28,3 +28,4 @@ export { problem, problemResponses, registerProblemSchemas, registerErrorHandler
 export { IAM_API_TAGS, routeSchema, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
 export { authzCatalogSchema } from './http/account.ts';
 export { pointlessAcl } from './http/acl.ts';
+export { Bff, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';

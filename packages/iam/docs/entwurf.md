@@ -586,9 +586,25 @@ Audit-Trigger darauf warten.
     `iam_012` setzt dafür einen eindeutigen Index `NULLS NOT DISTINCT` (gleichzeitige Anfragen → 409).
   - `acl:admin` gilt auf der Ressource des Eintrags (Anlegen und Löschen): Ein Verbot von `acl:admin` auf X sperrt das
     Verwalten der Zugriffsregeln von X und darunter. Wirkt nur, wenn der Katalog `acl:admin` auf weiteren
-    Ressourcentypen führt (reserviert: nur `tenant`, wie Assets).
+    Ressourcentypen führt. Entschieden (Hauptsession, 2026-10-23): Das reservierte `acl:admin` bleibt bei
+    `resources: ['tenant']` (wie Assets); die Prüfung je Ressource ist der Mechanismus für Apps, die es erweitern.
   - `/v1/acl/effective`: Maschinen-Clients, die entfernt sind oder keine Freigabe mehr haben, gelten als Simulation;
     `scopes` begrenzen auch eine simulierte Person mit `principal`.
   - Cookies: `@fastify/cookie` muss mit dem ersten Geheimnis von `SESSION_SECRET` signieren und jedes annehmen
     (Rotation). `DPOP_MODE` wird vor dem Resolver geprüft (abgewiesene Tokens schreiben nichts); alle 401 tragen
     `WWW-Authenticate`.
+
+### 13.11 Modul `bff` (Teil-PR 5)
+
+- **`createIam`** baut `bff`, wenn `OIDC_BFF_CLIENT_SECRET` oder `OIDC_BFF_PRIVATE_KEY` gesetzt ist (dann ist
+  `SESSION_SECRET` Pflicht, in Produktion auch `ENCRYPTION_KEYS`; sonst `ConfigError` beim Start); Option `bff: false`
+  schaltet es ab (MCP-Dienst), `bff: { now, log, cleanupIntervalMs }` für Tests. Das Plugin nimmt `iam.bff` als
+  `SessionBridge` und registriert das Modul `bff`, wenn es vorhanden ist.
+- **Cookies** heissen `<product>_sid` und `<product>_login`, in Produktion mit Präfix `__Host-` (Assets: `assets_sid`,
+  unverändert). Sitzungen in `<schema>.session` wie Assets (Hash der ID, Inhalt verschlüsselt, Erneuerung über
+  Zeilensperre, Backchannel-Logout mit Replay-Schutz aus `iam.replay`).
+- **Routen** wie Assets: `GET /auth/login`, `GET /auth/entra/:idp`, `GET /auth/callback` (versteckt), `GET /auth/switch`
+  (405), `POST /auth/switch`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/backchannel-logout` (versteckt); Tag
+  `Anmeldung (Oberfläche)`. Die Beschreibung von `/auth/me` nennt Freigaben «auf einzelnen Ressourcen» (Assets setzt
+  seinen Text über `openapi`). Die Auslieferung der Oberfläche (`/`, `/abgemeldet`, CSP) bleibt in der App.
+

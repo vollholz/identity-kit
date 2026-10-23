@@ -8,7 +8,7 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  AccessSheet, BreakGlassBanner, ClassificationBadge, GrantDialog, useBreakGlass, WhyDialog, type AccessEntry, type AccessList, type Explain, type IamConfig, type Me,
+  AccessSheet, BreakGlassBanner, ClassificationBadge, GrantDialog, useAccessList, useBreakGlass, WhyDialog, type AccessEntry, type AccessList, type Explain, type IamConfig, type Me,
 } from '../src/index.ts';
 import { json, mockIamApi, StaticIam, staticResources, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
@@ -250,11 +250,15 @@ describe('GrantDialog', () => {
     expect(await calls.find(c => c.method === 'POST')!.clone().json()).toEqual({ subject: 'org:members', relation: 'org-admin', type: 'org', id: null, expiresAt: null });
   });
 
-  it('Gruppe aus Entra ID (features.entra): Suche ab 2 Zeichen über /v1/access/groups; ohne Verbindung der Grund', async () => {
+  it('Gruppe aus Entra ID (features.entra und tenant.entraConnected): Suche ab 2 Zeichen über /v1/access/groups; 409 als Rückfall', async () => {
+    const connected = { tenant: { id: 't1', alias: 'demo', name: 'Demo AG', entraConnected: true } };
+    const { unmount: u0 } = setup(<GrantDialog resource={NOTE} label="Protokoll" grantable={['viewer']} onClose={() => {}} />, {}, { config: { features: { entra: true } } });
+    expect(within(await screen.findByRole('dialog')).queryByRole('radio', { name: 'Gruppe aus Entra ID' })).toBeNull();
+    u0();
     const { calls, unmount } = setup(<GrantDialog resource={NOTE} label="Protokoll" grantable={['viewer']} onClose={() => {}} />, {
       'GET /v1/access/groups': () => json({ items: [{ id: '0f0e-1', name: 'Abteilung X' }] }),
       'POST /v1/access': () => json(entry('t9'), 201),
-    }, { config: { features: { entra: true } } });
+    }, { me: connected, config: { features: { entra: true } } });
     const dlg = await screen.findByRole('dialog');
     await userEvent.click(within(dlg).getByRole('radio', { name: 'Gruppe aus Entra ID' }));
     expect(dlg).toHaveTextContent('Mindestens 2 Zeichen eingeben.');
@@ -267,7 +271,7 @@ describe('GrantDialog', () => {
     unmount();
     setup(<GrantDialog resource={NOTE} label="Protokoll" grantable={['viewer']} onClose={() => {}} />, {
       'GET /v1/access/groups': () => json({ title: 'Konflikt', status: 409, reason: 'entra-not-connected' }, 409),
-    }, { config: { features: { entra: true } } });
+    }, { me: connected, config: { features: { entra: true } } });
     const d2 = await screen.findByRole('dialog');
     await userEvent.click(within(d2).getByRole('radio', { name: 'Gruppe aus Entra ID' }));
     await userEvent.type(within(d2).getByRole('searchbox'), 'Ab');
@@ -278,10 +282,10 @@ describe('GrantDialog', () => {
 const EXPLAIN_OK: Explain = {
   allowed: true, permission: 'note:read', subject: { ref: 'user:p-anna', name: 'Anna Admin' },
   reasons: [
-    { via: 'inherited', relation: 'viewer', place: { type: 'folder', id: F1 }, tupleId: 't3', matched: 'org:members' },
-    { via: 'direct', relation: 'editor', place: NOTE, tupleId: 't1', matched: 'group:0f0e' },
-    { via: 'owner', relation: 'owner', place: NOTE, tupleId: 't7', matched: 'user:p-anna' },
-    { via: 'scope', relation: 'member', place: { type: 'folder', id: 'u1' }, tupleId: null, matched: 'user:p-anna', unit: { ref: { type: 'folder', id: 'u1' }, relation: 'gehört zu', grants: 'read' } },
+    { via: 'inherited', relation: 'viewer', place: { type: 'folder', id: F1 }, tupleId: 't3', matched: 'org:members', label: 'Alle Mitglieder' },
+    { via: 'direct', relation: 'editor', place: NOTE, tupleId: 't1', matched: 'group:0f0e', label: 'Abteilung X' },
+    { via: 'owner', relation: 'owner', place: NOTE, tupleId: 't7', matched: 'user:p-anna', label: 'Anna Admin' },
+    { via: 'scope', relation: 'member', place: { type: 'folder', id: 'u1' }, tupleId: null, matched: 'user:p-anna', label: 'Anna Admin', unit: { ref: { type: 'folder', id: 'u1' }, relation: 'gehört zu', grants: 'read' } },
   ],
   blocked: null,
 };
@@ -295,7 +299,7 @@ describe('WhyDialog', () => {
     const ways = within(within(dlg).getByRole('list', { name: 'Wege zum Recht' })).getAllByRole('listitem').map(li => li.textContent);
     expect(ways).toEqual([
       'über die Rolle «Leser:in» an Ordner «Projekte» – als Mitglied der Organisation («Alle Mitglieder»)',
-      'über die Rolle «Bearbeiter:in» direkt an «Protokoll» – über eine Gruppe aus Entra ID',
+      'über die Rolle «Bearbeiter:in» direkt an «Protokoll» – über die Gruppe «Abteilung X» aus Entra ID',
       'als Besitzer:in von «Protokoll»',
       'über die Zuständigkeit: «Protokoll» gehört zu Ordner «Abt X» (gehört zu)',
     ]);
@@ -339,9 +343,9 @@ describe('WhyDialog', () => {
   it('ohne org-admin kein Formular, sondern ein Hinweis; Scope fehlt: eigener Satz', async () => {
     const { unmount } = setup(<WhyDialog resource={NOTE} label="Protokoll" onClose={() => {}} />, {
       'GET /v1/access/explain': () => json({ ...EXPLAIN_OK, allowed: false, blocked: { reason: 'clearance', classification: 2, clearance: 0 } }),
-    }, { me: { roles: ['viewer'], clearance: 0 } });
+    }, { me: { roles: ['viewer'], clearance: 0, breakGlassAllowed: false } });
     const dlg = await screen.findByRole('dialog');
-    expect(await within(dlg).findByText(/Den Notfallzugang starten nur Personen mit der Rolle «Organisations-Admin»/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Den Notfallzugang starten nur Personen, denen die Rolle «Organisations-Admin» direkt gegeben ist/)).toBeInTheDocument();
     expect(within(dlg).queryByRole('button', { name: 'Notfallzugang starten' })).toBeNull();
     unmount();
     setup(<WhyDialog resource={NOTE} label="Protokoll" onClose={() => {}} />, {
@@ -377,7 +381,17 @@ describe('ClassificationBadge und Break-Glass', () => {
     expect(screen.queryByRole('region', { name: 'Notfallzugang' })).toBeNull();
   });
 
-  it('useBreakGlass: allowed nur mit org-admin an der Organisation, until, start und end', async () => {
+  it('läuft Break-Glass ab, lädt der Banner alle Daten unter «Zugriff» neu (dazu /auth/me)', async () => {
+    let lists = 0;
+    function Probe() { useAccessList(NOTE); return null; }
+    setup(<><BreakGlassBanner /><Probe /></>, {
+      'GET /v1/access': () => { lists += 1; return json(LIST); },
+    }, { me: { breakGlassUntil: new Date(Date.now() + 200).toISOString(), clearance: 2 } });
+    await waitFor(() => expect(lists).toBe(1));
+    await waitFor(() => expect(lists).toBeGreaterThan(1), { timeout: 3000 });
+  });
+
+  it('useBreakGlass: allowed aus me.breakGlassAllowed (nicht aus den Rollen), until, start und end', async () => {
     let result: ReturnType<typeof useBreakGlass> | null = null;
     function Probe() { result = useBreakGlass(); return null; }
     const { calls, unmount } = setup(<Probe />, {
@@ -391,7 +405,7 @@ describe('ClassificationBadge und Break-Glass', () => {
     expect(calls.filter(c => new URL(c.url).pathname === '/v1/break-glass').map(c => c.method)).toEqual(['POST', 'DELETE']);
     unmount();
     const until = new Date(Date.now() + 60_000).toISOString();
-    setup(<Probe />, {}, { me: { roles: ['viewer'], breakGlassUntil: until } });
+    setup(<Probe />, {}, { me: { roles: ['org-admin'], breakGlassAllowed: false, breakGlassUntil: until } });
     expect(result!.allowed).toBe(false);
     expect(result!.until?.toISOString()).toBe(until);
   });

@@ -152,12 +152,12 @@ Feld Vertraulichkeit, «Warum sehe ich das?» im Fuss), entscheidet die App.
 - **AccessSheet**: Wer, Rolle, Über (Ort; Pfeil öffnet ihn über `resources.open`), Bis. Direkte Einträge mit
   `removable` ändern (Ablauf) und entfernen; geerbte nur am Ursprung. «Freigeben» im Kopf, gesperrt mit Grund ohne
   `grantable`. Bei Typen mit `owner` und Rolle `viewer` am Typ der Schalter «Für alle Mitglieder» (`org:members viewer`).
-- **GrantDialog**: Person (Personenverzeichnis), Gruppe aus Entra ID (nur mit `features.entra`; Suche über
-  `GET /v1/access/groups`, ohne Verbindung der Grund), «Alle Mitglieder»; Rollen nur aus `grantable`; Ablaufdatum
+- **GrantDialog**: Person (Personenverzeichnis), Gruppe aus Entra ID (nur mit `features.entra` und
+  `me.tenant.entraConnected`; Suche über `GET /v1/access/groups`, bei 409 der Grund), «Alle Mitglieder»; Rollen nur aus `grantable`; Ablaufdatum
   optional (nicht bei org-admin). Clients nie – sie erhalten Rollen nur an der Organisation über «Mitglieder».
 - **WhyDialog**: `GET /v1/access/explain`; alle Wege zum Recht, was verhindert (Vertraulichkeit, Scope); ohne Weg die
   Rollen, die jemand am Ort freigeben könnte. Bei `blocked.reason = 'clearance'` und `useBreakGlass().allowed` startet
-  er Break-Glass mit Begründung und Dauer.
+  er Break-Glass mit Begründung und Dauer (`useBreakGlass().allowed` = `me.breakGlassAllowed`, nur direktes Tupel org-admin).
 - **Hooks** (`access/api.ts`): `useAccessList`, `useMyAccess`, `useSubjectAccess`, `useExplain`, `useGrant`,
   `usePatchAccess`, `useRevoke`, `useBreakGlass`; Mutationen invalidieren alles unter `iamKeys.access` und `/auth/me`.
 - **MissingRight** nimmt `place` (Ort mit Label: «Oder jemand gibt dir an «Projekte» die Rolle … frei») und

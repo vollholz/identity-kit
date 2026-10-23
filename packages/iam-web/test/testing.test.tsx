@@ -20,7 +20,7 @@ describe('Testhilfen', () => {
 
   it('StaticIam: feste Sitzung mit Überschreibungen, Organisation als X-Tenant', async () => {
     function Probe() { const { me, orgName, can } = useIam(); return <p>{`${me.person.name} in ${orgName}, lesen:${can('note:read')}`}</p>; }
-    render(<StaticIam me={{ tenant: { id: 't2', alias: 'muster', name: 'Muster GmbH' }, permissions: [] }}><Probe /></StaticIam>);
+    render(<StaticIam me={{ tenant: { id: 't2', alias: 'muster', name: 'Muster GmbH', entraConnected: false }, permissions: [] }}><Probe /></StaticIam>);
     expect(screen.getByText('Anna Admin in Muster GmbH, lesen:false')).toBeInTheDocument();
     const { tenantHeaders } = await import('../src/index.ts');
     expect(tenantHeaders('GET')).toEqual({ 'X-Tenant': 'muster' });

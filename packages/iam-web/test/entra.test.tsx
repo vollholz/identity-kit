@@ -333,8 +333,8 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
 });
 
 describe('Person aus Entra ID hinzufügen', () => {
-  const ANNA: Member = { id: 'sub-anna', kind: 'user', principalId: 'p1', username: 'anna', name: 'Anna Admin', email: 'anna@demo.example', status: 'active', roles: ['org-admin'], clearance: 2, breakGlassUntil: null, places: 0, lastSeenAt: new Date().toISOString(), createdAt: null, loginPath: null, clientId: null, scopes: null };
-  const NINA: Member = { id: 'm-nina', kind: 'user', principalId: 'p-new', username: 'nina@demo.example', name: 'Nina Neu', email: 'nina@demo.example', status: 'invited', roles: ['viewer'], lastSeenAt: null, createdAt: new Date().toISOString(), loginPath: '/auth/entra/entra-001?org=demo', clearance: 0, breakGlassUntil: null, places: 0, clientId: null, scopes: null };
+  const ANNA: Member = { id: 'sub-anna', kind: 'user', principalId: 'p1', username: 'anna', name: 'Anna Admin', email: 'anna@demo.example', status: 'active', roles: ['org-admin'], clearance: 2, breakGlassUntil: null, places: 0, lastSeenAt: new Date().toISOString(), createdAt: null, loginPath: null, clientId: null, scopes: null, description: null };
+  const NINA: Member = { id: 'm-nina', kind: 'user', principalId: 'p-new', username: 'nina@demo.example', name: 'Nina Neu', email: 'nina@demo.example', status: 'invited', roles: ['viewer'], lastSeenAt: null, createdAt: new Date().toISOString(), loginPath: '/auth/entra/entra-001?org=demo', clearance: 0, breakGlassUntil: null, places: 0, clientId: null, scopes: null, description: null };
   const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: false, canManageMembers: true, roles: CATALOG.roles };
   const HITS = { more: false, items: [
     { id: '11111111-0000-4000-8000-000000000001', name: 'Nina Neu', email: 'nina@demo.example', userPrincipalName: 'nina@demo.example', department: 'Planung', jobTitle: 'Planerin', selectable: true, reason: null },

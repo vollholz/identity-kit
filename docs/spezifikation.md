@@ -883,13 +883,14 @@ id: string | null }` (`id` leer genau bei `org`). Querparameter `type`, `id` wie
 ```ts
 interface Me {
   person: { subject: string; name: string | null; email: string | null };
-  tenant: { id: string; alias: string; name: string } | null;
+  tenant: { id: string; alias: string; name: string; entraConnected: boolean } | null;  // entraConnected: Entra-Verbindung besteht (Gruppen im GrantDialog)
   organizations: string[]; organizationNames: Record<string, string>; selectedOrganization: string | null; tenantError: string | null;
   roles: string[];               // Rollen an org (nicht abgelaufene Tupel eines meiner Subjekte)
   permissions: string[];         // Rechte an org
   somewhere: string[];           // Rechte, die an mindestens einem Ort gelten; Obermenge von permissions
   clearance: Level;              // wirksame Freigabestufe (mit Break-Glass)
   breakGlassUntil: string | null;
+  breakGlassAllowed: boolean;    // nur direktes Tupel user:<ich> org-admin an org (nicht über Gruppen oder org:members), 9.7
   csrfToken: string; session: { expiresAt: string; idleTimeoutSeconds: number };
 }
 interface ApiMe {                // wie bisher, grantedPermissions → somewhere
@@ -971,6 +972,7 @@ interface Explain {
     via: 'direct' | 'inherited' | 'scope' | 'owner';
     relation: string; place: ResourceRef; tupleId: string | null;
     matched: string;             // welches Subjekt passt, z. B. 'group:<entra-object-id>' oder 'org:members'
+    label: string;               // Anzeigename von matched: Gruppe aus dem Graph-Zwischenspeicher (sonst Objekt-ID), Person, Client, «Alle Mitglieder»
     unit?: { ref: ResourceRef; relation: string; grants: 'read' | 'edit' };
   }[];
   blocked:                       // was trotz Weg verhindert; null, wenn allowed oder kein Weg
@@ -1016,6 +1018,7 @@ interface Member {
   lastSeenAt: string | null; createdAt: string | null;
   loginPath: string | null;      // nur offene Einladung aus Entra ID
   clientId: string | null; scopes: string[] | null;   // nur Clients: Scopes im letzten Token
+  description: string | null;    // nur Clients: Beschreibung der Freigabe
 }
 interface Client {
   clientId: string; principalId: string; description: string;
@@ -1027,13 +1030,13 @@ interface Client {
 | Endpunkt | Anfrage | Antwort | Fehler |
 |---|---|---|---|
 | `GET /v1/admin/members` | – | 200 `{ items: Member[] }` – Personen **und** freigegebene Clients | 503 ohne Verwaltung |
-| `POST /v1/admin/members` | wie bisher (`email`, Name, `roles`, `sendEmail`) | 202 `{ result: 'invitation-sent', member: Member, … }` | 403 `exceeds-own`, `platform-admin-only`; 422 |
+| `POST /v1/admin/members` | wie bisher (`email`, `firstName`, `lastName`, `roles`; kein `sendEmail`) | 202 `{ result: 'invitation-sent', member: Member, … }` | 403 `exceeds-own`, `platform-admin-only`; 422 |
 | `PUT /v1/admin/members/{id}/roles` | `{ roles: string[] }` (Rollen an org, vollständige Liste) | 200 `Member` | 403 `exceeds-own`, `platform-admin-only`; 404; 409 `last-admin`; 422 `roles` |
 | `PUT /v1/admin/members/{id}/clearance` | `{ clearance: Level }` | 200 `Member` | 403 `exceeds-own`, `self`; 404; 422 |
 | `DELETE /v1/admin/members/{id}` | – | wie bisher (`accountDeleted`); löscht alle Tupel der Person | 404; 409 `last-admin`, `self` |
 | `POST /v1/admin/members/{id}/invitation` | – | 200 `{ emailSent: boolean }` | 404 |
 | `GET /v1/admin/clients` | – | 200 `{ items: Client[] }` | – |
-| `PUT /v1/admin/clients/{clientId}` | `{ roles: string[] (≥ 1); description?: string (≤ 500); clearance?: Level }` | 200 `Client` (legt Principal an, falls neu, A18) | 403 `exceeds-own`, `platform-admin-only`; 422 |
+| `PUT /v1/admin/clients/{clientId}` | `{ roles: string[] (≥ 1); description?: string (≤ 500, fehlt: bleibt); clearance?: Level (fehlt: bleibt) }` | 200 `Client` (legt Principal an, falls neu, A18) | 403 `exceeds-own`, `platform-admin-only`; 422 |
 | `DELETE /v1/admin/clients/{clientId}` | – | 204; löscht alle Tupel des Clients | 404 |
 
 `PUT …/roles` und `PUT /v1/admin/clients/{clientId}` setzen die Tupel `<subjekt> <rolle> org` auf genau die Liste
@@ -1044,7 +1047,7 @@ entfernter Rolle.
 
 | Endpunkt | Wer | Anfrage | Antwort | Fehler |
 |---|---|---|---|---|
-| `POST /v1/break-glass` | Person (nicht `scopeBound`) mit Tupel `org-admin` an `org` | `{ reason: string (1–500); minutes: integer (1–240) }` | 200 `{ until: string; clearance: 2 }` | 403; 422 |
+| `POST /v1/break-glass` | Person (nicht `scopeBound`) mit direktem Tupel `user:<id> org-admin` an `org` (nicht über Gruppen oder `org:members`; `/auth/me` `breakGlassAllowed`) | `{ reason: string (1–500); minutes: integer (1–240) }` | 200 `{ until: string; clearance: 2 }` | 403; 422 |
 | `DELETE /v1/break-glass` | dieselbe Person | – | 204 (auch ohne aktives Break-Glass) | 403 |
 
 Ein neuer `POST` während eines aktiven Break-Glass beginnt neu ab jetzt (eigener Eintrag `break_glass.started`).
@@ -1193,7 +1196,7 @@ MenuButton,org}.tsx`, `web/src/features/admin/*`, `docs/oberflaeche.md`; Zugriff
 
 | Seite | Wer | Inhalt |
 |---|---|---|
-| Mitglieder | `members:admin` | Liste Personen **und** Clients (Spalte Art), Rollen an der Organisation, Freigabestufe, «+n Orte» (Klick zeigt die Orte mit Rolle, `GET /v1/access?subject=`), zuletzt aktiv, bei Clients Scopes aus dem letzten Token; einladen, Client freigeben (Client-ID, Rollen, Freigabestufe), Rollen setzen (Dialog mit Rollenmatrix), Freigabestufe setzen, über «⋯» entfernen bzw. entziehen, Einladung erneut senden oder zurückziehen |
+| Mitglieder | `members:admin` | Liste Personen **und** Clients (Spalte Art), Rollen an der Organisation, Freigabestufe, «+n Orte» (Klick zeigt die Orte mit Rolle, `GET /v1/access?subject=`; in der Plattformansicht nur Rollen an der Organisation, ohne «+n Orte»), zuletzt aktiv, bei Clients Scopes aus dem letzten Token; einladen, Client freigeben (Client-ID, Rollen, Freigabestufe), Rollen setzen (Dialog mit Rollenmatrix), Freigabestufe setzen, über «⋯» entfernen bzw. entziehen, Einladung erneut senden oder zurückziehen |
 | Anmeldung (KANN) | `members:admin` | Entra ID verbinden, Testanmeldung, Vorschau, «Nur Entra», Domänen, trennen |
 | Organisationen | `platform-admin` | anlegen, umbenennen, Domänen, sperren/entsperren, Mitglieder (mit Clients) und Anmeldung der Organisation |
 
@@ -1224,8 +1227,8 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
 
 - «Über» nennt den Ort (`via`, `place`, `unit`); der Pfeil ruft `resources.open(place)`. Einträge mit `removable`
   lassen sich ändern (Ablauf, `PATCH`) und entfernen; geerbte nur am Ursprung.
-- «Freigeben» (`GrantDialog`): Person (Personenverzeichnis), Gruppe aus Entra (nur mit Entra-Verbindung: Suche über
-  `GET /v1/access/groups?q=`, A4) oder «Alle Mitglieder»; Rolle nur aus `grantable`; Ablaufdatum optional. Clients nicht (nur über Mitglieder).
+- «Freigeben» (`GrantDialog`): Person (Personenverzeichnis), Gruppe aus Entra (nur mit Entra-Verbindung,
+  `me.tenant.entraConnected`, 409 `entra-not-connected` der Suche als Rückfall; Suche über `GET /v1/access/groups?q=`, A4) oder «Alle Mitglieder»; Rolle nur aus `grantable`; Ablaufdatum optional (Ende des gewählten Tages in Ortszeit, als ISO-Zeitpunkt mit Zeitzone). Clients nicht (nur über Mitglieder).
 - Bei Ressourcen mit `owner` ist «Für alle Mitglieder» die erste Zeile (Schalter = Tupel `org:members viewer`; ohne
   Rolle `viewer` am Typ fehlt der Schalter) (A7).
 
@@ -1252,7 +1255,7 @@ interface GrantDialogProps { resource: ResourceRef; label: string; grantable: st
 interface WhyDialogProps { resource: ResourceRef; label: string; permission?: string; subject?: string; onClose(): void }
 interface ClassificationBadgeProps { level: Level }   // 0: nichts; Label aus catalog.classifications
 function BreakGlassBanner(): JSX.Element | null;      // sichtbar bei me.breakGlassUntil; «beenden» → DELETE /v1/break-glass
-function useBreakGlass(): { allowed: boolean; until: Date | null; start(reason: string, minutes: number): Promise<void>; end(): Promise<void> };
+function useBreakGlass(): { allowed: boolean /* = me.breakGlassAllowed */; until: Date | null; start(reason: string, minutes: number): Promise<void>; end(): Promise<void> };
 function MembersPage(): JSX.Element;
 interface MemberListProps { alias?: string; platform?: boolean }   // Plattform: Organisation alias
 interface RightsOverviewProps { roles?: string[]; permissions: string[]; somewhere?: string[]; scopes?: string[]; admin?: boolean; headingLevel?: 2 | 3 | 4 | 5 | 6 }

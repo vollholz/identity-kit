@@ -19,7 +19,7 @@ const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmi
 const PLATFORM = { ...STATUS, platformAdmin: true };
 const ORG: Organization = { id: 'kc-muster', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: ['muster.example'], tenant: { id: 't-muster', status: 'active', createdAt: new Date().toISOString() } };
 const DEMO_ORG: Organization = { ...ORG, id: 'kc-demo', alias: 'demo', name: 'Demo AG', domains: [] };
-const CARLA: Member = { id: 'm-carla', kind: 'user', principalId: 'p3', username: 'carla', name: 'Carla Check', email: 'carla@muster.example', status: 'active', roles: ['editor'], clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null };
+const CARLA: Member = { id: 'm-carla', kind: 'user', principalId: 'p3', username: 'carla', name: 'Carla Check', email: 'carla@muster.example', status: 'active', roles: ['editor'], clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null, description: null };
 
 function setup(ui: ReactElement, routes: Record<string, MockHandler>, o: { path?: string; me?: Partial<Me> } = {}) {
   window.history.replaceState(null, '', o.path ?? '/verwalten/organisationen');
@@ -118,7 +118,7 @@ describe('Organisationen (Plattform-Administration)', () => {
   });
 
   it('beide Namen aus Keycloak: die eigene Organisation mit Namen aus dem Token, nicht mit dem Alias', async () => {
-    setup(<OrganizationScreen />, detail(ORG), { path: '/verwalten/organisationen/muster', me: { tenant: { id: 't1', alias: 'demo', name: '' }, organizationNames: { demo: 'Demo AG' } } });
+    setup(<OrganizationScreen />, detail(ORG), { path: '/verwalten/organisationen/muster', me: { tenant: { id: 't1', alias: 'demo', name: '', entraConnected: false }, organizationNames: { demo: 'Demo AG' } } });
     expect((await screen.findByText(/Du bearbeitest/)).closest('[role=note]')).toHaveTextContent('Du bearbeitest «Muster GmbH» (angemeldet in «Demo AG»).');
   });
 

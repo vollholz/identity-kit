@@ -19,7 +19,7 @@ import { useSubjectAccess } from '../access/api.ts';
 import { untilText } from '../access/BreakGlass.tsx';
 import { OpenPlace, usePlaceName } from '../access/places.tsx';
 import { AccessError } from '../access/shared.tsx';
-import { clientApi, memberApi, useAdminStatus, useClients, useEntra, useMembers } from '../admin.ts';
+import { clientApi, memberApi, useAdminStatus, useEntra, useMembers } from '../admin.ts';
 import { useAccessFeature, useAuthz } from '../authz.ts';
 import { authLink } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
@@ -145,7 +145,8 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
   const q = useMembers(alias);
   const { Button, Icon, Menu, Table, toast } = useIamUi();
   const { locale } = useIamText();
-  const places = useAccessFeature();
+  // Orte eines Mitglieds gibt es nur in der eigenen Organisation (GET /v1/access?subject=); die Plattformansicht zeigt Rollen an org
+  const places = useAccessFeature() && !platform;
   const [filter, setFilter] = useState('');
   const [kindFilter, setKindFilter] = useState<KindFilter>('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -303,8 +304,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
                     <td><span className="iam-st-lbl">{t('iam.members.col.clearance')}:</span>{authz.classificationLabel(m.clearance)}
                       {bgUntil ? <div className="iam-small iam-bg-note">{t('iam.members.breakGlass', { time: untilText(bgUntil) })}</div> : null}</td>
                     {places ? <td><span className="iam-st-lbl">{t('iam.members.col.places')}:</span>{m.places > 0
-                      ? (platform ? tn('iam.members.places', m.places)
-                        : <button type="button" className="iam-linkbtn iam-places-btn" onClick={() => setPlacesOf(m)}>{tn('iam.members.places', m.places)}<span className="iam-sr">{t('iam.members.placesOf', { name: m.name })}</span></button>)
+                      ? (<button type="button" className="iam-linkbtn iam-places-btn" onClick={() => setPlacesOf(m)}>{tn('iam.members.places', m.places)}<span className="iam-sr">{t('iam.members.placesOf', { name: m.name })}</span></button>)
                       : '–'}</td> : null}
                     <td className="iam-muted iam-small iam-st-hide" title={m.lastSeenAt ? fmtDateTime(m.lastSeenAt) : undefined}>{m.lastSeenAt ? relTime(m.lastSeenAt) : t('iam.members.never')}</td>
                     <td className="iam-acts">
@@ -751,26 +751,25 @@ function LevelSelect({ id, value, onChange, ownClearance, describedBy }: { id: s
   );
 }
 
-/** Freigabestufe einer Person oder eines Clients setzen (9.6): nie für sich selbst, nie über die eigene ohne Break-Glass. */
+/** Freigabestufe einer Person oder eines Clients setzen (9.6): nie für sich selbst, nie über die eigene ohne Break-Glass; senken geht. */
 function ClearanceDialog({ ctx, member, onClose, onSaved }: { ctx: ListCtx; member: Member; onClose: () => void; onSaved: () => Promise<void> }) {
   const { Dialog, Button, toast } = useIamUi();
   const authz = useAuthz();
   const fid = useId();
   const [level, setLevel] = useState<Level>(member.clearance);
-  const clients = useClients(ctx.alias, member.kind === 'client');
   const save = useMutation({
     mutationFn: async () => {
       if (member.kind === 'user') return void (await memberApi(ctx.alias).setClearance(member.id, level));
-      const c = clients.data?.find(x => x.clientId === member.id);
-      await clientApi(ctx.alias).put(member.id, { roles: member.roles, description: c?.description ?? '', clearance: level });
+      // Beschreibung fehlt im Aufruf: sie bleibt
+      await clientApi(ctx.alias).put(member.id, { roles: member.roles, clearance: level });
     },
     onSuccess: async () => { toast.show(t('iam.members.clearance.saved', { name: member.name, org: ctx.orgLabel, level: authz.classificationLabel(level) })); await onSaved(); },
   });
-  const above = member.clearance > ctx.ownClearance ? t('iam.members.clearance.above', { level: authz.classificationLabel(member.clearance), own: authz.classificationLabel(ctx.ownClearance) }) : null;
-  const waiting = member.kind === 'client' && clients.isPending;
+  // Nie über die eigene Freigabestufe (9.1 Nr. 7); eine höhere bisherige darf ich senken
+  const above = level > ctx.ownClearance ? t('iam.members.clearance.above', { level: authz.classificationLabel(level), own: authz.classificationLabel(ctx.ownClearance) }) : null;
   return (
-    <Dialog title={t('iam.members.clearance.title', { name: member.name, org: ctx.orgLabel })} onClose={onClose} onSubmit={() => { if (!above && !waiting) save.mutate(); }} width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" busy={save.isPending || waiting} aria-disabled={above ? true : undefined} aria-describedby={above ? `${fid}-a` : undefined}>{t('iam.common.save')}</Button></>}>
+    <Dialog title={t('iam.members.clearance.title', { name: member.name, org: ctx.orgLabel })} onClose={onClose} onSubmit={() => { if (!above) save.mutate(); }} width={480}
+      footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" busy={save.isPending} aria-disabled={above ? true : undefined} aria-describedby={above ? `${fid}-a` : undefined}>{t('iam.common.save')}</Button></>}>
       <p className="iam-muted iam-small">{t('iam.members.clearance.intro')}</p>
       <div className="iam-form iam-compact">
         <label htmlFor={`${fid}-l`}>{t('iam.members.col.clearance')}</label>
@@ -792,11 +791,8 @@ function ClientDialog({ ctx, member, onClose, onDone }: { ctx: ListCtx; member?:
   const { alias, orgLabel, roles, platform } = ctx;
   const { Dialog, Button, Icon } = useIamUi();
   const fid = useId();
-  const clients = useClients(alias, !!member);
-  const known = member ? clients.data?.find(c => c.clientId === member.id) : undefined;
-  const [d, setD] = useState({ clientId: member?.id ?? '', description: '' });
-  const [descTouched, setDescTouched] = useState(false);
-  const description = descTouched ? d.description : known?.description ?? d.description;
+  const [d, setD] = useState({ clientId: member?.id ?? '', description: member?.description ?? '' });
+  const description = d.description;
   const [sel, setSel] = useState<Set<string>>(() => new Set(member?.roles ?? []));
   const [level, setLevel] = useState<Level>(member?.clearance ?? 0);
   const [errs, setErrs] = useState<{ id?: string; roles?: string }>({});
@@ -813,10 +809,9 @@ function ClientDialog({ ctx, member, onClose, onDone }: { ctx: ListCtx; member?:
     if (e.roles) return;
     put.mutate();
   };
-  const waiting = !!member && clients.isPending;
   return (
     <Dialog title={member ? t('iam.roles.dialog', { name: member.name, org: orgLabel }) : t('iam.members.client.title', { org: orgLabel })} onClose={onClose} onSubmit={submit} width={600}
-      footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" icon="check" busy={put.isPending || waiting}>{member ? t('iam.common.save') : t('iam.members.client.confirm')}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" icon="check" busy={put.isPending}>{member ? t('iam.common.save') : t('iam.members.client.confirm')}</Button></>}>
       <p className="iam-muted iam-small">{t('iam.members.client.intro', { org: orgLabel })}</p>
       <div className="iam-form iam-compact">
         <label htmlFor={`${fid}-id`}>{t('iam.members.client.id')}</label>
@@ -824,7 +819,7 @@ function ClientDialog({ ctx, member, onClose, onDone }: { ctx: ListCtx; member?:
           aria-invalid={errs.id ? true : undefined} aria-describedby={errs.id ? `${fid}-e` : undefined} />
         {errs.id ? <div id={`${fid}-e`} className="iam-ferr iam-hint"><Icon name="warn" className="iam-ico" />{errs.id}</div> : null}
         <label htmlFor={`${fid}-d`}>{t('iam.members.client.description')}</label>
-        <input id={`${fid}-d`} className="iam-inp" value={description} maxLength={500} onChange={e => { setDescTouched(true); setD({ ...d, description: e.target.value }); }} autoComplete="off" />
+        <input id={`${fid}-d`} className="iam-inp" value={description} maxLength={500} onChange={e => setD({ ...d, description: e.target.value })} autoComplete="off" />
         <label htmlFor={`${fid}-l`}>{t('iam.members.col.clearance')}</label>
         <LevelSelect id={`${fid}-l`} value={level} onChange={setLevel} ownClearance={ctx.ownClearance} />
       </div>

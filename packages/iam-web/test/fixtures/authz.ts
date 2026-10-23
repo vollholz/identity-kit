@@ -59,14 +59,14 @@ export const EXPLAIN_FIXTURE = {
   allowed: false,
   permission: 'note:read',
   subject: { ref: 'user:p1', name: 'Anna Admin' },
-  reasons: [{ via: 'scope' as const, relation: 'member', place: { type: 'unit', id: 'u1' }, tupleId: null, matched: 'group:0f0e', unit: ACCESS_SCOPE_FIXTURE.unit }],
+  reasons: [{ via: 'scope' as const, relation: 'member', place: { type: 'unit', id: 'u1' }, tupleId: null, matched: 'group:0f0e', label: 'Abteilung X', unit: ACCESS_SCOPE_FIXTURE.unit }],
   blocked: { reason: 'clearance' as const, classification: 2 as const, clearance: 1 as const },
 } satisfies Explain;
 
 export const MEMBER_FIXTURE = {
   id: 'kc-1', kind: 'user' as const, principalId: 'p1', username: 'anna', name: 'Anna Admin', email: 'anna@demo.example',
   status: 'active' as const, roles: ['org-admin'], clearance: 2 as const, breakGlassUntil: null, places: 3,
-  lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null,
+  lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null, description: null,
 } satisfies Member;
 
 export const CLIENT_FIXTURE = {

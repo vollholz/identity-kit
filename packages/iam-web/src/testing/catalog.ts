@@ -50,8 +50,8 @@ export const CATALOG: AuthzCatalog = {
 /** /auth/me einer Person mit zwei Organisationen (Organisation des Tabs: «Demo AG»), Organisations-Admin mit Freigabestufe 1. */
 export const ME: Me = {
   person: { subject: 'sub-anna', name: 'Anna Admin', email: 'anna@demo.example' },
-  tenant: { id: 't1', alias: 'demo', name: 'Demo AG' }, organizations: ['demo', 'muster'], organizationNames: { demo: 'Demo AG', muster: 'Muster GmbH' },
+  tenant: { id: 't1', alias: 'demo', name: 'Demo AG', entraConnected: false }, organizations: ['demo', 'muster'], organizationNames: { demo: 'Demo AG', muster: 'Muster GmbH' },
   selectedOrganization: 'demo', tenantError: null,
-  roles: ['org-admin'], permissions: ALL, somewhere: ALL, clearance: 1, breakGlassUntil: null, csrfToken: 'csrf-123',
+  roles: ['org-admin'], permissions: ALL, somewhere: ALL, clearance: 1, breakGlassUntil: null, breakGlassAllowed: true, csrfToken: 'csrf-123',
   session: { expiresAt: '2030-01-01T00:00:00.000Z', idleTimeoutSeconds: 3600 },
 };

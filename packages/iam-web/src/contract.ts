@@ -36,8 +36,11 @@ export interface ResourceRef { type: string; id: string | null }
 /** `GET /auth/me` (9.5). */
 export interface Me {
   person: { subject: string; name: string | null; email: string | null };
-  /** Organisation dieses Tabs; `null` bei mehreren Organisationen ohne Wahl oder wenn sie nicht verfügbar ist. */
-  tenant: { id: string; alias: string; name: string } | null;
+  /**
+   * Organisation dieses Tabs; `null` bei mehreren Organisationen ohne Wahl oder wenn sie nicht verfügbar ist.
+   * `entraConnected`: Die Organisation ist mit Microsoft Entra ID verbunden (Gruppen als Wer einer Freigabe).
+   */
+  tenant: { id: string; alias: string; name: string; entraConnected: boolean } | null;
   /** Aliasse der Organisationen der Person (aus dem Token). */
   organizations: string[];
   /** Name je Alias (für jede Organisation in `organizations`). */
@@ -54,6 +57,8 @@ export interface Me {
   /** Wirksame Freigabestufe (mit Break-Glass). */
   clearance: Level;
   breakGlassUntil: string | null;
+  /** Ich darf Break-Glass starten: direktes Tupel `user:<ich> org-admin` an `org` (nicht über Gruppen), 9.7. */
+  breakGlassAllowed: boolean;
   csrfToken: string;
   session: { expiresAt: string; idleTimeoutSeconds: number };
 }
@@ -187,6 +192,8 @@ export interface Explain {
     tupleId: string | null;
     /** Welches Subjekt passt, z. B. `group:<entra-object-id>` oder `org:members`. */
     matched: string;
+    /** Anzeigename von `matched` (Gruppe aus Entra, Person, Client, «Alle Mitglieder»). */
+    label: string;
     unit?: AccessUnit;
   }[];
   /** Was trotz Weg verhindert; `null`, wenn erlaubt oder kein Weg. */
@@ -239,6 +246,8 @@ export interface Member {
   clientId: string | null;
   /** Nur Clients: Scopes im letzten Token. */
   scopes: string[] | null;
+  /** Nur Clients: Beschreibung der Freigabe. */
+  description: string | null;
 }
 export interface MemberList { items: Member[] }
 export interface InviteInput { email: string; firstName?: string; lastName?: string; roles?: string[] }
@@ -262,7 +271,7 @@ export interface Client {
   lastScopes: string[] | null;
 }
 export interface ClientList { items: Client[] }
-/** `PUT /v1/admin/clients/{clientId}`: Rollen an der Organisation (mindestens eine), Beschreibung bis 500 Zeichen. */
+/** `PUT /v1/admin/clients/{clientId}`: Rollen an der Organisation (mindestens eine), Beschreibung bis 500 Zeichen; fehlende Felder bleiben. */
 export interface ClientInput { roles: string[]; description?: string; clearance?: Level }
 
 /** Personen aus Microsoft Entra ID (9.4). */

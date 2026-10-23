@@ -48,7 +48,7 @@ function WhyBody({ x, resource, label, self }: { x: Explain; resource: ResourceR
     if (r.via === 'direct') return t('iam.access.why.direct', { role, label });
     return t('iam.access.why.inherited', { role, place: placeName(r.place) });
   };
-  const matched = (r: Reason) => (r.matched === ALL_MEMBERS ? t('iam.access.why.viaMembers') : r.matched.startsWith('group:') ? t('iam.access.why.viaGroup') : '');
+  const matched = (r: Reason) => (r.matched === ALL_MEMBERS ? t('iam.access.why.viaMembers') : r.matched.startsWith('group:') ? t('iam.access.why.viaGroup', { group: r.label || r.matched.slice(6) }) : '');
   const target = (r: Reason): ResourceRef | null => (r.via === 'scope' ? r.unit?.ref ?? null : r.via === 'inherited' ? r.place : null);
   const blocked = x.blocked;
   return (

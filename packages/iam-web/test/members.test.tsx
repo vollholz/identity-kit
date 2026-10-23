@@ -22,7 +22,7 @@ const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOStri
 const m = (id: string, name: string, roles: string[], o: Partial<Member> = {}): Member => ({
   id: `00000000-0000-4000-8000-0000000000${id}`, kind: 'user', principalId: `p${id}`, username: name.split(' ')[0]!.toLowerCase(), name,
   email: `${name.split(' ')[0]!.toLowerCase()}@demo.example`, status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0,
-  lastSeenAt: ago(1), createdAt: null, loginPath: null, clientId: null, scopes: null, ...o,
+  lastSeenAt: ago(1), createdAt: null, loginPath: null, clientId: null, scopes: null, description: null, ...o,
 });
 const ANNA = m('a1', 'Anna Admin', ['org-admin'], { lastSeenAt: ago(0) });
 const NORA = m('b2', 'Nora Neu', ['viewer'], { username: 'nora@demo.example', status: 'invited', lastSeenAt: null, createdAt: ago(3) });
@@ -464,10 +464,9 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
     expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: ['viewer'], description: 'Import', clearance: 1 });
   });
 
-  it('Rollen eines Clients: Dialog mit Beschreibung aus GET /v1/admin/clients; Freigabe entziehen über «Mehr»', async () => {
+  it('Rollen eines Clients: Dialog mit Beschreibung aus der Liste; Freigabestufe ohne Beschreibung (bleibt); Freigabe entziehen über «Mehr»', async () => {
     const { calls } = setup(own(), {
-      'GET /v1/admin/members': () => json({ items: [ANNA, SYNC] }),
-      'GET /v1/admin/clients': () => json({ items: [{ clientId: 'notiz-import', principalId: 'ps9', description: 'Nächtlicher Import', roles: ['editor'], clearance: 0, places: 0, createdAt: ago(9), createdBy: null, lastUsedAt: ago(0.1), lastScopes: ['notes:read'] }] }),
+      'GET /v1/admin/members': () => json({ items: [ANNA, { ...SYNC, description: 'Nächtlicher Import' }] }),
       'PUT /v1/admin/clients/notiz-import': () => json({}),
       'DELETE /v1/admin/clients/notiz-import': () => new Response(null, { status: 204 }),
     });
@@ -481,6 +480,13 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
     await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(await calls.find(c => c.method === 'PUT')!.clone().json()).toEqual({ roles: ['editor', 'auditor'], description: 'Nächtlicher Import', clearance: 0 });
+    await userEvent.click(screen.getByRole('button', { name: 'Mehr zu notiz-import' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
+    const lvl = await screen.findByRole('dialog', { name: 'Freigabestufe von notiz-import in «Demo AG»' });
+    await userEvent.selectOptions(within(lvl).getByRole('combobox', { name: 'Freigabestufe' }), '1');
+    await userEvent.click(within(lvl).getByRole('button', { name: 'Speichern' }));
+    await waitFor(() => expect(calls.filter(c => c.method === 'PUT')).toHaveLength(2));
+    expect(await calls.filter(c => c.method === 'PUT')[1]!.clone().json()).toEqual({ roles: ['editor'], clearance: 1 });
     await userEvent.click(screen.getByRole('button', { name: 'Mehr zu notiz-import' }));
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabe entziehen …' }));
     const c = await screen.findByRole('alertdialog', { name: 'Freigabe für «notiz-import» in «Demo AG» entziehen?' });
@@ -498,12 +504,15 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
     expect(self).toHaveAttribute('aria-disabled', 'true');
     expect(self).toHaveAccessibleDescription('Deine eigene Freigabestufe setzt jemand anderes.');
     await userEvent.keyboard('{Escape}');
-    // Bisherige Stufe über der eigenen: Speichern gesperrt mit Grund
+    // Bisherige Stufe über der eigenen: so gesperrt mit Grund, senken geht
     await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Erik Extern' }));
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
     let dlg = await screen.findByRole('dialog', { name: 'Freigabestufe von Erik Extern in «Demo AG»' });
     expect(within(dlg).getByRole('alert')).toHaveTextContent('übersteigt deine eigene «vertraulich»');
     expect(within(dlg).getByRole('button', { name: 'Speichern' })).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.selectOptions(within(dlg).getByRole('combobox', { name: 'Freigabestufe' }), '1');
+    expect(within(dlg).queryByRole('alert')).toBeNull();
+    expect(within(dlg).getByRole('button', { name: 'Speichern' })).not.toHaveAttribute('aria-disabled');
     await userEvent.click(within(dlg).getByRole('button', { name: 'Abbrechen' }));
     await userEvent.click(screen.getByRole('button', { name: 'Mehr zu Carla Check' }));
     await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Freigabestufe setzen …' }));
@@ -543,7 +552,7 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
     expect(await axeProblems(dlg)).toEqual([]);
   });
 
-  it('ohne features.access keine Spalte «Orte»; in der Plattformansicht Zahl ohne Klick', async () => {
+  it('ohne features.access keine Spalte «Orte»; in der Plattformansicht auch nicht (nur Rollen an der Organisation)', async () => {
     const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, platformAdmin: true }), 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [{ ...CARLA, places: 3 }] }) });
     vi.stubGlobal('fetch', api.fetch);
     const { unmount } = render(<StaticIam me={ADMIN_ME} config={{ features: { access: false } }}>{own()}</StaticIam>);
@@ -552,8 +561,8 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
     unmount();
     render(<StaticIam me={ADMIN_ME}>{platformList()}</StaticIam>);
     const t2 = await screen.findByRole('table', { name: 'Mitglieder von Muster GmbH mit Rollen' });
-    expect(within(t2).getAllByRole('row')[1]).toHaveTextContent('+3 Orte');
-    expect(within(t2).queryByRole('button', { name: /Orte von/ })).toBeNull();
+    expect(within(t2).queryByRole('columnheader', { name: 'Orte' })).toBeNull();
+    expect(t2).not.toHaveTextContent('+3 Orte');
   });
 
   it('niemand gibt mehr, als er hat: Rollen mit Rechten, die ich nicht habe, gesperrt mit Grund; 403 exceeds-own mit fehlenden Rechten', async () => {

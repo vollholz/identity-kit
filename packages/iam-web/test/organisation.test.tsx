@@ -36,7 +36,7 @@ function server() {
     if (path === '/auth/me') {
       const ok = allowed(tn);
       const me: Me = {
-        ...ME, person: s.person, tenant: ok ? { id: ORGS[tn!]!.id, alias: tn!, name: ORGS[tn!]!.name } : null, organizations: s.orgs,
+        ...ME, person: s.person, tenant: ok ? { id: ORGS[tn!]!.id, alias: tn!, name: ORGS[tn!]!.name, entraConnected: false } : null, organizations: s.orgs,
         organizationNames: Object.fromEntries(s.orgs.map(o => [o, ORGS[o]!.name])), selectedOrganization: s.def,
         tenantError: ok ? null : s.removed.has(tn!) ? 'Du wurdest aus dieser Organisation entfernt. Bitte melde dich neu an.' : `Kein Zugriff auf «${tn}».`,
         permissions: ok ? ME.permissions : [],

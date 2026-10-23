@@ -21,9 +21,9 @@ const pid = (id: string) => `00000000-0000-4000-8000-${[...id].reduce((h, c) => 
 const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
 const member = (id: string, name: string, email: string, roles: string[], o: Partial<Member> = {}): Member => ({
   id, kind: 'user', principalId: pid(id), username: email, name, email, status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0,
-  lastSeenAt: ago(1), createdAt: null, loginPath: null, clientId: null, scopes: null, ...o,
+  lastSeenAt: ago(1), createdAt: null, loginPath: null, clientId: null, scopes: null, description: null, ...o,
 });
-let me: Me = { ...ME, clearance: 1 };
+let me: Me = { ...ME, clearance: 1, tenant: { ...ME.tenant!, entraConnected: true } };
 let members: Member[] = [
   member(ME.person.subject, 'Anna Admin', 'anna@demo.example', ['org-admin'], { lastSeenAt: ago(0), clearance: 1 }),
   member('m-carla', 'Carla Check', 'carla@demo.example', ['editor', 'viewer'], { lastSeenAt: ago(2), places: 2 }),
@@ -188,7 +188,7 @@ const api = mockIamApi({
     const ref = refOf(new URL(req.url));
     const level = ref.type === 'note' ? classification[ref.id!] ?? 0 : 0;
     syncMe();
-    const reasons: Explain['reasons'] = [{ via: ref.type === 'org' ? 'direct' : 'inherited', relation: 'org-admin', place: { type: 'org', id: null }, tupleId: 't-anna', matched: anna.ref }];
+    const reasons: Explain['reasons'] = [{ via: ref.type === 'org' ? 'direct' : 'inherited', relation: 'org-admin', place: { type: 'org', id: null }, tupleId: 't-anna', matched: anna.ref, label: 'Anna Admin' }];
     const blocked = level > me.clearance ? { reason: 'clearance' as const, classification: level, clearance: me.clearance } : null;
     return json({ allowed: !blocked, permission: 'note:read', subject: { ref: anna.ref, name: 'Anna Admin' }, reasons, blocked } satisfies Explain);
   },

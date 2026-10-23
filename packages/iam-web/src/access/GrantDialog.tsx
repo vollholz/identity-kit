@@ -1,6 +1,6 @@
 /**
  * «Freigeben» an einem Ort (Spezifikation 11.4): Wer (Person aus dem Personenverzeichnis, Gruppe aus Entra ID – nur
- * mit `features.entra` und Entra-Verbindung, Suche über `GET /v1/access/groups` –, «Alle Mitglieder»), Rolle nur aus
+ * mit `features.entra` und `me.tenant.entraConnected`, Suche über `GET /v1/access/groups`, 409 als Rückfall –, «Alle Mitglieder»), Rolle nur aus
  * `grantable` (am Ort zulässig und von mir selbst gehalten, 7.5), Ablaufdatum optional (nicht bei org-admin, A15).
  * Clients nie (nur über Mitglieder). Prüfung beim Absenden mit Meldung am Feld; Fehler des Servers im Dialog.
  */
@@ -74,7 +74,7 @@ function GroupSearch({ id, value, onChange, invalid, describedBy, onUnavailable 
 export function GrantDialog({ resource, label, grantable, onClose, onGranted }: GrantDialogProps) {
   const { Dialog, Button, Icon, toast } = useIamUi();
   const { features } = useIamConfig();
-  const { orgName } = useIam();
+  const { me, orgName } = useIam();
   const authz = useAuthz();
   useIamText();
   const fid = useId();
@@ -86,7 +86,7 @@ export function GrantDialog({ resource, label, grantable, onClose, onGranted }: 
   const [relation, setRelation] = useState(grantable.length === 1 ? grantable[0]! : '');
   const [until, setUntil] = useState('');
   const [errs, setErrs] = useState<{ who?: string; relation?: string; until?: string }>({});
-  const groups = !!features.entra;
+  const groups = !!features.entra && !!me.tenant?.entraConnected;
   const noExpiry = relation === ADMIN_ROLE ? t('iam.access.expiry.adminNo', { role: authz.roleLabel(ADMIN_ROLE) }) : null;
   const role = authz.catalog?.roles.find(r => r.key === relation);
 

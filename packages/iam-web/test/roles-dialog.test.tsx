@@ -23,7 +23,7 @@ const union = (...keys: string[]) => new Set(keys.flatMap(k => role(k).permissio
 const N = CATALOG.permissions.length;
 const m = (id: string, name: string, roles: string[]): Member => ({
   id: `00000000-0000-4000-8000-0000000000${id}`, kind: 'user', principalId: `p${id}`, username: name.toLowerCase(), name, email: `${name.toLowerCase()}@demo.example`,
-  status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null,
+  status: 'active', roles, clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, createdAt: null, loginPath: null, clientId: null, scopes: null, description: null,
 });
 const STATUS = { enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, roles: ROLES };
 const ANNA = m('a1', 'Anna', ['org-admin']);

@@ -270,14 +270,14 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
   before(async () => { full = await fullIam.create(); });
   after(async () => { await full?.drop(); });
 
-  test('bestehende Datenbank bis 053: iam_001–008 und 010–012 eingetragen, nur iam_009 läuft; Schema wie frische Anlage', async () => {
+  test('bestehende Datenbank bis 053: iam_001–008 und 010–012 eingetragen, nur iam_009 (und neuere) laufen; Schema wie frische Anlage', async () => {
     const db = productDb({ iam: false, sources: [assetsLike()] });
     const [old, t] = [await db.create(), await db.create()];
     try {
       // ohne Zuordnung: iam_012 scheitert am bestehenden Index (der Befund, der die Umstellung von Assets blockierte)
       await assert.rejects(migrate(old.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
       const r = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
-      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql']);
+      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql']);
       assert.deepEqual(r.adopted, [...iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name),
         'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
       assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(t.inspect, 'notes')), []);

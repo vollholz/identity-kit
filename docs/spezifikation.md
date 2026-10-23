@@ -603,7 +603,16 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
 - Konten der Plattform-Administration (`PLATFORM_ADMIN_ROLE`, auch zusammengesetzt) behalten bei «Nur Entra» Passwort und
   Passkey (Notfallzugang); Vorschau und Ergebnis melden sie mit `passwordKept`.
 - Rückkehrseiten der Oberfläche: `<paths.entra>/zustimmung` (Rückkehr von Microsoft, sendet `code`, `state`, `error`,
-  `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die Testanmeldung). Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
+  `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die Testanmeldung).
+- **Link an die Entra-Administration (Kit 0.2):** Darf eine andere Person der Kunden-IT bei Microsoft zustimmen, erzeugt
+  die org-admin (bzw. die Plattform) einen Link (`POST …/entra/consent-links` mit `tenant`, optional `validMinutes` 5–1440,
+  Standard 15). Er ist an Organisation, Mandant und Entra-Tenant gebunden, einmal einlösbar, widerrufbar
+  (`DELETE …/consent-links/{id}`), nur als SHA-256 gespeichert und steht im Fragment: `<paths.entra>/freigabe#<token>`.
+  `GET …/consent-links` zeigt Zustand (`open`, `expired`, `revoked`, `connected` mit zustimmender Person, `failed` mit
+  Fehler). Die öffentliche Seite braucht keine Sitzung: `POST /v1/entra/handover/info` (nur Name der Organisation und
+  Produkt), `…/start` (Adresse zu Microsoft), Rückkehr über `<paths.entra>/zustimmung` mit `state` `h.<alias>.…` an
+  `POST /v1/entra/handover/complete`. Gleicher Nachweis wie oben; verbunden wird im Namen der Erzeugerin, `consentBy` und
+  `viaLink` im Audit. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404; Ratenbegrenzung je IP, `no-store`. Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
   `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`); `GET …/entra` nennt beide
   (`consentPath`, `testPath`), `testLoginPath` führt mit `returnTo` auf `testPath`. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
   `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei

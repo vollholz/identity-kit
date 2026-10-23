@@ -91,7 +91,7 @@ await migrate(cfg.db.adminUrl!, [
 ]);
 ```
 
-Die IAM-Migrationen laufen direkt nach `after`; nur `iam_009` wird ausgeführt.
+Die IAM-Migrationen laufen direkt nach `after`; ausgeführt werden nur `iam_009` und neuere IAM-Migrationen (ab 0.2.0 auch `iam_013`).
 
 ## 5. API
 
@@ -223,6 +223,11 @@ Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantSt
   groups claim › Directory roles). Ohne diesen Claim fehlt `wids` im ID-Token, und Verbinden scheitert mit 409
   `consent-unproven`: Die Zustimmung gilt nur mit Nachweis einer globalen Administration oder «Privileged Role
   Administrator» des Tenants.
+- **Link an die Entra-Administration (0.2):** Muss eine andere Person der Kunden-IT zustimmen, erzeugt die org-admin
+  einen Link (`POST …/entra/consent-links`). Die Oberfläche braucht dafür die öffentliche Seite
+  `<ENTRA_UI_PATH>/freigabe` (Token im Fragment, ruft `/v1/entra/handover/info` und `…/start`); die Rückkehrseite
+  `…/zustimmung` ruft bei `state` mit `h.` den öffentlichen `…/handover/complete`. Die Routen sind im Plugin öffentlich;
+  `@fastify/rate-limit` der App begrenzt sie auf 20 je Minute und IP.
 
 ## 9. Tests
 

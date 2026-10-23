@@ -99,7 +99,7 @@ export interface IamMigrationOptions {
   };
 }
 
-/** Übernahme für Assets: alles bis 053, nur iam_009 läuft (Entwurf 6.4). */
+/** Übernahme für Assets: alles bis 053, ausgeführt werden nur iam_009 und neuere (Entwurf 6.4). */
 export const ASSETS_ADOPTION = {
   after: '053_acl_unique.sql',
   map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql', '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },

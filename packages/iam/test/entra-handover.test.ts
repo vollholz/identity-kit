@@ -105,6 +105,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     const bad = [`${l.token.slice(0, -1)}x`, l.token.replace(/^demo\./, 'muster.'), `gibtsnicht.${'a'.repeat(43)}`];
     for (const token of bad) assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token })).status, 404, token);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: 'kurz' })).status, 422);
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: `x.${'a'.repeat(43)}` })).status, 404, 'Alias mit einem Zeichen: Token mit 45 Zeichen gültig geformt');
     for (const x of ['info', 'start', 'complete']) {
       const rl = routeConfig.get(`POST /v1/entra/handover/${x}`)?.rateLimit as { max: number; timeWindow: number; keyGenerator: (r: unknown) => string };
       assert.deepEqual([rl.max, rl.timeWindow, rl.keyGenerator({ ip: '1.2.3.4' })], [20, 60_000, 'notes:entra-handover:1.2.3.4'], x);
@@ -215,6 +216,26 @@ describe('Link an die Entra-Administration', { skip }, () => {
     const res = await Promise.all([s1, s2].map(s => call(null, 'POST', '/v1/entra/handover/complete', ms.approve(s.url, ga, { wids: GA }))));
     assert.deepEqual(res.map(x => x.status).sort(), [200, 404]);
     assert.equal((await auditOf('entra.reconnected')).filter(a => a.data.viaLink === l.id).length, 1);
+  });
+
+  test('Abbruch mitten in der Einlösung: Link nur mit Frist belegt, nicht eingelöst; nach der Frist wieder einlösbar', async () => {
+    const l = await newLink();
+    const s1 = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    // Prozess bricht nach dem Belegen ab (Zustand wie nach dem Belegen, ohne Nachweis und ohne Freigabe)
+    const state1 = new URL(s1.url).searchParams.get('state')!;
+    await t.inspect.query("UPDATE notes.entra_consent SET used_at = now() WHERE state_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [state1]);
+    await t.inspect.query('UPDATE notes.entra_consent_link SET claimed_at = now() WHERE id = $1', [l.id]);
+    const item = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === l.id);
+    assert.equal(item.status, 'open', 'nicht «verbunden»');
+    const s2 = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(s2.url, ga, { wids: GA }))).status, 404, 'während der Frist belegt');
+    assert.equal((await call(anna(), 'DELETE', `/v1/admin/entra/consent-links/${l.id}`)).status, 204, 'widerrufbar');
+    const l2 = await newLink();
+    const s3 = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l2.token }));
+    await t.inspect.query("UPDATE notes.entra_consent_link SET claimed_at = now() - interval '6 minutes' WHERE id = $1", [l2.id]);
+    ok(await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(s3.url, ga, { wids: GA })));
+    const done = await linkRow(l2.id);
+    assert.ok(done.used_at && done.claimed_at === null, 'nach der Frist wieder frei, eingelöst erst nach Erfolg');
   });
 
   test('mit einem anderen Tenant verbunden: Link für einen anderen Tenant 409', async () => {

@@ -256,7 +256,7 @@ export const entraModule: IamModule = {
         schema: routeSchema(ctx, 'POST', `${prefix}/entra/handover/${path}`, { tags: [TAG], summary, description, body, security: [], response: { 200: response } }),
         config: { rateLimit: handoverLimit },
       }, async (req, reply) => { reply.header('cache-control', 'no-store'); return fn(req.body); });
-    const Token = Type.Object({ token: Type.String({ minLength: 46, maxLength: 120, description: 'Token aus dem Fragment des Links' }) }, { additionalProperties: false });
+    const Token = Type.Object({ token: Type.String({ minLength: 45, maxLength: 120, description: 'Token aus dem Fragment des Links' }) }, { additionalProperties: false });
     publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation und Produkt für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
       Token, Type.Object({
         organization: Type.String(), product: Type.String(),

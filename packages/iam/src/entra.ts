@@ -47,6 +47,8 @@ export const entraFirstLoginFlow = (product: string) => `${product}-entra-first-
 const CONSENT_TTL_MS = 15 * 60_000;
 /** Längste Gültigkeit eines Links an die Entra-Administration. */
 const LINK_MAX_MINUTES = 24 * 60;
+/** Frist einer laufenden Einlösung (Minuten). */
+const LINK_CLAIM_MIN = 5;
 /** Höchstens so viele offene Links je Organisation. */
 const LINK_MAX_OPEN = 5;
 const LINK_COLS = 'id, entra_tenant_id::text AS entra_tenant_id, tenant_input, platform, created_by::text AS created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, used_at, revoked_at, approver_name, error_reason, error_detail';
@@ -418,8 +420,9 @@ export class EntraService {
   /**
    * Öffentlich: Rückkehr von Microsoft über einen Link. Gleicher Nachweis wie completeConsent; verbunden wird im Namen der
    * Person, die den Link erzeugt hat (Akteur im Protokoll), mit der zustimmenden Person (`consentBy`) und `viaLink`.
-   * Der Link wird vor dem Nachweis belegt (zwei Rückkehren gleichzeitig: nur eine verbindet) und bei einem Fehlschlag
-   * mit dem Fehler wieder frei; der `state` ist dann verbraucht.
+   * Der Link wird vor dem Nachweis mit einer Frist belegt (`claimed_at`; zwei Rückkehren gleichzeitig: nur eine verbindet),
+   * eingelöst (`used_at`) erst nach Erfolg; bei einem Fehlschlag wird er mit dem Fehler wieder frei, nach einem Abbruch
+   * des Prozesses nach Ablauf der Frist. Der `state` ist in jedem Fall verbraucht.
    */
   async handoverComplete(p: { state: string; code?: string; error?: string; errorDescription?: string }): Promise<{ organization: string; connected: true }> {
     this.on();
@@ -432,8 +435,10 @@ export class EntraService {
         `UPDATE ${this.S}.entra_consent SET used_at = now() WHERE state_hash = $1 AND used_at IS NULL AND expires_at > now() AND link_id IS NOT NULL
          RETURNING entra_tenant_id::text AS tid, link_id`, [hash(p.state)])).rows[0];
       if (!c) return null;
-      const link = (await tx.query<LinkRow>(`UPDATE ${this.S}.entra_consent_link SET used_at = now()
-          WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now() RETURNING ${LINK_COLS}`, [c.link_id])).rows[0];
+      // Frist statt used_at: bricht der Prozess mitten in der Einlösung ab, ist der Link nach LINK_CLAIM_MIN wieder frei
+      const link = (await tx.query<LinkRow>(`UPDATE ${this.S}.entra_consent_link SET claimed_at = now()
+          WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+            AND (claimed_at IS NULL OR claimed_at < now() - make_interval(mins => $2)) RETURNING ${LINK_COLS}`, [c.link_id, LINK_CLAIM_MIN])).rows[0];
       return link ? { tid: c.tid, link } : null;
     });
     if (!claimed) throw gone;
@@ -447,13 +452,13 @@ export class EntraService {
     try {
       const org = await this.admin.org(tenant.alias);
       const { approver } = await this.proveAndConnect(s, org, claimed.tid, p, { viaLink: link.id, linkCreatedBy: link.created_by_name });
-      await withTenant(this.deps.db, { tenantId: tenant.id }, tx => tx.query(`UPDATE ${this.S}.entra_consent_link SET approver_name = $2, error_reason = NULL, error_detail = NULL WHERE id = $1`,
+      await withTenant(this.deps.db, { tenantId: tenant.id }, tx => tx.query(`UPDATE ${this.S}.entra_consent_link SET used_at = now(), claimed_at = NULL, approver_name = $2, error_reason = NULL, error_detail = NULL WHERE id = $1`,
         [link.id, (approver.name ?? approver.username ?? approver.oid).slice(0, 256)]));
       return { organization: org.name, connected: true };
     } catch (e) {
       const known = e instanceof HttpError && e.status === 409;
       await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
-        await tx.query(`UPDATE ${this.S}.entra_consent_link SET used_at = NULL, error_reason = $2, error_detail = $3 WHERE id = $1`,
+        await tx.query(`UPDATE ${this.S}.entra_consent_link SET claimed_at = NULL, error_reason = $2, error_detail = $3 WHERE id = $1`,
           [link.id, known ? String(e.extra.reason ?? 'conflict').slice(0, 64) : 'error', known ? (e.detail ?? e.title).slice(0, 1000) : 'Verbinden fehlgeschlagen']);
         if (known) await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_failed', resourceType: 'tenant', resourceId: tenant.id, data: { entraTenantId: claimed.tid, reason: e.extra.reason ?? null, detail: e.detail ?? null, viaLink: link.id } });
       }).catch(() => undefined);

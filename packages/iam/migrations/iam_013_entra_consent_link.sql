@@ -2,7 +2,7 @@
 --
 -- Die org-admin erzeugt einen Link, den eine andere Person der Kunden-IT ohne Sitzung öffnet und bei Microsoft zustimmt.
 -- entra_consent_link: Link je Mandant, das Token nur als SHA-256, gebunden an den verlangten Entra-Tenant; einmal
--- einlösbar (used_at), widerrufbar (revoked_at), läuft ab (expires_at, höchstens 24 Stunden). Die erzeugende Person
+-- einlösbar (used_at erst nach Erfolg, claimed_at während der Einlösung), widerrufbar (revoked_at), läuft ab (expires_at, höchstens 24 Stunden). Die erzeugende Person
 -- steht dabei (Audit, Akteur der Verbindung); Ergebnis und Fehler für die Anzeige.
 -- entra_consent.link_id: Zustimmungen über einen Link haben keine startende Person (subject leer).
 
@@ -19,6 +19,7 @@ CREATE TABLE {{schema}}.entra_consent_link (
   created_by_tenant text NOT NULL,       -- Alias des Mandanten der erzeugenden Person
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL CHECK (expires_at <= created_at + interval '24 hours'),
+  claimed_at timestamptz,               -- Einlösung läuft (Frist 5 Minuten; danach wieder frei, falls der Prozess abbrach)
   used_at timestamptz,
   revoked_at timestamptz,
   approver_name text CHECK (length(approver_name) <= 256),

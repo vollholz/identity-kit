@@ -224,6 +224,27 @@ describe('Aktionen je Person', () => {
     expect(items[0]).not.toHaveAttribute('aria-disabled');
   });
 
+  it('erneut senden ohne E-Mail-Versand: Meldung «nicht per E-Mail gesendet» statt «gesendet»', async () => {
+    setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, NORA] }),
+      [`POST /v1/admin/members/${NORA.id}/invitation`]: () => json({ emailSent: false }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Nora Neu' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Einladung erneut senden' }));
+    expect(await screen.findByText(/^Keycloak konnte die Einladung an nora@demo\.example nicht per E-Mail senden/)).toBeInTheDocument();
+    expect(screen.queryByText(/erneut gesendet/)).toBeNull();
+  });
+
+  it('letzte aktive Person mit org-admin: offene Einladungen und deaktivierte zählen nicht (wie der Server)', async () => {
+    const items = [ANNA, CARLA, { ...NORA, roles: ['org-admin'] }, { ...ERIK, roles: ['org-admin'] }];
+    setup(<MemberList alias="muster" roles={ROLES} platform rolesManageable self="sub-plattform" orgLabel="Muster GmbH" />, { 'GET /v1/platform/organizations/muster/members': () => json({ items }) });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Anna Admin' }));
+    const last = within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' });
+    expect(last).toHaveAttribute('aria-disabled', 'true');
+    expect(last).toHaveAccessibleDescription(/^Letzter Organisations-Admin/);
+    expect(screen.getByText(/Nur eine Person hat die Rolle «Organisations-Admin»/)).toBeInTheDocument();
+  });
+
   it('was die API ablehnt, steht gesperrt mit Grund im Menü (sich selbst, anderer Organisations-Admin) und öffnet keine Rückfrage', async () => {
     const { calls } = setup(own(), { 'GET /v1/admin/members': () => json({ items: [ANNA, OSKAR, CARLA, { ...NORA, roles: ['org-admin'] }] }) });
     const blocked = async (who: string, label: string, why: RegExp) => {

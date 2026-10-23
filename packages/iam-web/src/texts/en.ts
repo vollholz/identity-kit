@@ -163,6 +163,7 @@ export const en: Record<IamTextKey, string> = {
   'iam.members.off.role': 'role',
   'iam.members.linkCopied': 'Sign-in link for {name} copied',
   'iam.members.resent': 'Invitation to «{org}» sent again to {who}',
+  'iam.members.resentNoMail': 'Keycloak could not send the invitation to {who} by email – usually no email delivery is set up in the realm.',
   'iam.members.resendFailed': 'Invitation not sent',
   'iam.members.resending': 'Sending right now.',
   'iam.members.withdrawn': 'Invitation of {name} to «{org}» withdrawn',

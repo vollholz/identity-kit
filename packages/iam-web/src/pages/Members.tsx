@@ -120,7 +120,10 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
 
   const resend = useMutation({
     mutationFn: (m: Member) => api.resend(m.id),
-    onSuccess: (_r, m) => toast.show(t('iam.members.resent', { org: orgLabel, who: m.email ?? m.name })),
+    // ohne Versand (kein E-Mail-Versand im Realm) nicht «gesendet» melden
+    onSuccess: (r, m) => (r.emailSent
+      ? toast.show(t('iam.members.resent', { org: orgLabel, who: m.email ?? m.name }))
+      : toast.show(t('iam.members.resentNoMail', { who: m.email ?? m.name }), { tone: 'error' })),
     onError: e => toast.error(e, t('iam.members.resendFailed')),
   });
   const remove = useMutation({
@@ -154,7 +157,8 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
       </th>
     );
   };
-  const admins = all.filter(m => m.roles.includes(ADMIN) && m.status !== 'disabled').length;
+  // wie der Server (letzte Person mit org-admin): nur aktive Konten, keine offenen Einladungen und keine deaktivierten
+  const admins = all.filter(m => m.roles.includes(ADMIN) && m.status === 'active').length;
   const invited = all.filter(m => m.status === 'invited').length;
   /** Warum die API Entfernen bzw. Zurückziehen ablehnen würde (403/409), sonst null. */
   const removeBlock = (m: Member): string | null => {

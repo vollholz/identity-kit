@@ -165,6 +165,7 @@ export const de = {
   'iam.members.off.role': 'rolle',
   'iam.members.linkCopied': 'Anmeldelink für {name} kopiert',
   'iam.members.resent': 'Einladung zu «{org}» an {who} erneut gesendet',
+  'iam.members.resentNoMail': 'Keycloak konnte die Einladung an {who} nicht per E-Mail senden – meist ist im Realm kein E-Mail-Versand eingerichtet.',
   'iam.members.resendFailed': 'Einladung nicht gesendet',
   'iam.members.resending': 'Wird gerade gesendet.',
   'iam.members.withdrawn': 'Einladung von {name} zu «{org}» zurückgezogen',

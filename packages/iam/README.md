@@ -11,7 +11,15 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-## Inhalt 0.1.0
+## Änderungen
+
+- **0.2.0:** Link an die Entra-Administration (`…/entra/consent-links`, öffentlich `/v1/entra/handover/*`, Migration
+  `iam_013`): Eine andere Person der Kunden-IT stimmt ohne Sitzung in der App bei Microsoft zu.
+- **0.1.1:** Übernahme späterer IAM-Migrationen (`adopted.map`, `ASSETS_ADOPTION`): Assets mit 051–053 lässt sich
+  umstellen, ohne dass `iam_012` am bestehenden Index scheitert.
+- **0.1.0:** erste Veröffentlichung.
+
+## Inhalt
 
 Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 

@@ -70,4 +70,21 @@ describe('checkCatalog', () => {
     assert.ok(checkCatalog(c).errors.includes('Recht «members:admin» fehlt'));
     assert.deepEqual(checkCatalog(c, { members: false }).errors, []);
   });
+
+  test('0.2.0: Stichwörter der Gruppen in Rollenbeschreibungen (match), nur für Personen (personOnly)', () => {
+    const c = catalog();
+    c.groups = c.groups.map(g => (g.key === 'notes' ? { ...g, match: 'notiz' } : g.key === 'members' ? { ...g, match: 'mitglieder' } : g));
+    assert.deepEqual(checkCatalog(c).errors, ['Rolle «org-admin»: Beschreibung nennt die Rechtegruppe «members» nicht (Stichwort mitglieder)', 'Rolle «org-admin»: Beschreibung nennt die Rechtegruppe «notes» nicht (Stichwort notiz)']);
+    c.roles[0]!.description = 'Verwaltet Mitglieder und Notizen.';
+    assert.deepEqual(checkCatalog(c).errors, []);
+    c.roles[1]!.description = 'Liest und ändert Texte.';
+    assert.deepEqual(checkCatalog(c).errors, ['Rolle «editor»: Beschreibung nennt die Rechtegruppe «notes» nicht (Stichwort notiz)']);
+    c.groups = c.groups.map(g => (g.key === 'notes' ? { ...g, match: 'not(' } : g));
+    assert.match(checkCatalog(c).errors.join('\n'), /Stichwort «not\(» ist kein regulärer Ausdruck/);
+    // Ohne match keine Prüfung (Kataloge vor 0.2.0)
+    assert.deepEqual(checkCatalog(catalog()).errors, []);
+    const p = catalog();
+    p.permissions = p.permissions.map(x => (x.key === 'note:write' ? { ...x, personOnly: true } : x));
+    assert.deepEqual(checkCatalog(p).errors, ['Scope «notes:write» enthält «note:write» (nur für Personen, in keinem Scope)']);
+  });
 });

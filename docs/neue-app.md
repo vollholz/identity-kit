@@ -2,7 +2,7 @@
 
 Für Entwickler:innen, die eine **neue** App an die Identity-Plattform (**https://identity.project-suite.ch**) anbinden:
 Anmeldung, Organisationen als Mandanten, Rechte, Verwaltung und Datenbank-Schutz kommen aus dem Baukasten, die App
-liefert nur ihren Rechtekatalog, ihre Ressourcen und ihr Aussehen. Die Beispiele nutzen das Produkt `notes`; überall
+liefert nur ihr Modell (Rechte, Rollen, Orte), ihre Ressourcen und ihr Aussehen. Die Beispiele nutzen das Produkt `notes`; überall
 `notes` durch den technischen Namen der App ersetzen: Kleinbuchstaben, Ziffern und `-`, 3–32 Zeichen, vorn ein
 Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master` oder `project-suite` (so prüfen es beide Realm-Module).
 
@@ -120,7 +120,8 @@ vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues P
 ## 3. Realm einrichten
 
 Modul [product-realm](../modules/product-realm/README.md) mit dem IaC-Client `notes-iac`. Es legt Clients
-(`notes-platform`, `notes-api`, `notes-admin`, `notes-sync`), Rollen aus dem Katalog, Scopes, Texte und Richtlinien an.
+(`notes-platform`, `notes-api`, `notes-admin`, `notes-sync`), Scopes aus dem Modell, Texte und Richtlinien an – **keine**
+Rollen, keine Rollengruppen: Rollen stehen nur in der Datenbank der App (Spezifikation [3.5](spezifikation.md#35-rollen-und-gruppen)).
 Schlüsselpaare für `platform`, `admin` und `sync` wie in Schritt 2 erzeugen (`infra/keycloak/keys/notes-<client>.json`).
 Minimales `infra/keycloak/main.tf` (Provider, Backend und Verschlüsselung des States wie im README des Moduls):
 
@@ -136,7 +137,7 @@ module "realm" {
   product         = "notes"
   display_name    = "Notes"
   public_base_url = "https://notes.project-suite.ch"
-  catalog         = jsondecode(file("${path.module}/platform.json"))   # aus dem Katalog, Schritt 4
+  catalog         = jsondecode(file("${path.module}/platform.json"))   # nur Scopes, aus dem Modell (Schritt 4)
   jwks            = { for c in ["platform", "admin", "sync"] : c => file("${path.module}/keys/notes-${c}.json") }
 
   entra = true   # Anmeldung über Microsoft Entra ID der Kunden (Schritt 10); ohne ENTRA_CLIENT_ID
@@ -152,41 +153,69 @@ Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan`
 (`smtp`, `m2m`, `mcp`, Texte): README des Moduls.
 
 > Assets: `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `infra/keycloak/platform.ts` (schreibt
-> `platform.json`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
+> `platform.json` aus `model.platformJson()`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
 > `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
 > `IDENTITY_KIT_DEPLOY_KEY`, mit `smtp` zusätzlich `SMTP_PASSWORD`).
 
-## 4. Rechtekatalog und Ressourcen
+## 4. Modell und Ressourcen
 
-Der Katalog ist die einzige Quelle für Rechte, Rollen, Scopes und Zugriffsregeln (Spezifikation Kap. 8). Minimal:
+Das Modell ist die einzige Quelle für Rechte, Rollen, Scopes und Orte (Spezifikation [7.3](spezifikation.md#73-modell-der-app-definemodel),
+[Kap. 8](spezifikation.md#8-modell-des-produkts)). Beispiel Stufe «mittel» (Ordner mit Notizen, Freigaben an Ordnern und
+Notizen):
 
 ```ts
-// src/authz/catalog.ts
-import { defineCatalog } from '@vollholz/iam';
+// src/authz/model.ts
+import { defineModel } from '@vollholz/iam';
 
-export const catalog = defineCatalog({
+export const model = defineModel({
   product: 'notes',
   permissions: {
-    'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.', resources: ['tenant', 'folder', 'note'] },
-    'note:write': { label: 'Notizen ändern', group: 'notes', description: 'Notizen anlegen und ändern.', resources: ['tenant', 'folder', 'note'] },
+    'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.', resources: ['org', 'folder', 'note'] },
+    'note:write': { label: 'Notizen ändern', group: 'notes', description: 'Notizen anlegen und ändern.', resources: ['org', 'folder', 'note'] },
   },
   groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }],
   roles: {
-    editor: { label: 'Bearbeiter:in', description: 'Liest und ändert Notizen der Organisation.', permissions: ['tenant:read', 'note:read', 'note:write'] },
-    viewer: { label: 'Leser:in', description: 'Liest Notizen der Organisation.', permissions: ['tenant:read', 'note:read'] },
+    editor: { label: 'Bearbeiter:in', description: 'Liest und ändert Notizen und gibt Zugriff darauf frei.', permissions: ['tenant:read', 'note:read', 'note:write', 'access:read', 'access:admin'] },
+    viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['tenant:read', 'note:read'] },
   },
   scopes: { 'notes:read': { text: 'Notizen lesen', permissions: ['tenant:read', 'note:read'] }, 'notes:write': { text: 'Notizen ändern', permissions: ['note:write'] } },
-  resources: { folder: { label: 'Ordner' }, note: { label: 'Notiz', leaf: true } },
+  types: {
+    folder: { label: 'Ordner', parent: 'org', roles: ['editor', 'viewer'] },
+    note: { label: 'Notiz', parent: 'folder', roles: ['editor', 'viewer'], leaf: true, read: 'note:read', write: 'note:write' },
+  },
 });
 ```
 
-- `org-admin` und die reservierten Rechte (`tenant:read`, `members:admin`, `acl:read`, `acl:admin` …) ergänzt das Paket.
-- `catalog.platformJson()` ergibt `infra/keycloak/platform.json` (Schritt 3, `iam-org-bootstrap`); nach jeder Änderung
-  am Katalog neu schreiben.
-- Ressourcen (nur mit `resources`, für Zugriffsregeln): ein `ResourceModel` der App. Für einfache Fälle ohne Kette
-  `flatResources({ tables: { folder: 'notes.folder', note: 'notes.note' } })`.
+- `org-admin` (alle Rechte, `org` mit allen Rollen) und die reservierten Rechte (`tenant:read`, `members:admin`,
+  `access:read`, `access:admin` …) und Gruppen ergänzt das Paket. Die Rollenbeschreibung nennt jede Rechtegruppe der
+  Rolle (hier «Notiz», «Zugriff»), sonst bricht `defineModel` ab.
+- Stufe «einfach»: `types` weglassen; dann gibt es nur Rollen an der Organisation und kein Panel «Zugriff».
+- `model.platformJson()` ergibt `infra/keycloak/platform.json` (nur Scopes, Schritt 3); nach jeder Änderung neu
+  schreiben.
+- Ressourcen (`ResourceModel`, Spezifikation [7.7](spezifikation.md#77-resourcemodel-der-app)): Kette, Existenz und bei
+  Bedarf Vertraulichkeit und Zuständigkeit (`edges`). Kette `org → folder → note`:
 
-> Assets: `src/platform/authz/catalog.ts`, `src/platform/authz/resources.ts`.
+```ts
+// src/authz/resources.ts
+export const resources: ResourceModel<Map<string, string>> = {
+  load: async tx => new Map((await tx.query('SELECT id, folder_id FROM notes.note')).rows.map(r => [r.id, r.folder_id])),
+  chain: (folderOf, ref) => ref.type === 'org' ? [{ type: 'org' }]
+    : ref.type === 'folder' ? [{ type: 'org' }, ref]
+    : [{ type: 'org' }, { type: 'folder', id: folderOf.get(ref.id!) ?? null }, ref],
+  exists: async (tx, ref) => ((await tx.query(`SELECT 1 FROM notes.${ref.type} WHERE id = $1`, [ref.id])).rowCount ?? 0) > 0,
+};
+```
+
+- Lese-Policy der Blatt-Tabelle (Spezifikation [7.6](spezifikation.md#76-lesesicht-je-anfrage)), als Migration der App:
+
+```sql
+CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT USING (
+  app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id));
+```
+
+- Nur Typen direkt unter der Organisation: `flatResources({ tables: { folder: 'notes.folder' } })`.
+
+> Assets: `src/authz/model.ts`, `src/authz/resources.ts` (mit Zuständigkeit und Vertraulichkeit).
 
 ## 5. Datenbank und Migrationen
 
@@ -210,12 +239,12 @@ der App mit `tenant_id` erhalten RLS automatisch:
 import { dirMigrations, iamMigrations, migrate } from '@vollholz/iam';
 
 await migrate(process.env.DATABASE_ADMIN_URL!, [
-  iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }),
+  iamMigrations({ product: 'notes', model }),   // authz_tuple mit CHECKs aus dem Modell (syncModelChecks)
   dirMigrations('db/migrations'),
 ]);
 ```
 
-`resourceTypes` und `leafTypes` entsprechen `resources` im Katalog. Die umgekehrte Reihenfolge mit `adopted` gilt nur für
+Die umgekehrte Reihenfolge mit `adopted` gilt nur für
 Apps, die IAM-Tabellen schon aus eigenen Migrationen haben (Assets), nicht für eine neue App. Veröffentlichte Migrationen
 nie ändern: Die Prüfsumme steht in jeder Datenbank, Änderungen gehören in eine neue Datei.
 
@@ -253,19 +282,20 @@ Die übrigen (`OIDC_BFF_CLIENT_ID`, `OIDC_API_AUDIENCE` …) haben Standardwerte
 ## 7. Backend
 
 Fastify mit dem Plugin des Pakets; es bringt Anmeldung je Anfrage (Bearer, DPoP, Sitzung mit CSRF), `req.tx`
-(Mandantenkontext, RLS), `req.need`, Fehler als problem+json und die Module (`account`, `acl`, `admin`, `entra`,
-`roles`, `bff`, `clients`, `people`; Übersicht in [backend.md › API](../packages/iam/docs/backend.md#5-api)).
+(Mandantenkontext, RLS), `req.need`, `req.can`, die Lesesicht je Anfrage ([7.6](spezifikation.md#76-lesesicht-je-anfrage)), Fehler als problem+json und die Module
+(`account`, `access`, `admin`, `break-glass`, `bff`, `clients`, `entra`, `people`; Übersicht in [backend.md › API](../packages/iam/docs/backend.md#5-api)).
 
 ```ts
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import Fastify from 'fastify';
-import { createIam, createPool, flatResources, IAM_API_TAGS, iamPlugin, need, optionalBodies, pgAudit, pgRateLimitStore, readinessChecks } from '@vollholz/iam';
+import { createIam, createPool, IAM_API_TAGS, iamPlugin, need, optionalBodies, pgAudit, pgRateLimitStore, readinessChecks } from '@vollholz/iam';
+import { model } from './authz/model.ts';
+import { resources } from './authz/resources.ts';
 
 const app = Fastify({ logger: true, ajv: { customOptions: { removeAdditional: false } } });   // unbekannte Felder → 422
 const iam = createIam({
-  cfg, catalog, db: createPool(cfg.db.url, cfg, 'notes-api'), schema: 'notes',
-  resources: flatResources({ tables: { folder: 'notes.folder', note: 'notes.note' } }), audit: pgAudit({ schema: 'notes' }),
+  cfg, model, resources, db: createPool(cfg.db.url, cfg, 'notes-api'), schema: 'notes', audit: pgAudit({ schema: 'notes' }),
 });
 
 // Limits der Routen des Pakets (config.rateLimit); bei mehreren Instanzen über alle gezählt (Tabelle notes.rate_limit)
@@ -278,24 +308,33 @@ await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], people: 
 
 app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', id: (r.params as { id: string }).id })) },
   async req => req.tx(tx => notes.get(tx, (req.params as { id: string }).id)));
+// Listen ohne Prüfung je Zeile: die Lesesicht (RLS) liefert nur lesbare Notizen
+app.get('/v1/notes', { preHandler: req => req.needSomewhere('note:read') }, async req => req.tx(tx => notes.list(tx)));
 ```
 
 - `readinessChecks(iam)` für `/readyz`.
-- **Worker:** `new MemberSync(cfg, pool, { schema: 'notes' }).start()` gleicht die Mitglieder mit Keycloak ab.
+- **Worker:** `new MemberSync(cfg, pool, { schema: 'notes', model }).start()` gleicht die Mitglieder mit Keycloak ab und
+  räumt abgelaufene Freigaben und Break-Glass auf.
+- Freigaben, Mitglieder, Clients und Break-Glass sind fertige Endpunkte (Spezifikation [9.5](spezifikation.md#95-zugriff-v1access)–[9.7](spezifikation.md#97-break-glass-v1break-glass));
+  die App schreibt nur ihren Endpunkt zum Klassifizieren (`req.needClearance`, Audit `object.classified`), falls sie
+  `classified` nutzt.
 - **MCP** (optional): `McpAuth`, `registerMcpAuth`, `TokenExchanger` ([backend.md › MCP](../packages/iam/docs/backend.md#7-mcp-dienst-kann)).
 - Mehrere Instanzen: `SHARED_STATE=postgres` (Standard) teilt den Replay-Schutz in `createIam`; das Rate-Limit-Plugin
   braucht dafür ausdrücklich `store: pgRateLimitStore(…)` wie oben, sonst zählt jede Instanz für sich.
 
-> Assets: `src/platform/http/app.ts` (`createIam`, `iamPlugin`), `src/platform/worker/member-sync.ts`,
+> Assets: `src/platform/http/app.ts` (`createIam` mit `model`, `iamPlugin`), `src/platform/worker/member-sync.ts`,
 > `src/platform/main/worker.ts`.
 
 ## 8. Frontend
 
-React 19 mit `@tanstack/react-query` 5; `@vollholz/iam-web` 0.3.1, Server an derselben Herkunft (`/auth/*`, `/v1/…`).
+React 19 mit `@tanstack/react-query` 5; `@vollholz/iam-web` ab 1.0.0, Server an derselben Herkunft (`/auth/*`, `/v1/…`).
 
 ```tsx
-import { IamProvider } from '@vollholz/iam-web';
+import { AccessSheet, IamProvider } from '@vollholz/iam-web';
 import '@vollholz/iam-web/styles.css';
+
+// Namen der Orte aus dem Cache der App, Sprung zum Ort (Spezifikation 11.4)
+const resources = { useResolver: () => ({ name: ref => names.get(`${ref.type}:${ref.id}`) }), open: ref => router.navigate(urlOf(ref)) };
 
 createRoot(root).render(
   <QueryClientProvider client={queryClient}>
@@ -304,26 +343,35 @@ createRoot(root).render(
     </IamProvider>
   </QueryClientProvider>,
 );
+
+// an jeder Ressource mit Freigaben, z. B. im Kopf eines Ordners
+<AccessSheet resource={{ type: 'folder', id: folder.id }} label={folder.name} open={open} onClose={() => setOpen(false)} />
 ```
 
 - **Router-Adapter** (`router`): `{ Link, navigate, useSearch, usePathname }`; ohne Angabe die History-API. Beispiel für
   TanStack Router und React Router: [iam-web › Routen](../packages/iam-web/README.md#routen-und-navigation).
 - **Seiten einhängen:** `makeIamRoutes(paths, features)` (bzw. `iamRoutes`) liefert je Verwalten-Seite Pfad, Bedarf und
-  `load()` mit Guard; `<IamNav>` zeichnet die Gruppe «Zugang» nach Recht.
-- **`paths`** (Standard `/verwalten/…`) und **`features`** (`acl`, `entra`, `platform`). `paths.entra` muss zu
-  `ENTRA_UI_PATH` des Servers passen (beide Standard `/verwalten/anmeldung`). `features.entra: true` für Schritt 10.
+  `load()` mit Guard; `<IamNav>` zeichnet die Gruppe «Zugang» (Mitglieder, Anmeldung, Organisationen) nach Recht.
+- **`paths`** (`members`, `entra`, `organizations`, Standard `/verwalten/…`) und **`features`** (`access`, `entra`,
+  `platform`). `paths.entra` muss zu `ENTRA_UI_PATH` des Servers passen (beide Standard `/verwalten/anmeldung`).
+  `features.entra: true` für Schritt 10.
+- **Zugriff:** `AccessSheet` (Seitenleiste «Zugriff» mit Freigeben, Ablauf, Entfernen), `WhyDialog` («Warum sehe ich
+  das?»), `ClassificationBadge` und `BreakGlassBanner` (in die Shell, bei Klassifizierung) bindet die App dort ein, wo
+  ihre Ressourcen stehen; `resources.open` macht die Orte im Panel, in «Meine Rechte» und in «Mitglieder» anklickbar.
 - **Farben:** Das Paket färbt nur über `--iam-*`; die App bildet ihre Tokens ab, z. B.
   `:root { --iam-accent: var(--accent); --iam-surface: var(--surface); }`.
-- In der App: `useIam()` (`me`, `can`, `orgName`, `switchOrg` …), `<Can perm>`.
+- In der App: `useIam()` (`me` mit `permissions`, `somewhere`, `clearance`, `can`, `orgName`, `switchOrg` …),
+  `<Can perm>`, `useResourceCan()`.
 
-> Assets: `web/src/main.tsx`, `web/src/auth/iam.tsx` (`iamProps`, Router-Adapter, `resources`), `web/src/styles/iam.css`.
+> Assets: `web/src/main.tsx`, `web/src/features/access/*` (Adapter für `AccessSheet`), `web/src/styles/iam.css`.
 
 ## 9. Tests, CI und Image
 
 Mit `@vollholz/iam-testkit` 0.4.0 (Spezifikation Kap. 14):
 
 - **Wegwerf-Datenbank** je Testdatei: `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })`.
-- **Katalog:** `checkCatalog(<Antwort von GET /v1/authz/catalog>, { product: 'notes', acl: true })` ergibt keine Fehler.
+- **Modell:** `checkModel(model)` und `checkCatalog(<Antwort von GET /v1/authz/catalog>)` ergeben keine Fehler;
+  dazu die Standardfälle der Entscheidung aus dem Test-Kit (Spezifikation 14, `access`).
 - **RLS:** `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`,
   `publicExecuteProblems`, `bypassRoleProblems` – je eine leere Liste.
 - **Isolations-Durchlauf** über alle Routen (Daten von Mandant A sind für B nie sichtbar): `routeCollector`,
@@ -365,7 +413,7 @@ Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 - [ ] `npm ci` läuft lokal und in GitHub Actions (Pakete für das Repository freigegeben, Deploy-Key für die Module).
 - [ ] Eintrag `notes` in vollholz/identity mit `grant_realm_admin = true`; `notes-tofu`-Schlüssel nur lokal.
 - [ ] Realm per Workflow «Keycloak» der App eingerichtet; der Kontrollplan zeigt «No changes».
-- [ ] `platform.json` aus `catalog.platformJson()` stimmt mit dem Katalog überein.
+- [ ] `platform.json` aus `model.platformJson()` stimmt mit dem Modell überein.
 - [ ] Migrationen laufen als `notes_owner`, IAM vor App; die Laufzeit nutzt `notes_runtime` (ohne BYPASSRLS).
 - [ ] `loadIamConfig` ohne Fehler in `production`; `iamWarnings` leer oder bewusst akzeptiert; `ENTRA_CLIENT_ID` leer.
 - [ ] Fastify mit `removeAdditional: false`, `@fastify/rate-limit`, Swagger vor dem Plugin; `/readyz` mit `readinessChecks`.

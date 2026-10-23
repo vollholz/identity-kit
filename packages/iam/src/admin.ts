@@ -471,11 +471,11 @@ export class AdminService {
    * keine mehr erzeugen (entfernt oder ohne `members:admin`). Links der Plattform-Administration bleiben.
    */
   async revokeConsentLinksOf(w: Pick<Work, 'tx' | 'tenantId' | 'log'>, subject: string) {
-    const ids = (await w.tx.query<{ id: string }>(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now()
+    const ids = (await w.tx.query<{ id: string }>(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'creator-lost-access', error_detail = NULL
       WHERE created_by_subject = $1 AND NOT platform AND used_at IS NULL AND revoked_at IS NULL RETURNING id`, [subject])).rows.map(r => r.id);
     if (!ids.length) return;
     await w.tx.query(`UPDATE ${this.S}.entra_consent SET expires_at = now() WHERE link_id = ANY($1::uuid[]) AND used_at IS NULL`, [ids]);
-    await w.log({ action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: w.tenantId, data: { linkIds: ids, reason: 'creator-lost' } });
+    await w.log({ action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: w.tenantId, data: { linkIds: ids, reason: 'creator-lost-access' } });
   }
 
   /** Mitglied bzw. eingeladene Person nach der ID von aussen (Mitglieds- oder Einladungs-ID). */

@@ -62,7 +62,7 @@ interface LinkRow {
 /** Link an die Entra-Administration für die Liste der Organisation. */
 export interface ConsentLinkOut {
   id: string; entraTenantId: string; createdByName: string; createdAt: Date; expiresAt: Date;
-  status: 'open' | 'expired' | 'revoked' | 'connected' | 'failed'; usedAt: Date | null; approverName: string | null; error: { reason: string; detail: string } | null;
+  status: 'open' | 'in-progress' | 'expired' | 'revoked' | 'connected' | 'failed'; usedAt: Date | null; approverName: string | null; error: { reason: string; detail: string } | null;
 }
 /** Nach der Zustimmung braucht Entra einige Sekunden, bis die Rechte gelten. */
 const CONSENT_RETRY_MS = [0, 2_000, 4_000, 8_000];
@@ -358,15 +358,15 @@ export class EntraService {
   async consentLinks(s: Scope): Promise<ConsentLinkOut[]> {
     this.on();
     const { tenantId } = await this.ctx(s);
-    const rows = await withTenant(this.deps.db, { tenantId }, async tx => (await tx.query<LinkRow & { expired: boolean }>(
-      `(SELECT ${LINK_COLS}, false AS expired FROM ${this.S}.entra_consent_link WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now())
+    const rows = await withTenant(this.deps.db, { tenantId }, async tx => (await tx.query<LinkRow & { expired: boolean; claimed: boolean }>(
+      `(SELECT ${LINK_COLS}, false AS expired, claimed_at > now() - make_interval(mins => $1) AS claimed FROM ${this.S}.entra_consent_link WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now())
        UNION ALL
-       (SELECT ${LINK_COLS}, expires_at <= now() AS expired FROM ${this.S}.entra_consent_link WHERE NOT (used_at IS NULL AND revoked_at IS NULL AND expires_at > now())
+       (SELECT ${LINK_COLS}, expires_at <= now() AS expired, false AS claimed FROM ${this.S}.entra_consent_link WHERE NOT (used_at IS NULL AND revoked_at IS NULL AND expires_at > now())
         ORDER BY created_at DESC LIMIT 20)
-       ORDER BY created_at DESC`)).rows);
+       ORDER BY created_at DESC`, [LINK_CLAIM_MIN])).rows);
     return rows.map(r => ({
       id: r.id, entraTenantId: r.entra_tenant_id, createdByName: r.created_by_name, createdAt: r.created_at, expiresAt: r.expires_at,
-      status: r.revoked_at ? 'revoked' : r.used_at ? 'connected' : r.expired ? 'expired' : r.error_reason ? 'failed' : 'open',
+      status: r.revoked_at ? 'revoked' : r.used_at ? 'connected' : r.expired ? 'expired' : r.claimed ? 'in-progress' : r.error_reason ? 'failed' : 'open',
       usedAt: r.used_at, approverName: r.approver_name, error: r.error_reason ? { reason: r.error_reason, detail: r.error_detail ?? '' } : null,
     }));
   }
@@ -380,7 +380,7 @@ export class EntraService {
       if (!r) throw notFound('Link');
       if (r.used_at) throw conflict('Der Link ist schon eingelöst.');
       if (r.revoked_at) return;
-      await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now() WHERE id = $1`, [id]);
+      await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = NULL, error_detail = NULL WHERE id = $1`, [id]);
       // offene Zustimmungen über diesen Link verfallen mit
       await tx.query(`UPDATE ${this.S}.entra_consent SET expires_at = now() WHERE link_id = $1 AND used_at IS NULL`, [id]);
       await this.admin.write(tx, this.admin.actorOf(s), { action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: tenantId, data: { linkId: id } });
@@ -499,7 +499,7 @@ export class EntraService {
    * Darf die Person, die den Link erzeugt hat, noch, und ist die Organisation nicht gesperrt? Plattform-Link: Realm-Rolle
    * PLATFORM_ADMIN_ROLE; sonst Mitglied mit `members:admin` (Rollen aus Gruppen; mit ROLE_SOURCE=client oder both
    * stehen Rollen auch im Token, dort zählt nur die Mitgliedschaft). Wenn nicht: Link widerrufen (Protokoll mit
-   * `reason: 'creator-lost'`) und dieselbe Antwort wie für einen ungültigen Link. Fehler bei Keycloak: Link bleibt.
+   * `reason: 'creator-lost-access'`) und dieselbe Antwort wie für einen ungültigen Link. Fehler bei Keycloak: Link bleibt.
    */
   private async requireCreator(tenant: TenantRow, link: LinkRow): Promise<void> {
     const t = this.deps.cfg.tenancy, subject = link.created_by_subject;
@@ -514,9 +514,9 @@ export class EntraService {
     }
     if (ok) return;
     await withTenant(this.deps.db, { tenantId: tenant.id }, async tx => {
-      const r = await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now() WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`, [link.id]);
+      const r = await tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'creator-lost-access', error_detail = NULL WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`, [link.id]);
       await tx.query(`UPDATE ${this.S}.entra_consent SET expires_at = now() WHERE link_id = $1 AND used_at IS NULL`, [link.id]);
-      if (r.rowCount) await this.admin.write(tx, this.admin.actorOf(this.linkScope(tenant, link)), { action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: tenant.id, data: { linkIds: [link.id], reason: 'creator-lost' } });
+      if (r.rowCount) await this.admin.write(tx, this.admin.actorOf(this.linkScope(tenant, link)), { action: 'entra.consent_link_revoked', resourceType: 'tenant', resourceId: tenant.id, data: { linkIds: [link.id], reason: 'creator-lost-access' } });
     });
     throw linkGone();
   }
@@ -866,7 +866,7 @@ export class EntraService {
       await w.tx.query(`DELETE FROM ${this.S}.entra_connection`);
       await w.tx.query(`DELETE FROM ${this.S}.entra_consent`);
       // Offene Links verfallen: wer neu verbinden will, erzeugt einen neuen
-      await w.tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now() WHERE used_at IS NULL AND revoked_at IS NULL`);
+      await w.tx.query(`UPDATE ${this.S}.entra_consent_link SET revoked_at = now(), error_reason = 'disconnected', error_detail = NULL WHERE used_at IS NULL AND revoked_at IS NULL`);
       await w.log({ action: 'entra.disconnected', resourceType: 'tenant', resourceId: w.tenantId, data: { entraTenantId: c.entraTenantId, entraName: c.entraName, domains: c.domains, stage: c.stage } });
     });
     this.deps.resolver.forgetEntra();

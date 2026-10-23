@@ -822,7 +822,7 @@ Audit-Trigger darauf warten.
   `connect`); ein während des Nachweises widerrufener Link bricht die Verbindung ab. Fehlschlag gibt den Link nur frei,
   solange nicht verbunden. Beim Start und bei der Rückkehr prüft `requireCreator`, ob die erzeugende Person noch darf
   (Mitglied mit `members:admin` bzw. Realm-Rolle; mit ROLE_SOURCE=client/both nur die Mitgliedschaft, die Rollen stehen
-  dort im Token) und ob die Organisation aktiv ist; sonst widerrufen (`creator-lost`). Entfernen und Zurückstufen über
+  dort im Token) und ob die Organisation aktiv ist; sonst widerrufen (`creator-lost-access`). Entfernen und Zurückstufen über
   die App widerrufen sofort (`revokeConsentLinksOf`), Trennen widerruft alle offenen Links. Liste: alle offenen, dazu 20
   erledigte; erledigte Links nach 90 Tagen gelöscht (beim Erzeugen). `entra_consent` zeigt mit `(tenant_id, link_id)`
   auf den Link. `entra.consent_failed` nur für abgelehnte oder nicht nachgewiesene Zustimmung (Fehler beim Verbinden:

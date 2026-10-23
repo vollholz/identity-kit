@@ -79,7 +79,7 @@ const EntraResult = Type.Object({
 });
 const ConsentLink = Type.Object({
   id: Type.String({ format: 'uuid' }), entraTenantId: Type.String({ format: 'uuid' }), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
-  status: Type.Union(['open', 'expired', 'revoked', 'connected', 'failed'].map(x => Type.Literal(x))),
+  status: Type.Union(['open', 'in-progress', 'expired', 'revoked', 'connected', 'failed'].map(x => Type.Literal(x)), { description: '`in-progress`: Rückkehr von Microsoft wird gerade eingelöst (Frist 5 Minuten). `revoked` mit `error.reason` `creator-lost-access` (erzeugende Person darf nicht mehr) bzw. `disconnected` (Verbindung getrennt), von Hand widerrufen ohne `error`; `failed` mit dem Fehler des letzten Versuchs' }),
   usedAt: Nullable(DateTime), approverName: Nullable(Type.String({ description: 'Person, die bei Microsoft zugestimmt hat' })),
   error: Nullable(Type.Object({ reason: Type.String(), detail: Type.String() })),
 }, { $id: 'EntraConsentLink', title: 'EntraConsentLink' });

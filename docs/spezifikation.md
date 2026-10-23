@@ -609,8 +609,9 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   Standard 15; höchstens 5 offene je Organisation, sonst 409 `too-many-links`). Er ist an Organisation, Mandant und
   Entra-Tenant gebunden, einmal einlösbar, widerrufbar
   (`DELETE …/consent-links/{id}`), nur als SHA-256 gespeichert und steht im Fragment: `<paths.entra>/freigabe#<token>`.
-  `GET …/consent-links` zeigt alle offenen und die letzten 20 erledigten Links mit Zustand (`open`, `expired`, `revoked`,
-  `connected` mit zustimmender Person, `failed` mit Fehler). Offene Links verfallen, wenn die erzeugende Person entfernt
+  `GET …/consent-links` zeigt alle offenen und die letzten 20 erledigten Links mit Zustand (`open`, `in-progress` während
+  der Einlösung, `expired`, `revoked` – mit `error.reason` `creator-lost-access` bzw. `disconnected`, von Hand ohne
+  `error` –, `connected` mit zustimmender Person, `failed` mit Fehler). Offene Links verfallen, wenn die erzeugende Person entfernt
   wird oder `members:admin` verliert (Plattform: die Realm-Rolle) und beim Trennen; geprüft auch beim Start und bei der
   Rückkehr. Gesperrte Organisation: kein Link gilt (404). Die öffentliche Seite braucht keine Sitzung: `POST /v1/entra/handover/info` (Name der Organisation, Produkt,
   `requestedBy` und `tenant` wie bei der Erzeugung angegeben, damit die Entra-Administration fremde Links erkennt, dazu

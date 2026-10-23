@@ -183,6 +183,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await call(anna(), 'DELETE', `/v1/admin/entra/consent-links/${randomUUID()}`)).status, 404);
     const statuses = Object.fromEntries(ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.map((x: any) => [x.id, x.status]));
     assert.deepEqual([statuses[old.id], statuses[rev.id]], ['expired', 'revoked']);
+    assert.equal(ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === rev.id).error, null, 'von Hand widerrufen: ohne Grund');
     assert.equal((await auditOf('entra.consent_link_revoked')).at(-1)!.data.linkId, rev.id);
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.entra_connection')).rows[0].n, 0);
   });
@@ -233,7 +234,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     await t.inspect.query("UPDATE notes.entra_consent SET used_at = now() WHERE state_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [state1]);
     await t.inspect.query('UPDATE notes.entra_consent_link SET claimed_at = now() WHERE id = $1', [l.id]);
     const item = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === l.id);
-    assert.equal(item.status, 'open', 'nicht «verbunden»');
+    assert.equal(item.status, 'in-progress', 'belegt, nicht «verbunden»');
     const s2 = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
     assert.equal((await call(null, 'POST', '/v1/entra/handover/complete', ms.approve(s2.url, ga, { wids: GA }))).status, 404, 'während der Frist belegt');
     assert.equal((await call(anna(), 'DELETE', `/v1/admin/entra/consent-links/${l.id}`)).status, 204, 'widerrufbar');
@@ -251,8 +252,9 @@ describe('Link an die Entra-Administration', { skip }, () => {
 
   test('Liste: alle offenen und die letzten 20 erledigten Links; erledigte nach 90 Tagen gelöscht', async () => {
     const open = await newLink();
+    await t.inspect.query("UPDATE notes.entra_consent_link SET created_at = now() - interval '1 hour' WHERE id = $1", [open.id]);
     await t.inspect.query(`INSERT INTO notes.entra_consent_link (tenant_id, token_hash, entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, created_at, expires_at, revoked_at)
-      SELECT tenant_id, md5(random()::text || g), entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, now() + g * interval '1 second', now() + interval '1 hour', now()
+      SELECT tenant_id, md5(random()::text || g), entra_tenant_id, tenant_input, platform, created_by, created_by_subject, created_by_name, created_by_tenant, now() - interval '10 minutes' + g * interval '1 second', now() + interval '1 hour', now()
         FROM notes.entra_consent_link, generate_series(1, 22) g WHERE id = $1`, [open.id]);
     const items = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items as any[];
     assert.ok(items.some(x => x.id === open.id), 'offener Link trotz 22 neueren erledigten');
@@ -271,7 +273,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     kc.userGroups.get(u.otto.id)!.delete(adminGroup);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/start', { token: a.token })).status, 404, 'Start');
     assert.ok((await linkRow(a.id)).revoked_at);
-    assert.equal((await auditOf('entra.consent_link_revoked')).at(-1)!.data.reason, 'creator-lost');
+    assert.equal((await auditOf('entra.consent_link_revoked')).at(-1)!.data.reason, 'creator-lost-access');
     kc.userGroups.get(u.otto.id)!.add(adminGroup);
     const b = await newLink(undefined, otto());
     const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: b.token }));
@@ -284,14 +286,16 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await auditOf('entra.reconnected')).filter(x => x.data.viaLink === b.id).length, 0);
   });
 
-  test('erzeugende Person verliert members:admin oder wird entfernt: ihre offenen Links verfallen sofort (creator-lost)', async () => {
+  test('erzeugende Person verliert members:admin oder wird entfernt: ihre offenen Links verfallen sofort (creator-lost-access)', async () => {
     const a = await newLink(undefined, otto());
     const keep = await newLink();
     ok(await call(paula(), 'PUT', `/v1/platform/organizations/demo/members/${u.otto.id}/roles`, { roles: ['viewer'] }));
     assert.ok((await linkRow(a.id)).revoked_at, 'zurückgestuft: widerrufen');
+    const shown = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === a.id);
+    assert.deepEqual([shown.status, shown.error?.reason], ['revoked', 'creator-lost-access']);
     assert.equal((await linkRow(keep.id)).revoked_at, null, 'Links anderer Personen bleiben');
     const ev = (await auditOf('entra.consent_link_revoked')).at(-1)!;
-    assert.deepEqual([ev.data.linkIds, ev.data.reason], [[a.id], 'creator-lost']);
+    assert.deepEqual([ev.data.linkIds, ev.data.reason], [[a.id], 'creator-lost-access']);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: a.token })).status, 404);
     ok(await call(paula(), 'PUT', `/v1/platform/organizations/demo/members/${u.otto.id}/roles`, { roles: ['org-admin'] }));
     const b = await newLink(undefined, otto());
@@ -364,5 +368,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
     assert.equal((await call(anna(), 'DELETE', '/v1/admin/entra')).status, 204);
     assert.ok((await linkRow(l.id)).revoked_at);
     assert.equal((await call(null, 'POST', '/v1/entra/handover/info', { token: l.token })).status, 404);
+    const shown = ok(await call(anna(), 'GET', '/v1/admin/entra/consent-links')).items.find((x: any) => x.id === l.id);
+    assert.deepEqual([shown.status, shown.error?.reason], ['revoked', 'disconnected']);
   });
 });

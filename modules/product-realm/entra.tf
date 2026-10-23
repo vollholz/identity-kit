@@ -1,11 +1,13 @@
 # Anmeldung über Microsoft Entra ID je Organisation (Spezifikation 9.4, nur mit var.entra). Die Anbieter selbst
 # («entra-001» …) legt die App an, wenn eine Organisation sich verbindet – nicht OpenTofu.
 #   - <produkt>-admin darf Identitätsanbieter verwalten (manage-identity-providers; alle Anbieter des Realms samt
-#     Mappern, die App legt nur «entra-NNN» ohne Mapper an)
+#     Mappern; die App legt «entra-NNN» an und dazu den Mapper `entra-groups`, siehe README)
 #   - Ablauf «<produkt>-entra-first-login»: Erstanmeldung über einen Anbieter immer verweigert (keine Konten, keine
 #     Verknüpfung über die Adresse; nur vorab über die Objekt-ID verknüpfte Konten melden sich an)
 #   - Claim `identity_provider` (Session-Note) an den Personen-Clients: die App verlangt ihn für an Entra gebundene
 #     Domains («nur Entra»)
+#   - Claim `groups` an <produkt>-platform: Benutzerattribut `entra_groups` (Objekt-IDs der Entra-Gruppen; gefüllt vom
+#     Mapper `entra-groups` je Anbieter, FORCE bei jeder Anmeldung)
 
 resource "keycloak_openid_client_service_account_role" "manage_identity_providers" {
   count                   = var.entra ? 1 : 0
@@ -52,5 +54,21 @@ resource "keycloak_openid_user_session_note_protocol_mapper" "identity_provider"
   add_to_id_token            = false
   add_to_access_token        = true
   add_to_userinfo            = false
+  add_to_token_introspection = true
+}
+
+resource "keycloak_openid_user_attribute_protocol_mapper" "entra_groups" {
+  count                      = var.entra ? 1 : 0
+  realm_id                   = local.realm
+  client_id                  = keycloak_openid_client.platform.id
+  name                       = "entra-groups"
+  user_attribute             = "entra_groups"
+  claim_name                 = "groups"
+  claim_value_type           = "String"
+  multivalued                = true
+  aggregate_attributes       = false
+  add_to_id_token            = false
+  add_to_access_token        = true
+  add_to_userinfo            = true
   add_to_token_introspection = true
 }

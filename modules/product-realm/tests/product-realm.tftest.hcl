@@ -60,12 +60,13 @@ run "ohne_schalter" {
   assert {
     condition = (length(keycloak_realm_client_policy_profile_policy.m2m_dpop) + length(keycloak_openid_client.mcp) + length(keycloak_openid_client.mcp_cli)
       + length(keycloak_openid_client_scope.mcp) + length(keycloak_authentication_flow.entra_first_login)
-    + length(keycloak_openid_client_service_account_role.manage_identity_providers) + length(keycloak_openid_user_session_note_protocol_mapper.identity_provider)) == 0
+      + length(keycloak_openid_client_service_account_role.manage_identity_providers) + length(keycloak_openid_user_session_note_protocol_mapper.identity_provider)
+    + length(keycloak_openid_user_attribute_protocol_mapper.entra_groups)) == 0
     error_message = "Ohne Schalter weder M2M-Richtlinie noch MCP noch Entra"
   }
   assert {
-    condition     = keys(keycloak_openid_group_membership_protocol_mapper.groups) == ["platform"] && keys(keycloak_openid_audience_protocol_mapper.aud_api) == ["platform"]
-    error_message = "Mapper nur am BFF-Client"
+    condition     = keys(keycloak_openid_audience_protocol_mapper.aud_api) == ["platform"]
+    error_message = "aud-api nur am BFF-Client"
   }
   assert {
     condition     = keycloak_role.platform_admin.name == "platform-admin"
@@ -121,6 +122,10 @@ run "alle_schalter" {
     }
   }
 
+  assert {
+    condition     = keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].user_attribute == "entra_groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].claim_name == "groups" && keycloak_openid_user_attribute_protocol_mapper.entra_groups[0].multivalued
+    error_message = "Mapper entra-groups: Benutzerattribut entra_groups (mehrwertig) → Claim groups am BFF-Client"
+  }
   assert {
     condition     = keycloak_openid_client.mcp[0].client_id == "beispiel-mcp" && keycloak_openid_client.mcp_cli[0].client_id == "beispiel-mcp-cli" && keycloak_openid_client_scope.mcp[0].name == "beispiel-mcp"
     error_message = "MCP-Clients und Scope <produkt>-mcp"

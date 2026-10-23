@@ -67,13 +67,13 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 | Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
 | Richtlinien | `<produkt>-code-flow` ✓, `<produkt>-confidential` ✓, `<produkt>-m2m-dpop` (`m2m`; Bedingung Attribut `<produkt>.m2m = true`) |
 | Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
-| Mapper | `aud-api` und `groups` an den Personen-Clients (nur für Gruppen aus Entra, Subjekt `group:<name>`; kein Rollenbezug), `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
+| Mapper | `aud-api` an den Personen-Clients, `entra-groups` an `<produkt>-platform` (`entra`; Benutzerattribut `entra_groups` → Claim `groups`, siehe [Gruppen aus Entra](#gruppen-aus-entra)), `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
 | Scopes | je Scope des Katalogs ein Client-Scope «<Produkt>: <scope>» ✓; vollständige Listen der Standard- und optionalen Scopes je Client |
 | Rollen ✓ | nur die Realm-Rolle `platform-admin`; keine Client-Rollen, keine Gruppe `/orgs` (Rollen der App: App-Datenbank) |
 | Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» (Mitgliederverwaltung; keine Rechte auf Gruppen) mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
 | Texte ✓ | eine Lokalisierung je Sprache: Standardtexte, dann `localization`, dann `theme_texts` |
 
-Assets (alle Schalter an, 17 Scopes): 59 Ressourcen. Ohne Schalter mit 2 Scopes: 24. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
+Assets (alle Schalter an, 17 Scopes): 57 Ressourcen. Ohne Schalter mit 2 Scopes: 23. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
 
 ## Aufruf
 
@@ -167,14 +167,14 @@ Eine App, deren Realm schon mit eigener IaC nach Assets-Muster läuft, stellt oh
 4. `kc.sh init` (Modul holen), `kc.sh plan`: nur Verschiebungen (`# … has moved to module.realm…`) und
    «Plan: 0 to add, 0 to change, 0 to destroy.» – OpenTofu meldet Verschiebungen nicht als «No changes» (Exit 2). Jede
    andere Zeile (`will be updated`, `must be replaced`, `will be created`) ist ein Unterschied und vor dem Apply zu klären.
-   Ab 1.0.0 neu und gewollt: Gelöscht werden die Client-Rollen von `<produkt>-platform`, die Gruppe `/orgs` und das
-   Gruppenrecht «`<produkt>-admin`: Gruppen» (Rollen liegen in der App-Datenbank); der Plan zeigt dafür `will be destroyed`.
+   Ab 1.0.0 neu und gewollt: Gelöscht werden die Client-Rollen von `<produkt>-platform`, die Gruppe `/orgs`, der Mapper `groups` und das
+   Gruppenrecht «`<produkt>-admin`: Gruppen» (Rollen liegen in der App-Datenbank); der Plan zeigt dafür `will be destroyed`, und mit `entra` entsteht `entra-groups`.
 5. Apply nach Freigabe (schreibt nur den State), Kontrollplan: «No changes». Ebenso für `bootstrap/`.
 
 ### Assets
 
 Die Liste prüft `modules/test/keycloak.sh` gegen Keycloak 26.8.1 (`modules/test/roots/assets/moved.tf`); ein Test hält
-sie hier gleich. Für die Client-Rollen, die Gruppe `/orgs` und das Gruppenrecht gibt es seit 1.0.0 keinen `moved`-Block;
+sie hier gleich. Für die Client-Rollen, die Gruppe `/orgs`, den Mapper `groups` und das Gruppenrecht gibt es seit 1.0.0 keinen `moved`-Block;
 sie entfallen mit dem Apply.
 
 `infra/keycloak/moved.tf` (Aufruf als `module "realm"` mit `m2m`, `mcp`, `entra` = `true`,
@@ -237,10 +237,6 @@ moved {
 moved {
   from = keycloak_openid_audience_protocol_mapper.aud_api
   to   = module.realm.keycloak_openid_audience_protocol_mapper.aud_api
-}
-moved {
-  from = keycloak_openid_group_membership_protocol_mapper.groups
-  to   = module.realm.keycloak_openid_group_membership_protocol_mapper.groups
 }
 moved {
   from = keycloak_openid_client_default_scopes.platform
@@ -379,6 +375,25 @@ Ergebnis in Keycloak gleich (Nachweis unten); anders ist nur der Aufbau:
   ([Aufruf](#aufruf)).
 - Der Betreff der Einladungs-E-Mail nennt `display_name` statt fest «Assets».
 
+### Gruppen aus Entra
+
+Keycloak kennt keine Rollen der App; Gruppen kommen nur aus Entra (Subjekt `group:<objekt-id>`). Mit `entra` legt das
+Modul am Client `<produkt>-platform` den Mapper `entra-groups` an (Typ Benutzerattribut, `user_attribute = entra_groups`,
+`claim_name = groups`, mehrwertig, Access Token, Userinfo, Introspection). Die Anbieter `entra-NNN` legt zur Laufzeit die
+App an (`packages/iam` `idpRepresentation()`); sie legt dazu je Anbieter den Mapper `entra-groups` an:
+
+| Feld | Wert |
+|---|---|
+| `name` | `entra-groups` |
+| `identityProviderMapper` | `oidc-user-attribute-idp-mapper` |
+| `identityProviderAlias` | Alias des Anbieters (`entra-NNN`) |
+| `config.claim` | `groups` |
+| `config.user.attribute` | `entra_groups` |
+| `config.syncMode` | `FORCE` (bei jeder Anmeldung überschreiben) |
+
+Voraussetzungen ausserhalb des Moduls: In der Entra-App-Registrierung muss der Gruppen-Claim im ID-Token stehen
+(Objekt-IDs); das Benutzerattribut `entra_groups` muss im User Profile des Realms zulässig sein.
+
 ## Hilfsskripte
 
 | Skript | Wofür |
@@ -399,6 +414,6 @@ Ergebnis in Keycloak gleich (Nachweis unten); anders ist nur der Aufbau:
 
 `keycloak.sh` legt in einer Wegwerf-Instanz Assets wie in Produktion an (`assets-tofu` nur mit `create-realm` →
 Bootstrap → `realm-admin` für `assets-iac` → `infra/keycloak` von `3a148ae` aus `modules/test/fixtures`), plant dann
-denselben State mit dem Modul und den `moved`-Blöcken (Verschiebungen; zusätzlich entfallen die Rollen, die Gruppe `/orgs` und das Gruppenrecht), wendet sie an und plant erneut («No
+denselben State mit dem Modul und den `moved`-Blöcken (Verschiebungen; zusätzlich entfallen die Rollen, die Gruppe `/orgs`, der Mapper `groups` und das Gruppenrecht; neu `entra-groups`), wendet sie an und plant erneut («No
 changes»). Danach zwei frische Produkte mit beiden Modulen, einmal mit allen Schaltern, einmal ohne; der zweite Plan
 zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.

@@ -1,5 +1,5 @@
 # Umstellung von Assets infra/keycloak (3a148ae) auf das Modul product-realm: jede Ressource an ihre neue Adresse.
-# Client-Rollen (keycloak_role.platform), Gruppe orgs und das Gruppenrecht (admin["groups"]) hat das Modul nicht mehr:
+# Client-Rollen (keycloak_role.platform), Gruppe orgs, Mapper groups und das Gruppenrecht (admin["groups"]) hat das Modul nicht mehr:
 # sie werden beim Apply gelöscht (Rollen liegen in der App-Datenbank).
 # Nach dem ersten Apply mit dem Modul können die Blöcke bleiben (kosten nichts) oder in einer späteren Version weg.
 
@@ -58,10 +58,6 @@ moved {
 moved {
   from = keycloak_openid_audience_protocol_mapper.aud_api
   to   = module.realm.keycloak_openid_audience_protocol_mapper.aud_api
-}
-moved {
-  from = keycloak_openid_group_membership_protocol_mapper.groups
-  to   = module.realm.keycloak_openid_group_membership_protocol_mapper.groups
 }
 moved {
   from = keycloak_openid_client_default_scopes.platform

@@ -4,6 +4,7 @@
  * dient auch ausserhalb von Fastify (Tests, MCP-Dienst, Skripte).
  */
 import { AccessService } from './access.ts';
+import { AdminService } from './admin.ts';
 import { Bff, type BffOptions } from './bff.ts';
 import type { AuditPort } from './audit.ts';
 import type { Catalog } from './catalog.ts';
@@ -12,6 +13,7 @@ import { schemaName, withTenant, type Db, type Tx } from './db.ts';
 import type { Principal } from './principal.ts';
 import { PrincipalResolver } from './principal.ts';
 import type { ResourceModel } from './resources.ts';
+import { KeycloakAdmin } from './keycloak.ts';
 import { MemoryReplayStore, PgReplayStore, type ReplayStore } from './state.ts';
 import { OidcProvider, TokenVerifier } from './tokens.ts';
 
@@ -39,6 +41,8 @@ export interface IamOptions<P extends string = string, S = unknown> {
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
   fetch?: typeof fetch;
+  /** Abruf der Keycloak-Admin-API (Verwaltung; Tests: `KeycloakFake.fetch`); Standard `fetch`. */
+  keycloakFetch?: typeof fetch;
   /**
    * Anmeldung der Oberfläche: gebaut, wenn `OIDC_BFF_CLIENT_SECRET` oder `OIDC_BFF_PRIVATE_KEY` gesetzt ist (dann sind
    * `SESSION_SECRET` und in Produktion `ENCRYPTION_KEYS` Pflicht); `false` schaltet es ab (z. B. MCP-Dienst).
@@ -60,6 +64,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly access: AccessService<P, S>;
   /** Anmeldung der Oberfläche (`SessionBridge` des Plugins, Modul `bff`) oder null. */
   readonly bff: Bff | null;
+  /** Verwaltung von Organisationen und Mitgliedern (Modul `admin`); null ohne `KEYCLOAK_MGMT_CLIENT_ID`. */
+  readonly admin: AdminService | null;
   /** Echte Rollen und Gruppen anderer Personen (setzt das Modul `admin`). */
   memberAccess: MemberAccess | null;
   /** Transaktion im Mandantenkontext des Principals mit dem Kontext der App (`resources.dbContext`). */
@@ -76,12 +82,17 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const provider = new OidcProvider(o.cfg.oidc.issuer, o.fetch);
   const wantsBff = o.bff !== false && !!(o.cfg.oidc.bffClientSecret || o.cfg.oidc.bffPrivateKey);
   const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.catalog.product }) : null;
+  const resolver = new PrincipalResolver(o.db, o.cfg, { schema });
+  const admin = o.cfg.mgmt.clientId
+    ? new AdminService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
+    : null;
   return {
     cfg: o.cfg, catalog: o.catalog, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
-    resolver: new PrincipalResolver(o.db, o.cfg, { schema }),
+    resolver,
     access,
     bff,
+    admin,
     memberAccess: null,
     async tx(p, fn) {
       const settings = resources?.dbContext ? await resources.dbContext(p, access as AccessService) : undefined;

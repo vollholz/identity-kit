@@ -38,7 +38,9 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Konto', description: 'Angemeldete Person oder Maschine, Mandant und Rechte (`/v1/me`).' },
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
+  { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder der eigenen Organisation einladen, entfernen und ihre Rollen setzen (Rolle org-admin).' },
   { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
+  { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },
 ];
 
 /** Schema einer Route mit den Ersetzungen der App (Texte, Tags, Felder). */
@@ -72,6 +74,26 @@ function describeFields(node: unknown, fields: Record<string, string>, path: str
     if (n.response && typeof n.response === 'object') out.response = Object.fromEntries(Object.entries(n.response).map(([s, v]) => [s, describeFields(v, fields, `${route} ${s}`)]));
   }
   return out;
+}
+
+/**
+ * `transformObject` für `@fastify/swagger`: Es schreibt `requestBody.required: true` für jede Route mit Body-Schema.
+ * Routen mit `'x-body-optional': true` im Schema (z. B. `POST …/suspend`) werden hier als optional ausgewiesen. Die App
+ * übergibt es als `transformObject` (oder ruft es in ihrem eigenen auf).
+ */
+export function optionalBodies<T>(doc: { openapiObject?: T; swaggerObject?: T }): T {
+  // Swagger 2 (`swaggerObject`) kennt `requestBody` nicht: unverändert zurück
+  if (!doc.openapiObject) return doc.swaggerObject as T;
+  const { openapiObject } = doc;
+  const paths = (openapiObject as { paths?: Record<string, Record<string, { requestBody?: { required?: boolean }; 'x-body-optional'?: boolean }>> }).paths ?? {};
+  for (const ops of Object.values(paths)) {
+    for (const op of Object.values(ops)) {
+      if (!op || typeof op !== 'object' || !op['x-body-optional']) continue;
+      if (op.requestBody) op.requestBody.required = false;
+      delete op['x-body-optional'];
+    }
+  }
+  return openapiObject;
 }
 
 /** Route ohne Eintrag in der OpenAPI-Beschreibung (`hide` von @fastify/swagger). */

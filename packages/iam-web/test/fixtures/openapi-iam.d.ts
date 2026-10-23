@@ -2419,6 +2419,8 @@ export interface paths {
                         "application/json": {
                             canManageMembers: boolean;
                             enabled: boolean;
+                            /** @description Präfix der Rollengruppen in Keycloak (GROUP_ROLE_PREFIX, z. B. `/orgs`) */
+                            groupRolePrefix: string;
                             organization: string;
                             platformAdmin: boolean;
                             reason: string | null;
@@ -5117,7 +5119,14 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description Grund für das Protokoll */
+                        reason?: string;
+                    };
+                };
+            };
             responses: {
                 200: {
                     headers: {
@@ -5199,6 +5208,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/organizations/{alias}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rollen einer Organisation
+         * @description Nur lesend, im Format von `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation mit Anzahl Personen. Nur platform-admin.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alias: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            customPermissions: ("tenant:read" | "tenant:admin" | "schema:read" | "schema:write" | "object:read" | "object:write" | "object:delete" | "connection:read" | "connection:write" | "connection:sync" | "credential:read" | "credential:use" | "credential:write" | "mapping:edit" | "mapping:activate" | "proposal:read" | "proposal:decide" | "webhook:read" | "webhook:admin" | "acl:read" | "acl:admin" | "audit:read" | "comment:write" | "comment:moderate" | "attachment:write" | "attachment:delete" | "report:share" | "view:share" | "members:admin" | "connector:activate" | "connector:draft" | "assistant:use")[];
+                            items: components["schemas"]["Role"][];
+                            maxCustom: number;
+                        };
+                    };
+                };
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrganizationChoice"];
+                    };
+                };
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/platform/organizations/{alias}/suspend": {
         parameters: {
             query?: never;
@@ -5217,7 +5310,14 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description Grund für das Protokoll */
+                        reason?: string;
+                    };
+                };
+            };
             responses: {
                 200: {
                     headers: {

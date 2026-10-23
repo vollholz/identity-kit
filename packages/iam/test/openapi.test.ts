@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import { routesOf } from '@vollholz/iam-testkit';
 import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { authzCatalogSchema } from '../src/http/account.ts';
-import { IAM_API_TAGS } from '../src/http/routes.ts';
+import { IAM_API_TAGS, optionalBodies } from '../src/http/routes.ts';
 import { assetsCatalog, notesCatalog } from './support/catalogs.ts';
 import { skipDb } from './support/db.ts';
 import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
@@ -19,6 +19,11 @@ const IAM_ROUTES = [
   'GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/acl', 'POST /v1/acl', 'DELETE /v1/acl/{id}', 'GET /v1/acl/effective',
   'GET /v1/admin/clients', 'PUT /v1/admin/clients/{clientId}', 'DELETE /v1/admin/clients/{clientId}',
   'GET /v1/platform/organizations/{alias}/clients', 'PUT /v1/platform/organizations/{alias}/clients/{clientId}', 'DELETE /v1/platform/organizations/{alias}/clients/{clientId}',
+  'GET /v1/admin/status', 'GET /v1/admin/members', 'POST /v1/admin/members', 'PUT /v1/admin/members/{id}/roles', 'DELETE /v1/admin/members/{id}', 'POST /v1/admin/members/{id}/invitation',
+  'GET /v1/platform/organizations/{alias}/members', 'POST /v1/platform/organizations/{alias}/members', 'PUT /v1/platform/organizations/{alias}/members/{id}/roles',
+  'DELETE /v1/platform/organizations/{alias}/members/{id}', 'POST /v1/platform/organizations/{alias}/members/{id}/invitation',
+  'GET /v1/platform/organizations', 'POST /v1/platform/organizations', 'GET /v1/platform/organizations/{alias}', 'PATCH /v1/platform/organizations/{alias}',
+  'POST /v1/platform/organizations/{alias}/suspend', 'POST /v1/platform/organizations/{alias}/resume', 'GET /v1/platform/organizations/{alias}/roles',
 ];
 
 describe('OpenAPI der Routen des Pakets', { skip }, () => {
@@ -45,6 +50,30 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
       assert.ok(op(r).summary, r);
     }
     assert.ok(!doc.paths['/v1/openapi.json'], 'versteckt');
+  });
+
+  test('optionalBodies: Swagger 2 (swaggerObject) unverändert, ohne Pfade kein Fehler (D)', () => {
+    const swagger2 = { swagger: '2.0', paths: { '/x': { post: { 'x-body-optional': true } } } };
+    assert.equal(optionalBodies({ swaggerObject: swagger2 }), swagger2);
+    assert.deepEqual(swagger2.paths['/x'].post, { 'x-body-optional': true }, 'nicht verändert');
+    assert.deepEqual(optionalBodies({ openapiObject: { openapi: '3.1.0' } }), { openapi: '3.1.0' });
+    assert.equal(optionalBodies({}), undefined);
+  });
+
+  test('Modul admin: groupRolePrefix im Status, Body von suspend/resume optional (optionalBodies), Einladen mit 202', () => {
+    const status = op('GET /v1/admin/status').responses['200'].content['application/json'].schema;
+    assert.ok(status.required.includes('groupRolePrefix') && status.properties.groupRolePrefix.type === 'string');
+    for (const v of ['suspend', 'resume']) {
+      const rb = op(`POST /v1/platform/organizations/{alias}/${v}`).requestBody;
+      assert.equal(rb.required, false, v);
+      assert.equal(rb.content['application/json'].schema.properties.reason.maxLength, 500);
+      assert.equal(op(`POST /v1/platform/organizations/{alias}/${v}`)['x-body-optional'], undefined, 'Markierung entfernt');
+    }
+    assert.equal(op('POST /v1/admin/members').requestBody.required, true);
+    assert.ok(op('POST /v1/admin/members').responses['202']);
+    for (const s of ['Member', 'Organization', 'Role']) assert.ok(doc.components.schemas[s], s);
+    const roles = op('GET /v1/platform/organizations/{alias}/roles').responses['200'].content['application/json'].schema;
+    assert.deepEqual([roles.properties.items.items.$ref, roles.required.sort()], ['#/components/schemas/Role', ['customPermissions', 'items', 'maxCustom']]);
   });
 
   test('übliche Fehlerantworten als problem+json, auch für Routen der App', () => {

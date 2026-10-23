@@ -1,6 +1,6 @@
 /**
  * Verwalten › Organisationen (nur Plattform-Administration, Spezifikation 9.5): Organisationen in Keycloak anlegen,
- * umbenennen, Domänen pflegen, sperren und entsperren sowie Mitglieder (inklusive org-admin) und Maschinen-Clients jeder
+ * umbenennen, Domänen pflegen, sperren und entsperren sowie Mitglieder (inklusive org-admin und Maschinen-Clients) jeder
  * Organisation verwalten. Die Detailansicht sagt, welche Organisation bearbeitet wird und in welcher die Person
  * angemeldet ist; Kopfzeile und Kontomenü zeigen die eigene. Herkunft: vollholz/assets
  * `web/src/features/admin/Organizations.tsx`. Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)».
@@ -12,7 +12,7 @@ import { useIamConfig } from '../config.tsx';
 import type { AdminStatus, Organization } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import { iamKeys } from '../keys.ts';
-import { isCustomRole, PLATFORM_ADMIN } from '../permissions.ts';
+import { PLATFORM_ADMIN } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { NoPermission } from '../rights/MissingRight.tsx';
 import { orgName, useIam } from '../session.tsx';
@@ -20,7 +20,6 @@ import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
-import { ClientList } from './Clients.tsx';
 import { EntraSection } from './Entra.tsx';
 import { MemberList } from './Members.tsx';
 
@@ -119,7 +118,7 @@ function CreateOrg({ onClose, onCreated }: { onClose: () => void; onCreated: (o:
     <Dialog title={t('iam.orgs.create')} onClose={onClose} onSubmit={submit} width={600}
       footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" busy={save.isPending}>{t('iam.orgs.createConfirm')}</Button></>}>
       <div className="iam-form iam-compact">
-        <label htmlFor={`${fid}-n`}>{t('iam.rolesPage.name')}</label>
+        <label htmlFor={`${fid}-n`}>{t('iam.orgs.name')}</label>
         <input id={`${fid}-n`} className="iam-inp" value={d.name} data-autofocus required autoComplete="off" aria-invalid={nameErr ? true : undefined} aria-describedby={nameErr ? `${fid}-n-e` : undefined}
           onChange={e => setD({ ...d, name: e.target.value, alias: aliasTouched ? d.alias : suggestAlias(e.target.value) })} />
         {nameErr ? <div id={`${fid}-n-e`} className="iam-ferr iam-hint"><Icon name="warn" className="iam-ico" />{nameErr}</div> : null}
@@ -129,7 +128,7 @@ function CreateOrg({ onClose, onCreated }: { onClose: () => void; onCreated: (o:
         <label htmlFor={`${fid}-d`}>{t('iam.orgs.col.domains')}</label>
         <input id={`${fid}-d`} className="iam-inp iam-mono" value={d.domains} placeholder="firma.ch, firma.com" autoComplete="off" aria-describedby={`${fid}-d-h`} onChange={e => setD({ ...d, domains: e.target.value })} />
         <div id={`${fid}-d-h`} className="iam-hint">{t('iam.orgs.domainsHint')}</div>
-        <label htmlFor={`${fid}-b`}>{t('iam.rolesPage.description')}</label>
+        <label htmlFor={`${fid}-b`}>{t('iam.orgs.description')}</label>
         <textarea id={`${fid}-b`} className="iam-inp" rows={2} value={d.description} onChange={e => setD({ ...d, description: e.target.value })} />
       </div>
       <p className="iam-note">{t('iam.orgs.next')}</p>
@@ -153,7 +152,7 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
   const { Button, Icon } = useIamUi();
   const { paths, features } = useIamConfig();
   useIamText();
-  const { status, gate, page } = useGate(t('iam.orgs.one'));
+  const { gate, page } = useGate(t('iam.orgs.one'));
   const { me } = useIam();
   const q = useOrganization(alias, !gate && !!alias);
   const [statusDlg, setStatusDlg] = useState(false);
@@ -182,10 +181,8 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
         {gate ?? (q.isPending ? <SkeletonRows rows={4} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} home={paths.organizations} /> : (
           <>
             <OrgForm org={q.data} />
-            {/* Rollen: nur die vordefinierten. Eigene Rollen gelten je Organisation, der Status liefert die der eigenen
-                Organisation, für eine andere gibt es keinen Endpunkt (Personen mit solchen Rollen nur ansehen). */}
-            <MemberList alias={q.data.alias} roles={status!.roles.filter(r => !isCustomRole(r.key))} platform rolesManageable={status!.rolesManageable} self={me.person.subject} orgLabel={q.data.name} />
-            {q.data.tenant ? <ClientList alias={q.data.alias} orgLabel={q.data.name} /> : null}
+            {/* Personen und freigegebene Maschinen-Clients; Rollen aus dem Modell der App, gleich in jeder Organisation */}
+            <MemberList alias={q.data.alias} platform orgLabel={q.data.name} />
             {features.entra ? <EntraSection alias={q.data.alias} orgLabel={q.data.name} /> : null}
           </>
         ))}
@@ -215,13 +212,13 @@ function OrgForm({ org }: { org: Organization }) {
     <section aria-labelledby={`${fid}-h`}>
       <div className="iam-sec-h"><h2 id={`${fid}-h`}>{t('iam.orgs.details')}</h2></div>
       <form className="iam-form" onSubmit={e => { e.preventDefault(); submit(); }} noValidate>
-        <label htmlFor={`${fid}-n`}>{t('iam.rolesPage.name')}</label>
+        <label htmlFor={`${fid}-n`}>{t('iam.orgs.name')}</label>
         <input id={`${fid}-n`} className="iam-inp" value={d.name} onChange={e => setD({ ...d, name: e.target.value })} required autoComplete="off" aria-invalid={nameErr ? true : undefined} aria-describedby={nameErr ? `${fid}-n-e` : undefined} />
         {nameErr ? <div id={`${fid}-n-e`} className="iam-ferr iam-hint"><Icon name="warn" className="iam-ico" />{nameErr}</div> : null}
         <label htmlFor={`${fid}-d`}>{t('iam.orgs.col.domains')}</label>
         <input id={`${fid}-d`} className="iam-inp iam-mono" value={d.domains} onChange={e => setD({ ...d, domains: e.target.value })} autoComplete="off" aria-describedby={`${fid}-d-h`} />
         <div id={`${fid}-d-h`} className="iam-hint">{t('iam.orgs.domainsOne')}</div>
-        <label htmlFor={`${fid}-b`}>{t('iam.rolesPage.description')}</label>
+        <label htmlFor={`${fid}-b`}>{t('iam.orgs.description')}</label>
         <textarea id={`${fid}-b`} className="iam-inp" rows={2} value={d.description} onChange={e => setD({ ...d, description: e.target.value })} />
         <span />
         <div><Button type="submit" variant="primary" disabled={!dirty} busy={save.isPending}>{t('iam.common.save')}</Button></div>

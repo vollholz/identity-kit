@@ -150,13 +150,13 @@ describe('Rechte aus Freigaben', () => {
     return <p>{`can:${can('folder:admin')} irgendwo:${canSomewhere('folder:admin')} lesen:${canSomewhere('note:read')} protokoll:${canSomewhere('audit:read')} org:${orgName}`}</p>;
   }
 
-  it('canSomewhere gilt auch für Rechte nur aus Freigaben einzelner Ressourcen, can nicht', async () => {
-    setup({ 'GET /auth/me': () => json({ ...ME, roles: ['viewer'], permissions: ['tenant:read', 'note:read'], grantedPermissions: ['folder:admin'] }) }, {}, <Probe />);
+  it('canSomewhere gilt auch für Rechte nur an einzelnen Orten (somewhere), can nicht', async () => {
+    setup({ 'GET /auth/me': () => json({ ...ME, roles: ['viewer'], permissions: ['tenant:read', 'note:read'], somewhere: ['tenant:read', 'note:read', 'folder:admin'] }) }, {}, <Probe />);
     expect(await screen.findByText('can:false irgendwo:true lesen:true protokoll:false org:Demo AG')).toBeInTheDocument();
   });
 
-  it('ohne grantedPermissions (ältere Antwort) wie can', async () => {
-    const { grantedPermissions: _, ...old } = ME;
+  it('ohne somewhere (unvollständige Antwort) wie can', async () => {
+    const { somewhere: _, ...old } = ME;
     setup({ 'GET /auth/me': () => json({ ...old, roles: ['viewer'], permissions: ['note:read'] }) }, {}, <Probe />);
     expect(await screen.findByText(/^can:false irgendwo:false lesen:true protokoll:false/)).toBeInTheDocument();
   });

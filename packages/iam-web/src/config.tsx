@@ -48,6 +48,8 @@ export interface IamConfig {
   features: IamFeatures;
   router: IamRouter;
   roleGroups?: RoleGroup[];
+  /** Symbol je Rolle auf der Seite «Rollen» (Name aus `IamIconName` oder der App); Standard: `shield` für org-admin, sonst `tag`. */
+  roleIcons?: Record<string, string>;
   onTenant?: (me: Me) => void;
   onLogout?: () => void;
 }

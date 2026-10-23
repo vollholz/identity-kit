@@ -116,8 +116,10 @@ export interface AdminStatus {
   platformAdmin: boolean;
   canManageMembers: boolean;
   rolesManageable: boolean;
-  roles: { key: string; label: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }[];
+  roles: RoleInfo[];
 }
+/** Rolle in `GET /v1/admin/status`: vergebbare Rollen der Organisation mit ihren Rechten. */
+export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }
 
 export interface Member {
   id: string;

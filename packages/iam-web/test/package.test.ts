@@ -13,7 +13,7 @@ const root = join(import.meta.dirname, '..');
 const dist = join(root, 'dist');
 
 describe('Paket', () => {
-  it('dist lädt in Node und exportiert dasselbe wie src', async () => {
+  it('dist lädt in Node und exportiert dasselbe wie src (Kern, Seiten, Testhilfen)', async () => {
     expect(existsSync(join(dist, 'index.js')), 'zuerst npm run build').toBe(true);
     const built = await import(pathToFileURL(join(dist, 'index.js')).href) as Record<string, unknown>;
     const src = await import('../src/index.ts') as Record<string, unknown>;
@@ -21,6 +21,10 @@ describe('Paket', () => {
     expect(readFileSync(join(dist, 'index.js'), 'utf8')).not.toMatch(/from ['"][^'"]+\.tsx?['"]/);
     const testing = await import(pathToFileURL(join(dist, 'testing', 'index.js')).href) as Record<string, unknown>;
     expect(Object.keys(testing).sort()).toEqual(['CATALOG', 'ME', 'StaticIam', 'json', 'mockIamApi']);
+    const pages = await import(pathToFileURL(join(dist, 'pages', 'index.js')).href) as Record<string, unknown>;
+    expect(Object.keys(pages).sort()).toEqual(Object.keys(await import('../src/pages/index.ts')).sort());
+    // iamRoutes lädt die Seiten aus dist nach (dynamischer Import mit Endung .js)
+    expect(readFileSync(join(dist, 'routes.js'), 'utf8')).toMatch(/import\("\.\/pages\/index\.js"\)/);
   });
 
   it('exports zeigen auf vorhandene Dateien, styles.css ist eine Ebene «iam»', () => {

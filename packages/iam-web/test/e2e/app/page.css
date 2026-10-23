@@ -6,3 +6,7 @@ h1 { margin: 0; font-size: 22px }
 h2 { margin: 0 0 8px; font-size: 16px }
 .field { display: flex; flex-direction: column; gap: 4px; font-weight: 500 }
 .field input { height: 34px; padding: 0 10px; border: 1px solid var(--iam-line-2); border-radius: 7px; background: var(--iam-surface); color: var(--iam-text); font: inherit }
+.admin { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh }
+.admin aside { border-right: 1px solid var(--iam-line); padding: 8px }
+.admin-main { min-width: 0 }
+@media (max-width: 760px) { .admin { grid-template-columns: minmax(0, 1fr) } .admin aside { border-right: 0; border-bottom: 1px solid var(--iam-line) } }

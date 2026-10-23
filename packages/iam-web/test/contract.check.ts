@@ -34,6 +34,8 @@ ok<Fits<Res<'/v1/roles/{key}', 'get'>, C.Role>>();
 ok<Fits<Res<'/v1/roles', 'post', 201>, C.Role>>();
 ok<Fits<Res<'/v1/roles/{key}', 'patch'>, C.Role>>();
 ok<Fits<Res<'/v1/admin/status', 'get'>, C.AdminStatus>>();
+// Rollen im Status: gleiche Felder wie im Vertrag (die Seiten zeigen die Beschreibung)
+ok<SameKeys<C.RoleInfo, Res<'/v1/admin/status', 'get'>['roles'][number]>>();
 ok<Fits<Res<'/v1/admin/members', 'get'>, C.MemberList>>();
 ok<Fits<Res<'/v1/admin/members', 'post', 202>, C.InviteResult>>();
 ok<Fits<Res<'/v1/admin/members/{id}/roles', 'put'>, C.Member>>();

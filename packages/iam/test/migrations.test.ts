@@ -13,6 +13,36 @@ import { productDb, skipDb } from './support/db.ts';
 const skip = await skipDb();
 
 describe('IAM-Migrationen: Parameter', () => {
+  /**
+   * Veröffentlichte IAM-Migrationen sind unveränderlich: Ihre Prüfsumme steht in jeder angewendeten Datenbank (auch bei
+   * Übernahme). Schon eine geänderte Kommentarzeile bräche jeden Deploy mit «nach dem Ausführen geändert». Änderungen
+   * gehören in eine neue Migration; die Liste wird nur um neue Dateien ergänzt (gerendert wie für Assets).
+   */
+  test('Prüfsummen veröffentlichter IAM-Migrationen unverändert (Assets: schema assets)', () => {
+    const pinned: Record<string, string> = {
+  'iam_001_core.sql': '3182ce0a8c8d351d5fe55b462c5b3916108b915903495fe147927b38e94fcd81',
+  'iam_002_tenant.sql': 'eb3c1fb24d89299bfaacb9e4fa147ab1e7611a34b1f0600543936ad939c68cca',
+  'iam_003_principal.sql': '4d72c82cdf6d0a8ae8ba94942507d3bcbdad1b1c89a071b4444e40f5938e7959',
+  'iam_004_access.sql': '7e5db8bc1732cdf41fb13b5a685a29bb844beaac34b03aab17ac5181731f892c',
+  'iam_005_members.sql': 'af1388c50f87ce3e32bc27163aea5e2f016fb7ad4d0dcf5b1808901f4e8b9eb3',
+  'iam_006_session.sql': 'f987e1bf80ea41ecac74bc33c468d0a5c2571abe48f38bf02799bdd292e42ede',
+  'iam_007_audit.sql': '7f737522d971b57d86845856c1f84d3dac612eef4366976c07df205de1595946',
+  'iam_008_entra.sql': 'a258ea7f90d797eb3d08a876ad440e436a43d81d8dbaa118c9ec71798583d8cb',
+  'iam_009_tenant_role_key.sql': 'a7159742d5a051e4cb6a60100f813162451674206008484228840db223ec59f8',
+  'iam_010_revoke_public_execute.sql': '253c88ed8266b93342e1bd1c36c3a8019ec25d48c130f99d8a9c819f67dc8967',
+  'iam_011_resolve_tenant_strict.sql': '7522b78dbae92a4355975a01927e27739cee1aa83c6c054aeced07c70344b556',
+  'iam_012_acl_unique.sql': 'c39f849caeeb7fd8bc33188d052bad51d0d764b6fc3d5bb7a175044b117ff442',
+  'iam_013_entra_consent_link.sql': 'b61dd7827c1efd3a4cba80b126eac93645ec930abbe9b27eeb8676f8faea3fb9',
+  'iam_014_entra_own_app.sql': '4cf838b2aee77a309fe78d6528e2506d7ce1a1e928537478b796ef5ab8f9efe4',
+    };
+    const now = new Map(iamMigrations({ product: 'assets', schema: 'assets' }).migrations.map(m => [m.name, m.checksum]));
+    for (const [name, sum] of Object.entries(pinned)) {
+      assert.ok(now.has(name), `${name} fehlt: veröffentlichte Migrationen nie umbenennen oder löschen`);
+      assert.equal(now.get(name), sum, `${name} wurde geändert. Veröffentlichte IAM-Migrationen sind unveränderlich (Prüfsumme in jeder Datenbank, auch übernommen in Assets): Änderung in eine neue Migration iam_NNN legen.`);
+    }
+    assert.deepEqual([...now.keys()].filter(n => !pinned[n]), [], 'neue Migration: Prüfsumme hier ergänzen');
+  });
+
   test('Dateien iam_001 … iam_014 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());

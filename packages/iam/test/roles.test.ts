@@ -138,14 +138,23 @@ describe('Rollen: vordefinierte und eigene', { skip }, () => {
     assert.equal((await call('anna', 'DELETE', '/v1/roles/editor')).status, 409);
     assert.equal((await call('carla', 'DELETE', `/v1/roles/${key}`)).status, 403);
     assert.equal((await call('anna', 'DELETE', `/v1/roles/${key}`, undefined, { 'if-match': 'W/"1"' })).status, 412);
+    // Zugriffsregel auf die Gruppe der Rolle: wirkte sonst über noch gültige Tokens früherer Mitglieder weiter
+    const group = `/orgs/demo/${key}`;
+    ok(await call('anna', 'POST', '/v1/acl', { resourceType: 'tenant', principalType: 'group', principalRef: group, permission: 'note:read', effect: 'grant' }), 201);
+    n.events.length = 0;
     assert.equal((await call('anna', 'DELETE', `/v1/roles/${key}`, undefined, { 'if-match': 'W/"4"' })).status, 204);
+    assert.deepEqual(n.events.map(e => [e.type, e.data.action, e.data.principalRef, e.data.reason]).sort(),
+      [['acl.changed', 'acl.deleted', group, 'role.deleted'], ['acl.changed', 'acl.deleted', key, 'role.deleted']], 'acl.changed je gelöschtem Eintrag');
+    assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.acl_entry WHERE principal_ref = $1', [group])).rows[0].n, 0);
+    const late = await call('anna', 'POST', '/v1/acl', { resourceType: 'tenant', principalType: 'group', principalRef: group, permission: 'note:read', effect: 'grant' });
+    assert.equal(late.status, 422, 'Gruppe einer gelöschten Rolle');
     assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
     assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${key}`), 'Gruppe gelöscht');
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.acl_entry WHERE principal_ref = $1', [key])).rows[0].n, 0);
     assert.ok(!(await perms('dana')).includes('note:write'), 'altes Token mit der Gruppe gibt nichts mehr');
     assert.equal((await call('anna', 'GET', `/v1/roles/${key}`)).status, 404);
     const [d] = await auditOf('role.deleted');
-    assert.deepEqual([d.key, d.members, d.aclEntries], [key, 1, 1]);
+    assert.deepEqual([d.key, d.members, d.aclEntries], [key, 1, 2]);
     const again = ok(await call('anna', 'POST', '/v1/roles', { label: 'Datenpflege', permissions: ['note:read', 'note:write'] }), 201);
     assert.equal(again.key, 'c-datenpflege-3', 'c-datenpflege-2 ist noch aktiv, c-datenpflege ist ein Grabstein');
     assert.ok(!(await perms('dana')).includes('note:write'), 'altes Token mit der Gruppe der gelöschten Rolle');
@@ -159,5 +168,83 @@ describe('Rollen: vordefinierte und eigene', { skip }, () => {
     const r = await call('anna', 'POST', '/v1/roles', { label: 'Eine zu viel', permissions: ['note:read'] });
     assert.deepEqual([r.status, r.body.reason], [409, 'too-many-roles']);
     await t.inspect.query("DELETE FROM notes.tenant_role WHERE key LIKE 'c-fuell-%'");
+  });
+
+  const fresh = async (label: string) => ok(await call('anna', 'POST', '/v1/roles', { label, permissions: ['note:read'] }), 201) as { key: string; version: number };
+
+  test('Gleichzeitig ändern: If-Match gilt (einmal 200, einmal 412), nichts geht verloren', async () => {
+    for (let i = 0; i < 5; i++) {
+      const r = await fresh(`Parallel ${i}`);
+      const patch = (permissions: string[]) => call('anna', 'PATCH', `/v1/roles/${r.key}`, { permissions }, { 'if-match': `W/"${r.version}"` });
+      const res = await Promise.all([patch(['note:read', 'note:write']), patch(['note:read', 'note:share'])]);
+      assert.deepEqual(res.map(x => x.status).sort(), [200, 412], `Lauf ${i}`);
+      // Nur Beschreibung ohne If-Match: schreibt nie einen veralteten Stand der Rechte zurück
+      await Promise.all([call('anna', 'PATCH', `/v1/roles/${r.key}`, { permissions: ['note:read'] }), call('anna', 'PATCH', `/v1/roles/${r.key}`, { description: 'neu' })]);
+      assert.deepEqual(ok(await call('anna', 'GET', `/v1/roles/${r.key}`)).permissions, ['note:read'], `Lauf ${i}: Rechteentzug bleibt`);
+    }
+  });
+
+  test('Löschen gegen gleichzeitiges Ändern: nie Gruppe weg und Rolle aktiv, kein geänderter Grabstein', async () => {
+    const r = await fresh('Wettlauf');
+    const dana = ok(await call('anna', 'GET', '/v1/admin/members')).items.find((m: any) => m.username === 'dana');
+    ok(await call('anna', 'PUT', `/v1/admin/members/${dana.id}/roles`, { roles: ['viewer', r.key] }));
+    // Während Keycloak die Gruppe löscht, ändert jemand die Rolle
+    let patch: Promise<Res> | null = null;
+    kc.before = async c => {
+      if (!c.startsWith('DELETE /groups/') || patch) return;
+      patch = call('anna', 'PATCH', `/v1/roles/${r.key}`, { description: 'gleichzeitig' });
+      await Promise.race([patch, new Promise(res => setTimeout(res, 300))]);
+    };
+    try {
+      const del = await call('anna', 'DELETE', `/v1/roles/${r.key}`, undefined, { 'if-match': `W/"${r.version}"` });
+      assert.equal(del.status, 204, JSON.stringify(del.body));
+      assert.equal((await patch!)?.status, 404, 'Änderung wartet auf das Löschen und findet die Rolle nicht mehr');
+    } finally { kc.before = null; }
+    const row = (await t.inspect.query('SELECT description, deleted_at FROM notes.tenant_role WHERE key = $1', [r.key])).rows[0];
+    assert.ok(row.deleted_at && row.description === '', 'Grabstein unverändert');
+    assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${r.key}`));
+  });
+
+  test('Vergeben auf einer anderen Instanz nach dem Löschen: 422, keine neue Gruppe (Rollen-Zwischenspeicher)', async () => {
+    const r = await fresh('Andere Instanz');
+    const other = await notesApp({ db: t.runtime, issuer: idp.issuer, env: { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests', KEYCLOAK_MGMT_INVITE_MIN_TIME: '0' }, keycloakFetch: kc.fetch });
+    try {
+      const dana = ok(await call('anna', 'GET', '/v1/admin/members', undefined, {}, other)).items.find((m: any) => m.username === 'dana');
+      ok(await call('anna', 'PUT', `/v1/admin/members/${dana.id}/roles`, { roles: ['viewer', r.key] }, {}, other));
+      ok(await call('anna', 'PUT', `/v1/admin/members/${dana.id}/roles`, { roles: ['viewer'] }, {}, other));
+      assert.equal((await call('anna', 'DELETE', `/v1/roles/${r.key}`)).status, 204);
+      const again = await call('anna', 'PUT', `/v1/admin/members/${dana.id}/roles`, { roles: ['viewer', r.key] }, {}, other);
+      assert.equal(again.status, 422, JSON.stringify(again.body));
+      assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${r.key}`), 'Gruppe nicht neu angelegt');
+      assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
+    } finally { await other.app.close(); }
+  });
+
+  test('Client-Rollen `c-…` eines Service Accounts gelten nie als eigene Rolle', async () => {
+    const r = ok(await call('anna', 'POST', '/v1/roles', { label: 'Für Clients', permissions: ['note:read', 'note:write'] }), 201);
+    tok.svcCustom = await idp.token(claims.client({ clientId: 'demo-m2m', org: 'demo', roles: [r.key], scopes: ['notes:read', 'notes:write'] }));
+    const me = ok(await call('svcCustom', 'GET', '/v1/me'));
+    assert.ok(!me.roles.includes(r.key) && !me.permissions.includes('note:write'), JSON.stringify(me));
+  });
+});
+
+describe('Rollengruppen mit mehrstufigem Präfix (GROUP_ROLE_PREFIX)', { skip }, () => {
+  const db = notesDb();
+  let t: Awaited<ReturnType<typeof db.create>>, idp: MockIdp, n: NotesApp;
+  const kc = new KeycloakFake({ groupPrefix: '/kunden/orgs' });
+  after(async () => { await n?.app.close(); await idp?.close(); await t?.drop(); });
+
+  test('fehlende Stufen werden einzeln angelegt', async () => {
+    t = await db.create();
+    idp = await startMockIdp({ realm: 'notes', audience: 'notes-api' });
+    kc.org('demo', 'Demo AG');
+    const ops = kc.org('ops', 'Betrieb'), paula = kc.user('paula', { email: 'paula@ops.example' });
+    kc.member(ops, paula);
+    n = await notesApp({ db: t.runtime, issuer: idp.issuer, env: { GROUP_ROLE_PREFIX: '/kunden/orgs', KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests', KEYCLOAK_MGMT_INVITE_MIN_TIME: '0' }, keycloakFetch: kc.fetch });
+    const tok = await idp.token({ ...claims.user({ sub: paula.id, org: 'ops' }), realm_access: { roles: ['platform-admin'] } });
+    const r = await n.app.inject({ method: 'POST', url: '/v1/platform/organizations/demo/members', headers: { authorization: `Bearer ${tok}` }, payload: { email: 'neu@demo.example', roles: ['viewer'] } });
+    assert.equal(r.statusCode, 202, r.body);
+    const paths = [...kc.groups.values()].map(g => [g.path, g.name]);
+    assert.ok(paths.some(([p, nm]) => p === '/kunden' && nm === 'kunden') && paths.some(([p]) => p === '/kunden/orgs/demo/viewer'), JSON.stringify(paths));
   });
 });

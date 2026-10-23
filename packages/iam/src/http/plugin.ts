@@ -22,7 +22,7 @@ import { adminModule } from './admin.ts';
 import { bffModule } from './bff.ts';
 import { clientsModule } from './clients.ts';
 import { entraModule } from './entra.ts';
-import { peopleModule } from './people.ts';
+import { defaultPeoplePermissions, peopleModule } from './people.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
 import { rolesModule } from './roles.ts';
 import type { IamModule, ModuleContext, OpenApiOverrides } from './routes.ts';
@@ -121,7 +121,11 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const realm = iam.catalog.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'entra', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', 'people'] as IamModuleName[]);
+  // Personenverzeichnis ohne Option nur, wenn ein Recht es öffnen kann (sonst startete die App nicht); ausdrücklich in
+  // `modules` verlangt, meldet das Modul den Fehler
+  const people = !o.modules && (!!o.people || defaultPeoplePermissions(iam.catalog).some(x => iam.catalog.isPermission(x)));
+  if (!o.modules && !people) app.log.warn('Modul «people» nicht geladen: kein Recht öffnet das Verzeichnis (Option people.permissions oder Lese-Scope <produkt>:read)');
+  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'entra', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
   // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
   const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');

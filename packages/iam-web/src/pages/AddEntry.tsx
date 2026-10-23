@@ -22,7 +22,7 @@ import { useIam } from '../session.tsx';
 import { t, tn, type IamTextKey } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
-import { ErrorBox } from '../ui/states.tsx';
+import { ErrorBox, Loading } from '../ui/states.tsx';
 
 type Draft = { resourceType: string; resourceId: string; principalType: AclPrincipalType; principalRef: string; permission: string; effect: Effect };
 
@@ -35,7 +35,23 @@ const outcomeText = (o: string) => t(`iam.acl.outcome.${o}` as IamTextKey);
 /** Stufe über der Ressource ohne Adapterkette: noch unbekannt, die Vorschau rechnet mit Organisation und Ressource. */
 const noChain = () => [];
 
+/** Dialog «Zugriffsregel hinzufügen»; bis der Katalog geladen ist ein Ladezustand, damit die Vorgaben aus dem Katalog stammen. */
 export function AddEntry({ entries, onClose }: { entries: AclEntry[]; onClose: () => void }) {
+  const authz = useAuthz();
+  const { orgName: org } = useIam();
+  const { Dialog, Button } = useIamUi();
+  useIamText();
+  if (!authz.catalog) {
+    return (
+      <Dialog title={t('iam.acl.add.title', { org })} onClose={onClose} width={600} footer={<Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button>}>
+        <Loading />
+      </Dialog>
+    );
+  }
+  return <AddEntryForm entries={entries} onClose={onClose} />;
+}
+
+function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () => void }) {
   const authz = useAuthz();
   const { me, can, orgName: org } = useIam();
   const { resources } = useIamConfig();

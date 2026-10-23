@@ -12,7 +12,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useClientGrants, useGroupRolePrefix, useMembers } from '../admin.ts';
-import { aclApi, PersonPick, usePermLabel, useResources, type EffectiveQuery } from '../acl/shared.tsx';
+import { aclApi, PersonPick, useAclEntries, usePermLabel, useResources, type EffectiveQuery } from '../acl/shared.tsx';
 import { useAuthz } from '../authz.ts';
 import { relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
@@ -113,7 +113,14 @@ export function Check() {
   // Entscheid je Ressource (Rolle oder Freigabe ∧ Zugriffsregeln, vom Server); gewählte Scopes begrenzen zusätzlich
   // (der Server prüft Scopes bei einer Person nicht)
   const scoped = scopes?.length ? new Set((cat?.scopes ?? []).filter(x => scopes.includes(x.key)).flatMap(x => x.permissions as string[])) : null;
-  const resources = (eff.data?.resources ?? []).map(r => ({ ...r, allowed: r.allowed && (!scoped || scoped.has(r.permission)) }));
+  // Zugriffsregeln auf Ebene der Organisation stehen nicht in `resources`: Entscheid aus `permissions` der Antwort
+  const entries = useAclEntries();
+  const effective = eff.data && !eff.isPlaceholderData ? eff.data.permissions : undefined;
+  const tenantPerms = [...new Set((entries.data ?? []).filter(e => e.resourceType === 'tenant').map(e => e.permission as string))];
+  const resources = [
+    ...(eff.data ? tenantPerms.map(p => ({ resourceType: 'tenant', resourceId: null as string | null, permission: p, allowed: eff.data!.permissions.includes(p as never) })) : []),
+    ...(eff.data?.resources ?? []),
+  ].map(r => ({ ...r, allowed: r.allowed && (!scoped || scoped.has(r.permission)) }));
   const granted = (eff.data?.granted ?? []).filter(p => !scoped || scoped.has(p));
   const rulesLink = q(t('iam.acl.check.resources'));
 
@@ -188,7 +195,9 @@ export function Check() {
         <div className="iam-acl-res">
           <section className="iam-card iam-pad iam-acl-res-main" aria-labelledby={`${id}-res`}>
             <div className="iam-card-h"><h2 id={`${id}-res`}>{t('iam.acl.check.rightsOf', { name: whoName })}</h2>{eff.data?.simulated ?? simulated ? <span className="iam-mk iam-info">{t('iam.acl.check.simulated')}</span> : null}</div>
+            {/* Rechte aus der Antwort (Zugriffsregeln auf Ebene der Organisation); Maschinen-Clients sind mit org-admin nicht ausgenommen */}
             <RightsOverview roles={roles} scopes={scopes ?? undefined} headingLevel={3} rulesNote={t('iam.acl.check.rulesNote', { where: rulesLink })}
+              effective={effective} {...(who === 'client' ? { admin: false } : {})}
               {...(who === 'me' && !simulated ? { permissions: me.permissions } : {})} />
             {granted.length ? (
               <div className="iam-acl-granted">
@@ -205,7 +214,7 @@ export function Check() {
                   {resources.map(r => (
                     <li key={`${r.resourceType}-${r.resourceId}-${r.permission}`} className={r.allowed ? 'iam-is-ok' : 'iam-is-bad'}>
                       <Icon name={r.allowed ? 'check' : 'x'} className="iam-ico" />
-                      <span className="iam-acl-rl-t"><span title={r.permission}>{perm(r.permission)}</span> <span className="iam-muted">· {authz.resourceLabel(r.resourceType)} {res.name(r.resourceType, r.resourceId)}</span></span>
+                      <span className="iam-acl-rl-t"><span title={r.permission}>{perm(r.permission)}</span> <span className="iam-muted">· {r.resourceType === 'tenant' ? t('iam.acl.wholeOrg') : `${authz.resourceLabel(r.resourceType)} ${res.name(r.resourceType, r.resourceId)}`}</span></span>
                       <span className="iam-acl-rl-s">{t(r.allowed ? 'iam.acl.check.allowed' : 'iam.acl.check.denied')}</span>
                     </li>
                   ))}

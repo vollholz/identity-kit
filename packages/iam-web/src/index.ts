@@ -27,7 +27,7 @@ export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } fr
 export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAuthz, useAuthzCatalog, useRoles, withCustomRoles, type Authz } from './authz.ts';
 export { useResourceCan } from './resourceCan.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamPickOption, type IamResources, type RoleGroup } from './config.tsx';
-export { defaultPeople, PersonName, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
+export { defaultPeople, isPrincipalId, PersonName, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
 export { AclHint } from './acl/AclHint.tsx';
 export {
   aclResourceTypes, effectOf, filterEntries, groupByResource, hintCounts, ineffectiveReason, noGrantTypes, permissionsFor, previewEntry,

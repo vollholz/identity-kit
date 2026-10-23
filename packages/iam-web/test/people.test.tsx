@@ -43,9 +43,11 @@ describe('Personenverzeichnis', () => {
     vi.stubGlobal('fetch', api.fetch);
     expect(await defaultPeople.search(' anna ', new AbortController().signal)).toEqual([{ id: A, name: 'Anna Admin', email: 'anna@demo.example' }]);
     expect(Object.fromEntries(new URL(api.calls[0]!.url).searchParams)).toEqual({ limit: '20', q: 'anna' });
-    const ids = Array.from({ length: 150 }, (_, i) => `id-${i}`);
-    expect(await defaultPeople.resolve(ids, new AbortController().signal)).toHaveLength(150);
+    const ids = Array.from({ length: 150 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    // ein Subject statt einer Principal-ID geht nicht an `ids` (die API nimmt nur UUIDs) und fehlt in der Antwort
+    expect(await defaultPeople.resolve([...ids, 'dora'], new AbortController().signal)).toHaveLength(150);
     expect(api.calls.slice(1).map(c => new URL(c.url).searchParams.getAll('ids').length)).toEqual([100, 50]);
+    expect(api.calls.some(c => new URL(c.url).searchParams.getAll('ids').includes('dora'))).toBe(false);
   });
 
   it('eigenes Verzeichnis der App ersetzt /v1/people; Suchtreffer füllen den Zwischenspeicher', async () => {

@@ -12,9 +12,11 @@ import { CATALOG, json, ME, mockIamApi, staticResources } from '../../../src/tes
 import './page.css';
 
 sessionStorage.removeItem('iam.tab.org');
+/** Principal-ID (UUID) je Mitglied, fest aus der ID abgeleitet. */
+const pid = (id: string) => `00000000-0000-4000-8000-${[...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 0xffffffffffff, 7).toString(16).padStart(12, '0')}`;
 const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
 const member = (id: string, name: string, email: string, roles: string[], o: Partial<Member> = {}): Member =>
-  ({ id, principalId: `p-${id}`, username: email, name, email, status: 'active', roles, lastSeenAt: ago(1), createdAt: null, loginPath: null, ...o });
+  ({ id, principalId: pid(id), username: email, name, email, status: 'active', roles, lastSeenAt: ago(1), createdAt: null, loginPath: null, ...o });
 let members: Member[] = [
   member(ME.person.subject, 'Anna Admin', 'anna@demo.example', ['org-admin'], { lastSeenAt: ago(0) }),
   member('m-carla', 'Carla Check', 'carla@demo.example', ['editor', 'viewer'], { lastSeenAt: ago(2) }),
@@ -41,10 +43,13 @@ const resources = staticResources({ folder: { [F1]: 'Projekte', [F2]: 'Archiv mi
 const acl = (id: string, o: Partial<AclEntry>): AclEntry => ({ id, resourceType: 'folder', resourceId: F1, principalType: 'role', principalRef: 'editor', permission: 'note:write', effect: 'restrict', createdAt: ago(5), createdBy: 'p-anna', ...o });
 let aclEntries: AclEntry[] = [
   acl('a1', {}),
-  acl('a2', { principalType: 'user', principalRef: 'p-m-carla', permission: 'note:delete', effect: 'grant' }),
+  acl('a2', { principalType: 'user', principalRef: pid('m-carla'), permission: 'note:delete', effect: 'grant' }),
   acl('a3', { resourceType: 'tenant', resourceId: null, principalRef: 'viewer', permission: 'note:read', effect: 'deny' }),
   acl('a4', { resourceId: F2, principalType: 'group', principalRef: '/orgs/demo/team-mit-einem-langen-gruppennamen', permission: 'audit:read' }),
 ];
+/** Rechte auf Ebene der Organisation: aus den Rollen, ohne Verbote dort (wie der Server, ohne Beschränkungen und Freigaben). */
+const tenantPerms = (rs: string[]) => [...new Set(CATALOG.roles.filter(r => rs.includes(r.key)).flatMap(r => r.permissions
+  .filter(p => r.key === 'org-admin' || !aclEntries.some(e => e.resourceType === 'tenant' && e.effect === 'deny' && e.principalType === 'role' && e.principalRef === r.key && e.permission === p))))];
 const people = () => members.filter(m => m.principalId).map(m => ({ id: m.principalId!, kind: 'user', name: m.name, email: m.email, clientId: null, lastSeenAt: m.lastSeenAt }));
 const features = { entra: true };
 const routes = makeIamRoutes({}, features);
@@ -102,7 +107,7 @@ window.fetch = mockIamApi({
     const roles = new URL(req.url).searchParams.getAll('roles');
     const simulated = roles.length > 0;
     return json({ principal: { id: 'p-anna', kind: 'user', name: 'Anna Admin', clientId: null }, simulated, source: simulated ? 'simulation' : 'token', roles: simulated ? roles : ME.roles, groups: [], scopes: [],
-      permissions: [], granted: [], resources: [{ resourceType: 'folder', resourceId: F1, permission: 'note:write', allowed: !simulated }, { resourceType: 'folder', resourceId: F2, permission: 'audit:read', allowed: true }] });
+      permissions: tenantPerms(simulated ? roles : ME.roles), granted: [], resources: [{ resourceType: 'folder', resourceId: F1, permission: 'note:write', allowed: !simulated }, { resourceType: 'folder', resourceId: F2, permission: 'audit:read', allowed: true }] });
   },
   'GET /v1/people': req => {
     const u = new URL(req.url), q = (u.searchParams.get('q') ?? '').toLowerCase(), ids = u.searchParams.getAll('ids');

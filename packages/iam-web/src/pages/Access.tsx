@@ -17,6 +17,7 @@ import { useIamConfig } from '../config.tsx';
 import type { AclEntry } from '../contract.ts';
 import { fmtDateTime, relTime, shortId } from '../format.ts';
 import { iamKeys } from '../keys.ts';
+import { isPrincipalId } from '../people.tsx';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { MissingRight } from '../rights/MissingRight.tsx';
 import { useIam } from '../session.tsx';
@@ -125,7 +126,7 @@ function Rules({ q, admin, onAdd }: { q: UseQueryResult<AclEntry[]>; admin: bool
   const permOpts = [...new Set(all.map(e => e.permission as string))];
   const whoOpts = [...new Map(all.map(e => [whoKey(e), e])).values()];
   const whoText = (e: AclEntry) => (e.principalType === 'role' ? t('iam.acl.whoRole', { role: authz.roleLabel(e.principalRef) })
-    : `${principalLabel(e.principalType)} ${e.principalType !== 'user' ? e.principalRef : who(e).startsWith('«') ? who(e) : shortId(e.principalRef)}`);
+    : `${principalLabel(e.principalType)} ${e.principalType !== 'user' ? e.principalRef : who(e).startsWith('«') ? who(e) : isPrincipalId(e.principalRef) ? shortId(e.principalRef) : e.principalRef}`);
   // Ressource im Filter, die es hier nicht gibt: verständlich benannt statt roher ID
   const unknownRes = !!f.resourceId && res.known(f.resourceType ?? '', f.resourceId) === false;
   const resName = (type: string, id: string | null) => (id && res.known(type, id) === false ? t('iam.acl.unknownRes', { id: shortId(id) }) : res.name(type, id));

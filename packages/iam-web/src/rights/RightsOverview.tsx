@@ -28,7 +28,8 @@ import { useIamUi } from '../ui/context.tsx';
 import type { IamIconName } from '../ui/icons.ts';
 import { Loading } from '../ui/states.tsx';
 
-export type RightStatus = 'allowed' | 'role' | 'scope';
+/** `acl`: Rolle und Scope reichen, eine Zugriffsregel auf Ebene der Organisation verbietet oder beschränkt es. */
+export type RightStatus = 'allowed' | 'role' | 'scope' | 'acl';
 
 export interface RightRow {
   perm: PermissionInfo;
@@ -39,7 +40,17 @@ export interface RightRow {
   scopes: ScopeInfo[];
 }
 
-export interface RightsInput { roles?: readonly string[]; permissions?: readonly string[]; scopes?: readonly string[]; admin?: boolean }
+export interface RightsInput {
+  roles?: readonly string[];
+  permissions?: readonly string[];
+  scopes?: readonly string[];
+  admin?: boolean;
+  /**
+   * Rechte auf Ebene der Organisation nach Rolle, Freigabe, Scope und Zugriffsregeln (`GET /v1/acl/effective`): was hier
+   * fehlt, obwohl Rolle und Scope reichen, ist `acl`; was hier steht, ohne dass eine Rolle es gibt, kommt aus einer Freigabe.
+   */
+  effective?: readonly string[];
+}
 
 /** Kurzbeschreibung einer Rolle: der erste Teil der Beschreibung bis «;» oder «:» (ganze Beschreibung als title). */
 export function roleSummary(description: string): string {
@@ -47,23 +58,24 @@ export function roleSummary(description: string): string {
 }
 
 /** Status je Recht in Katalogreihenfolge; ohne Katalog leer. Auch für Zählungen ausserhalb der Ansicht. */
-export function rightsModel(authz: Authz, { roles = [], permissions, scopes, admin }: RightsInput): RightRow[] {
+export function rightsModel(authz: Authz, { roles = [], permissions, scopes, admin, effective }: RightsInput): RightRow[] {
   const cat = authz.catalog;
   if (!cat) return [];
   const isAdmin = admin ?? roles.includes(ADMIN_ROLE);
   const own = authz.groupRoles(cat.roles.filter(r => roles.includes(r.key))).flatMap(g => g.roles);
   const fromRoles = new Set(own.flatMap(r => r.permissions));
-  const has = isAdmin ? new Set(cat.permissions.map(p => p.key)) : new Set<string>(permissions ?? fromRoles);
+  const has = isAdmin ? new Set(cat.permissions.map(p => p.key)) : new Set<string>([...permissions ?? fromRoles, ...effective ?? []]);
+  const eff = effective ? new Set(effective) : null;
   const tok = scopes ? new Set(scopes) : null;
   return cat.permissions.map(perm => {
     const sc = cat.scopes.filter(s => s.permissions.includes(perm.key));
     const scopeOk = !tok || sc.some(s => tok.has(s.key));
-    const status: RightStatus = !has.has(perm.key) ? 'role' : scopeOk ? 'allowed' : 'scope';
+    const status: RightStatus = !has.has(perm.key) ? 'role' : !scopeOk ? 'scope' : eff && !eff.has(perm.key) ? 'acl' : 'allowed';
     return { perm, status, givenBy: own.filter(r => r.permissions.includes(perm.key)), scopes: tok ? [...sc.filter(s => tok.has(s.key)), ...sc.filter(s => !tok.has(s.key))] : sc };
   });
 }
 
-const STATUS_ICON: Record<RightStatus, IamIconName> = { allowed: 'check', role: 'x', scope: 'key' };
+const STATUS_ICON: Record<RightStatus, IamIconName> = { allowed: 'check', role: 'x', scope: 'key', acl: 'shield' };
 const statusText = (s: RightStatus) => t(`iam.rights.status.${s}`);
 
 type Filter = 'all' | 'allowed' | 'missing';
@@ -100,6 +112,7 @@ function Why({ row, authz, scoped }: { row: RightRow; authz: Authz; scoped: bool
       <div><dt>{t('iam.rights.why.right')}</dt><dd>{perm.description}</dd></div>
       <div><dt>{status === 'role' ? t('iam.rights.why.missing') : t('iam.rights.why.gives')}</dt><dd>{roleLine}</dd></div>
       {scopeLine ? <div><dt>{t('iam.rights.why.scope')}</dt><dd>{scopeLine}</dd></div> : null}
+      {status === 'acl' ? <div><dt>{t('iam.rights.why.missing')}</dt><dd>{t('iam.rights.why.acl')}</dd></div> : null}
       <div className="iam-rights-why-key"><dt>{t('iam.rights.why.key')}</dt><dd>{perm.key}</dd></div>
     </dl>
   );
@@ -154,7 +167,7 @@ export interface RightsOverviewProps extends RightsInput {
   before?: readonly string[];
 }
 
-export function RightsOverview({ roles = [], permissions, scopes, rulesNote, admin, headingLevel = 5, before }: RightsOverviewProps) {
+export function RightsOverview({ roles = [], permissions, scopes, rulesNote, admin, headingLevel = 5, before, effective }: RightsOverviewProps) {
   const authz = useAuthz();
   const { Icon } = useIamUi();
   useIamText();
@@ -167,14 +180,16 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
   if (!cat) return <Loading inline />;
 
   const isAdmin = admin ?? roles.includes(ADMIN_ROLE);
-  const rows = rightsModel(authz, { roles, permissions, scopes, admin: isAdmin });
+  const rows = rightsModel(authz, { roles, permissions, scopes, admin: isAdmin, effective });
   const n = rows.filter(r => r.status === 'allowed').length;
   const byScope = rows.filter(r => r.status === 'scope').length;
+  const byAcl = rows.filter(r => r.status === 'acl').length;
   const roleNames = authz.groupRoles(cat.roles.filter(r => roles.includes(r.key))).flatMap(g => g.roles.map(r => r.label));
   const who = roleNames.length ? listAnd(roleNames) : roles.length ? listAnd([...roles]) : t('iam.rights.noRole');
   const sentence = scopes
     ? `${t('iam.rights.scoped', { who })}${byScope ? ` ${tn('iam.rights.scopeMissing', byScope)}` : ''}`
     : t('iam.rights.who', { who });
+  const aclNote = byAcl ? ` ${tn('iam.rights.aclMissing', byAcl)}` : '';
   const adminShort = isAdmin && !scopes;
   const toggle = (key: string) => setWhy(s => { const x = new Set(s); if (!x.delete(key)) x.add(key); return x; });
   const groupLabel = (k: string) => cat.groups.find(g => g.key === k)?.label;
@@ -189,7 +204,7 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
 
   const head = (
     <div className="iam-rights-head">
-      <p className="iam-rights-n" aria-live={before ? 'polite' : undefined}><b>{t('iam.rights.count', { n, m: rows.length })}</b> <span className="iam-muted">– {sentence}</span></p>
+      <p className="iam-rights-n" aria-live={before ? 'polite' : undefined}><b>{t('iam.rights.count', { n, m: rows.length })}</b> <span className="iam-muted">– {sentence}{aclNote}</span></p>
       {adminShort ? (
         <p className="iam-rights-admin">
           <Icon name="shield" className="iam-ico" /><span>{t('iam.rights.admin')}</span>

@@ -1,6 +1,6 @@
 /**
  * @vollholz/iam-web – Oberfläche des IAM-Baukastens (Spezifikation Kap. 11, docs/entwurf.md).
- * Stand 2b: Vertragstypen, Client, Fehler, Organisation je Tab, Texte, Formatierung, Grundkomponenten.
+ * Stand 2c: Vertragstypen, Client, Fehler, Organisation je Tab, Texte, Formatierung, Grundkomponenten, Provider und Sitzung.
  */
 export type * from './contract.ts';
 export { ApiError, describeError, errorFrom, fieldErrorText, networkError, statusText, type ErrorText } from './problem.ts';
@@ -22,3 +22,12 @@ export { Table, type TableProps } from './ui/Table.tsx';
 export { Empty, ErrorBox, ErrorState, Loading, NotFound, SkeletonRows } from './ui/states.tsx';
 export { Picker, usePicker, type PickerProps, type PickItem } from './ui/Picker.tsx';
 export type { ToastApi, ToastOptions } from './ui/Toasts.tsx';
+export { IamProvider, type IamProviderProps } from './provider.tsx';
+export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } from './session.tsx';
+export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAuthz, useAuthzCatalog, useRoles, withCustomRoles, type Authz } from './authz.ts';
+export { useResourceCan } from './resourceCan.ts';
+export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type RoleGroup } from './config.tsx';
+export { historyRouter, type IamLinkProps, type IamRouter } from './router.tsx';
+export { iamKeys } from './keys.ts';
+export { useIamText } from './texts/react.tsx';
+export { useIamFetch } from './fetch.ts';

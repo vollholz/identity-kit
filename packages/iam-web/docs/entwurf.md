@@ -98,8 +98,8 @@ Verhalten wie `SessionProvider` in Assets (Spezifikation 11.1):
 | `useAuthz()` | Katalog mit eigenen Rollen: `permission`, `permLabel`, `roleLabel`, `rolesWith`, `scopeText`, `resourceLabel`, `groupRoles` | `auth/authz.ts` |
 | `useResourceCan()` | `(resource, capability, perm) => boolean` nach `can` der Ressource, sonst Mandantenebene | `auth/resource-can.ts` |
 | `useIamFetch()` | `fetch` mit Cookie, `X-Tenant`, `X-CSRF-Token`, problem+json → `ApiError`, 401/403-Meldung; für eigene Aufrufe der App | `api/client.ts` |
-| `useIamQueryKeys()` | Abfrageschlüssel des Pakets (unten), mit Sprache des Katalogs | `aqk`, `authzKey`, `rolesKey` |
-| `useIamText()` | `t(key, vars)` (Abschnitt 3) | neu |
+| `iamKeys` | Abfrageschlüssel des Pakets (unten; Konstante, der Katalog mit `iamKeys.catalog(locale)`) | `aqk`, `authzKey`, `rolesKey` |
+| `useIamText()` | `{ t, tn, locale }` (Abschnitt 3); zeichnet bei Wechsel der Sprache neu | neu |
 | `useAdminStatus()`, `useRoles()`, `useMembers(alias)`, `useClientGrants(alias)` | Daten der Verwaltung, für eigene Anzeigen der App | `api/admin.ts`, `api/roles.ts` |
 
 Ausserdem ohne React:
@@ -411,8 +411,8 @@ Jeder PR mit Tests, `typecheck`, `build`, `test` grün; Version `0.1.0` und `pri
 | 1 | Entwurf | dieses Dokument (identity-kit#4) | – |
 | 2a | Gerüst und Client | Workspace, `package.json`, Build (`tsc` + `styles.css`), Vitest; `contract.ts`, `ApiError`, Client (`iamFetch`, `authFetch`, `iamMiddleware`, `reportStatus`), Organisation je Tab (mit `sub`, `legacyTabKey`), Formatierung, Texte (Mechanik, `de`, `en`); Nachführung dieses Entwurfs | Client, Organisation je Tab, Formatierung, Texte (Du-Form, ß, Begriffe), Vertrag, Paket lässt sich laden |
 | 2b | Grundkomponenten | Theming (`styles.css` in `@layer iam`), Button, Dialog/Confirm/Sheet (Fokusfalle), Menu/MenuItem, Table, Icon, Toast, Zustände (`Loading`, `Empty`, `ErrorBox`, `ErrorState`, `NotFound`), Picker; Testseite + Playwright | `ui/components.test` (15 Fälle), axe, Vorrang der App-Variablen im Browser |
-| 2c | Provider und Sitzung | `IamProvider` (Gates, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`), Router-Adapter mit Standard, `useIam`, `useAuthz` (Sprache), `useResourceCan`, `useIamFetch`, `Can`, `Requires`, `RequiresPlatformAdmin`, `testing` (`StaticIam`, `mockIamApi`) | `auth/session`, `auth/organisation`, `auth/authz`, Testhilfen |
-| 3 | Rechte-Bausteine | `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in Assets** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
+| 2c | Provider und Sitzung | `IamProvider` (Gates, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`), Router-Adapter mit Standard, `useIam`, `useAuthz` (Sprache, `roleGroups`, `roleGroupProblems`), `useRoles`, `useResourceCan`, `useIamFetch`, `Can`, `iamKeys`, `testing` (`StaticIam`, `mockIamApi`, Beispielkatalog) | `auth/session`, `auth/organisation`, `auth/authz`, Router, Testhilfen; Browser: Zustände der Sitzung mit axe |
+| 3 | Rechte-Bausteine | `Requires`, `RequiresPlatformAdmin` (brauchen `NoPermission`), `useAdminStatus`, `AdminHead`, `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in Assets** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
 | 4 | Mitglieder und Rollen | `MembersPage`, `RolesPage`, `iamRoutes`, `IamNav` | `members`, `roles-page`, `roles-dialog`, Teile von `admin.test`, E2E Einladen/Rollen |
 | 5 | Maschinen-Clients, Anmeldung, Organisationen | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage` | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
 | 6 | Zugriff | `AccessPage` (Regeln, Dialog mit Vorschau, «Rechte prüfen»), `AclHint`, `resources`- und `people`-Adapter, `PersonName` | `acl.test` (40 Fälle), E2E Zugriffsregel |

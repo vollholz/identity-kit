@@ -19,6 +19,8 @@ describe('Paket', () => {
     const src = await import('../src/index.ts') as Record<string, unknown>;
     expect(Object.keys(built).sort()).toEqual(Object.keys(src).sort());
     expect(readFileSync(join(dist, 'index.js'), 'utf8')).not.toMatch(/from ['"][^'"]+\.tsx?['"]/);
+    const testing = await import(pathToFileURL(join(dist, 'testing', 'index.js')).href) as Record<string, unknown>;
+    expect(Object.keys(testing).sort()).toEqual(['CATALOG', 'ME', 'StaticIam', 'json', 'mockIamApi']);
   });
 
   it('exports zeigen auf vorhandene Dateien, styles.css ist eine Ebene «iam»', () => {

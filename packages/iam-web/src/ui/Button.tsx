@@ -36,9 +36,11 @@ export function Button(props: ButtonProps) {
   const content = <>{icon ? <Icon name={icon} className="iam-ico" /> : null}{children}</>;
   if (rest.href !== undefined) {
     const { ref, onClick, ...a } = rest as AnchorHTMLAttributes<HTMLAnchorElement> & { ref?: Ref<HTMLAnchorElement> };
-    // gesperrter Link: bleibt fokussierbar, navigiert aber nicht
+    // gesperrter Link: bleibt fokussierbar, navigiert aber nicht – auch nicht per Mittelklick oder «In neuem Tab öffnen»
+    // (ohne href; role und tabIndex halten ihn als Link in der Tab-Reihenfolge)
+    const { href, ...withoutHref } = a;
     return (
-      <a ref={ref} className={cls} {...a} aria-disabled={busy || a['aria-disabled'] || undefined}
+      <a ref={ref} className={cls} {...(busy ? { ...withoutHref, role: 'link', tabIndex: 0 } : a)} href={busy ? undefined : href} aria-disabled={busy || a['aria-disabled'] || undefined}
         onClick={(e: MouseEvent<HTMLAnchorElement>) => { if (busy) { e.preventDefault(); return; } onClick?.(e); }}>{content}</a>
     );
   }

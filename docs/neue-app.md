@@ -42,35 +42,62 @@ Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in iden
 > Assets: `.npmrc`, `.github/scripts/identity-kit-access.sh`, `docs/einrichtung.md` › Zugang zu vollholz/identity-kit,
 > `.github/workflows/keycloak.yml`.
 
-## 2. Realm anlegen (einmalig, mit der Plattform-Administration)
+## 2. Realm anlegen (einmalig, als Code)
 
+Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.
 Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-identity-plattform), Modul
-[product-realm-bootstrap](../modules/product-realm-bootstrap/README.md). Zwei Repositories sind beteiligt:
+[product-realm-bootstrap](../modules/product-realm-bootstrap/README.md); Ablauf auf der Plattform-Seite in
+vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues Produkt. Zwei Repositories sind beteiligt:
 
-1. **vollholz/identity** (Keycloak-Administration): legt den Service Account `notes-tofu` im Realm `master` an (nur
-   `create-realm`) und übergibt dessen privaten Schlüssel. Er bleibt lokal, nie als GitHub-Secret.
-2. **App:** Schlüsselpaar für `notes-iac` erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json` (ein EC-P-256-JWK
-   mit `kid`) versionieren, privat als Secret `KEYCLOAK_IAC_PRIVATE_KEY`.
-3. **App:** `infra/keycloak/bootstrap/main.tf` (eigener State-Key) als `notes-tofu` anwenden:
+1. **PR in vollholz/identity** (Plattform-Betrieb):
+   - `deploy/scripts/secrets.sh client-key notes-tofu <ENV-NAME>` erzeugt das Schlüsselpaar für `notes-tofu`: den
+     öffentlichen Teil als `infra/keycloak/keys/notes-tofu.json`, den privaten in die `.env` des Betriebs. Von dort geht
+     er an die Betriebsverantwortlichen der App und wird in vollholz/identity gelöscht.
+   - Eintrag in `infra/keycloak/production.tfvars` › `products`:
 
-```hcl
-provider "keycloak" {
-  url             = var.keycloak_url
-  base_path       = var.keycloak_base_path
-  jwt_signing_alg = "ES256"   # Anmeldung nur aus der Umgebung: KEYCLOAK_REALM=master, KEYCLOAK_CLIENT_ID=notes-tofu, KEYCLOAK_JWT_SIGNING_KEY
-}
+     ```hcl
+     products = {
+       # …
+       notes = {
+         realm             = "notes"
+         iac_client_id     = "notes-iac"
+         grant_realm_admin = false
+       }
+     }
+     ```
 
-module "bootstrap" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.0"
+   - Nach dem Merge wendet der Workflow «Keycloak» an (Plan → Freigabe → Apply → Kontrollplan). Ergebnis: Service
+     Account `notes-tofu` im Realm `master`, nur mit `create-realm`, Anmeldung mit `private_key_jwt`.
+2. **App-Repository:** Schlüsselpaar für `notes-iac` erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json` (ein
+   EC-P-256-JWK mit `kid`) versionieren, privat in die lokale `.env` und als GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY`.
+   Dann `infra/keycloak/bootstrap/main.tf` (eigener State-Key) **lokal** als `notes-tofu` anwenden:
+   `kc.sh bootstrap init && kc.sh bootstrap apply`. Es legt den Realm `notes` und den IaC-Client `notes-iac` an.
 
-  product  = "notes"
-  iac_jwks = file("${path.module}/../keys/notes-iac.json")
-}
-```
+   ```hcl
+   provider "keycloak" {
+     url             = var.keycloak_url
+     base_path       = var.keycloak_base_path
+     jwt_signing_alg = "ES256"   # Anmeldung nur aus der Umgebung: KEYCLOAK_REALM=master, KEYCLOAK_CLIENT_ID=notes-tofu, KEYCLOAK_JWT_SIGNING_KEY
+   }
 
-4. **vollholz/identity:** weist `notes-iac` die Rolle `realm-management/realm-admin` zu.
+   module "bootstrap" {
+     source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.0"
 
-> Assets: `infra/keycloak/bootstrap/main.tf`, `infra/keycloak/kc.sh`, `docs/produktion.md` › Keycloak-Anbindung.
+     product  = "notes"
+     iac_jwks = file("${path.module}/../keys/notes-iac.json")
+   }
+   ```
+
+   Der Schlüssel von `notes-tofu` bleibt lokal (nur Bootstrap und Neuaufbau), **nie als GitHub-Secret oder in
+   Actions**: `create-realm` gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt, und
+   erlaubt beliebige weitere Realms (vollholz/identity `docs/betrieb.md` › Bewusste Restrisiken).
+3. **PR in vollholz/identity:** im Eintrag `notes` `grant_realm_admin = true`; der Workflow «Keycloak» weist danach
+   `notes-iac` die Rolle `realm-management/realm-admin` im Realm `notes` zu. Ab dann verwaltet die App ihren Realm mit
+   `notes-iac` (Schritt 3).
+
+> Assets: `infra/keycloak/bootstrap/main.tf`, `infra/keycloak/kc.sh` (`bootstrap …` meldet sich als `assets-tofu` mit
+> `KEYCLOAK_TF_PRIVATE_KEY_B64` aus der `.env` an), `docs/produktion.md` › Keycloak-Anbindung; in vollholz/identity
+> der Eintrag `assets` in `production.tfvars` und `keys/assets-tofu.json`.
 
 ## 3. Realm einrichten
 
@@ -100,11 +127,16 @@ module "realm" {
 output "issuer" { value = module.realm.issuer }   # = OIDC_ISSUER_URL
 ```
 
-Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes». Weitere Schalter (`smtp`, `m2m`,
-`mcp`, Texte): README des Moduls.
+Angewendet wird per eigenem Workflow `.github/workflows/keycloak.yml` als `notes-iac`, nicht von Hand: ein Pull
+Request prüft nur (fmt, validate, tflint, Tests); ein Push auf `main` (oder «Run workflow» mit `apply`) läuft
+Plan → Freigabe (Environment `production`) → Apply genau dieses Plans → Kontrollplan, der «No changes» zeigen muss.
+Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan` gehen auch lokal. Weitere Schalter
+(`smtp`, `m2m`, `mcp`, Texte): README des Moduls.
 
 > Assets: `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `infra/keycloak/platform.ts` (schreibt
-> `platform.json`), `.github/workflows/keycloak.yml`.
+> `platform.json`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
+> `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
+> `IDENTITY_KIT_DEPLOY_KEY`, mit `smtp` zusätzlich `SMTP_PASSWORD`).
 
 ## 4. Rechtekatalog und Ressourcen
 
@@ -308,7 +340,8 @@ Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 ## Fertig, wenn
 
 - [ ] `npm ci` läuft lokal und in GitHub Actions (Pakete für das Repository freigegeben, Deploy-Key für die Module).
-- [ ] Realm angelegt und eingerichtet; zweiter `kc.sh plan` zeigt «No changes».
+- [ ] Eintrag `notes` in vollholz/identity mit `grant_realm_admin = true`; `notes-tofu`-Schlüssel nur lokal.
+- [ ] Realm per Workflow «Keycloak» der App eingerichtet; der Kontrollplan zeigt «No changes».
 - [ ] `platform.json` aus `catalog.platformJson()` stimmt mit dem Katalog überein.
 - [ ] Migrationen laufen als `notes_owner`, IAM vor App; die Laufzeit nutzt `notes_runtime` (ohne BYPASSRLS).
 - [ ] `loadIamConfig` ohne Fehler in `production`; `iamWarnings` leer oder bewusst akzeptiert; `ENTRA_CLIENT_ID` leer.

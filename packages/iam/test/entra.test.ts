@@ -184,7 +184,9 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s1 })).status, 404, 'einmal gültig');
     const s2 = await start();
     const old = await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s2, tenant: contoso.id, adminConsent: 'True' });
-    assert.deepEqual([old.status, old.body.reason], [409, 'consent-unproven'], 'Rückkehr der alten Admin-Zustimmung (ohne Code) genügt nicht');
+    assert.equal(old.status, 422, 'Felder der alten Admin-Zustimmung: unbekannt (removeAdditional: false)');
+    const noCode = await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s2 });
+    assert.deepEqual([noCode.status, noCode.body.reason], [409, 'consent-unproven'], 'Rückkehr ohne Code genügt nicht');
     const s3 = await start();
     await t.inspect.query("UPDATE notes.entra_consent SET expires_at = now() - interval '1 minute'");
     assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent/complete', { state: s3 })).status, 404, 'abgelaufen');

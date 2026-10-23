@@ -23,7 +23,7 @@ import { ADMIN_ROLE, CUSTOM_ROLE_PREFIX } from '../catalog.ts';
 import type { Tx } from '../db.ts';
 import { conflict, HttpError, invalid, notFound } from '../errors.ts';
 import { lockKey } from '../locks.ts';
-import { RoleListSchema, RoleSchema } from './admin.ts';
+import { roleListSchema, roleSchema } from './admin.ts';
 import { Deleted, etag, ifMatchVersion, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG = 'Verwaltung: Rollen';
@@ -47,7 +47,7 @@ export const rolesModule: IamModule = {
     const { catalog } = iam;
     const S = iam.schema, svc = iam.admin;
     const SELECT = `SELECT ${TENANT_ROLE_COLS} FROM ${S}.tenant_role WHERE deleted_at IS NULL`;
-    if (!app.getSchema('Role')) app.addSchema(RoleSchema);
+    if (!app.getSchema('Role')) app.addSchema(roleSchema(catalog));
     const Permission = Type.Unsafe<string>({ type: 'string', enum: [...catalog.permissions] });
     const Permissions = Type.Array(Permission, { minItems: 1, maxItems: 100, uniqueItems: true, description: 'Rechte der Rolle; nicht erlaubt sind Rechte, die nur «Organisations-Admin» hat (`adminOnly` im Katalog)' });
     const adminLabel = catalog.roles.get(ADMIN_ROLE)!.label;
@@ -111,7 +111,7 @@ export const rolesModule: IamModule = {
       schema: routeSchema(ctx, 'GET', list, {
         tags: [TAG], summary: 'Rollen der Organisation',
         description: 'Zuerst die vordefinierten Rollen (Reihenfolge wie im Katalog), dann die eigenen Rollen nach Namen. `memberCount` nur mit Recht `members:admin`.',
-        response: { 200: RoleListSchema },
+        response: { 200: roleListSchema(catalog) },
       }),
     }, async req => {
       await req.need('tenant:read');

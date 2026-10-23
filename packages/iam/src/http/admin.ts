@@ -14,6 +14,7 @@
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AdminService, roleCatalog, type CustomRole, type Scope } from '../admin.ts';
+import type { Catalog } from '../catalog.ts';
 import { forbidden, HttpError } from '../errors.ts';
 import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
@@ -40,12 +41,14 @@ const Organization = Type.Object({
   tenant: Nullable(Type.Object({ id: Type.String(), status: Type.String({ description: '`active` oder `suspended`' }), createdAt: DateTime }, { description: 'Mandant der App; `null`, solange die Organisation nie benutzt wurde' })),
 }, { $id: 'Organization', title: 'Organization' });
 
-const Role = Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(Type.String()), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }), custom: Type.Optional(Type.Boolean({ description: 'Eigene Rolle der Organisation' })) });
+/** Recht aus dem Katalog der App, als enum im OpenAPI (Typen für die Apps). */
+const permission = (perms: readonly string[]) => Type.Unsafe<string>({ type: 'string', enum: [...perms] });
+const statusRole = (catalog: Catalog) => Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(permission(catalog.permissions)), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }), custom: Type.Optional(Type.Boolean({ description: 'Eigene Rolle der Organisation' })) });
 /** Rolle als Ressource (`GET /v1/roles`, Modul `roles`; Plattform: `…/organizations/{alias}/roles`), aus Assets `roles.ts`. */
-export const RoleSchema = Type.Object({
+export const roleSchema = (catalog: Catalog) => Type.Object({
   key: Type.String({ description: 'Technischer Name; bei eigenen Rollen `c-…`. Rolle in Keycloak-Gruppen (`<prefix>/<alias>/<key>`) und ACL-Einträgen' }),
   label: Type.String(), description: Type.String(),
-  permissions: Type.Array(Type.String()),
+  permissions: Type.Array(permission(catalog.permissions)),
   custom: Type.Boolean({ description: 'Eigene Rolle der Organisation (änderbar); false: vordefinierte Rolle' }),
   adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }),
   id: Nullable(Type.String({ description: 'Nur eigene Rollen: ID (Audit-Protokoll)' })),
@@ -54,10 +57,10 @@ export const RoleSchema = Type.Object({
   createdAt: Nullable(DateTime), updatedAt: Nullable(DateTime),
 }, { $id: 'Role', title: 'Role' });
 /** Antwort von `GET /v1/roles` und `…/organizations/{alias}/roles`. */
-export const RoleListSchema = Type.Object({
+export const roleListSchema = (catalog: Catalog) => Type.Object({
   items: Type.Array(Type.Ref('Role')),
   maxCustom: Type.Integer({ description: 'Höchstzahl eigener Rollen' }),
-  customPermissions: Type.Array(Type.String(), { description: 'Rechte, die eine eigene Rolle enthalten darf' }),
+  customPermissions: Type.Array(permission(catalog.customRolePermissions), { description: 'Rechte, die eine eigene Rolle enthalten darf' }),
 });
 const Roles = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true });
 const ALIAS = Type.String({ minLength: 1, maxLength: 63, pattern: '^[a-z0-9][a-z0-9_-]{0,62}$' });
@@ -88,7 +91,7 @@ export const adminModule: IamModule = {
     const svc = iam.admin;
     app.addSchema(Member);
     app.addSchema(Organization);
-    if (!app.getSchema('Role')) app.addSchema(RoleSchema);
+    if (!app.getSchema('Role')) app.addSchema(roleSchema(iam.catalog));
     // Echte Rollen und Gruppen anderer Personen für GET /v1/acl/effective; nur mit Rollen aus Gruppen (eine von der App
     // gesetzte Funktion bleibt)
     if (svc && iam.cfg.tenancy.roleSource === 'groups') iam.memberAccess ??= (alias, subject) => svc.accessOf(alias, subject);
@@ -121,7 +124,7 @@ export const adminModule: IamModule = {
           enabled: Type.Boolean(), reason: Nullable(Type.String()), organization: Type.String(), platformAdmin: Type.Boolean(), canManageMembers: Type.Boolean(),
           rolesManageable: Type.Boolean({ description: 'false bei ROLE_SOURCE=client: Rollen kommen aus Client-Rollen und lassen sich hier nicht setzen' }),
           groupRolePrefix: Type.String({ description: 'Präfix der Rollengruppen in Keycloak (GROUP_ROLE_PREFIX, z. B. `/orgs`): Rollen sind die Gruppen `<prefix>/<alias>/<rolle>`' }),
-          roles: Type.Array(Role),
+          roles: Type.Array(statusRole(iam.catalog)),
         }) },
       }),
     }, async req => {
@@ -200,7 +203,7 @@ export const adminModule: IamModule = {
       schema: routeSchema(ctx, 'GET', `${orgs}/:alias/roles`, {
         tags: [TAG_ORGS], summary: 'Rollen einer Organisation', params: AliasParams,
         description: 'Nur lesend, im Format von `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation mit Anzahl Personen, damit die Plattform-Administration auch eigene Rollen zuweisen kann. Organisation noch nie benutzt: nur die vordefinierten Rollen.',
-        response: { 200: RoleListSchema },
+        response: { 200: roleListSchema(iam.catalog) },
       }),
     }, async req => { platform(req); return on().rolesOfOrganization(alias(req)); });
 

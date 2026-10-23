@@ -138,6 +138,21 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   if (o.errorHandler !== false) registerErrorHandler(app, typeBase);
   if (o.problemSchemas !== false) registerProblemSchemas(app, prefix);
 
+  // Unbekannte Felder: Das Paket setzt `ajv.customOptions.removeAdditional: false` voraus (docs/backend.md). Ohne entfernt
+  // Fastify sie still; das öffnet nichts, verdeckt aber Tippfehler. Fastify verrät die Einstellung nicht, also einmal bei
+  // der ersten Anfrage mit dem Validator der App prüfen
+  let ajvChecked = false;
+  app.addHook('onRequest', async req => {
+    if (ajvChecked) return;
+    ajvChecked = true;
+    const probe: Record<string, unknown> = { unknown: 1 };
+    try {
+      if (req.compileValidationSchema({ type: 'object', additionalProperties: false })(probe) && !('unknown' in probe)) {
+        req.log.warn('@vollholz/iam: Fastify entfernt unbekannte Felder still. Mit ajv.customOptions.removeAdditional: false ergeben sie 422 (docs/backend.md).');
+      }
+    } catch { /* eigener Validator der App: nicht prüfbar */ }
+  });
+
   // ---------- Anmeldung pro Anfrage (Bearer/DPoP oder Sitzung der Oberfläche)
   app.decorateRequest('principal', null);
   app.decorateRequest('source', 'api');

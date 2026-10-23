@@ -67,6 +67,17 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     assert.deepEqual([x.statusCode, x.json().title, x.headers['www-authenticate']], [401, 'Authorization-Header ungültig', 'Bearer realm="notes", DPoP algs="ES256 PS256 RS256"']);
   });
 
+  test('ohne removeAdditional: false (Fastify-Standard) warnt die erste Anfrage einmal; mit der Einstellung nicht', async () => {
+    const warnings = async (fastify: Parameters<typeof notesApp>[0]['fastify']) => {
+      const lines: string[] = [];
+      const a = await build({ fastify: { ...fastify, logger: { level: 'warn', stream: { write: (l: string) => { lines.push(l); } } } } });
+      await me({}, a.app); await me({}, a.app);
+      return lines.filter(l => l.includes('removeAdditional')).length;
+    };
+    assert.equal(await warnings({ ajv: { customOptions: { removeAdditional: true } } }), 1);
+    assert.equal(await warnings({}), 0, 'Test-Server wie docs/backend.md');
+  });
+
   test('Person: Mandant aus Organisation, Rollen aus Gruppen (und Client-Rollen mit ROLE_SOURCE=both)', async () => {
     const r = await me(await bearer(claims.user({ org: 'acme', groupRoles: ['editor'] })));
     assert.equal(r.statusCode, 200, r.body);

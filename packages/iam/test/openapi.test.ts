@@ -83,6 +83,14 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     assert.ok(op('PATCH /v1/roles/{key}').parameters.some((x: { name: string; in: string }) => x.name === 'if-match' && x.in === 'header'));
     const roles = op('GET /v1/platform/organizations/{alias}/roles').responses['200'].content['application/json'].schema;
     assert.deepEqual([roles.properties.items.items.$ref, roles.required.sort()], ['#/components/schemas/Role', ['customPermissions', 'items', 'maxCustom']]);
+    // Rechte als enum aus dem Katalog der App (Typen für die Apps), auch in den Antworten
+    const role = doc.components.schemas.Role as { properties: { permissions: { items: { enum: string[] } } } };
+    assert.deepEqual(role.properties.permissions.items.enum, [...notesCatalog.permissions], 'Role.permissions');
+    for (const r of ['GET /v1/roles', 'GET /v1/platform/organizations/{alias}/roles']) {
+      const list = op(r).responses['200'].content['application/json'].schema;
+      assert.deepEqual(list.properties.customPermissions.items.enum, [...notesCatalog.customRolePermissions], `${r}: customPermissions`);
+    }
+    assert.deepEqual(status.properties.roles.items.properties.permissions.items.enum, [...notesCatalog.permissions], 'Status: Rollen');
   });
 
   test('übliche Fehlerantworten als problem+json, auch für Routen der App', () => {

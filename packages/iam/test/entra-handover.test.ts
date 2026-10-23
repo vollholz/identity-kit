@@ -378,6 +378,25 @@ describe('Link an die Entra-Administration', { skip }, () => {
     ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
   });
 
+  test('Alias in Keycloak mit Grossbuchstaben: Token und states mit kanonischem Alias, Links und eigenes Verbinden funktionieren', async () => {
+    const org = kc.org('Gross', 'Gross AG');
+    const gina = kc.user('gina', { email: 'gina@gross.example', firstName: 'Gina', lastName: 'Gross' });
+    kc.member(org, gina, ['org-admin']);
+    for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/Gross/${r}`);
+    const who = person(gina, 'gross', ['org-admin']);
+    ok(await call(who, 'GET', '/v1/me'));
+    const l = await newLink({ tenant: fremd.id }, who);
+    assert.match(l.token, /^gross\./);
+    ok(await call(null, 'POST', '/v1/entra/handover/info', { token: l.token }));
+    const start = ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+    assert.match(new URL(start.url).searchParams.get('state')!, /^h\.gross\./);
+    const own = ok(await call(who, 'POST', '/v1/admin/entra/consent', { tenant: fremd.id }));
+    const state = new URL(own.url).searchParams.get('state')!;
+    assert.match(state, /^o\.gross\./);
+    const r = await call(who, 'POST', '/v1/admin/entra/consent/complete', { state, error: 'access_denied', errorDescription: 'AADSTS65004' });
+    assert.deepEqual([r.status, r.body.reason], [409, 'consent-error'], 'state gehört zur Organisation (nicht 404)');
+  });
+
   test('Trennen: offene Links verfallen', async () => {
     const l = await newLink();
     assert.equal((await call(anna(), 'DELETE', '/v1/admin/entra')).status, 204);

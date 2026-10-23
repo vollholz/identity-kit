@@ -13,6 +13,11 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **0.2.1:** Rechte im OpenAPI wieder als `enum` aus dem Katalog (`Role.permissions`, `customPermissions` von
+  `GET /v1/roles` und der Plattformroute, Rollen im Status). Warnung im Log, wenn Fastify unbekannte Felder still
+  entfernt (`removeAdditional`); die Tests des Pakets laufen mit `removeAdditional: false`.
+  Entra: Token und `state` mit kanonischem Alias (klein), auch wenn Keycloak die Organisation mit Grossbuchstaben
+  führt (vorher war ein solcher Link unbrauchbar).
 - **0.2.0:** Link an die Entra-Administration (`…/entra/consent-links`, öffentlich `/v1/entra/handover/*`, Migration
   `iam_013`): Eine andere Person der Kunden-IT stimmt ohne Sitzung in der App bei Microsoft zu.
 - **0.1.1:** Übernahme späterer IAM-Migrationen (`adopted.map`, `ASSETS_ADOPTION`): Assets mit 051–053 lässt sich

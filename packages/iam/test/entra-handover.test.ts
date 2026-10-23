@@ -363,6 +363,21 @@ describe('Link an die Entra-Administration', { skip }, () => {
     ok(await call(null, 'POST', '/v1/entra/handover/info', { token: l.token }));
   });
 
+  test('Alias mit einem Zeichen: Token mit 45 Zeichen, Link funktioniert', async () => {
+    const org = kc.org('a', 'A AG');
+    const ada = kc.user('ada', { email: 'ada@a.example', firstName: 'Ada', lastName: 'A' });
+    kc.member(org, ada, ['org-admin']);
+    for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/a/${r}`);
+    const who = person(ada, 'a', ['org-admin']);
+    ok(await call(who, 'GET', '/v1/me'));
+    const l = await newLink({ tenant: fremd.id }, who);
+    assert.equal(l.token.length, 45);
+    assert.match(l.token, /^a\./);
+    const info = ok(await call(null, 'POST', '/v1/entra/handover/info', { token: l.token }));
+    assert.equal(info.requestedBy, 'Ada A');
+    ok(await call(null, 'POST', '/v1/entra/handover/start', { token: l.token }));
+  });
+
   test('Trennen: offene Links verfallen', async () => {
     const l = await newLink();
     assert.equal((await call(anna(), 'DELETE', '/v1/admin/entra')).status, 204);

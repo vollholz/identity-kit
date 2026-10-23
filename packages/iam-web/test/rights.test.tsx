@@ -9,7 +9,7 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeAuthz, MissingRight, missingRightText, PLATFORM_ADMIN, RoleMatrix, type IamConfig } from '../src/index.ts';
-import { CATALOG, mockIamApi, StaticIam } from '../src/testing/index.tsx';
+import { CATALOG, json, mockIamApi, StaticIam } from '../src/testing/index.tsx';
 
 beforeEach(() => vi.stubGlobal('fetch', mockIamApi().fetch));
 afterEach(() => vi.unstubAllGlobals());
@@ -31,6 +31,20 @@ describe('Fehlendes Recht', () => {
 
   it('ohne Katalog: Schlüssel statt Label, kein Satz zu Rollen', () => {
     expect(missingRightText(makeAuthz(undefined), 'note:write')).toBe('Dafür fehlt dir das Recht «note:write». Rollen vergibt die Organisations-Administration.');
+  });
+
+  it('solange der Katalog lädt: Ladezustand statt Schlüssel und statt eines falschen «Organisations-Administration»', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const api = mockIamApi({ 'GET /v1/authz/catalog': async () => { await gate; return json(CATALOG); } });
+    vi.stubGlobal('fetch', api.fetch);
+    renderIam(<MissingRight perm="members:admin" page />);
+    expect(screen.getByRole('heading', { name: 'Recht fehlt' })).toBeInTheDocument();
+    expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('members:admin');
+    expect(document.body).not.toHaveTextContent('Organisations-Administration');
+    release();
+    expect(await screen.findByText(/Diese Rolle vergibt die Plattform-Administration\.$/)).toBeInTheDocument();
   });
 
   it('kompakt als Satz, als Seite mit «Recht fehlt»; Schlüssel nur als title', async () => {

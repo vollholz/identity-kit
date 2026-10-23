@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { useAuthz, type Authz } from '../authz.ts';
 import { PLATFORM_ADMIN, type Permission } from '../permissions.ts';
 import { listAnd, t } from '../texts/index.ts';
-import { Empty } from '../ui/states.tsx';
+import { Empty, Loading } from '../ui/states.tsx';
 import { AdminHead } from './AdminHead.tsx';
 
 /** Recht des Katalogs oder die Realm-Rolle `platform-admin` (Plattform-Administration). */
@@ -30,9 +30,13 @@ export function missingRightText(authz: Authz, perm: Need, lead = t('iam.missing
   return `${t('iam.missing.sentence', { lead, label: authz.permLabel(perm) })}${who} ${by}`;
 }
 
-/** Satz unter einer Aktion; mit `page` als Leerzustand «Recht fehlt» (unter einem eigenen Seitenkopf). */
+/**
+ * Satz unter einer Aktion; mit `page` als Leerzustand «Recht fehlt» (unter einem eigenen Seitenkopf). Solange der Katalog
+ * lädt, ein Ladezustand statt des Satzes: ohne Katalog fehlten Label und Rollen, und wer die Rolle vergibt, wäre falsch.
+ */
 export function MissingRight({ perm, lead, page, children }: { perm: Need; lead?: string; page?: boolean; children?: ReactNode }) {
   const authz = useAuthz();
+  if (perm !== PLATFORM_ADMIN && !authz.catalog) return page ? <Empty icon="shield" title={t('iam.missing.title')}><Loading inline /></Empty> : <Loading inline />;
   const text = missingRightText(authz, perm, lead);
   const tech = perm === PLATFORM_ADMIN ? t('iam.missing.platformTech') : perm;
   if (page) return <Empty icon="shield" title={t('iam.missing.title')}><p title={tech}>{text}</p>{children}</Empty>;

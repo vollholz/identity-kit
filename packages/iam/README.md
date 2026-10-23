@@ -11,7 +11,7 @@ Maschinen-Clients, MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{auth,admin}`, `src/platform/ops/tenants.ts`,
 `src/platform/worker/member-sync.ts`, IAM-Teile der Migrationen.
 
-## Stand (Teil-PR 2)
+## Stand (Teil-PR 3)
 
 | Baustein | Inhalt |
 |---|---|
@@ -24,9 +24,17 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 | `Sealer`, `box`/`unbox` | AES-256-GCM mit Schlüsselrotation (Sitzungen) |
 | `PgReplayStore`, `MemoryReplayStore`, `pgRateLimitStore`, `purgeSharedState` | geteilter Zustand über Instanzen |
 | `LOCKS`, `lockKey` | Sperren in PostgreSQL als Vertrag |
+| `defineCatalog(input)` | Rechtekatalog der App: reservierte Namen ergänzt, `org-admin` mit allen Rechten, Prüfungen (Kap. 8, Stichwörter je Gruppe, Rechte nur für Personen), `toJSON()` = `GET /v1/authz/catalog`, `platformJson()` |
+| `OidcProvider`, `TokenVerifier` | Token-Prüfung: Signatur, Aussteller, Zielgruppe, nur Access Tokens, DPoP mit Replay-Schutz, mTLS |
+| `PrincipalResolver` | Principal aus dem Token: Organisation und Wahl, Person oder Client, Rollen und Gruppen der Organisation, Freigabe, Austritt, «Nur Entra», Zwischenspeicher mit `forget…` |
+| `AccessService`, `ResourceModel`, `flatResources`, `capabilities`, `canSchema` | Entscheidung (Rolle ∨ Freigabe) ∧ Scope ∧ Zugriffsregeln mit der Kette der App, Fähigkeiten `can`, Zugriffsstand für ETags |
 
 ```ts
-import { dirMigrations, iamMigrations, loadIamConfig, migrate } from '@vollholz/iam';
+import { AccessService, defineCatalog, dirMigrations, iamMigrations, loadIamConfig, migrate, PrincipalResolver } from '@vollholz/iam';
+
+export const catalog = defineCatalog({ product: 'notes', permissions: { 'note:read': { label: 'Notizen lesen', group: 'notes', description: '…' } },
+  groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }], roles: { viewer: { label: 'Leser:in', description: 'Liest Notizen.', permissions: ['tenant:read', 'note:read'] } },
+  scopes: { 'notes:read': { text: 'Notizen lesen', permissions: ['tenant:read', 'note:read'] } } });
 
 const cfg = loadIamConfig(process.env, { product: 'notes', service: 'api' });
 await migrate(cfg.db.adminUrl!, [
@@ -36,4 +44,5 @@ await migrate(cfg.db.adminUrl!, [
 ```
 
 Tests: `npm test` (mit PostgreSQL: `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; Rollen legen die Tests selbst an).
-Den Abzug von Assets für den Gleichheitstest erzeugt `node scripts/assets-schema.ts <assets>/db/migrations <commit>`.
+Den Abzug von Assets für den Gleichheitstest erzeugt `node scripts/assets-schema.ts <assets>/db/migrations <commit>`,
+den Katalog von Assets für den Pflichttest `node scripts/assets-catalog.ts <assets> <commit>`.

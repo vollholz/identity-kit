@@ -68,6 +68,9 @@ ok<Fits<Res<'/v1/platform/organizations/{alias}/entra/consent-links', 'post', 20
 ok<Fits<Res<'/v1/entra/handover/info', 'post'>, C.HandoverInfo>>();
 ok<Fits<Res<'/v1/entra/handover/start', 'post'>, C.HandoverStart>>();
 ok<Fits<Res<'/v1/entra/handover/complete', 'post'>, C.HandoverResult>>();
+ok<Fits<Res<'/v1/entra/handover/credentials', 'post'>, C.HandoverResult>>();
+ok<Fits<Res<'/v1/admin/entra/app', 'put'>, C.EntraResult>>();
+ok<Fits<Res<'/v1/platform/organizations/{alias}/entra/app', 'put'>, C.EntraResult>>();
 ok<Fits<Res<'/v1/acl', 'get'>, C.AclList>>();
 ok<Fits<Res<'/v1/acl', 'post', 201>, C.AclEntry>>();
 ok<Fits<Res<'/v1/acl/effective', 'get'>, C.Effective>>();
@@ -93,6 +96,8 @@ ok<SameKeys<C.EntraConsentReturn, Body<'/v1/admin/entra/consent/complete', 'post
 ok<SameKeys<C.EntraDomainsInput, Body<'/v1/admin/entra/domains', 'put'>>>();
 ok<SameKeys<C.EntraEnforceInput, Body<'/v1/admin/entra/enforce', 'post'>>>();
 ok<SameKeys<C.ConsentLinkInput, Body<'/v1/admin/entra/consent-links', 'post'>>>();
+ok<SameKeys<C.EntraOwnAppInput, Body<'/v1/admin/entra/app', 'put'>>>();
+ok<SameKeys<C.HandoverCredentialsInput, Body<'/v1/entra/handover/credentials', 'post'>>>();
 ok<SameKeys<C.HandoverToken, Body<'/v1/entra/handover/info', 'post'>>>();
 ok<SameKeys<C.EntraConsentReturn, Body<'/v1/entra/handover/complete', 'post'>>>();
 ok<SameKeys<C.OrganizationInput, Body<'/v1/platform/organizations', 'post'>>>();
@@ -112,6 +117,8 @@ ok<Fits<Body<'/v1/admin/entra/consent/complete', 'post'>, C.EntraConsentReturn>>
 ok<Fits<Body<'/v1/admin/entra/domains', 'put'>, C.EntraDomainsInput>>();
 ok<Fits<Body<'/v1/admin/entra/enforce', 'post'>, C.EntraEnforceInput>>();
 ok<Fits<Body<'/v1/admin/entra/consent-links', 'post'>, C.ConsentLinkInput>>();
+ok<Fits<Body<'/v1/admin/entra/app', 'put'>, C.EntraOwnAppInput>>();
+ok<Fits<Body<'/v1/entra/handover/credentials', 'post'>, C.HandoverCredentialsInput>>();
 ok<Fits<Body<'/v1/entra/handover/start', 'post'>, C.HandoverToken>>();
 ok<Fits<Body<'/v1/entra/handover/complete', 'post'>, C.EntraConsentReturn>>();
 ok<Fits<Body<'/v1/platform/organizations', 'post'>, C.OrganizationInput>>();

@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { handoverApi } from '../admin.ts';
 import { isConsentUrl } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
-import type { EntraConsentReturn, EntraOwnAppInput, HandoverInfo } from '../contract.ts';
+import type { EntraConsentReturn, HandoverInfo } from '../contract.ts';
 import { CONSENT_HOSTS, ENTRA_STATE, takeHandoverToken } from '../entra.ts';
 import { fmtDateTime } from '../format.ts';
 import { ApiError } from '../problem.ts';
@@ -22,7 +22,7 @@ import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { ErrorBox, Loading } from '../ui/states.tsx';
-import { GUID, OwnAppError, OwnAppFields, OwnAppGuideSteps, ownAppBody, ownAppComplete } from './EntraOwnApp.tsx';
+import { OwnAppError, OwnAppFields, OwnAppGuideSteps, ownAppBody, ownAppComplete, type OwnAppDraft } from './EntraOwnApp.tsx';
 
 const is404 = (e: unknown) => e instanceof ApiError && e.status === 404;
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
@@ -86,12 +86,13 @@ export function EntraHandoverPage({ token: given }: { token?: string | null }) {
  */
 function CredentialsForm({ token, d }: { token: string; d: HandoverInfo }) {
   const { Button, Icon } = useIamUi();
-  const [v, setV] = useState<EntraOwnAppInput>({ entraTenantId: GUID.test(d.entraTenantId) ? d.entraTenantId : '', clientId: '', clientSecret: '' });
+  // Das Verzeichnis gibt der Link vor (kein Feld)
+  const [v, setV] = useState<OwnAppDraft>({ tenant: '', clientId: '', clientSecret: '', secretExpiresAt: '' });
   const save = useMutation({
     mutationFn: () => handoverApi.credentials({ token, ...ownAppBody(v) }),
     onSuccess: () => setV(x => ({ ...x, clientSecret: '' })),
   });
-  const ready = ownAppComplete(v);
+  const ready = ownAppComplete(v, false);
   if (save.isSuccess) return <Gate title={t('iam.handover.app.done')} text={t('iam.handover.app.doneText', { organization: save.data.organization })} />;
   if (is404(save.error)) return <Gate title={t('iam.handover.invalid')} text={t('iam.handover.invalidText')} />;
   return (
@@ -101,13 +102,14 @@ function CredentialsForm({ token, d }: { token: string; d: HandoverInfo }) {
         <dt>{t('iam.handover.app')}</dt><dd>{d.product}</dd>
         <dt>{t('iam.handover.requestedBy')}</dt><dd>{d.requestedBy}</dd>
         <dt>{t('iam.handover.directory')}</dt><dd className="iam-mono-s">{d.tenant}</dd>
+        <dt>{t('iam.handover.directoryId')}</dt><dd className="iam-mono-s">{d.entraTenantId}</dd>
         <dt>{t('iam.handover.validUntil')}</dt><dd>{fmtDateTime(d.expiresAt)}</dd>
       </dl>
       {d.notice ? <p>{d.notice}</p> : null}
       <p className="iam-warnbox" role="note"><Icon name="warn" className="iam-ico" /><span>{t('iam.handover.app.onlyIf', { person: d.requestedBy })}</span></p>
-      {d.redirectUri ? <OwnAppGuideSteps guide={{ redirectUri: d.redirectUri, permissions: d.permissions ?? [] }} product={d.product} formal /> : null}
+      {d.ownApp ? <OwnAppGuideSteps guide={d.ownApp} product={d.product} formal /> : null}
       <form className="iam-handover-form" onSubmit={e => { e.preventDefault(); if (ready) save.mutate(); }}>
-        <OwnAppFields value={v} onChange={setV} formal organization={d.organization} />
+        <OwnAppFields value={v} onChange={setV} tenant={false} formal organization={d.organization} />
         {save.error ? <OwnAppError error={save.error} /> : null}
         <Button type="submit" variant="primary" icon="key" disabled={!ready} busy={save.isPending}>{t('iam.handover.app.go')}</Button>
       </form>

@@ -88,28 +88,31 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
   const disconnect = useMutation({ mutationFn: () => api.disconnect(), onSuccess: async () => { setDisconnecting(false); setResult(null); await done(null, t('iam.entra.disconnected', { org: orgLabel })); } });
   const c = q.data?.connection ?? null;
   const enforced = c?.stage === 'enforced';
-  // Angebotene Wege; ältere Server (ohne `methods`) nur mit der App der Plattform
-  const methods = q.data?.methods ?? { platformApp: true, ownApp: false };
+  // Angebotene Wege; ältere Server (ohne `methods`) nur mit der App der Plattform (`enabled`)
+  const methods = q.data?.methods ?? { platformApp: !!q.data?.enabled, ownApp: false };
   const guide = methods.ownApp ? q.data?.ownApp ?? null : null;
   const own = c?.method === 'own';
+  // `enabled` betrifft ab iam 0.3.0 nur die App der Plattform: Verwalten geht auch mit der eigenen App
+  const available = methods.platformApp || methods.ownApp || !!c;
   const linkKinds = [...(methods.platformApp && !own ? ['consent' as const] : []), ...(guide ? ['credentials' as const] : [])];
   return (
     <section aria-labelledby={`${fid}-h`}>
       <div className="iam-sec-h iam-wrap"><h2 id={`${fid}-h`}>{t('iam.entra.title')}</h2>
         {c ? <span className={`iam-pill iam-sm ${c.status !== 'active' ? 'iam-st-warn' : enforced ? 'iam-st-ok' : 'iam-st-idle'}`}>{t(c.status !== 'active' ? 'iam.entra.state.error' : enforced ? 'iam.entra.state.enforced' : 'iam.entra.state.pending')}</span> : null}
-        {q.data?.enabled ? <><span className="iam-spacer" />{c
+        {available ? <><span className="iam-spacer" />{c
           ? <><Button icon="reset" busy={refresh.isPending} onClick={() => refresh.mutate()}>{t('iam.entra.refresh')}</Button>
             {own
               ? (guide ? <Button icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.rotate')}</Button> : null)
-              : methods.platformApp ? <Button icon="link" onClick={() => setConnecting(true)} title={t('iam.entra.reconsentHint')}>{t('iam.entra.reconsent')}</Button> : null}
+              : <>{methods.platformApp ? <Button icon="link" onClick={() => setConnecting(true)} title={t('iam.entra.reconsentHint')}>{t('iam.entra.reconsent')}</Button> : null}
+                {guide ? <Button icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.open')}</Button> : null}</>}
             {linkKinds.length ? <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button> : null}
             <Button variant="danger" icon="x" onClick={() => setDisconnecting(true)}>{t('iam.entra.disconnect')}</Button></>
           : <>{methods.platformApp ? <Button variant="primary" icon="link" onClick={() => setConnecting(true)}>{t('iam.entra.connect')}</Button> : null}
             {guide ? <Button variant={methods.platformApp ? undefined : 'primary'} icon="key" onClick={() => setOwning(true)}>{t('iam.ownApp.open')}</Button> : null}
             {linkKinds.length ? <Button icon="send" onClick={() => setLinking(true)}>{t('iam.entraLink.open')}</Button> : null}</>}</> : null}
       </div>
-      {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.enabled ? (
-        <Empty icon="shield" title={t('iam.entra.off')}><p>{q.data.reason}</p></Empty>
+      {q.isPending ? <SkeletonRows rows={3} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !available ? (
+        <Empty icon="shield" title={t('iam.entra.off')}><p>{q.data.reason ?? q.data.ownAppReason}</p></Empty>
       ) : !c ? (
         <Empty icon="shield" title={t('iam.entra.none.title')}><p>{t(methods.platformApp ? 'iam.entra.none.text' : 'iam.entra.none.textOwn', { org: orgLabel })}</p></Empty>
       ) : (
@@ -119,7 +122,7 @@ export function EntraSection({ alias, orgLabel }: { alias: string | null; orgLab
         </>
       )}
       {result ? <BindReport r={result} enforced={enforced} onClose={() => setResult(null)} /> : null}
-      {q.data?.enabled ? <ConsentLinkList alias={alias} orgLabel={orgLabel} /> : null}
+      {available ? <ConsentLinkList alias={alias} orgLabel={orgLabel} /> : null}
       {connecting ? <ConnectDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} onClose={() => setConnecting(false)} /> : null}
       {linking && linkKinds.length ? <ConsentLinkDialog alias={alias} orgLabel={orgLabel} tenant={c?.entraTenantId} kinds={linkKinds} onClose={() => setLinking(false)} /> : null}
       {owning && guide ? (

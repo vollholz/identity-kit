@@ -21,8 +21,9 @@ const AT = new Date(Date.now() - 3600_000).toISOString();
 const GUIDE = {
   redirectUri: 'https://login.notizen.example/realms/notizen/broker/entra-demo/endpoint',
   permissions: [
-    { name: 'User.Read.All', type: 'Application' as const, why: 'Personen der Domänen lesen und verknüpfen' },
-    { name: 'openid', type: 'Delegated' as const, why: 'Anmeldung' },
+    { name: 'User.Read', type: 'Delegated' as const, why: 'Anmeldung', optional: false },
+    { name: 'User.Read.All', type: 'Application' as const, why: 'Personen der Domänen lesen und verknüpfen', optional: false },
+    { name: 'Application.Read.All', type: 'Application' as const, why: 'Ablauf des Secrets lesen', optional: true },
   ],
 };
 const problem = (status: number, detail: string, extra: Record<string, unknown> = {}) => json({ type: 'about:blank', title: 'Fehler', status, detail, ...extra }, status);
@@ -45,14 +46,14 @@ const bodyOf = async (api: ReturnType<typeof mockIamApi>, method: string, path: 
 
 /** Felder ausfüllen (im Dialog oder auf der öffentlichen Seite). */
 async function fill(scope: HTMLElement, v: { tenant?: string; client?: string; secret: string }) {
-  if (v.tenant !== undefined) { await userEvent.clear(within(scope).getByLabelText('Verzeichnis-ID')); await userEvent.type(within(scope).getByLabelText('Verzeichnis-ID'), v.tenant); }
-  if (v.client !== undefined) await userEvent.type(within(scope).getByLabelText('Anwendungs-ID'), v.client);
+  if (v.tenant !== undefined) await userEvent.type(within(scope).getByLabelText('Verzeichnis'), v.tenant);
+  if (v.client !== undefined) { await userEvent.clear(within(scope).getByLabelText('Anwendungs-ID')); await userEvent.type(within(scope).getByLabelText('Anwendungs-ID'), v.client); }
   await userEvent.type(within(scope).getByLabelText('Geheimer Clientschlüssel (Wert)'), v.secret);
 }
 
 describe('Wege je nach Server', () => {
-  it('nur eigene App: «Eigene App verbinden», kein «Mit Entra ID verbinden»; Text ohne Zustimmung', async () => {
-    admin({ 'GET /v1/admin/entra': () => json(status({})) });
+  it('nur eigene App (enabled false: keine App der Plattform): «Eigene App verbinden», kein «Mit Entra ID verbinden»', async () => {
+    admin({ 'GET /v1/admin/entra': () => json(status({ enabled: false, reason: 'ENTRA_CLIENT_ID fehlt' })) });
     expect(await screen.findByRole('button', { name: 'Eigene App verbinden' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Mit Entra ID verbinden' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Link an die Entra-Administration senden' })).toBeInTheDocument();
@@ -94,8 +95,9 @@ describe('Wege je nach Server', () => {
   });
 
   it('kein Weg gemeldet: weder Verbinden noch Link', async () => {
-    admin({ 'GET /v1/admin/entra': () => json(status({ methods: { platformApp: false, ownApp: false }, ownApp: null })) });
-    expect(await screen.findByText('Nicht verbunden')).toBeInTheDocument();
+    admin({ 'GET /v1/admin/entra': () => json(status({ enabled: false, methods: { platformApp: false, ownApp: false }, ownAppReason: 'Secrets lassen sich ohne ENCRYPTION_KEYS nicht speichern.', ownApp: null })) });
+    expect(await screen.findByText('Entra ID nicht eingerichtet')).toBeInTheDocument();
+    expect(screen.getByText('Secrets lassen sich ohne ENCRYPTION_KEYS nicht speichern.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /verbinden|Link an die/ })).toBeNull();
   });
 });
@@ -115,33 +117,44 @@ describe('Eigene App verbinden', () => {
     expect(perms).toHaveTextContent('User.Read.All');
     expect(perms).toHaveTextContent('Anwendung');
     expect(perms).toHaveTextContent('Delegiert');
+    expect(within(perms).getByText('Application.Read.All').closest('li')).toHaveTextContent('optional');
+    expect(within(perms).getByText('User.Read.All').closest('li')).not.toHaveTextContent('optional');
     expect(guide).toHaveTextContent('Nur Konten in diesem Organisationsverzeichnis');
     expect(guide).toHaveTextContent('Administratorzustimmung erteilen');
     const go = within(dlg).getByRole('button', { name: 'Verbinden' });
     expect(go).toBeDisabled();
-    await userEvent.type(within(dlg).getByLabelText('Verzeichnis-ID'), 'demo.example');
+    await userEvent.type(within(dlg).getByLabelText('Verzeichnis'), 'kein verzeichnis');
     await userEvent.tab();
-    expect(within(dlg).getByLabelText('Verzeichnis-ID')).toHaveAttribute('aria-invalid', 'true');
+    expect(within(dlg).getByLabelText('Verzeichnis')).toHaveAttribute('aria-invalid', 'true');
+    expect(dlg).toHaveTextContent('Erwartet wird eine Verzeichnis-ID (GUID) oder eine Domäne');
+    await userEvent.clear(within(dlg).getByLabelText('Verzeichnis'));
+    await userEvent.type(within(dlg).getByLabelText('Anwendungs-ID'), 'abc');
+    await userEvent.tab();
     expect(dlg).toHaveTextContent('Erwartet wird eine GUID');
-    await fill(dlg, { tenant: ` ${TID.toUpperCase()} `, client: CID, secret: ' s3cr3t~Wert \n' });
+    await fill(dlg, { tenant: ' demo.example ', client: CID.toUpperCase(), secret: ' s3cr3t~Wert \n' });
+    await userEvent.type(within(dlg).getByLabelText('Secret gültig bis (optional)'), '2027-06-30');
     expect(within(dlg).getByLabelText('Geheimer Clientschlüssel (Wert)')).toHaveAttribute('type', 'password');
     expect(await axeProblems(dlg)).toEqual([]);
     await userEvent.click(go);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(await bodyOf(api, 'PUT', '/v1/admin/entra/app')).toEqual({ entraTenantId: TID, clientId: CID, clientSecret: 's3cr3t~Wert' });
+    expect(await bodyOf(api, 'PUT', '/v1/admin/entra/app')).toEqual({ tenant: 'demo.example', clientId: CID, clientSecret: 's3cr3t~Wert', secretExpiresAt: '2027-06-30T23:59:59.000Z' });
     expect(await screen.findByText('«Demo AG» ist mit der eigenen App-Registrierung verbunden')).toBeInTheDocument();
     expect(await screen.findByText('Eigene App-Registrierung')).toBeInTheDocument();
   });
 
   it.each([
-    [{ reason: 'invalid-client' }, 'Microsoft lehnt die Anwendungs-ID oder das Secret ab. Häufig wurde die «Geheimnis-ID» statt des «Werts» kopiert'],
-    [{ reason: 'missing-permissions', missing: ['User.Read.All', 'Domain.Read.All'] }, 'Der App-Registrierung fehlen Berechtigungen: User.Read.All, Domain.Read.All.'],
-    [{ reason: 'consent-missing' }, 'Für die Berechtigungen fehlt die Administratorzustimmung'],
-    [{ reason: 'tenant-not-found' }, 'Das Microsoft-Verzeichnis wurde nicht gefunden.'],
-    [{ reason: 'tenant-taken' }, 'bereits mit einer anderen Organisation verbunden'],
-    [{ reason: 'unbekannt' }, 'Meldung des Servers'],
-  ])('Fehler %o: eigener Text, sonst die Meldung des Servers', async (extra, text) => {
-    admin({ 'GET /v1/admin/entra': () => json(status({})), 'PUT /v1/admin/entra/app': () => problem(extra.reason.startsWith('tenant-taken') ? 409 : 422, 'Meldung des Servers', extra) });
+    [409, { reason: 'invalid-secret' }, 'Microsoft lehnt das Secret ab. Häufig wurde die «Geheimnis-ID» statt des «Werts» kopiert.'],
+    [409, { reason: 'secret-expired' }, 'Das Secret ist bei Microsoft abgelaufen.'],
+    [409, { reason: 'wrong-tenant' }, 'keine App mit dieser Anwendungs-ID'],
+    [409, { reason: 'invalid-client' }, 'Microsoft lehnt die Anmeldung der App ab.'],
+    [409, { reason: 'missing-permissions', missing: ['User.Read.All', 'Organization.Read.All'] }, 'fehlen Berechtigungen oder die Administratorzustimmung dafür: User.Read.All, Organization.Read.All.'],
+    [409, { reason: 'domains-taken' }, 'gehören bereits einer anderen Organisation'],
+    [409, { reason: 'tenant-mismatch' }, 'bleibt das Microsoft-Verzeichnis gleich'],
+    [503, { reason: 'encryption-missing' }, 'nicht verschlüsselt speichern'],
+    [422, { errors: [{ path: '/tenant', message: 'nicht gefunden' }] }, 'Das Microsoft-Verzeichnis wurde nicht gefunden.'],
+    [409, { reason: 'unbekannt' }, 'Meldung des Servers'],
+  ] as const)('Fehler %i %o: eigener Text, sonst die Meldung des Servers', async (code, extra, text) => {
+    admin({ 'GET /v1/admin/entra': () => json(status({})), 'PUT /v1/admin/entra/app': () => problem(code, 'Meldung des Servers', extra) });
     await userEvent.click(await screen.findByRole('button', { name: 'Eigene App verbinden' }));
     const dlg = await screen.findByRole('dialog');
     await fill(dlg, { tenant: TID, client: CID, secret: 'x' });
@@ -151,7 +164,7 @@ describe('Eigene App verbinden', () => {
 });
 
 describe('Verbunden mit eigener App', () => {
-  it('Verbindung, Client-ID, Ablauf; «Secret wechseln …» mit festen IDs und nur dem Secret-Schritt; kein «Erneut zustimmen»', async () => {
+  it('Verbindung, Client-ID, Ablauf; «Secret wechseln …»: Verzeichnis fest, Anwendungs-ID vorgegeben, nur der Secret-Schritt; kein «Erneut zustimmen»', async () => {
     const api = admin({ 'GET /v1/admin/entra': () => json(status({ connection: OWN })), 'PUT /v1/admin/entra/app': () => json({ connection: OWN, members: [], rejectedDomains: [] }) });
     expect(await screen.findByText('Eigene App-Registrierung')).toBeInTheDocument();
     expect(screen.getByText(CID)).toBeInTheDocument();
@@ -160,15 +173,17 @@ describe('Verbunden mit eigener App', () => {
     expect(screen.queryByRole('button', { name: 'Erneut zustimmen' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Secret wechseln …' }));
     const dlg = await screen.findByRole('dialog', { name: 'Secret für «Demo AG» wechseln' });
-    expect(within(dlg).getByLabelText('Verzeichnis-ID')).toHaveValue(TID);
-    expect(within(dlg).getByLabelText('Verzeichnis-ID')).toHaveAttribute('readonly');
-    expect(within(dlg).getByLabelText('Anwendungs-ID')).toHaveAttribute('readonly');
+    expect(within(dlg).getByLabelText('Verzeichnis')).toHaveValue(TID);
+    expect(within(dlg).getByLabelText('Verzeichnis')).toHaveAttribute('readonly');
+    expect(within(dlg).getByLabelText('Anwendungs-ID')).toHaveValue(CID);
+    expect(within(dlg).getByLabelText('Anwendungs-ID')).not.toHaveAttribute('readonly');
+    expect(within(dlg).getByLabelText('Geheimer Clientschlüssel (Wert)')).toHaveFocus();
     expect(within(dlg).queryByLabelText('Umleitungs-URI')).toBeNull();
     expect(dlg).toHaveTextContent('Zertifikate & Geheimnisse');
     await userEvent.type(within(dlg).getByLabelText('Geheimer Clientschlüssel (Wert)'), 'neu');
     await userEvent.click(within(dlg).getByRole('button', { name: 'Secret speichern' }));
     expect(await screen.findByText('Neues Secret für «Demo AG» gespeichert')).toBeInTheDocument();
-    expect(await bodyOf(api, 'PUT', '/v1/admin/entra/app')).toEqual({ entraTenantId: TID, clientId: CID, clientSecret: 'neu' });
+    expect(await bodyOf(api, 'PUT', '/v1/admin/entra/app')).toEqual({ tenant: TID, clientId: CID, clientSecret: 'neu' });
   });
 
   it('Secret läuft bald ab bzw. ist abgelaufen: Warnung', async () => {
@@ -190,7 +205,7 @@ describe('Verbunden mit eigener App', () => {
 describe('Link «Credentials eintragen» (öffentlich)', () => {
   const INFO = {
     organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demo.example', entraTenantId: TID, notice: 'Verifizierte Domänen gehen an «Demo AG».',
-    expiresAt: new Date(Date.now() + 900_000).toISOString(), kind: 'credentials', ...GUIDE,
+    expiresAt: new Date(Date.now() + 900_000).toISOString(), kind: 'credentials', ownApp: GUIDE,
   };
   function open(routes: Record<string, MockHandler>) {
     window.history.replaceState(null, '', `/verwalten/anmeldung/freigabe#${TOKEN}`);
@@ -200,7 +215,7 @@ describe('Link «Credentials eintragen» (öffentlich)', () => {
     return api;
   }
 
-  it('ohne Sitzung: Anleitung («Sie»), Verzeichnis-ID vorgegeben, Token und Angaben nur im Body, «Gespeichert»', async () => {
+  it('ohne Sitzung: Anleitung («Sie»), Verzeichnis vom Link (kein Feld), Token und Angaben nur im Body, «Gespeichert»', async () => {
     const api = open({ 'POST /v1/entra/handover/credentials': () => json({ organization: 'Demo AG', connected: true }) });
     expect(await screen.findByRole('heading', { name: 'App-Registrierung für die Anmeldung über Microsoft eintragen' })).toBeInTheDocument();
     expect(window.location.hash).toBe('');
@@ -208,7 +223,8 @@ describe('Link «Credentials eintragen» (öffentlich)', () => {
     expect(screen.getByRole('list', { name: 'Anleitung für die App-Registrierung' })).toHaveTextContent('Dafür brauchen Sie die Rolle');
     expect(screen.getByLabelText('Umleitungs-URI')).toHaveValue(GUIDE.redirectUri);
     expect(screen.getByRole('note')).toHaveTextContent('Nur eintragen, wenn Sie die Anfrage von Anna Admin erwarten.');
-    expect(screen.getByLabelText('Verzeichnis-ID')).toHaveValue(TID);
+    expect(screen.queryByLabelText('Verzeichnis')).toBeNull();
+    expect(screen.getByText('Verzeichnis-ID').nextElementSibling).toHaveTextContent(TID);
     expect(screen.queryByRole('button', { name: 'Bei Microsoft zustimmen' })).toBeNull();
     expect(await axeProblems(document.body)).toEqual([]);
     await fill(document.body, { client: CID, secret: 'wert' });
@@ -216,7 +232,7 @@ describe('Link «Credentials eintragen» (öffentlich)', () => {
     expect(await screen.findByRole('heading', { name: 'Gespeichert' })).toBeInTheDocument();
     expect(screen.getByText(/Sie können dieses Fenster schliessen/)).toBeInTheDocument();
     const call = api.calls.find(c => new URL(c.url).pathname === '/v1/entra/handover/credentials')!;
-    expect(await call.clone().json()).toEqual({ token: TOKEN, entraTenantId: TID, clientId: CID, clientSecret: 'wert' });
+    expect(await call.clone().json()).toEqual({ token: TOKEN, clientId: CID, clientSecret: 'wert' });
     expect(call.credentials).toBe('omit');
     expect(call.headers.get('X-Tenant')).toBeNull();
     expect(call.headers.get('X-CSRF-Token')).toBeNull();
@@ -225,12 +241,12 @@ describe('Link «Credentials eintragen» (öffentlich)', () => {
   });
 
   it('Fehler mit eigenem Text; 404 (inzwischen abgelaufen oder eingelöst): «Link ungültig»', async () => {
-    let res = () => problem(422, 'Ungültig.', { reason: 'invalid-client' });
+    let res = () => problem(409, 'Ungültig.', { reason: 'invalid-secret' });
     open({ 'POST /v1/entra/handover/credentials': () => res() });
     await screen.findByLabelText('Anwendungs-ID');
     await fill(document.body, { client: CID, secret: 'wert' });
     await userEvent.click(screen.getByRole('button', { name: 'Angaben prüfen und speichern' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Microsoft lehnt die Anwendungs-ID oder das Secret ab.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Microsoft lehnt das Secret ab.');
     res = () => problem(404, 'Nicht gefunden.');
     await userEvent.click(screen.getByRole('button', { name: 'Angaben prüfen und speichern' }));
     expect(await screen.findByRole('heading', { name: 'Link ungültig' })).toBeInTheDocument();

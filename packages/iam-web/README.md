@@ -120,13 +120,14 @@ Entra ID verbinden» mehr; angeboten wird, was der Server meldet (ältere Server
 
 - **Eigene App verbinden:** Der Dialog führt Schritt für Schritt durch die App-Registrierung (nur dieses Verzeichnis,
   Plattform «Web» mit der Umleitungs-URI des Servers, Berechtigungen von Microsoft Graph mit Administratorzustimmung,
-  Secret) und nimmt Verzeichnis-ID, Anwendungs-ID und Secret entgegen (`PUT …/entra/app`). Fehler wie falsches Secret,
-  fehlende Berechtigungen oder Zustimmung erscheinen mit eigenem Text.
+  Secret) und nimmt Verzeichnis (ID oder Domäne), Anwendungs-ID, Secret und optional dessen Ablauf entgegen
+  (`PUT …/entra/app`; ohne Application.Read.All kann der Server den Ablauf nicht selbst lesen). Fehler wie falsches
+  oder abgelaufenes Secret, falsches Verzeichnis oder fehlende Berechtigungen bzw. Zustimmung erscheinen mit eigenem Text.
 - **Secret wechseln:** Bei der eigenen App zeigt «Anmeldung» den Ablauf des Secrets mit Warnung (bald fällig,
-  abgelaufen); «Secret wechseln …» nimmt nur das neue Secret.
+  abgelaufen); «Secret wechseln …» nimmt das neue Secret (das Verzeichnis bleibt, die Anwendungs-ID darf wechseln).
 - **Link «Credentials eintragen»:** «Link an die Entra-Administration senden» erzeugt im Modus der eigenen App einen
   Link, über den die Kunden-IT die App-Registrierung anlegt und die Angaben selbst einträgt – ohne Konto in der App,
-  mit derselben Anleitung («Sie»). Für das Token gilt dasselbe wie in 0.2.0 (Fragment sofort weg, nur im Body, nie in
+  mit derselben Anleitung («Sie»); das Verzeichnis gibt der Link vor. Für das Token gilt dasselbe wie in 0.2.0 (Fragment sofort weg, nur im Body, nie in
   `returnTo`); das Secret geht nur im Body an `/v1/entra/handover/credentials` und erscheint nie wieder.
 
 `OwnAppDialog`, `OwnAppGuideSteps`, `OwnAppFields` und `ownAppErrorText` stehen unter `./pages` auch einzeln bereit.

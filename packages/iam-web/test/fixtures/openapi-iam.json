@@ -172,6 +172,40 @@
         "type": "null"
        }
       ]
+     },
+     "method": {
+      "enum": [
+       "platform",
+       "own"
+      ],
+      "type": "string"
+     },
+     "clientId": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "secretExpiresAt": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "secretExpiresSoon": {
+      "type": "boolean"
+     },
+     "redirectUri": {
+      "type": "string"
      }
     },
     "required": [
@@ -189,7 +223,12 @@
      "lastError",
      "connectedAt",
      "connectedBy",
-     "refreshedAt"
+     "refreshedAt",
+     "method",
+     "clientId",
+     "secretExpiresAt",
+     "secretExpiresSoon",
+     "redirectUri"
     ],
     "title": "EntraConnection",
     "type": "object"
@@ -710,6 +749,13 @@
         "type": "null"
        }
       ]
+     },
+     "kind": {
+      "enum": [
+       "consent",
+       "credentials"
+      ],
+      "type": "string"
      }
     },
     "required": [
@@ -721,10 +767,53 @@
      "status",
      "usedAt",
      "approverName",
-     "error"
+     "error",
+     "kind"
     ],
     "type": "object",
     "title": "EntraConsentLink"
+   },
+   "EntraOwnAppGuide": {
+    "properties": {
+     "redirectUri": {
+      "type": "string"
+     },
+     "permissions": {
+      "items": {
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "type": {
+         "enum": [
+          "Application",
+          "Delegated"
+         ],
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        },
+        "optional": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "name",
+        "type",
+        "why",
+        "optional"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "redirectUri",
+     "permissions"
+    ],
+    "type": "object"
    }
   }
  },
@@ -2125,6 +2214,41 @@
           "testPath": {
            "description": "Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)",
            "type": "string"
+          },
+          "methods": {
+           "properties": {
+            "platformApp": {
+             "type": "boolean"
+            },
+            "ownApp": {
+             "type": "boolean"
+            }
+           },
+           "required": [
+            "platformApp",
+            "ownApp"
+           ],
+           "type": "object"
+          },
+          "ownAppReason": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "ownApp": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/EntraOwnAppGuide"
+            },
+            {
+             "type": "null"
+            }
+           ]
           }
          },
          "required": [
@@ -2132,7 +2256,10 @@
           "reason",
           "connection",
           "consentPath",
-          "testPath"
+          "testPath",
+          "methods",
+          "ownAppReason",
+          "ownApp"
          ],
          "type": "object"
         }
@@ -5899,6 +6026,41 @@
           "testPath": {
            "description": "Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)",
            "type": "string"
+          },
+          "methods": {
+           "properties": {
+            "platformApp": {
+             "type": "boolean"
+            },
+            "ownApp": {
+             "type": "boolean"
+            }
+           },
+           "required": [
+            "platformApp",
+            "ownApp"
+           ],
+           "type": "object"
+          },
+          "ownAppReason": {
+           "anyOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "ownApp": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/EntraOwnAppGuide"
+            },
+            {
+             "type": "null"
+            }
+           ]
           }
          },
          "required": [
@@ -5906,7 +6068,10 @@
           "reason",
           "connection",
           "consentPath",
-          "testPath"
+          "testPath",
+          "methods",
+          "ownAppReason",
+          "ownApp"
          ],
          "type": "object"
         }
@@ -8981,6 +9146,13 @@
           "maximum": 1440,
           "minimum": 5,
           "type": "integer"
+         },
+         "kind": {
+          "enum": [
+           "consent",
+           "credentials"
+          ],
+          "type": "string"
          }
         },
         "required": [
@@ -9013,13 +9185,21 @@
           "expiresAt": {
            "format": "date-time",
            "type": "string"
+          },
+          "kind": {
+           "enum": [
+            "consent",
+            "credentials"
+           ],
+           "type": "string"
           }
          },
          "required": [
           "id",
           "url",
           "entraTenantId",
-          "expiresAt"
+          "expiresAt",
+          "kind"
          ],
          "type": "object"
         }
@@ -9393,6 +9573,23 @@
           },
           "notice": {
            "type": "string"
+          },
+          "kind": {
+           "enum": [
+            "consent",
+            "credentials"
+           ],
+           "type": "string"
+          },
+          "ownApp": {
+           "anyOf": [
+            {
+             "$ref": "#/components/schemas/EntraOwnAppGuide"
+            },
+            {
+             "type": "null"
+            }
+           ]
           }
          },
          "required": [
@@ -9402,7 +9599,9 @@
           "tenant",
           "entraTenantId",
           "expiresAt",
-          "notice"
+          "notice",
+          "kind",
+          "ownApp"
          ],
          "type": "object"
         }
@@ -9555,6 +9754,13 @@
           "maximum": 1440,
           "minimum": 5,
           "type": "integer"
+         },
+         "kind": {
+          "enum": [
+           "consent",
+           "credentials"
+          ],
+          "type": "string"
          }
         },
         "required": [
@@ -9587,13 +9793,21 @@
           "expiresAt": {
            "format": "date-time",
            "type": "string"
+          },
+          "kind": {
+           "enum": [
+            "consent",
+            "credentials"
+           ],
+           "type": "string"
           }
          },
          "required": [
           "id",
           "url",
           "entraTenantId",
-          "expiresAt"
+          "expiresAt",
+          "kind"
          ],
          "type": "object"
         }
@@ -9823,6 +10037,512 @@
       }
      },
      "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/admin/entra/app": {
+   "put": {
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "tenant": {
+          "maxLength": 253,
+          "minLength": 3,
+          "type": "string"
+         },
+         "clientId": {
+          "maxLength": 36,
+          "minLength": 36,
+          "type": "string"
+         },
+         "clientSecret": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+         },
+         "secretExpiresAt": {
+          "anyOf": [
+           {
+            "format": "date-time",
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "tenant",
+         "clientId",
+         "clientSecret"
+        ],
+        "type": "object",
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "connection": {
+           "$ref": "#/components/schemas/EntraConnection"
+          },
+          "members": {
+           "items": {
+            "properties": {
+             "email": {
+              "type": "string"
+             },
+             "linked": {
+              "type": "boolean"
+             },
+             "name": {
+              "type": "string"
+             },
+             "reason": {
+              "anyOf": [
+               {
+                "type": "string"
+               },
+               {
+                "type": "null"
+               }
+              ]
+             },
+             "passwordKept": {
+              "type": "string"
+             }
+            },
+            "required": [
+             "email",
+             "name",
+             "linked",
+             "reason"
+            ],
+            "type": "object"
+           },
+           "type": "array"
+          },
+          "rejectedDomains": {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          }
+         },
+         "required": [
+          "connection",
+          "members",
+          "rejectedDomains"
+         ],
+         "type": "object"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "409": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "422": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationProblem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/platform/organizations/{alias}/entra/app": {
+   "put": {
+    "parameters": [
+     {
+      "in": "path",
+      "name": "alias",
+      "required": true,
+      "schema": {
+       "maxLength": 63,
+       "minLength": 1,
+       "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "tenant": {
+          "maxLength": 253,
+          "minLength": 3,
+          "type": "string"
+         },
+         "clientId": {
+          "maxLength": 36,
+          "minLength": 36,
+          "type": "string"
+         },
+         "clientSecret": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+         },
+         "secretExpiresAt": {
+          "anyOf": [
+           {
+            "format": "date-time",
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "tenant",
+         "clientId",
+         "clientSecret"
+        ],
+        "type": "object",
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "connection": {
+           "$ref": "#/components/schemas/EntraConnection"
+          },
+          "members": {
+           "items": {
+            "properties": {
+             "email": {
+              "type": "string"
+             },
+             "linked": {
+              "type": "boolean"
+             },
+             "name": {
+              "type": "string"
+             },
+             "reason": {
+              "anyOf": [
+               {
+                "type": "string"
+               },
+               {
+                "type": "null"
+               }
+              ]
+             },
+             "passwordKept": {
+              "type": "string"
+             }
+            },
+            "required": [
+             "email",
+             "name",
+             "linked",
+             "reason"
+            ],
+            "type": "object"
+           },
+           "type": "array"
+          },
+          "rejectedDomains": {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          }
+         },
+         "required": [
+          "connection",
+          "members",
+          "rejectedDomains"
+         ],
+         "type": "object"
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "404": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "409": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "422": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationProblem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "503": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/entra/handover/credentials": {
+   "post": {
+    "security": [],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "token": {
+          "maxLength": 107,
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,62}\\.[A-Za-z0-9_-]{43}$",
+          "type": "string"
+         },
+         "clientId": {
+          "maxLength": 36,
+          "minLength": 36,
+          "type": "string"
+         },
+         "clientSecret": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+         },
+         "secretExpiresAt": {
+          "anyOf": [
+           {
+            "format": "date-time",
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "token",
+         "clientId",
+         "clientSecret"
+        ],
+        "type": "object",
+        "additionalProperties": false
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "organization": {
+           "type": "string"
+          },
+          "connected": {
+           "const": true,
+           "type": "boolean"
+          }
+         },
+         "required": [
+          "organization",
+          "connected"
+         ],
+         "type": "object"
+        }
+       }
+      }
+     },
+     "404": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "409": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "422": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationProblem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "503": {
       "content": {
        "application/problem+json": {
         "schema": {

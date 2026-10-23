@@ -57,9 +57,10 @@ const ownMode = new URLSearchParams(location.search).get('own') === '1';
 const OWN_GUIDE = {
   redirectUri: 'https://login.notizen.example/realms/notizen/broker/entra-demo/endpoint',
   permissions: [
-    { name: 'User.Read.All', type: 'Application', why: 'Personen der Domänen lesen und verknüpfen' },
-    { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses' },
-    { name: 'openid', type: 'Delegated', why: 'Anmeldung' },
+    { name: 'User.Read', type: 'Delegated', why: 'Anmeldung', optional: false },
+    { name: 'Organization.Read.All', type: 'Application', why: 'Name und verifizierte Domänen des Verzeichnisses', optional: false },
+    { name: 'User.Read.All', type: 'Application', why: 'Personen der Domänen lesen und verknüpfen', optional: false },
+    { name: 'Application.Read.All', type: 'Application', why: 'Ablauf des Secrets lesen', optional: true },
   ],
 };
 let ownConn: EntraConnection | null = null;
@@ -93,11 +94,11 @@ const api = mockIamApi({
     return json(members.find(x => x.id === idOf(req)));
   }])),
   'GET /v1/admin/entra': () => json(ownMode
-    ? { enabled: true, reason: null, connection: ownConn, methods: { platformApp: false, ownApp: true }, ownApp: OWN_GUIDE }
+    ? { enabled: false, reason: 'Keine App der Plattform eingerichtet', connection: ownConn, methods: { platformApp: false, ownApp: true }, ownAppReason: null, ownApp: OWN_GUIDE }
     : { enabled: true, reason: null, connection: entra }),
   'PUT /v1/admin/entra/app': async req => {
-    const b = await req.json() as { entraTenantId: string; clientId: string };
-    ownConn = { ...entra, entraTenantId: b.entraTenantId, testedAt: null, testedBy: null, method: 'own', clientId: b.clientId, secretExpiresAt: new Date(Date.now() + 20 * 86_400_000).toISOString(), secretExpiresSoon: true };
+    const b = await req.json() as { tenant: string; clientId: string };
+    ownConn = { ...entra, entraTenantId: '3f2b6c1e-8a4d-4f0e-9c7b-1d2e3f4a5b6c', redirectUri: OWN_GUIDE.redirectUri, testedAt: null, testedBy: null, method: 'own', clientId: b.clientId, secretExpiresAt: new Date(Date.now() + 20 * 86_400_000).toISOString(), secretExpiresSoon: true };
     return json({ connection: ownConn, members: entraMembers, rejectedDomains: [] });
   },
   'GET /v1/admin/entra/preview': () => json({ members: entraMembers }),
@@ -148,14 +149,14 @@ const api = mockIamApi({
   },
   'DELETE /v1/admin/entra/consent-links/l-1': () => { links = links.map(l => (l.id === 'l-1' ? { ...l, status: 'revoked' as const } : l)); return new Response(null, { status: 204 }); },
   'POST /v1/entra/handover/info': async req => { const { token } = await req.json() as { token: string }; return token === APP_TOKEN
-    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString(), kind: 'credentials', ...OWN_GUIDE })
+    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString(), kind: 'credentials', ownApp: OWN_GUIDE })
     : token === HANDOVER_TOKEN
     ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString() })
     : json({ title: 'Nicht gefunden', status: 404 }, 404); },
   'POST /v1/entra/handover/credentials': async req => {
     const b = await req.json() as { token: string; clientSecret: string };
     return b.token !== APP_TOKEN ? json({ title: 'Nicht gefunden', status: 404 }, 404)
-      : b.clientSecret === 'falsch' ? json({ title: 'Ungültig', status: 422, detail: 'invalid_client', reason: 'invalid-client' }, 422)
+      : b.clientSecret === 'falsch' ? json({ title: 'Secret ungültig', status: 409, detail: 'AADSTS7000215', reason: 'invalid-secret' }, 409)
       : json({ organization: 'Demo AG', connected: true });
   },
   'POST /v1/entra/handover/start': () => json({ url: 'https://login.microsoftonline.com/demoag.onmicrosoft.com/oauth2/v2.0/authorize?state=h.demo.e2e' }),

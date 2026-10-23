@@ -16,7 +16,8 @@ const CID = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`Eigene App: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+    // Ohne Animation: axe misst den Toast sonst mitten im Einblenden
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html?p=entra&own=1');
@@ -30,7 +31,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(dlg.getByLabel('Umleitungs-URI')).toHaveValue(/broker\/entra-demo\/endpoint$/);
       expect(await axe(page), `Dialog ${width}`).toEqual([]);
       expect(await noHorizontalScroll(page), `Dialog ${width}`).toBe(true);
-      await dlg.getByLabel('Verzeichnis-ID').fill(TID);
+      await dlg.getByLabel('Verzeichnis', { exact: true }).fill(TID);
       await dlg.getByLabel('Anwendungs-ID').fill(CID);
       await dlg.getByLabel('Geheimer Clientschlüssel (Wert)').fill('wert');
       await dlg.getByRole('button', { name: 'Verbinden' }).click();
@@ -67,11 +68,12 @@ test('ganzer Ablauf: Link «Credentials eintragen», Seite ohne Sitzung, Fehler 
   await it.goto(url);
   await expect(it.getByRole('heading', { name: 'App-Registrierung für die Anmeldung über Microsoft eintragen' })).toBeVisible();
   expect(await it.evaluate(() => location.hash)).toBe('');
-  await expect(it.getByLabel('Verzeichnis-ID')).toHaveValue('0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0');
+  await expect(it.getByLabel('Verzeichnis', { exact: true })).toHaveCount(0);
+  await expect(it.getByText('0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0')).toBeVisible();
   await it.getByLabel('Anwendungs-ID').fill(CID);
   await it.getByLabel('Geheimer Clientschlüssel (Wert)').fill('falsch');
   await it.getByRole('button', { name: 'Angaben prüfen und speichern' }).click();
-  await expect(it.getByRole('alert')).toContainText('Microsoft lehnt die Anwendungs-ID oder das Secret ab.');
+  await expect(it.getByRole('alert')).toContainText('Microsoft lehnt das Secret ab.');
   await it.getByLabel('Geheimer Clientschlüssel (Wert)').fill('richtig');
   await it.getByRole('button', { name: 'Angaben prüfen und speichern' }).click();
   await expect(it.getByRole('heading', { name: 'Gespeichert' })).toBeVisible();

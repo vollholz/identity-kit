@@ -25,9 +25,14 @@ export interface IamPeople {
 }
 
 const BATCH_MAX = 100;
+/** Principal-ID (UUID); eine Zugriffsregel kann eine Person auch über ihr Subject nennen. */
+export const isPrincipalId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 const toPerson = (p: { id: string; name: string; email: string | null }): IamPerson => ({ id: p.id, name: p.name, email: p.email });
 
-/** Standard: `GET /v1/people?q=&limit=` und `?ids=…` (wiederholt, höchstens 100); nur Personen, keine Maschinen-Clients. */
+/**
+ * Standard: `GET /v1/people?q=&limit=` und `?ids=…` (wiederholt, höchstens 100); nur Personen, keine Maschinen-Clients.
+ * Nur Principal-IDs gehen an `ids` (die API nimmt nur UUIDs); andere fehlen in der Antwort wie unbekannte.
+ */
 export const defaultPeople: IamPeople = {
   async search(q, signal) {
     const s = new URLSearchParams({ limit: '20' });
@@ -37,9 +42,10 @@ export const defaultPeople: IamPeople = {
   },
   async resolve(ids, signal) {
     const out: IamPerson[] = [];
-    for (let i = 0; i < ids.length; i += BATCH_MAX) {
+    const uuids = ids.filter(isPrincipalId);
+    for (let i = 0; i < uuids.length; i += BATCH_MAX) {
       const s = new URLSearchParams();
-      for (const id of ids.slice(i, i + BATCH_MAX)) s.append('ids', id);
+      for (const id of uuids.slice(i, i + BATCH_MAX)) s.append('ids', id);
       out.push(...(await iamFetch<PersonList>(`/v1/people?${s}`, { signal })).items.map(toPerson));
     }
     return out;

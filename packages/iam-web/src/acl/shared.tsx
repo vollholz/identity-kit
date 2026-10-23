@@ -10,7 +10,7 @@ import { useIamConfig } from '../config.tsx';
 import type { AclEntry, AclInput, AclList, Effective } from '../contract.ts';
 import { shortId } from '../format.ts';
 import { iamKeys } from '../keys.ts';
-import { PersonName, searchPeople, usePeople, type IamPerson } from '../people.tsx';
+import { isPrincipalId, PersonName, searchPeople, usePeople, type IamPerson } from '../people.tsx';
 import type { Permission } from '../permissions.ts';
 import { t, type IamTextKey } from '../texts/index.ts';
 import { useIamUi } from '../ui/context.tsx';
@@ -63,7 +63,8 @@ export const principalLabel = (type: string) => (PRINC_KEYS.includes(type as nev
 export function PrincipalLabel({ e }: { e: Pick<AclLike, 'principalType' | 'principalRef'> }) {
   const authz = useAuthz();
   if (e.principalType === 'role') return <>{authz.roleLabel(e.principalRef)} <span className="iam-mono-s iam-muted">{e.principalRef}</span></>;
-  if (e.principalType === 'user') return <PersonName id={e.principalRef} />;
+  // Person über die Principal-ID mit Namen; über ihr Subject (auch erlaubt) wie angegeben
+  if (e.principalType === 'user' && isPrincipalId(e.principalRef)) return <PersonName id={e.principalRef} />;
   return <span className="iam-mono-s">{e.principalRef}</span>;
 }
 
@@ -76,7 +77,7 @@ export function useWhoText() {
     if (e.principalType === 'group') return t('iam.acl.who.group', { group: e.principalRef });
     if (e.principalType === 'client') return t('iam.acl.who.client', { client: e.principalRef });
     const p = qc.getQueryData<IamPerson>(iamKeys.person(e.principalRef));
-    return p ? t('iam.acl.who.person', { name: p.name }) : t('iam.acl.who.personId', { id: shortId(e.principalRef) });
+    return p ? t('iam.acl.who.person', { name: p.name }) : t('iam.acl.who.personId', { id: isPrincipalId(e.principalRef) ? shortId(e.principalRef) : e.principalRef });
   };
 }
 

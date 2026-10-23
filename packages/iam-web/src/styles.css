@@ -348,6 +348,8 @@ details.iam-more.iam-card.iam-pad{gap:0}
 .iam-rights-st{font-size:12px;white-space:nowrap;color:var(--iam-text-3)}
 .iam-rights-r.iam-is-allowed .iam-rights-st{color:var(--iam-ok)}
 .iam-rights-r.iam-is-scope .iam-rights-st{color:var(--iam-warn)}
+.iam-rights-r.iam-is-acl .iam-rights-ico{background:var(--iam-bad-soft);color:var(--iam-bad)}
+.iam-rights-r.iam-is-acl .iam-rights-st{color:var(--iam-bad)}
 .iam-rights-wb{background:none;border:0;padding:2px 4px;border-radius:4px;font-size:12px;color:var(--iam-text-3);text-decoration:underline dotted;text-underline-offset:3px}
 .iam-rights-wb:hover,.iam-rights-wb[aria-expanded="true"]{color:var(--iam-text)}
 .iam-rights-wb:focus-visible{outline:2px solid var(--iam-focus);outline-offset:1px}

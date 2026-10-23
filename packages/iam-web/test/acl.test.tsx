@@ -348,6 +348,42 @@ describe('Seite «Zugriff»', () => {
     expect(calls.some(c => new URL(c.url).pathname === '/v1/people')).toBe(true);
   });
 
+  it('Person über ihr Subject (statt Principal-ID): so angezeigt, nicht an /v1/people; die anderen Namen lösen sich auf', async () => {
+    const CARLA = { id: '00000000-0000-4000-8000-0000000000c1', kind: 'user', name: 'Carla Check', email: null, clientId: null, lastSeenAt: null };
+    const { calls } = setup('/verwalten/zugriff', { routes: routes({
+      'GET /v1/acl': () => json({ items: [note({ id: 's1', principalType: 'user', principalRef: 'dora' }), note({ id: 's2', principalType: 'user', principalRef: CARLA.id })] }),
+      'GET /v1/people': req => (new URL(req.url).searchParams.getAll('ids').every(id => /^[0-9a-f-]{36}$/.test(id)) ? json({ items: [CARLA], nextCursor: null }) : json({ title: 'Ungültig', status: 400 }, 400)),
+    }) });
+    const table = await screen.findByRole('table', { name: 'Zugriffsregeln' });
+    expect(await within(table).findByText('Carla Check')).toBeInTheDocument();
+    expect(within(table).getByText('dora')).toBeInTheDocument();
+    expect(within(table).getByRole('button', { name: 'Mehr zu «Notizen ändern» beschränkt für Person dora auf Projekte' })).toBeInTheDocument();
+    const ids = calls.filter(c => new URL(c.url).pathname === '/v1/people').flatMap(c => new URL(c.url).searchParams.getAll('ids'));
+    expect(ids).toEqual([CARLA.id]);
+  });
+
+  it('Dialog vor dem Katalog geöffnet: Ladezustand, danach Vorgaben aus dem Katalog, die auch gesendet werden', async () => {
+    let release!: () => void;
+    const ready = new Promise<void>(r => { release = r; });
+    const { calls } = setup('/verwalten/zugriff', { routes: routes({
+      'GET /v1/authz/catalog': async () => { await ready; return json(CATALOG); },
+      'POST /v1/acl': () => json(note({ id: 'neu' }), 201),
+    }) });
+    await userEvent.click(await screen.findByRole('button', { name: 'Zugriffsregel hinzufügen' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Zugriffsregel in «Demo AG» hinzufügen' });
+    expect(within(dlg).queryByRole('combobox', { name: 'Recht' })).toBeNull();
+    release();
+    // das Formular ersetzt den Ladezustand; Fokus auf dem ersten Feld
+    expect(await screen.findByRole('combobox', { name: 'Rolle' })).toHaveValue('folder-admin');
+    const form = screen.getByRole('dialog', { name: 'Zugriffsregel in «Demo AG» hinzufügen' });
+    expect(within(form).getByRole('combobox', { name: 'Recht' })).toHaveValue('note:read');
+    await waitFor(() => expect(within(form).getByRole('combobox', { name: 'Ressource' })).toHaveFocus());
+    await pickFolder(form);
+    await userEvent.click(within(form).getByRole('button', { name: 'Hinzufügen' }));
+    expect(await screen.findByText('Zugriffsregel in «Demo AG» hinzugefügt')).toBeInTheDocument();
+    expect(await calls.find(c => c.method === 'POST')!.json()).toEqual({ resourceType: 'folder', resourceId: F1, principalType: 'role', principalRef: 'folder-admin', permission: 'note:read', effect: 'restrict' });
+  });
+
   it('ohne acl:admin nennt der Kopf das fehlende Recht, statt still auszublenden; keine Zeilenaktionen', async () => {
     setup('/verwalten/zugriff', { me: AUDITOR });
     const table = await screen.findByRole('table', { name: 'Zugriffsregeln' });
@@ -599,6 +635,26 @@ describe('Rechte prüfen', () => {
     // Wechsel auf «Ich» räumt die URL auf
     await userEvent.click(within(form).getByRole('button', { name: 'Ich' }));
     await waitFor(() => expect(search()).toEqual({ ansicht: 'pruefen' }));
+  });
+
+  it('Verbot auf Ebene der Organisation: Recht als «fehlt (Zugriffsregel)» und im Entscheid «Ganze Organisation verboten»', async () => {
+    // e3 verbietet Leser:in «Notizen lesen» in der ganzen Organisation; die API rechnet es heraus
+    setup('/verwalten/zugriff?ansicht=pruefen&rolle=viewer', { routes: routes({ 'GET /v1/acl/effective': req => json({
+      ...EFFECTIVE(true, new URL(req.url).searchParams.getAll('roles')), permissions: ['tenant:read'], resources: [] }) }) });
+    expect(await screen.findByText('Darf 1 von 10')).toBeInTheDocument();
+    expect(screen.getByText(/1 Recht fehlt wegen einer Zugriffsregel\./)).toBeInTheDocument();
+    const row = screen.getByText('Notizen lesen', { selector: '.iam-rights-l, .iam-rights-l *' }).closest('li')!;
+    expect(row).toHaveTextContent('fehlt (Zugriffsregel)');
+    expect(await screen.findByRole('list', { name: 'Entscheid je Ressource' })).toHaveTextContent('Notizen lesen · Ganze Organisationverboten');
+  });
+
+  it('Maschinen-Client mit org-admin ist nicht ausgenommen: Verbot aus der Antwort gilt auch dann', async () => {
+    setup('/verwalten/zugriff?ansicht=pruefen&client=ci-bot', { routes: routes({
+      'GET /v1/admin/clients': () => json({ items: [{ ...CLIENTS.items[0], lastRoles: ['org-admin'], lastScopes: ['notes:read'] }] }),
+      'GET /v1/acl/effective': () => json({ ...EFFECTIVE(false, ['org-admin']), source: 'last-token', permissions: ['tenant:read'] }),
+    }) });
+    expect(await screen.findByText(/1 Recht fehlt wegen einer Zugriffsregel\./)).toBeInTheDocument();
+    expect(screen.queryByText('Alle Rechte. Zugriffsregeln gelten nicht.')).toBeNull();
   });
 
   it('Rollen ohne Wahl: Aufforderung statt Ergebnis; Scopes aus dem Katalog statt Freitext', async () => {

@@ -905,8 +905,12 @@ export interface paths {
                     content: {
                         "application/json": {
                             connection: components["schemas"]["EntraConnection"] | null;
+                            /** @description Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`) */
+                            consentPath: string;
                             enabled: boolean;
                             reason: string | null;
+                            /** @description Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`) */
+                            testPath: string;
                         };
                     };
                 };
@@ -3556,8 +3560,12 @@ export interface paths {
                     content: {
                         "application/json": {
                             connection: components["schemas"]["EntraConnection"] | null;
+                            /** @description Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`) */
+                            consentPath: string;
                             enabled: boolean;
                             reason: string | null;
+                            /** @description Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`) */
+                            testPath: string;
                         };
                     };
                 };

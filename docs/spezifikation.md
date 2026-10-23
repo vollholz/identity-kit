@@ -589,7 +589,8 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
 - Rückkehrseiten der Oberfläche: `<paths.entra>/zustimmung` (Zustimmung bei Microsoft, sendet `state`, `tenant`,
   `admin_consent`, `error`, `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die
   Testanmeldung). Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
-  `ENTRA_*` des Servers passen. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
+  `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`); `GET …/entra` nennt beide
+  (`consentPath`, `testPath`), `testLoginPath` führt mit `returnTo` auf `testPath`. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
   `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei
   `login.microsoftonline.com` (per Konfiguration erweiterbar).
 - Mit «Nur Entra» prüft der Resolver, dass die Sitzung über den Anbieter angemeldet ist (`identity_provider`), sonst 403
@@ -776,7 +777,7 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `SHARED_STATE` | — | `postgres` bei mehreren Instanzen (Replay-Schutz, Ratenbegrenzung) |
 | `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` (geheim) | — | Laufzeit, Besitzer (Migrationen), Worker ([10.1](#101-rollen)) |
 | `MCP_CLIENT_ID`, `MCP_PRIVATE_KEY` (geheim), `MCP_HOST_CLIENT_IDS`, `OIDC_MCP_AUDIENCE` | `<produkt>-mcp`, —, —, `<produkt>-mcp` | MCP-Dienst ([12.2](#122-mcp-dienst-kann)) |
-| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS` | —, —, `100` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) |
+| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS`, `ENTRA_UI_PATH` | —, —, `100`, `/verwalten/anmeldung` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); `ENTRA_UI_PATH` = `paths.entra` der Oberfläche |
 
 Zu jedem `…_PRIVATE_KEY` gibt es übergangsweise `…_CLIENT_SECRET`; dann warnt der Dienst beim Start (P3). Alle
 Geheimnisse auch als `…_FILE`.

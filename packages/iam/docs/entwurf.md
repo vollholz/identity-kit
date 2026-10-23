@@ -715,3 +715,21 @@ Audit-Trigger darauf warten.
   gelöschten: Rollengruppen `<prefix>/<alias>/<rolle>` (vordefinierte Rollen) mit Personen → 409
   `leftover-role-groups`, leere werden übernommen. Spez. 9.3: Einladen löst keinen Abgleich aus (Eingeladene erst nach
   Annahme im Verzeichnis); präzisiert statt `syncNow` nach dem Einladen.
+
+### 13.15 Modul `entra` (Teil-PR 7)
+
+- **`EntraGraph`** (`src/graph.ts`) und **`EntraService`** (`src/entra.ts`) aus Assets `modules/admin/{graph,entra}.ts`;
+  `createIam` baut den Dienst als `iam.entra`, wenn die Verwaltung eingerichtet ist (`entra.graph` null ohne
+  `ENTRA_CLIENT_ID`); `entraFetch` und `entraRetryMs` für Tests. `AdminService.addFromEntra`, `entraAddress` und
+  `EntraLink` kommen nach `admin.ts`.
+- **Modul `entra`** (`src/http/entra.ts`): `…/admin/entra…`, `…/platform/organizations/:alias/entra…`,
+  `…/members/entra-search`, `…/members/entra`, `/v1/admin/entra/test`, `/v1/platform/entra/refresh`; standardmässig
+  aktiv (braucht das Modul `admin` davor). Ratenbegrenzung der Personensuche über `config.rateLimit` der Route (30 je
+  Minute, Schlüssel Mandant und Person); sie wirkt, wenn die App `@fastify/rate-limit` registriert.
+- **Rückkehrpfade konfigurierbar** (Hauptsession, 2026-10-23): `ENTRA_UI_PATH` (Standard `/verwalten/anmeldung`, wie
+  `paths.entra` in `@vollholz/iam-web`) statt der festen Pfade in Assets; Zustimmung `<pfad>/zustimmung` (Redirect-URI),
+  Testanmeldung `<pfad>/test` (`returnTo` in `testLoginPath`). `GET …/entra` nennt beide (`consentPath`, `testPath`).
+  Spez. 9.4 und 13 nachgeführt, ebenso der OpenAPI-Auszug von `@vollholz/iam-web`.
+- **Ablauf der Erstanmeldung** `<produkt>-entra-first-login` (Realm-Modul `entra.tf`) statt `assets-entra-first-login`.
+- **Tests**: Die Nachbildung von Microsoft liegt vorerst in `test/support/entra-fake.ts` (aus Assets); Vorschlag: ins
+  Test-Kit übernehmen wie `KeycloakFake`.

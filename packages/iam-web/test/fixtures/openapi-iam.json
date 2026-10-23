@@ -1998,6 +1998,10 @@
             }
            ]
           },
+          "consentPath": {
+           "description": "Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`)",
+           "type": "string"
+          },
           "enabled": {
            "type": "boolean"
           },
@@ -2010,12 +2014,18 @@
              "type": "null"
             }
            ]
+          },
+          "testPath": {
+           "description": "Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)",
+           "type": "string"
           }
          },
          "required": [
           "enabled",
           "reason",
-          "connection"
+          "connection",
+          "consentPath",
+          "testPath"
          ],
          "type": "object"
         }
@@ -5746,6 +5756,10 @@
             }
            ]
           },
+          "consentPath": {
+           "description": "Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`)",
+           "type": "string"
+          },
           "enabled": {
            "type": "boolean"
           },
@@ -5758,12 +5772,18 @@
              "type": "null"
             }
            ]
+          },
+          "testPath": {
+           "description": "Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)",
+           "type": "string"
           }
          },
          "required": [
           "enabled",
           "reason",
-          "connection"
+          "connection",
+          "consentPath",
+          "testPath"
          ],
          "type": "object"
         }

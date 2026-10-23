@@ -29,6 +29,7 @@ import { ADMIN_ROLE, type Catalog } from './catalog.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db, type Tx } from './db.ts';
 import { conflict, forbidden, HttpError, invalid, notFound } from './errors.ts';
+import { notLinkable, type EntraGraph, type EntraUser } from './graph.ts';
 import { KeycloakAdmin, KeycloakError, type KcGroup, type KcOrg, type KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
 import { ALIAS_PATTERN, asciiLower, rolesFromClaims, tenantGroups, type Principal, type PrincipalResolver } from './principal.ts';
@@ -92,7 +93,7 @@ export interface AdminDeps {
   readonly db: Db;
   readonly schema: string;
   readonly audit: AuditPort;
-  readonly resolver: Pick<PrincipalResolver, 'forgetPrincipal' | 'forgetTenant'>;
+  readonly resolver: Pick<PrincipalResolver, 'forgetPrincipal' | 'forgetTenant' | 'forgetEntra'>;
 }
 
 /** Wer handelt und in welcher Organisation. */
@@ -123,6 +124,19 @@ export interface Organization {
  * Entra ID und Link zum Weitergeben. `org`: Organisation der Sitzung nach der Anmeldung.
  */
 export const entraLoginPath = (idpAlias: string, org: string) => `/auth/entra/${idpAlias}?org=${encodeURIComponent(org)}`;
+/** Adresse des Kontos für eine Person aus Entra: `mail`, wenn in einer gebundenen Domäne, sonst der UPN. */
+export function entraAddress(u: EntraUser, domains: readonly string[]): string {
+  const mail = u.mail?.toLowerCase();
+  return mail && domains.includes(mail.slice(mail.lastIndexOf('@') + 1)) ? mail : u.userPrincipalName.toLowerCase();
+}
+
+/** Was addFromEntra von der Entra-Verbindung braucht (EntraService in entra.ts; ohne Abhängigkeit in diese Richtung). */
+export interface EntraLink {
+  readonly graph: Pick<EntraGraph, 'user'> | null;
+  connectionOf(tx: Tx): Promise<{ entraTenantId: string; idpAlias: string; domains: string[]; stage: 'pending' | 'enforced' } | null>;
+  linkAccount(w: Pick<Work, 'done'>, c: { idpAlias: string; domains: string[] }, user: KcUser, entra: EntraUser): Promise<void>;
+  removeFirstFactor(w: Pick<Work, 'done'>, user: KcUser): Promise<boolean>;
+}
 
 /**
  * Offene Einladung in diesem Mandanten (`member_invitation`). `id`: nach aussen die ID der eingeladenen Person (neu je
@@ -324,7 +338,8 @@ export class AdminService {
     };
   }
 
-  private write(tx: Tx, a: TenantActor, e: AuditEntry) {
+  /** Protokolleintrag mit den Kennzeichen der Plattform-Administration aus `a.data`. */
+  write(tx: Tx, a: TenantActor, e: AuditEntry) {
     const actor: Actor = { principal: a.principal, source: a.source, correlationId: a.correlationId };
     return this.deps.audit.write(tx, actor, { ...e, data: { ...e.data, ...a.data } });
   }
@@ -548,6 +563,87 @@ export class AdminService {
     return this.kc.sendActionsEmail(user.id, ['VERIFY_EMAIL'], {
       lifespanSec: this.deps.cfg.mgmt.inviteLifespanSec, clientId: this.deps.cfg.oidc.bffClientId, redirectUri: `${this.deps.cfg.publicBaseUrl}${entraLoginPath(idpAlias, org)}`,
     });
+  }
+
+  /**
+   * Person aus Entra ID hinzufügen, noch vor ihrer ersten Anmeldung (Spezifikation Kap. 9.4). Die Person wird in Graph neu
+   * gelesen (nicht den Angaben des Clients trauen) und muss verknüpfbar sein (`notLinkable`, Domäne der Verbindung).
+   * Besteht für ihre Adresse ein Konto (auch einer anderen Organisation), wird es verwendet, sonst eines ohne Passwort
+   * und ohne offene Aktion angelegt; dann Mitglied, über die Objekt-ID verknüpft, Rollen gesetzt. Bei «Nur Entra»
+   * verliert ein bestehendes Konto Passwort und Passkey (wie beim Aktivieren). Ist die Objekt-ID schon mit einem anderen
+   * Konto verknüpft: 409. Antwort und Dauer gleich für neue und bestehende Konten (Mandantentrennung). Die Person bleibt
+   * «eingeladen» bis zum ersten Zugriff. `sendEmail` false: keine E-Mail, die Oberfläche zeigt den Link (`loginPath`).
+   */
+  async addFromEntra(s: Scope, ent: EntraLink,
+    input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; member: Member }> {
+    const roles = [...new Set(input.roles)];
+    await this.checkRoles(s, roles);
+    if (roles.includes(ADMIN_ROLE)) this.requireAdminChange(s);
+    if (!ent.graph) throw new HttpError(503, 'Entra ID nicht eingerichtet', 'Die Anmeldung über Microsoft Entra ID ist in dieser Instanz nicht eingerichtet (ENTRA_CLIENT_ID).');
+    const g = ent.graph;
+    const org = await this.org(s.alias);
+    if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
+    return this.padded(() => this.locked(s, org, { action: 'member.entra_add_failed', resourceType: 'member', resourceId: null }, async w => {
+      const { tx } = w;
+      const c = await ent.connectionOf(tx);
+      if (!c) throw conflict('Die Organisation ist nicht mit Microsoft Entra ID verbunden.', { reason: 'entra-not-connected' });
+      const p = await g.user(c.entraTenantId, input.id);
+      if (!p) throw notFound('Person in Entra ID');
+      const why = notLinkable(p, c.domains);
+      if (why) throw conflict(`Diese Person lässt sich nicht hinzufügen: ${why}.`, { reason: 'not-linkable' });
+      const email = entraAddress(p, c.domains);
+      if ((await tx.query(`SELECT 1 FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND lower(email) = $1`, [email])).rowCount) throw conflict('Diese Person ist bereits eingeladen.');
+      const existing = await this.kc.findUserByEmail(email);
+      const linked = await this.kc.userByIdentity(c.idpAlias, p.id);
+      if (linked && linked.id !== existing?.id) throw conflict('Diese Person in Entra ID ist bereits mit einem anderen Konto verknüpft.', { reason: 'entra-linked' });
+      if (existing) {
+        if ((await tx.query(`SELECT 1 FROM ${this.S}.member_invitation WHERE accepted_at IS NULL AND user_id = $1`, [existing.id])).rowCount) throw conflict('Diese Person ist bereits eingeladen.');
+        if (await this.kc.member(org.id, existing.id)) throw conflict('Diese Person ist bereits Mitglied der Organisation.');
+      }
+      const groups = roles.length ? await this.roleGroups(org.alias, true) : new Map<string, KcGroup>();
+      const name = p.displayName?.trim() || [p.givenName, p.surname].filter(Boolean).join(' ') || email;
+      let user = existing, createdAccount = false, member = false, linkedNow = false;
+      const joined: string[] = [];
+      try {
+        if (!user) {
+          // Ohne Passwort und ohne «Passwort setzen»: angemeldet wird nur über Microsoft
+          const id = await this.createAccount(email, { firstName: p.givenName ?? undefined, lastName: p.surname ?? undefined }, []);
+          createdAccount = true;
+          w.done({ step: 'account_created' }, true);
+          user = (await this.kc.getUser(id))!;
+        }
+        await this.kc.addMember(org.id, user.id);
+        member = true;
+        w.done({ step: 'membership_added' });
+        if (!linked) { await ent.linkAccount(w, c, user, p); linkedNow = true; }
+        // Passwort eines bestehenden Kontos: nur für die Plattform protokolliert (verriete sonst das Konto)
+        if (c.stage === 'enforced' && !createdAccount) await ent.removeFirstFactor({ done: st => w.done(st, true) }, user);
+        for (const r of roles) { await this.kc.joinGroup(user.id, groups.get(r)!.id); joined.push(r); w.done({ step: 'role_added', role: r }); }
+        const inv = (await tx.query<Invitation>(
+          `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account, entra) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, true)
+           ON CONFLICT (tenant_id, user_id) DO UPDATE SET id = gen_random_uuid(), email = excluded.email, display_name = excluded.display_name, created_at = now(),
+             created_by_name = excluded.created_by_name, created_account = excluded.created_account, entra = true, accepted_at = NULL
+           RETURNING ${INVITATION_COLS}`, [user.id, email, name.slice(0, 200), s.actor.name, createdAccount])).rows[0]!;
+        const emailSent = input.sendEmail === false ? false : await this.sendEntraInvitation(user, c.idpAlias, org.alias);
+        await w.log({ action: 'member.added_from_entra', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent, entraId: p.id } });
+        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, roles, org.alias, c.idpAlias) };
+      } catch (e) {
+        // Wie beim Einladen: ein selbst angelegtes Konto löschen (samt Mitgliedschaft, Gruppen und Verknüpfung), bei einem
+        // bestehenden nur zurücknehmen, was dieser Aufruf geändert hat. Ein entferntes Passwort lässt sich nicht zurückgeben.
+        const id = user?.id;
+        if (createdAccount && id) {
+          if (await this.kc.deleteUser(id).then(() => true, () => false)) {
+            w.undone({ step: 'account_created' }); w.undone({ step: 'membership_added' }); w.undone({ step: 'account_linked' });
+            for (const r of joined) w.undone({ step: 'role_added', role: r });
+          }
+        } else if (id) {
+          for (const r of joined) if (await this.kc.leaveGroup(id, groups.get(r)!.id).then(() => true, () => false)) w.undone({ step: 'role_added', role: r });
+          if (linkedNow && await this.kc.removeFederatedIdentity(id, c.idpAlias).then(() => true, () => false)) w.undone({ step: 'account_linked' });
+          if (member && await this.kc.removeMember(org.id, id).then(() => true, () => false)) w.undone({ step: 'membership_added' });
+        }
+        throw e;
+      }
+    }));
   }
 
   /**

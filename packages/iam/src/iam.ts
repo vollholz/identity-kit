@@ -5,6 +5,8 @@
  */
 import { AccessService } from './access.ts';
 import { AdminService } from './admin.ts';
+import { EntraService } from './entra.ts';
+import { EntraGraph } from './graph.ts';
 import { Bff, type BffOptions } from './bff.ts';
 import type { AuditPort } from './audit.ts';
 import type { Catalog } from './catalog.ts';
@@ -43,6 +45,10 @@ export interface IamOptions<P extends string = string, S = unknown> {
   fetch?: typeof fetch;
   /** Abruf der Keycloak-Admin-API (Verwaltung; Tests: `KeycloakFake.fetch`); Standard `fetch`. */
   keycloakFetch?: typeof fetch;
+  /** Abruf bei Microsoft (Entra ID, Graph; Tests: Nachbildung); Standard `fetch`. */
+  entraFetch?: typeof fetch;
+  /** Wartezeiten nach der Admin-Zustimmung, bis die Rechte bei Microsoft gelten (Tests: `[0]`). */
+  entraRetryMs?: number[];
   /**
    * Anmeldung der Oberfläche: gebaut, wenn `OIDC_BFF_CLIENT_SECRET` oder `OIDC_BFF_PRIVATE_KEY` gesetzt ist (dann sind
    * `SESSION_SECRET` und in Produktion `ENCRYPTION_KEYS` Pflicht); `false` schaltet es ab (z. B. MCP-Dienst).
@@ -66,6 +72,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly bff: Bff | null;
   /** Verwaltung von Organisationen und Mitgliedern (Modul `admin`); null ohne `KEYCLOAK_MGMT_CLIENT_ID`. */
   readonly admin: AdminService | null;
+  /** Anmeldung über Microsoft Entra ID je Organisation (Modul `entra`); null ohne Verwaltung. `entra.graph` null ohne `ENTRA_CLIENT_ID`. */
+  readonly entra: EntraService | null;
   /** Echte Rollen und Gruppen anderer Personen (setzt das Modul `admin`). */
   memberAccess: MemberAccess | null;
   /** Transaktion im Mandantenkontext des Principals mit dem Kontext der App (`resources.dbContext`). */
@@ -86,6 +94,9 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const admin = o.cfg.mgmt.clientId
     ? new AdminService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
     : null;
+  const e = o.cfg.entra;
+  const graph = e.clientId && e.clientSecret ? new EntraGraph({ clientId: e.clientId, clientSecret: e.clientSecret, timeoutMs: e.timeoutMs }, o.entraFetch) : null;
+  const entra = admin ? new EntraService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, admin, graph, { retryMs: o.entraRetryMs }) : null;
   return {
     cfg: o.cfg, catalog: o.catalog, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
@@ -93,6 +104,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
     access,
     bff,
     admin,
+    entra,
     memberAccess: null,
     async tx(p, fn) {
       const settings = resources?.dbContext ? await resources.dbContext(p, access as AccessService) : undefined;

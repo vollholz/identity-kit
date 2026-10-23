@@ -1,0 +1,226 @@
+/**
+ * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (Spezifikation Kap. 9.4; aus Assets
+ * `modules/admin/index.ts`, Teil «Entra»). Die Regeln setzen `EntraService` (entra.ts) und `AdminService.addFromEntra`
+ * (admin.ts) durch.
+ *
+ * - /v1/admin/entra…                               eigene Organisation (Recht `members:admin`, nur Personen)
+ * - /v1/platform/organizations/{alias}/entra…      beliebige Organisation (Realm-Rolle platform-admin)
+ * - …/members/entra-search, …/members/entra         Personen aus Entra ID suchen und hinzufügen
+ * - /v1/admin/entra/test                           Testanmeldung festhalten (jede Person der Organisation)
+ * - /v1/platform/entra/refresh                     alle Verbindungen nachführen (z. B. neues ENTRA_CLIENT_SECRET)
+ *
+ * Ohne Verwaltungs-Client 503 wie das Modul `admin`; ohne ENTRA_CLIENT_ID sagt der Status das, die übrigen Endpunkte
+ * antworten mit 503. Die Personensuche ist je Person auf 30 Anfragen pro Minute begrenzt, wenn die App
+ * `@fastify/rate-limit` registriert (`config.rateLimit` der Route).
+ */
+import { Type } from '@sinclair/typebox';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { AdminService, Scope } from '../admin.ts';
+import { consentPath } from '../entra.ts';
+import type { EntraService } from '../entra.ts';
+import { forbidden, HttpError } from '../errors.ts';
+import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+
+const TAG = 'Verwaltung: Anmeldung über Microsoft Entra ID';
+const OFF_DETAIL = 'Die Verwaltung von Organisationen und Mitgliedern ist in dieser Instanz nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID). Bis dahin in der Keycloak-Konsole verwalten.';
+
+const ALIAS = Type.String({ minLength: 1, maxLength: 63, pattern: '^[a-z0-9][a-z0-9_-]{0,62}$' });
+const AliasParams = Type.Object({ alias: ALIAS });
+const Roles = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true });
+
+const EntraAdd = Type.Object({
+  id: Type.String({ format: 'uuid', description: 'Objekt-ID der Person in Entra ID (aus der Suche)' }),
+  roles: Type.Optional(Roles),
+  sendEmail: Type.Optional(Type.Boolean({ description: 'false: keine E-Mail; die Person erhält den Link (`member.loginPath`) auf anderem Weg. Standard true' })),
+}, { additionalProperties: false });
+const EntraAddResult = Type.Object({
+  result: Type.Unsafe<'added'>({ type: 'string', enum: ['added'], description: 'Immer `added` – gleich, ob für die Adresse schon ein Konto bestand (Mandantentrennung)' }),
+  emailSent: Type.Boolean({ description: 'false: keine E-Mail verlangt oder Versand gescheitert; in der Liste erneut senden oder den Link weitergeben' }),
+  member: Type.Ref('Member', { description: 'Hinzugefügte Person (Status `invited` bis zum ersten Zugriff), mit `loginPath`' }),
+});
+const EntraCandidates = Type.Object({
+  items: Type.Array(Type.Object({
+    id: Type.String({ description: 'Objekt-ID in Entra ID' }), name: Type.String(),
+    email: Type.String({ description: 'Adresse, unter der das Konto angelegt würde (`mail` in einer gebundenen Domäne, sonst UPN)' }),
+    userPrincipalName: Type.String(), department: Nullable(Type.String()), jobTitle: Nullable(Type.String()),
+    selectable: Type.Boolean(), reason: Nullable(Type.String({ description: 'Warum nicht wählbar (Gast, deaktiviert, Domäne nicht gebunden, schon Mitglied oder eingeladen)' })),
+  })),
+  more: Type.Boolean({ description: 'Es gäbe weitere Treffer: Suche verfeinern' }),
+});
+const EntraConnection = Type.Object({
+  entraTenantId: Type.String({ description: 'Tenant-ID in Microsoft Entra ID' }),
+  entraName: Type.String({ description: 'Name der Organisation in Entra ID' }),
+  domains: Type.Array(Type.String(), { description: 'Gebundene Domänen: Personen mit diesen Adressen melden sich nur noch über Entra ID an' }),
+  availableDomains: Type.Array(Type.String(), { description: 'Weitere im Tenant verifizierte Domänen (beim letzten Aktualisieren), nicht gebunden' }),
+  stage: Type.Unsafe<'pending' | 'enforced'>({ type: 'string', enum: ['pending', 'enforced'], description: '`pending`: verbunden, Anmeldung mit Passwort wie bisher; `enforced`: «Nur Entra» aktiv' }),
+  testedAt: Nullable(DateTime), // letzte erfolgreiche Testanmeldung über Microsoft (Voraussetzung für «Nur Entra»)
+  testedBy: Nullable(Type.String()),
+  enforcedAt: Nullable(DateTime), enforcedBy: Nullable(Type.String()),
+  testLoginPath: Type.String({ description: 'Testanmeldung über Microsoft (Navigation im Browser, auch als Link für andere Personen der Domänen); führt auf `testPath` zurück' }),
+  status: Type.Unsafe<'active' | 'error'>({ type: 'string', enum: ['active', 'error'], description: '`error`: letztes Aktualisieren gescheitert (`lastError`); die Anmeldung läuft trotzdem weiter' }),
+  lastError: Nullable(Type.String()),
+  connectedAt: DateTime, connectedBy: Type.String(), refreshedAt: DateTime,
+}, { $id: 'EntraConnection', title: 'EntraConnection' });
+const EntraStatus = Type.Object({
+  enabled: Type.Boolean({ description: 'Entra-App eingerichtet (ENTRA_CLIENT_ID)' }),
+  reason: Nullable(Type.String()),
+  consentPath: Type.String({ description: 'Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`; Redirect-URI der Entra-App)' }),
+  testPath: Type.String({ description: 'Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)' }),
+  connection: Nullable(Type.Ref('EntraConnection')),
+});
+const EntraResult = Type.Object({
+  connection: Type.Ref('EntraConnection'),
+  members: Type.Array(Type.Object({
+    email: Type.String(), name: Type.String(), linked: Type.Boolean({ description: 'Mit der Person in Entra ID verknüpft (über die Objekt-ID)' }),
+    reason: Nullable(Type.String({ description: 'Warum nicht verknüpft; bei «Nur Entra» kann sich die Person nicht mehr anmelden' })),
+  }), { description: 'Mitglieder mit Adresse in einer betroffenen Domäne; bei «Nur Entra» wurde ihr Passwort entfernt' }),
+  rejectedDomains: Type.Array(Type.String(), { description: 'Verifizierte Domänen, die bereits einer anderen Organisation zugeordnet sind (welcher, bleibt verborgen)' }),
+});
+const ConsentComplete = Type.Object({
+  state: Type.String({ minLength: 10, maxLength: 200 }),
+  tenant: Type.Optional(Type.String({ maxLength: 64 })),
+  adminConsent: Type.Optional(Type.String({ maxLength: 16 })),
+  error: Type.Optional(Type.String({ maxLength: 200 })),
+  errorDescription: Type.Optional(Type.String({ maxLength: 2000 })),
+}, { additionalProperties: false, description: 'Parameter der Rückkehr von Microsoft (`state`, `tenant`, `admin_consent`, `error`, `error_description`)' });
+const NotLinked = Type.Array(Type.String({ maxLength: 254 }), { maxItems: 10_000, description: 'Bestätigt: Diese Mitglieder verlieren die Anmeldung (Adressen aus der Vorschau)' });
+
+export const entraModule: IamModule = {
+  name: 'entra',
+  register(app: FastifyInstance, ctx: ModuleContext) {
+    const { iam, prefix } = ctx;
+    if (!app.getSchema('Member')) throw new Error('Modul «entra» braucht das Modul «admin» (davor registriert)');
+    app.addSchema(EntraConnection);
+
+    const on = (): { svc: AdminService; ent: EntraService } => {
+      if (!iam.admin || !iam.entra) throw new HttpError(503, 'Verwaltung nicht eingerichtet', OFF_DETAIL);
+      return { svc: iam.admin, ent: iam.entra };
+    };
+    const own = async (req: FastifyRequest): Promise<Scope> => {
+      const p = personOf(req);
+      await req.need('members:admin');
+      on();
+      return { alias: p.tenantAlias, actor: p, platform: false, source: req.source, correlationId: req.id };
+    };
+    const platform = (req: FastifyRequest, alias = ''): Scope => {
+      const p = personOf(req);
+      if (!p.platformAdmin) throw forbidden(`Nur für die Plattform-Administration (Realm-Rolle ${iam.cfg.tenancy.platformAdminRole}).`);
+      on();
+      return { alias, actor: p, platform: true, source: req.source, correlationId: req.id };
+    };
+    const byAlias = (req: FastifyRequest) => platform(req, (req.params as { alias: string }).alias);
+    /** Personensuche in Entra ID: je Person 30 Anfragen pro Minute (jede Suche ruft Microsoft Graph und Keycloak). */
+    const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
+
+    // ---------------------------------------------------------------- Personen aus Entra ID
+    const memberRoutes = (base: string, tags: string[], scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
+      const p = withAlias ? { params: AliasParams } : {};
+      app.get(`${base}/entra-search`, {
+        schema: routeSchema(ctx, 'GET', `${base}/entra-search`, {
+          tags, summary: 'Personen in Entra ID suchen', ...p,
+          querystring: Type.Object({ q: Type.String({ minLength: 2, maxLength: 100, description: 'Name, Adresse oder UPN (Wortanfang)' }) }),
+          description: 'Nur im Entra-Tenant der eigenen Organisation (verbunden, Stufe `pending` oder `enforced`), höchstens 20 Treffer, 30 Suchen pro Minute und Person. Wählbar sind nur Mitglieder des Tenants (keine Gäste), aktiv, mit Adresse in einer gebundenen Domäne, noch nicht Mitglied oder eingeladen. Ob eine Person ein Konto in einer anderen Organisation hat, sagt die Antwort nicht.',
+          response: { 200: EntraCandidates },
+        }),
+        config: { rateLimit: searchLimit },
+      }, async req => { const sc = await scope(req); return on().ent.search(sc, (req.query as { q: string }).q); });
+
+      app.post(`${base}/entra`, {
+        schema: routeSchema(ctx, 'POST', `${base}/entra`, {
+          tags, summary: 'Person aus Entra ID hinzufügen', ...p, body: EntraAdd,
+          description: 'Liest die Person neu aus Entra ID und prüft, ob sie verknüpfbar ist. Nimmt ein bestehendes Konto mit ihrer Adresse oder legt eines ohne Passwort an, trägt es als Mitglied ein, verknüpft es über die Objekt-ID und setzt die Rollen – vor der ersten Anmeldung. Die E-Mail von Keycloak führt nach «E-Mail bestätigen» zur Anmeldung über Microsoft. Die Person bleibt «eingeladen» bis zum ersten Zugriff. Antwortet immer gleich (202, mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME`). 409: nicht verknüpfbar (`not-linkable`), Objekt-ID mit einem anderen Konto verknüpft (`entra-linked`), schon Mitglied oder eingeladen, nicht verbunden (`entra-not-connected`).',
+          response: { 202: EntraAddResult },
+        }),
+      }, async (req, reply) => {
+        const sc = await scope(req);
+        const { svc, ent } = on();
+        const b = req.body as { id: string; roles?: string[]; sendEmail?: boolean };
+        return reply.status(202).send(await svc.addFromEntra(sc, ent, { ...b, roles: b.roles ?? [] }));
+      });
+    };
+    memberRoutes(`${prefix}/admin/members`, ['Verwaltung: Mitglieder und Rollen'], own, false);
+    memberRoutes(`${prefix}/platform/organizations/:alias/members`, ['Plattform: Organisationen'], byAlias, true);
+
+    // ---------------------------------------------------------------- Verbindung
+    const entraRoutes = (base: string, scope: (req: FastifyRequest) => Promise<Scope> | Scope, withAlias: boolean) => {
+      const p = withAlias ? { params: AliasParams } : {};
+      app.get(base, {
+        schema: routeSchema(ctx, 'GET', base, { tags: [TAG], summary: 'Status der Anmeldung über Microsoft Entra ID', ...p, response: { 200: EntraStatus } }),
+      }, async req => { const sc = await scope(req); return on().ent.status(sc); });
+
+      app.post(`${base}/consent`, {
+        schema: routeSchema(ctx, 'POST', `${base}/consent`, {
+          tags: [TAG], summary: 'Verbinden: Admin-Zustimmung starten', ...p,
+          body: Type.Object({ tenant: Type.String({ minLength: 3, maxLength: 253, description: 'Tenant-ID (GUID) oder eine Domäne des Tenants' }) }, { additionalProperties: false }),
+          description: `Sucht den Tenant und liefert die Adresse der Admin-Zustimmung bei Microsoft (Navigation im Browser, 15 Minuten gültig). Microsoft leitet danach auf \`${consentPath(iam.cfg)}\` der Oberfläche zurück (ENTRA_UI_PATH), die \`…/consent/complete\` aufruft. Zustimmen kann eine globale Administration oder «Privileged Role Administrator» des Tenants.`,
+          response: { 200: Type.Object({ url: Type.String(), entraTenantId: Type.String() }) },
+        }),
+      }, async req => { const sc = await scope(req); return on().ent.startConsent(sc, req.body as { tenant: string }); });
+
+      app.post(`${base}/consent/complete`, {
+        schema: routeSchema(ctx, 'POST', `${base}/consent/complete`, {
+          tags: [TAG], summary: 'Verbinden: Rückkehr von der Admin-Zustimmung', ...p, body: ConsentComplete,
+          description: 'Prüft `state` (einmal gültig, an Person, Organisation und Tenant gebunden), liest Organisation und verifizierte Domänen im Tenant, legt den Identitätsanbieter in Keycloak an, bindet die Domänen (ohne die einer anderen Organisation), verknüpft bestehende Mitglieder dieser Domänen über ihre Objekt-ID. Passwörter bleiben bis «Nur Entra».',
+          response: { 200: EntraResult },
+        }),
+      }, async req => { const sc = await scope(req); return on().ent.completeConsent(sc, req.body as { state: string }); });
+
+      app.get(`${base}/preview`, {
+        schema: routeSchema(ctx, 'GET', `${base}/preview`, { tags: [TAG], summary: '«Nur Entra»: Vorschau', ...p, description: 'Welche Mitglieder der gebundenen Domänen verknüpft sind bzw. werden und welche die Anmeldung verlieren (in Entra nicht verknüpfbar, mit Grund). Ändert nichts.', response: { 200: Type.Object({ members: EntraResult.properties.members }) } }),
+      }, async req => { const sc = await scope(req); return on().ent.preview(sc); });
+
+      app.post(`${base}/enforce`, {
+        schema: routeSchema(ctx, 'POST', `${base}/enforce`, {
+          tags: [TAG], summary: '«Nur Entra» aktivieren', ...p, body: Type.Object({ notLinked: Type.Optional(NotLinked) }, { additionalProperties: false }),
+          description: 'Erst nach einer Testanmeldung (`testedAt`). `notLinked`: genau die Adressen der Vorschau, die die Anmeldung verlieren (Bestätigung); weicht die Liste ab, 409 `confirm-not-linked` mit der aktuellen Liste. Verknüpft die übrigen Mitglieder, entfernt Passwörter aller Mitglieder der Domänen und schaltet die Weiterleitung zu Microsoft ein; ab dann gelten Tokens dieser Personen nur nach einer Anmeldung über Microsoft.',
+          response: { 200: EntraResult },
+        }),
+      }, async req => { const sc = await scope(req); return on().ent.enforce(sc, req.body as { notLinked?: string[] }); });
+
+      app.put(`${base}/domains`, {
+        schema: routeSchema(ctx, 'PUT', `${base}/domains`, {
+          tags: [TAG], summary: 'Gebundene Domänen wählen', ...p,
+          body: Type.Object({ domains: Type.Array(Type.String({ minLength: 3, maxLength: 253 }), { minItems: 1, maxItems: 50 }), notLinked: Type.Optional(NotLinked) }, { additionalProperties: false }),
+          description: 'Teilmenge der verifizierten Domänen des Tenants. Neue Domänen: Mitglieder verknüpfen; bei «Nur Entra» auch Passwörter entfernen, mit Bestätigung `notLinked` wie beim Aktivieren. Personen entfernter Domänen melden sich danach wieder mit Passwort an («Passwort vergessen»).',
+          response: { 200: EntraResult },
+        }),
+      }, async req => {
+        const sc = await scope(req);
+        const b = req.body as { domains: string[]; notLinked?: string[] };
+        return on().ent.setDomains(sc, b.domains, b.notLinked);
+      });
+
+      app.post(`${base}/refresh`, {
+        schema: routeSchema(ctx, 'POST', `${base}/refresh`, { tags: [TAG], summary: 'Aktualisieren', ...p, description: 'Liest Organisation und verifizierte Domänen neu, löst nicht mehr verifizierte Domänen und führt den Identitätsanbieter in Keycloak nach (z. B. neues ENTRA_CLIENT_SECRET).', response: { 200: EntraResult } }),
+      }, async req => { const sc = await scope(req); return on().ent.refresh(sc); });
+
+      app.delete(base, {
+        schema: routeSchema(ctx, 'DELETE', base, {
+          tags: [TAG], summary: 'Trennen', ...p,
+          description: 'Löscht den Identitätsanbieter samt Verknüpfungen und hebt die Weiterleitung der Domänen auf. Die Konten bleiben; ihre Anmeldung geht danach nicht mehr, bis die Personen über «Passwort vergessen» ein Passwort setzen.',
+          response: { 204: Type.Null() },
+        }),
+      }, async (req, reply) => { const sc = await scope(req); await on().ent.disconnect(sc); return reply.status(204).send(null); });
+    };
+    entraRoutes(`${prefix}/admin/entra`, own, false);
+    entraRoutes(`${prefix}/platform/organizations/:alias/entra`, byAlias, true);
+
+    // Testanmeldung: jede Person der Organisation, deren Sitzung über den Anbieter angemeldet ist (nicht nur org-admin)
+    app.post(`${prefix}/admin/entra/test`, {
+      schema: routeSchema(ctx, 'POST', `${prefix}/admin/entra/test`, {
+        tags: [TAG], summary: 'Testanmeldung über Microsoft festhalten',
+        description: 'Nach der Anmeldung über `testLoginPath`: Die Sitzung muss über den Anbieter der Organisation angemeldet sein (Claim `identity_provider`) und die Adresse in einer gebundenen Domäne liegen, sonst 409. Voraussetzung für «Nur Entra».',
+        response: { 200: Type.Ref('EntraConnection') },
+      }),
+    }, async req => {
+      const p = personOf(req);
+      return on().ent.test({ alias: p.tenantAlias, actor: p, platform: false, source: req.source, correlationId: req.id });
+    });
+    app.post(`${prefix}/platform/entra/refresh`, {
+      schema: routeSchema(ctx, 'POST', `${prefix}/platform/entra/refresh`, {
+        tags: [TAG], summary: 'Alle Entra-Verbindungen aktualisieren', description: 'Z. B. nach einem neuen ENTRA_CLIENT_SECRET: führt die Identitätsanbieter aller Organisationen nach.',
+        response: { 200: Type.Object({ refreshed: Type.Array(Type.String()), failed: Type.Array(Type.Object({ alias: Type.String(), detail: Type.String() })) }) },
+      }),
+    }, async req => on().ent.refreshAll(platform(req)));
+  },
+};

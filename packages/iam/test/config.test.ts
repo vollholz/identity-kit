@@ -66,6 +66,9 @@ test('Schlüssel der Keycloak-Clients nur im Dienst, der den Client nutzt', () =
   assert.deepEqual(errorsOf({ ...base, KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin' }, 'worker'), []);
   assert.match(errorsOf({ ...base, KEYCLOAK_SYNC_CLIENT_ID: 'notes-sync' }, 'worker').join('\n'), /KEYCLOAK_SYNC_PRIVATE_KEY/);
   assert.deepEqual(errorsOf({ ...base, KEYCLOAK_SYNC_CLIENT_ID: 'notes-sync' }, 'api'), []);
+  assert.equal(loadIamConfig({ ...base, ENTRA_UI_PATH: '/admin/sso/' }, { product: 'notes', service: 'api' }).entra.uiPath, '/admin/sso');
+  assert.equal(loadIamConfig(base, { product: 'notes', service: 'api' }).entra.uiPath, '/verwalten/anmeldung', 'wie paths.entra in iam-web');
+  for (const v of ['admin', '/a b', 'https://x/y', '/a//b']) assert.match(errorsOf({ ...base, ENTRA_UI_PATH: v }).join('\n'), /ENTRA_UI_PATH/, v);
   const entra = errorsOf({ ...base, ENTRA_CLIENT_ID: 'x' }, 'api').join('\n');
   assert.match(entra, /ENTRA_CLIENT_SECRET/);
   assert.match(entra, /KEYCLOAK_MGMT_CLIENT_ID fehlt/);

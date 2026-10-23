@@ -1,0 +1,65 @@
+{
+  "name": "@vollholz/iam-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Oberfläche für Apps mit dem IAM-Baukasten (React): Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten",
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vollholz/identity-kit.git",
+    "directory": "packages/iam-web"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "contract:types": "openapi-typescript test/fixtures/openapi-iam.json -o test/fixtures/openapi-iam.d.ts",
+    "e2e": "playwright test -c test/e2e/playwright.config.ts",
+    "e2e:dev": "vite --config test/e2e/vite.config.ts"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.90.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "@tanstack/react-query": "5.104.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "axe-core": "4.14.0",
+    "jsdom": "30.1.3",
+    "openapi-fetch": "0.17.0",
+    "openapi-typescript": "7.13.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,4 +1,4 @@
--- iam_006 Sitzungen der Oberfläche (BFF) und geteilter Zustand (Spezifikation Kap. 5.2, 6.1).
+-- iam_006 Sitzungen der Oberfläche (BFF) und geteilter Zustand (Spezifikation Kap. 5.2, 6.1; aus Assets 001, 006, 007).
 --
 -- session: `id` ist der SHA-256-Hash der Sitzungs-ID aus dem Cookie, nie die ID selbst; `data` verschlüsselt
 -- (AES-256-GCM, AAD = Sitzungs-ID). `subject` und `idp_sid` für den Backchannel-Logout. Kein Mandantenbezug, ohne RLS.

@@ -260,4 +260,13 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
       assert.equal(rl!.keyGenerator({ principal: null, ip: '1.2.3.4' }), 'entra-search::1.2.3.4');
     }
   });
+
+  test('eigene Rolle, die eine andere Instanz gelöscht hat: 422, keine neue Gruppe (Prüfung ohne Zwischenspeicher)', async () => {
+    const r = ok(await call(anna(), 'POST', '/v1/roles', { label: 'Aus Entra', permissions: ['note:read'] }), 201);
+    await list(); // Rollen der Organisation im Zwischenspeicher
+    await t.inspect.query('UPDATE notes.tenant_role SET deleted_at = now() WHERE key = $1', [r.key]);
+    const id = ms.user(contoso, 'rolf@demo.example', { displayName: 'Rolf Rolle' }).id;
+    assert.equal((await add(id, ['viewer', r.key])).status, 422);
+    assert.ok(![...kc.groups.values()].some(g => g.path === `/orgs/demo/${r.key}`), 'Gruppe nicht neu angelegt');
+  });
 });

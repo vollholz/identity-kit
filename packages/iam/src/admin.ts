@@ -599,6 +599,7 @@ export class AdminService {
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     return this.padded(() => this.locked(s, org, { action: 'member.entra_add_failed', resourceType: 'member', resourceId: null }, async w => {
       const { tx } = w;
+      await this.recheckRoles(s, org, roles);
       const c = await ent.connectionOf(tx);
       if (!c) throw conflict('Die Organisation ist nicht mit Microsoft Entra ID verbunden.', { reason: 'entra-not-connected' });
       const p = await g.user(c.entraTenantId, input.id);

@@ -9,7 +9,7 @@ import { ifMatch, iamFetch } from './client.ts';
 import type {
   AdminStatus, ClientGrant, ClientGrantList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
   EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Member, MemberList, Organization, OrganizationInput,
-  HandoverInfo, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
+  HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult, Role, RoleInput, RolePatch,
 } from './contract.ts';
 import { useIamConfig } from './config.tsx';
 import { iamKeys } from './keys.ts';
@@ -123,8 +123,8 @@ export function useConsentLinks(alias: string | null, enabled = true) {
  * nur im Body, nie in der Adresse.
  */
 export const handoverApi = {
-  info: (token: string) => iamFetch<HandoverInfo>('/v1/entra/handover/info', { method: 'POST', body: { token }, anonymous: true }),
-  start: (token: string) => iamFetch<HandoverStart>('/v1/entra/handover/start', { method: 'POST', body: { token }, anonymous: true }),
+  info: (token: string) => iamFetch<HandoverInfo>('/v1/entra/handover/info', { method: 'POST', body: { token } satisfies HandoverToken, anonymous: true }),
+  start: (token: string) => iamFetch<HandoverStart>('/v1/entra/handover/start', { method: 'POST', body: { token } satisfies HandoverToken, anonymous: true }),
   complete: (body: EntraConsentReturn) => iamFetch<HandoverResult>('/v1/entra/handover/complete', { method: 'POST', body, anonymous: true }),
 };
 

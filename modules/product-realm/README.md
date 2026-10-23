@@ -37,6 +37,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `smtp` | object | `null` | ausgehende Mails über das **eigene Konto des Produkts**: `host`, `from`, `user` Pflicht (keine Vorgaben, damit keine App stillschweigend das Postfach einer anderen nutzt); `port` 587, `starttls` an, `ssl` aus, `reply_to` leer, `from_display_name` = `display_name` als Vorgaben. `null`: kein SMTP |
 | `smtp_password` | string, sensitiv | `""` | nur aus der Umgebung (`TF_VAR_smtp_password`); ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab |
 | `m2m` | bool | `false` | Maschinen-Clients der Organisationen (Kap. 12.1): Richtlinie `<produkt>-m2m-dpop` |
+| `machine_clients` | map(object) | `{}` | Maschinen-Clients als Code ([unten](#maschinen-clients)), Schlüssel = Client-ID: `organizations` (Aliasse; einer = Organisations-Client, mehrere = System-Client), `scopes` (Rechte-Scopes des Katalogs), `jwks` (öffentlicher Schlüssel), optional `name`, `description`. Nur REST-API. Braucht `m2m` |
 | `mcp` | bool | `false` | MCP-Dienst (Kap. 12.2): `<produkt>-mcp`, `<produkt>-mcp-cli`, Scope `<produkt>-mcp`, `offline_access` für `<produkt>-mcp-cli` |
 | `mcp_cli_callback_port` | number | `8765` | fester Loopback-Port von `<produkt>-mcp-cli` |
 | `mcp_extra_redirect_uris` | list(string) | `[]` | weitere Weiterleitungen von `<produkt>-mcp-cli`, z. B. `https://claude.ai/api/mcp/auth_callback` |
@@ -46,7 +47,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `iac_client_id` | string | `<produkt>-iac` | IaC-Client, mit dem die Hilfsskripte sich anmelden |
 | `keycloak_url`, `keycloak_base_path` | string | `https://identity.project-suite.ch`, `""` | Instanz für Issuer und Hilfsskripte (wie der Provider) |
 
-Noch nicht: `person_api` und `system_clients` (Spezifikation B4, erst mit der ersten App, die sie braucht).
+Noch nicht: `person_api` (Spezifikation B4, erst mit der ersten App, die ihn braucht).
 
 ## Ausgaben
 
@@ -56,6 +57,7 @@ Noch nicht: `person_api` und `system_clients` (Spezifikation B4, erst mit der er
 | `issuer` | `OIDC_ISSUER_URL` der App |
 | `clients` | `{ bff, api, admin, sync, mcp, mcp_cli }` (Client-IDs; `mcp`, `mcp_cli` ohne `mcp` = `null`) |
 | `service_account_user_ids` | `{ admin, sync }` – Benutzer-IDs der Service Accounts |
+| `machine_clients` | je Maschinen-Client `organizations`, `scopes` – die Organisationen geben ihn in der App frei |
 
 ## Was angelegt wird
 
@@ -128,6 +130,13 @@ module "realm" {
   smtp_password = var.smtp_password
 
   m2m = true
+  machine_clients = {
+    "notes-export" = {
+      organizations = ["acme"]
+      scopes        = ["notes:read"]
+      jwks          = file("${path.module}/keys/notes-export.json")
+    }
+  }
 }
 
 output "issuer" {
@@ -136,6 +145,29 @@ output "issuer" {
 ```
 
 Danach `kc.sh init && kc.sh apply`; ein zweiter `kc.sh plan` zeigt «No changes».
+
+## Maschinen-Clients
+
+`machine_clients` ersetzt die Einrichtung in der Konsole nach Vorlage (Spezifikation 12.1). Je Eintrag entsteht ein
+vertraulicher Client mit Service Account: `private_key_jwt` (ES256, JWKS aus `jwks`), DPoP-gebundene Tokens, 5 min,
+keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgruppe `<produkt>-api`, fester Claim `organization` mit den Aliassen (JSON-Liste), keine Client-Rollen (die Rolle der Maschine liegt als Client-Freigabe in der App-Datenbank) und die Scopes aus `scopes` als Standard-Scopes (keine optionalen).
+
+- **Organisations-Client**: eine Organisation; das Token gilt nur dort.
+- **System-Client**: mehrere Organisationen; je Aufruf `X-Tenant` (ohne Wahl 400 mit der Liste).
+- Wirksam wird ein Client in einer Organisation erst mit der **Freigabe** in der App («Verwalten › Maschinen-Clients»,
+  `members:admin`); ein falscher Alias öffnet so keine fremde Organisation. Die Ausgabe `machine_clients` nennt die
+  Organisationen, die freigeben müssen.
+- Erlaubt sind nur Scopes aus `catalog.scopes`.
+  Client-IDs der Clients des Produkts und eingebaute Clients von Keycloak sind gesperrt.
+- Der private Schlüssel bleibt beim Dienst, der den Client nutzt; im Repository der App liegt nur `keys/<client>.json`.
+- Nur für die REST-API: Der MCP-Dienst (`McpAuth`) tauscht keine sendergebundenen Tokens und nimmt nur Anmeldungen
+  über die MCP-Hosts an (`MCP_HOST_CLIENT_IDS`); «MCP für Maschinen» (Spezifikation 12) ist deshalb noch offen.
+
+## Umstieg auf 1.0.0
+
+Breaking: `catalog.roles` und `machine_clients[*].roles` entfallen; Keycloak legt keine Client-Rollen, keine Gruppe `/orgs`
+und kein Gruppenrecht mehr an (`will be destroyed` im Plan), mit `entra` entstehen `entra-groups` und das User Profile.
+Modul und `@vollholz/iam` ≥ 1.0 gemeinsam anheben.
 
 `kc.sh` wie in Assets, mit einer Änderung: Der SMTP-Test liegt nach `tofu init` im Modul. Alle Hilfsskripte lesen
 dieselben Angaben (`KEYCLOAK_URL` mit Basispfad, `KEYCLOAK_REALM`, `KEYCLOAK_IAC_CLIENT_ID`,

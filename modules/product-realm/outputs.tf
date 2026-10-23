@@ -24,3 +24,8 @@ output "service_account_user_ids" {
   description = "Benutzer-IDs der Service Accounts <produkt>-admin und <produkt>-sync (z. B. für weitere Rollen beim Aufrufer)."
   value       = { for k, c in keycloak_openid_client.service : k => c.service_account_user_id }
 }
+
+output "machine_clients" {
+  description = "Maschinen-Clients aus var.machine_clients: Organisationen, die sie in der App freigeben müssen (client_grant)."
+  value       = { for c, m in var.machine_clients : c => { organizations = sort(m.organizations), scopes = sort(m.scopes) } }
+}

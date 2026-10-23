@@ -89,7 +89,7 @@ grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || 
 step "Testschlüssel"
 clients=()
 for p in neu mini; do
-  for c in tofu iac platform admin sync mcp; do clients+=("$p-$c"); done
+  for c in tofu iac platform admin sync mcp m2m; do clients+=("$p-$c"); done
 done
 node lib/kc.ts keys "$work/keys" "${clients[@]}"
 echo "${#clients[@]} Schlüsselpaare in $work/keys"

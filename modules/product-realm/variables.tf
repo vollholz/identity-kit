@@ -194,3 +194,53 @@ variable "entra_deny_message" {
   type        = string
   default     = "Dein Microsoft-Konto ist für diese Organisation nicht freigeschaltet. Bitte wende dich an die Administration deiner Organisation."
 }
+
+variable "machine_clients" {
+  description = <<-EOT
+    Maschinen-Clients als Code (Kap. 12.1, B4), Schlüssel = Client-ID. organizations: Aliasse der Organisationen, für
+    die der Client Tokens erhält (einer: Organisations-Client; mehrere: System-Client, je Aufruf X-Tenant). Rollen
+    gibt es in Keycloak nicht: die Rolle der Maschine liegt als Client-Freigabe in der App-Datenbank. scopes:
+    Rechte-Scopes des Katalogs. jwks: öffentlicher Schlüssel (JWKS, EC P-256, z. B. keys/<client>.json). Nur REST-API (Zielgruppe
+    <produkt>-api). Wirksam erst mit der Freigabe in der jeweiligen Organisation (App, members:admin). Braucht m2m = true.
+  EOT
+  type = map(object({
+    name          = optional(string)
+    description   = optional(string, "")
+    organizations = list(string)
+    scopes        = optional(list(string), [])
+    jwks          = string
+  }))
+  default = {}
+  validation {
+    condition     = alltrue([for c in keys(var.machine_clients) : can(regex("^[a-z0-9][a-z0-9._-]{2,62}$", c))])
+    error_message = "machine_clients: Client-ID ^[a-z0-9][a-z0-9._-]{2,62}$."
+  }
+  # Nicht die Clients des Produkts, des Bootstraps oder die eingebauten von Keycloak
+  validation {
+    condition = length(setintersection(keys(var.machine_clients), concat(
+      [for s in ["platform", "api", "admin", "sync", "iac", "tofu", "mcp", "mcp-cli"] : "${var.product}-${s}"],
+      ["account", "account-console", "admin-cli", "admin-permissions", "broker", "realm-management", "security-admin-console"],
+    ))) == 0
+    error_message = "machine_clients: Client-ID ist für das Produkt oder Keycloak reserviert."
+  }
+  validation {
+    condition = alltrue([for m in values(var.machine_clients) : length(m.organizations) > 0 && length(distinct(m.organizations)) == length(m.organizations)
+    && alltrue([for a in m.organizations : can(regex("^[a-z0-9][a-z0-9_-]{0,62}$", a))])])
+    error_message = "machine_clients: organizations mit mindestens einem Alias (^[a-z0-9][a-z0-9_-]{0,62}$), ohne Doppelte."
+  }
+  validation {
+    condition     = alltrue([for m in values(var.machine_clients) : length(setsubtract(m.scopes, var.catalog.scopes)) == 0])
+    error_message = "machine_clients: scopes nur aus catalog.scopes."
+  }
+  validation {
+    condition = alltrue([for m in values(var.machine_clients) : try(
+      length(jsondecode(m.jwks).keys) == 1 &&
+      jsondecode(m.jwks).keys[0].kty == "EC" &&
+      jsondecode(m.jwks).keys[0].crv == "P-256" &&
+      jsondecode(m.jwks).keys[0].kid != "" &&
+      !can(jsondecode(m.jwks).keys[0].d),
+      false,
+    )])
+    error_message = "machine_clients: jwks mit genau einem öffentlichen EC-P-256-Schlüssel (mit kid, ohne d)."
+  }
+}

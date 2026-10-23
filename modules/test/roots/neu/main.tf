@@ -38,6 +38,15 @@ module "realm" {
   mcp                     = var.switches
   mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]
   entra                   = var.switches
+
+  # Maschinen-Client für zwei Organisationen (System-Client); die Organisationen müssen in Keycloak nicht bestehen
+  machine_clients = var.switches ? {
+    "${var.product}-export" = {
+      organizations = ["acme", "zeta"]
+      scopes        = ["${var.product}:read"]
+      jwks          = file("${var.keys_dir}/${var.product}-m2m.json")
+    }
+  } : {}
 }
 
 output "issuer" {

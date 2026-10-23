@@ -392,7 +392,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await call('anna', 'GET', '/v1/platform/organizations')).status, 403);
     assert.equal((await call('mona', 'POST', '/v1/platform/organizations', { alias: 'x', name: 'X' })).status, 403);
     const list = ok(await call('paula', 'GET', '/v1/platform/organizations')).items;
-    assert.deepEqual(list.map((o: any) => o.alias).filter((a: string) => a !== 'leer'), ['demo', 'muster', 'ops']);
+    assert.deepEqual(list.map((o: any) => o.alias).filter((a: string) => ['demo', 'muster', 'ops'].includes(a)), ['demo', 'muster', 'ops']);
     assert.equal(list.find((o: any) => o.alias === 'ops').tenant.status, 'active');
     assert.equal(list.find((o: any) => o.alias === 'demo').tenant.status, 'active');
     assert.deepEqual(list.find((o: any) => o.alias === 'demo').domains, ['demo.example']);
@@ -540,6 +540,33 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       assert.equal(fremd.enabled, true, 'Keycloak unverändert');
       assert.equal(kc.byEmail('x@altlast.example'), null);
     } finally { kc.orgs.delete(fremd.id); }
+  });
+
+  test('Alias in Keycloak nur in Gross-/Kleinschreibung verschieden: 409 statt stillschweigend eine (E1)', async () => {
+    const a = kc.org('Doppelt', 'Doppelt gross'), b = kc.org('doppelt', 'Doppelt klein');
+    try {
+      for (const r of [await call('paula', 'GET', '/v1/platform/organizations/doppelt'), await call('paula', 'GET', '/v1/platform/organizations/doppelt/members'), await call('paula', 'POST', '/v1/platform/organizations/doppelt/suspend', {})]) {
+        assert.deepEqual([r.status, r.body.reason], [409, 'ambiguous-alias'], JSON.stringify(r.body));
+      }
+      assert.ok(a.enabled && b.enabled, 'nichts geändert');
+      assert.equal((await t.inspect.query("SELECT 1 FROM notes.tenant WHERE alias = 'doppelt'")).rowCount, 0, 'kein Mandant angelegt');
+    } finally { kc.orgs.delete(a.id); kc.orgs.delete(b.id); }
+  });
+
+  test('Anlegen mit Alias einer früher gelöschten Organisation: Rollengruppen mit Personen → 409, leere werden übernommen (E2)', async () => {
+    const alt = kc.org('altorg', 'Alt AG');
+    const vera = kc.user('vera', { email: 'vera@alt.example' });
+    kc.member(alt, vera, ['viewer']);
+    kc.orgs.delete(alt.id); // Organisation in Keycloak gelöscht, Gruppen /orgs/altorg/… bleiben
+    const orgs = kc.orgs.size;
+    const r = await call('paula', 'POST', '/v1/platform/organizations', { alias: 'altorg', name: 'Neue Alt AG' });
+    assert.deepEqual([r.status, r.body.reason], [409, 'leftover-role-groups'], JSON.stringify(r.body));
+    assert.match(r.body.detail, /1 Person/);
+    assert.equal(kc.orgs.size, orgs, 'keine Organisation angelegt');
+    kc.userGroups.get(vera.id)!.clear(); // in Keycloak geleert
+    const o = ok(await call('paula', 'POST', '/v1/platform/organizations', { alias: 'altorg', name: 'Neue Alt AG' }), 201);
+    assert.equal(o.alias, 'altorg');
+    assert.deepEqual(kc.rolesOf([...kc.orgs.values()].find(x => x.alias === 'altorg')!, vera), []);
   });
 
   test('Anmeldung des Verwaltungs-Clients: Client Credentials, Token wird wiederverwendet', async () => {

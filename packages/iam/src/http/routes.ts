@@ -5,7 +5,7 @@
  */
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest, FastifySchema } from 'fastify';
-import { forbidden } from '../errors.ts';
+import { forbidden, HttpError, invalid } from '../errors.ts';
 import type { Principal } from '../principal.ts';
 import type { Iam } from '../iam.ts';
 
@@ -26,6 +26,8 @@ export interface ModuleContext {
   /** Präfix der API (`/v1`). */
   prefix: string;
   openapi: OpenApiOverrides;
+  /** Modul `people`: Rechte, die das Personenverzeichnis öffnen (Option `people` des Plugins). */
+  people?: { permissions?: readonly string[] };
 }
 
 export interface IamModule {
@@ -39,7 +41,9 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
   { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder der eigenen Organisation einladen, entfernen und ihre Rollen setzen (Rolle org-admin).' },
+  { name: 'Verwaltung: Rollen', description: 'Vordefinierte und eigene Rollen der Organisation; eigene anlegen, ändern und löschen (Rolle org-admin).' },
   { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
+  { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },
   { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },
 ];
 
@@ -104,6 +108,39 @@ export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'da
 export const Nullable = <T extends TSchema>(s: T) => Type.Union([s, Type.Null()]);
 export const IdParams = Type.Object({ id: Uuid });
 export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
+
+export const Limit = Type.Integer({ minimum: 1, maximum: 200, default: 50, description: 'Seitengrösse (höchstens 200).' });
+export const Cursor = Type.String({ maxLength: 512, description: 'Opaker Cursor aus `nextCursor` der vorherigen Seite.' });
+export const NextCursor = Nullable(Type.String({ description: 'Cursor der nächsten Seite; `null` auf der letzten Seite.' }));
+
+/** Opaker Cursor (base64url-JSON). Inhalt ist kein Vertrag und kann sich ändern. */
+export function encodeCursor(v: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(v)).toString('base64url');
+}
+
+/** Cursor lesen; unlesbar oder aus einer anderen Abfrage (`check`) → 422. */
+export function decodeCursor<T extends Record<string, unknown>>(c: string | undefined, check: (v: Record<string, unknown>) => boolean): T | null {
+  if (!c) return null;
+  let v: unknown;
+  try { v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')); } catch { v = null; }
+  if (!v || typeof v !== 'object' || !check(v as Record<string, unknown>)) throw invalid('Cursor ungültig oder aus einer anderen Abfrage.');
+  return v as T;
+}
+
+/** LIKE-Muster für Teilstrings: Platzhalter im Suchbegriff maskiert. */
+export const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, m => `\\${m}`)}%`;
+
+export const etag = (version: number) => `W/"${version}"`;
+
+/** If-Match → erwartete Version. `*` oder fehlend = keine Prüfung; Unlesbares kann nie passen (412). */
+export function ifMatchVersion(h: string | string[] | undefined): number | undefined {
+  const v = Array.isArray(h) ? h[0] : h;
+  if (v === undefined || v.trim() === '*' || v.trim() === '') return undefined;
+  // Auch ein ETag mit Zugriffsstand (W/"<version>-<zugriff>", Entwurf 13.7): es zählt nur die Version
+  const m = /^\s*(?:W\/)?"?(\d+)(?:-[\w-]+)?"?\s*$/.exec(v);
+  if (!m) throw new HttpError(412, 'If-Match passt nicht', 'Erwartet ein ETag der Form W/"<version>".');
+  return Number(m[1]);
+}
 
 /** Liste setzt `$n`-Parameter zusammen. */
 export class Params {

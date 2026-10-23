@@ -28,6 +28,9 @@ export class KeycloakFake {
   readonly groups = new Map<string, FakeGroup>();
   readonly orgMembers = new Map<string, Set<string>>();
   readonly userGroups = new Map<string, Set<string>>();
+  /** Realm-Rollen (z. B. platform-admin) und ihre Zuweisung je Konto. */
+  readonly realmRoles = new Set<string>(['platform-admin']);
+  readonly realmRoleMappings = new Map<string, Set<string>>();
   readonly idps = new Map<string, FakeIdp>();
   /** Verbindungen Organisation → Anbieter (Alias → Einstellungen der Verbindung). */
   readonly orgIdps = new Map<string, Map<string, { autoMembership: boolean; membershipType: string }>>();
@@ -242,6 +245,13 @@ export class KeycloakFake {
         return empty();
       }
       if (seg[2] === 'credentials') return json(200, u.password ? [{ id: 'c1', type: 'password' }] : []);
+      if (seg[2] === 'reset-password' && method === 'PUT') { u.password = true; if (data?.temporary) u.requiredActions = [...new Set([...u.requiredActions, 'UPDATE_PASSWORD'])]; return empty(); }
+      if (seg[2] === 'role-mappings' && seg[3] === 'realm') {
+        const mine = this.realmRoleMappings.get(u.id) ?? new Set<string>();
+        this.realmRoleMappings.set(u.id, mine);
+        if (method === 'GET') return json(200, [...mine].map(name => ({ name })));
+        if (method === 'POST') { for (const r of data as { name: string }[]) { if (!this.realmRoles.has(r.name)) return json(404, { error: 'Role not found' }); mine.add(r.name); } return empty(); }
+      }
       if (seg[2] === 'execute-actions-email' && method === 'PUT') {
         if (!this.smtp) return json(500, { errorMessage: "Failed to send execute actions email: Invalid sender address 'null'." });
         this.mails.push({ userId: u.id, kind: 'actions', actions: data, query: q.toString() });
@@ -254,6 +264,10 @@ export class KeycloakFake {
         if (method === 'PUT') { this.userGroups.get(u.id)!.add(g.id); return empty(); }
         if (method === 'DELETE') { this.userGroups.get(u.id)!.delete(g.id); return empty(); }
       }
+    }
+    if (seg[0] === 'roles' && seg[1] && method === 'GET') {
+      const name = decodeURIComponent(seg[1]);
+      return this.realmRoles.has(name) ? json(200, { id: `role-${name}`, name }) : json(404, { error: 'Could not find role' });
     }
     // Gruppen
     if (seg[0] === 'group-by-path') {

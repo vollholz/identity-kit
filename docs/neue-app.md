@@ -3,7 +3,8 @@
 Für Entwickler:innen, die eine **neue** App an die Identity-Plattform (**https://identity.project-suite.ch**) anbinden:
 Anmeldung, Organisationen als Mandanten, Rechte, Verwaltung und Datenbank-Schutz kommen aus dem Baukasten, die App
 liefert nur ihren Rechtekatalog, ihre Ressourcen und ihr Aussehen. Die Beispiele nutzen das Produkt `notes`; überall
-`notes` durch den technischen Namen der App ersetzen (Kleinbuchstaben, Ziffern, `-`).
+`notes` durch den technischen Namen der App ersetzen: Kleinbuchstaben, Ziffern und `-`, 3–32 Zeichen, vorn ein
+Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master` oder `project-suite` (so prüfen es beide Realm-Module).
 
 Referenz für jeden Schritt ist **vollholz/assets** (läuft vollständig auf dem Baukasten); die Pfade unten zeigen auf
 dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Detail der Leitfaden
@@ -47,28 +48,30 @@ Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in iden
 Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.
 Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-identity-plattform), Modul
 [product-realm-bootstrap](../modules/product-realm-bootstrap/README.md); Ablauf auf der Plattform-Seite in
-vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues Produkt. Zwei Repositories sind beteiligt:
+vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues Produkt (Stand vollholz/identity#6). Zwei Repositories sind beteiligt:
 
-1. **PR in vollholz/identity** (Plattform-Betrieb):
-   - `deploy/scripts/secrets.sh client-key notes-tofu <ENV-NAME>` erzeugt das Schlüsselpaar für `notes-tofu`: den
-     öffentlichen Teil als `infra/keycloak/keys/notes-tofu.json`, den privaten in die `.env` des Betriebs. Von dort geht
-     er an die Betriebsverantwortlichen der App und wird in vollholz/identity gelöscht.
-   - Eintrag in `infra/keycloak/production.tfvars` › `products`:
+1. **Schlüsselpaar für `notes-tofu`** erzeugt die App selbst, z. B. in einem eigenen Checkout von vollholz/identity:
+   `deploy/scripts/secrets.sh client-key notes-tofu KEYCLOAK_TF_PRIVATE_KEY_B64`. Den öffentlichen Teil legt das Skript
+   als `infra/keycloak/keys/notes-tofu.json` ab, den privaten in die `.env` dieses Checkouts; von dort gehört er in die
+   lokale `.env` der App. Er verlässt die App nie.
+2. **PR der App in vollholz/identity**, nur mit `infra/keycloak/keys/notes-tofu.json` und dem Eintrag in
+   `infra/keycloak/production.tfvars` › `products` (die CI dort prüft, dass unter `keys/` nur öffentliche
+   ES256-Schlüssel liegen):
 
-     ```hcl
-     products = {
-       # …
-       notes = {
-         realm             = "notes"
-         iac_client_id     = "notes-iac"
-         grant_realm_admin = false
-       }
+   ```hcl
+   products = {
+     # …
+     notes = {
+       realm             = "notes"
+       iac_client_id     = "notes-iac"
+       grant_realm_admin = false
      }
-     ```
+   }
+   ```
 
-   - Nach dem Merge wendet der Workflow «Keycloak» an (Plan → Freigabe → Apply → Kontrollplan). Ergebnis: Service
-     Account `notes-tofu` im Realm `master`, nur mit `create-realm`, Anmeldung mit `private_key_jwt`.
-2. **App-Repository:** Schlüsselpaar für `notes-iac` erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json` (ein
+   Nach dem Merge wendet der Workflow «Keycloak» an (Plan → Freigabe → Apply → Kontrollplan). Ergebnis: Service
+   Account `notes-tofu` im Realm `master`, nur mit `create-realm`, Anmeldung mit `private_key_jwt`.
+3. **App-Repository:** Schlüsselpaar für `notes-iac` erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json` (ein
    EC-P-256-JWK mit `kid`) versionieren, privat in die lokale `.env` und als GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY`.
    Dann `infra/keycloak/bootstrap/main.tf` (eigener State-Key) **lokal** als `notes-tofu` anwenden:
    `kc.sh bootstrap init && kc.sh bootstrap apply`. Es legt den Realm `notes` und den IaC-Client `notes-iac` an.
@@ -91,7 +94,7 @@ vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues P
    Der Schlüssel von `notes-tofu` bleibt lokal (nur Bootstrap und Neuaufbau), **nie als GitHub-Secret oder in
    Actions**: `create-realm` gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt, und
    erlaubt beliebige weitere Realms (vollholz/identity `docs/betrieb.md` › Bewusste Restrisiken).
-3. **PR in vollholz/identity:** im Eintrag `notes` `grant_realm_admin = true`; der Workflow «Keycloak» weist danach
+4. **Zweiter PR in vollholz/identity:** im Eintrag `notes` `grant_realm_admin = true`; der Workflow «Keycloak» weist danach
    `notes-iac` die Rolle `realm-management/realm-admin` im Realm `notes` zu. Ab dann verwaltet die App ihren Realm mit
    `notes-iac` (Schritt 3).
 
@@ -242,7 +245,7 @@ Fastify mit dem Plugin des Pakets; es bringt Anmeldung je Anfrage (Bearer, DPoP,
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import Fastify from 'fastify';
-import { createIam, createPool, flatResources, IAM_API_TAGS, iamPlugin, need, optionalBodies, pgAudit, readinessChecks } from '@vollholz/iam';
+import { createIam, createPool, flatResources, IAM_API_TAGS, iamPlugin, need, optionalBodies, pgAudit, pgRateLimitStore, readinessChecks } from '@vollholz/iam';
 
 const app = Fastify({ logger: true, ajv: { customOptions: { removeAdditional: false } } });   // unbekannte Felder → 422
 const iam = createIam({
@@ -250,7 +253,11 @@ const iam = createIam({
   resources: flatResources({ tables: { folder: 'notes.folder', note: 'notes.note' } }), audit: pgAudit({ schema: 'notes' }),
 });
 
-await app.register(rateLimit, { global: false });   // Limits der Routen des Pakets (config.rateLimit)
+// Limits der Routen des Pakets (config.rateLimit); bei mehreren Instanzen über alle gezählt (Tabelle notes.rate_limit)
+await app.register(rateLimit, {
+  global: false,
+  ...(cfg.ops.sharedState === 'postgres' ? { store: pgRateLimitStore(iam.db, 'notes'), skipOnError: true } : {}),
+});
 await app.register(swagger, { openapi: { tags: [...IAM_API_TAGS] }, transformObject: optionalBodies });
 await app.register(iamPlugin, { iam, publicPaths: ['/v1/openapi.json'], people: { permissions: ['note:read'] } });
 
@@ -261,7 +268,8 @@ app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', i
 - `readinessChecks(iam)` für `/readyz`.
 - **Worker:** `new MemberSync(cfg, pool, { schema: 'notes' }).start()` gleicht die Mitglieder mit Keycloak ab.
 - **MCP** (optional): `McpAuth`, `registerMcpAuth`, `TokenExchanger` ([backend.md › MCP](../packages/iam/docs/backend.md#7-mcp-dienst-kann)).
-- Mehrere Instanzen: `SHARED_STATE=postgres` (Standard).
+- Mehrere Instanzen: `SHARED_STATE=postgres` (Standard) teilt den Replay-Schutz in `createIam`; das Rate-Limit-Plugin
+  braucht dafür ausdrücklich `store: pgRateLimitStore(…)` wie oben, sonst zählt jede Instanz für sich.
 
 > Assets: `src/platform/http/app.ts` (`createIam`, `iamPlugin`), `src/platform/worker/member-sync.ts`,
 > `src/platform/main/worker.ts`.

@@ -1,5 +1,5 @@
 {
- "source": "vollholz/assets 63b9cf9 (migrations bis 052_resolve_tenant_strict.sql)",
+ "source": "vollholz/assets 4a3574d (migrations bis 053_acl_unique.sql)",
  "snapshot": {
   "schemas": {
    "app": [
@@ -320,7 +320,8 @@
     "indexes": {
      "acl_entry_pkey": "CREATE UNIQUE INDEX acl_entry_pkey ON assets.acl_entry USING btree (tenant_id, id)",
      "acl_entry_principal": "CREATE INDEX acl_entry_principal ON assets.acl_entry USING btree (tenant_id, principal_type, principal_ref)",
-     "acl_entry_resource": "CREATE INDEX acl_entry_resource ON assets.acl_entry USING btree (tenant_id, resource_type, resource_id)"
+     "acl_entry_resource": "CREATE INDEX acl_entry_resource ON assets.acl_entry USING btree (tenant_id, resource_type, resource_id)",
+     "acl_entry_unique": "CREATE UNIQUE INDEX acl_entry_unique ON assets.acl_entry USING btree (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) NULLS NOT DISTINCT"
     },
     "policies": {
      "tenant_isolation": {

@@ -1,8 +1,8 @@
 # @vollholz/iam-web
 
-Oberfläche (React) für Apps mit dem IAM-Baukasten: Sitzung und Organisation je Tab, Rechte-Bausteine, Kontomenü und die
-Verwalten-Seiten «Zugang» (Mitglieder, Rollen, Maschinen-Clients, Anmeldung über Microsoft Entra ID, Zugriff,
-Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
+Oberfläche (React) für Apps mit dem IAM-Baukasten: Sitzung und Organisation je Tab, Rechte-Bausteine, Kontomenü, die
+Bausteine «Zugriff» an jedem Ort der App (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit und Break-Glass
+sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
 Entscheide: [docs/entwurf.md](docs/entwurf.md). Herkunft: vollholz/assets `web/src`, produktneutral.
 
 Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt sie aus ihren Design-Tokens. Alle Texte
@@ -14,17 +14,17 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@0.3.1
+npm i -E @vollholz/iam-web@1.0.0
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
-`@vollholz/iam` (BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft; ab iam-web 0.2.0 mit `@vollholz/iam`
-0.2.0 oder neuer (Link an die Entra-Administration), für die eigene App-Registrierung (iam-web 0.3.0) mit
-`@vollholz/iam` 0.3.0 oder neuer. Mit älteren Servern bleibt es bei der Zustimmung zur App der Plattform.
+`@vollholz/iam` **1.0** (Authz neu: Tupel, `/v1/access…`, `/v1/break-glass`, Mitglieder mit Clients und Freigabestufe;
+BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft. iam-web 1.0 läuft nicht gegen Server 0.x (dort gibt es
+`/v1/acl` und `/v1/roles`, aber kein `/v1/access`).
 
 | Import | Inhalt |
 |---|---|
-| `@vollholz/iam-web` | `IamProvider`, Hooks (`useIam`, `useAuthz`, `useResourceCan` …), Rechte-Bausteine, Kontomenü, Grundkomponenten, `iamRoutes`, `IamNav`, `AclHint`, `PersonName`, Client (`iamFetch`, `iamMiddleware`) |
+| `@vollholz/iam-web` | `IamProvider`, Hooks (`useIam`, `useAuthz`, `useResourceCan` …), Rechte-Bausteine, Kontomenü, `AccessSheet`, `GrantDialog`, `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, `useBreakGlass`, Hooks für Zugriff (`useAccessList`, `useMyAccess`, `useExplain`, `useGrant` …), Grundkomponenten, `iamRoutes`, `IamNav`, `PersonName`, Client (`iamFetch`, `iamMiddleware`) |
 | `@vollholz/iam-web/pages` | Verwalten-Seiten ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …), per `lazy()` geladen |
 | `@vollholz/iam-web/testing` | `StaticIam`, `mockIamApi`, `staticResources`, Beispielkatalog `CATALOG` und `ME` |
 | `@vollholz/iam-web/styles.css` | einmal importieren; alles in `@layer iam` |
@@ -56,11 +56,11 @@ Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 | `product`, `brand` | Name und Marke auf Auswahl- und Abmeldeseite |
 | `router` | Router-Adapter (unten); Standard: History-API |
 | `paths` | Pfade der Seiten; Standard wie Assets (`/verwalten/mitglieder` …). `paths.entra` muss zu den Redirect-URIs der Entra-App und `ENTRA_*` des Servers passen |
-| `features` | `acl` (Standard: Katalog hat `acl:read`), `entra` (Standard aus), `platform` (Standard an) |
+| `features` | `access` (Freigaben an Orten: «+n Orte», Rollen an Orten; Standard: das Modell hat Typen ausser `org`), `entra` (Standard aus), `platform` (Standard an) |
 | `components` | eigene Grundkomponenten (`Button`, `Dialog`, `Menu`, `Table`, `Icon`, `toast`) |
-| `roleGroups`, `roleIcons`, `inviteRoles` | Darstellung der Rollen, Vorgabe beim Einladen |
-| `resources`, `people` | Adapter für Zugriffsregeln und Personenverzeichnis (unten) |
-| `texts`, `locale` | eigene Texte je Sprache, z. B. `{ de: { 'iam.rights.rulesNote': '…' } }` |
+| `roleGroups`, `inviteRoles` | Darstellung der Rollen, Vorgabe beim Einladen |
+| `resources`, `people` | Orte der App (Namen, Sprung) und Personenverzeichnis (unten) |
+| `texts`, `locale` | eigene Texte je Sprache, z. B. `{ de: { 'iam.access.timing': '…' } }` |
 | `onTenant`, `onLogout` | Rückmeldungen für persönliche Einstellungen der App |
 | `legacyTabKey` | früherer Schlüssel der Organisation je Tab (einmal übernommen) |
 
@@ -135,24 +135,48 @@ Entra ID verbinden» mehr; angeboten wird, was der Server meldet (ältere Server
 
 `OwnAppDialog`, `OwnAppGuideSteps`, `OwnAppFields` und `ownAppErrorText` stehen unter `./pages` auch einzeln bereit.
 
+## Zugriff, Vertraulichkeit und Break-Glass (ab 1.0.0)
+
+Rechte kommen aus Rollen an Orten (Tupel in der Datenbank der App, Spezifikation 7); «Zugriff» ist keine eigene Seite
+mehr, sondern eine Seitenleiste an jeder Ressource. Wo die App sie einbindet (Zeilenmenü «Zugriff…», Aktion im Kopf,
+Feld Vertraulichkeit, «Warum sehe ich das?» im Fuss), entscheidet die App.
+
+```tsx
+<AccessSheet resource={{ type: 'folder', id }} label={folder.name} open={open} onClose={close}
+  classification={{ level: note.classification, onChange: l => api.classify(id, l), disabledReason }} />
+<ClassificationBadge level={note.classification} />       // ab Stufe 1, Label aus dem Katalog
+<WhyDialog resource={{ type: 'note', id }} label={note.title} onClose={close} />  // für mich; Break-Glass bei Vertraulichkeit
+<BreakGlassBanner />                                        // einmal im Layout, sichtbar bei aktivem Break-Glass
+```
+
+- **AccessSheet**: Wer, Rolle, Über (Ort; Pfeil öffnet ihn über `resources.open`), Bis. Direkte Einträge mit
+  `removable` ändern (Ablauf) und entfernen; geerbte nur am Ursprung. «Freigeben» im Kopf, gesperrt mit Grund ohne
+  `grantable`. Bei Typen mit `owner` und Rolle `viewer` am Typ der Schalter «Für alle Mitglieder» (`org:members viewer`).
+- **GrantDialog**: Person (Personenverzeichnis), Gruppe aus Entra ID (nur mit `features.entra`; Suche über
+  `GET /v1/access/groups`, ohne Verbindung der Grund), «Alle Mitglieder»; Rollen nur aus `grantable`; Ablaufdatum
+  optional (nicht bei org-admin). Clients nie – sie erhalten Rollen nur an der Organisation über «Mitglieder».
+- **WhyDialog**: `GET /v1/access/explain`; alle Wege zum Recht, was verhindert (Vertraulichkeit, Scope); ohne Weg die
+  Rollen, die jemand am Ort freigeben könnte. Bei `blocked.reason = 'clearance'` und `useBreakGlass().allowed` startet
+  er Break-Glass mit Begründung und Dauer.
+- **Hooks** (`access/api.ts`): `useAccessList`, `useMyAccess`, `useSubjectAccess`, `useExplain`, `useGrant`,
+  `usePatchAccess`, `useRevoke`, `useBreakGlass`; Mutationen invalidieren alles unter `iamKeys.access` und `/auth/me`.
+- **MissingRight** nimmt `place` (Ort mit Label: «Oder jemand gibt dir an «Projekte» die Rolle … frei») und
+  `classification` (Stufe über der eigenen Freigabestufe).
+
 ## Adapter
 
-**`resources`** (nur mit Zugriffsregeln): Namen, Auswahl und Kette der Ressourcen der App.
+**`resources`**: Namen und Sprung zu Orten der App (Spezifikation 11.4). Die Antworten von `/v1/access` liefern keine
+Namen; ohne Adapter zeigen die Bausteine «Ordner (nicht sichtbar)» und keine Pfeile.
 
 ```ts
 const resources: IamResources = {
-  useResolver: () => { const f = useFolders(); return { name: (t, id) => f.byId(id)?.name, known: (t, id) => (f.data ? !!f.byId(id) : undefined) }; },
-  pick: (type, q, signal) => api.searchFolders(q, signal).then(r => r.map(x => ({ value: x.id, label: x.name }))),
-  useChain: (type, id) => useParents(type, id),   // Stufen über der Ressource, ohne tenant; undefined = lädt
-  noGrant: ['note'],                               // Blatt der Kette, solange der Katalog `leaf` nicht meldet
+  useResolver: () => { const f = useFolders(); return { name: ref => (ref.type === 'folder' ? f.byId(ref.id!)?.name : undefined) }; },
+  open: ref => router.navigate(`/ordner/${ref.id}`),
 };
 ```
 
 **`people`**: Standard ist `GET /v1/people` (Suche `q`, Auflösung `ids` bis 100). `<PersonName id>` zeigt den Namen
 zu einer Principal-ID und sammelt die Abfragen einer Darstellung zu einem Aufruf.
-
-**`AclHint`** an einer Ressource der App: «Zugriff eingeschränkt (1 hier, 2 von «Projekte»)» mit Link auf die
-gefilterte Seite «Zugriff»; ohne `acl:read` nichts.
 
 ## Aussehen und Texte
 
@@ -166,20 +190,23 @@ Klassen des Pakets beginnen mit `iam-`. Texte: `texts` am Provider, `t()`/`tn()`
 import { StaticIam, mockIamApi, json, staticResources } from '@vollholz/iam-web/testing';
 
 vi.stubGlobal('fetch', mockIamApi({ 'GET /v1/notes': () => json({ items: [] }) }).fetch);
-render(<StaticIam me={{ roles: ['viewer'] }} config={{ resources: staticResources({ folder: { f1: 'Projekte' } }) }}><NotesPage /></StaticIam>);
+render(<StaticIam me={{ roles: ['viewer'], permissions: ['tenant:read', 'note:read'] }} config={{ resources: staticResources({ folder: { f1: 'Projekte' } }) }}><NotesPage /></StaticIam>);
 ```
 
-`StaticIam` stellt eine feste Sitzung ohne Server bereit; `mockIamApi` beantwortet `/auth/me`, Katalog und Rollen
-selbst und zeichnet alle Aufrufe auf (`calls`).
+`StaticIam` stellt eine feste Sitzung ohne Server bereit (ohne eigenes `somewhere` gelten die übergebenen
+`permissions`); `mockIamApi` beantwortet `/auth/me` und den Katalog selbst und zeichnet alle Aufrufe auf (`calls`).
+`CATALOG` ist ein Modell mit der Kette org → folder → note (Blatt, Vertraulichkeit, Besitz).
 
 ## Umstellung von Assets
 
 Der Weg steht in [docs/entwurf.md](docs/entwurf.md) Kap. 8 (eigener PR in vollholz/assets, Paket gepinnt, Abnahme
 per Screenshot-Vergleich). Seit dem Entwurf dazugekommen:
 
-- `resources.noGrant: ['object']` setzen, solange `GET /v1/authz/catalog` `resourceTypes[].leaf` nicht ausliefert.
-  Ohne beides ist «Freigeben» nur auf der ganzen Organisation möglich, und die Konsole warnt.
-- `groupRolePrefix` entfällt, wenn der Server ihn in `/v1/admin/status` meldet (ab Backend Teil 6b); sonst als Prop.
+- 1.0.0 (Authz neu): Seiten «Rollen», «Zugriff» und «Maschinen-Clients», `AclHint`, `acl/*`, eigene Rollen
+  (`useRoles`, `withCustomRoles`, `isCustomRole`), `roleIcons`, `groupRolePrefix`, `paths.roles|clients|access` und
+  `features.acl` entfallen. `resources` ist jetzt `{ useResolver(): { name(ref) }, open?(ref) }`; `Me.grantedPermissions`
+  heisst `somewhere`; `RightsOverview` kennt die Status `role`, `place`, `scope`, `missing` (Prop `note` statt
+  `rulesNote`, `effective` entfällt).
 - `entraConsentHosts` nur für nationale Clouds; Standard `login.microsoftonline.com`.
 - TanStack Router: `makeIamRoutes(…, { param: tanstackParam })`.
 - Bekannte Unterschiede, die Assets mitnimmt: Auswahl im Dialog über dem Overlay (in Assets liegt sie darunter),
@@ -201,8 +228,10 @@ In Sessions ohne passenden Playwright-Browser: `IAM_E2E_CHROMIUM=/opt/pw-browser
 (nie `playwright install` in der Session).
 
 Den Auszug `test/fixtures/openapi-iam.json` bei Vertragsänderungen aus der OpenAPI von `@vollholz/iam` erneuern (Pfade
-`/auth/*`, `/v1/authz/catalog`, `/v1/acl*`, `/v1/roles*`, `/v1/admin/*`, `/v1/platform/*`, `/v1/people*` mit den
-benutzten Schemas, ohne Beschreibungstexte).
+`/auth/*`, `/v1/authz/catalog`, `/v1/access*`, `/v1/break-glass`, `/v1/admin/*`, `/v1/platform/*`, `/v1/people*` mit
+den benutzten Schemas, ohne Beschreibungstexte). Bis das Backend 1.0 eine OpenAPI liefert, sind Katalog, Zugriff,
+Mitglieder, Clients und Break-Glass von Hand nach Spezifikation 9.5–9.7 gepflegt und gegen `test/fixtures/authz.ts`
+geprüft.
 
 Veröffentlicht wird nach dem Merge auf main durch den Workflow Release (GitHub Packages, Tag `iam-web-v<version>`);
 eine neue Version heisst: `version` in `package.json` erhöhen.

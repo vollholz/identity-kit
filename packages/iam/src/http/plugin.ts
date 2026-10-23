@@ -105,6 +105,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const isPublic = publicMatcher(o.publicPaths ?? []);
   const spanAttribute = o.spanAttribute ?? 'iam.tenant';
   const realm = iam.catalog.product;
+  const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
+  const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
   const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : [])] as IamModuleName[]);
   if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
 
@@ -124,7 +126,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     let token: string | null = null, scheme: 'Bearer' | 'DPoP' | null = null;
     if (auth) {
       const m = /^(Bearer|DPoP)\s+([\w.~+/-]+=*)$/i.exec(auth);
-      if (!m) throw new HttpError(401, 'Authorization-Header ungültig', 'Erwartet «Bearer <token>» oder «DPoP <token>».');
+      if (!m) throw new HttpError(401, 'Authorization-Header ungültig', 'Erwartet «Bearer <token>» oder «DPoP <token>».', challenge);
       scheme = m[1]!.toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer'; token = m[2]!;
     } else if (o.sessions) {
       const s = await o.sessions.accessToken(req, reply);
@@ -133,7 +135,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
         token = s.token; req.source = 'ui';
       }
     }
-    if (!token) throw new HttpError(401, 'Nicht angemeldet', 'Access Token im Authorization-Header senden.', { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` });
+    if (!token) throw new HttpError(401, 'Nicht angemeldet', 'Access Token im Authorization-Header senden.', challenge);
     const url = `${cfg.publicBaseUrl}${req.url.split('?')[0]}`;
     // Zertifikat vom Proxy (PEM oder DER/base64, siehe parseClientCert); der Proxy muss den Header immer überschreiben
     const certHeader = cfg.m2m.mtlsHeader ? req.headers[cfg.m2m.mtlsHeader.toLowerCase()] : undefined;
@@ -141,14 +143,15 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
       audience: cfg.oidc.apiAudience, method: req.method, url, dpopHeader: typeof req.headers.dpop === 'string' ? req.headers.dpop : undefined,
       clientCert: typeof certHeader === 'string' ? certHeader : null,
     });
-    if (scheme === 'Bearer' && verified.binding === 'dpop') throw new HttpError(401, 'Falsches Schema', 'DPoP-gebundene Tokens mit «Authorization: DPoP …» senden.');
+    if (scheme === 'Bearer' && verified.binding === 'dpop') throw new HttpError(401, 'Falsches Schema', 'DPoP-gebundene Tokens mit «Authorization: DPoP …» senden.', invalidToken);
     // Das Schema DPoP behauptet eine Bindung: ohne DPoP-gebundenes Token wurde kein Nachweis geprüft (RFC 9449, 7.1)
-    if (scheme === 'DPoP' && verified.binding !== 'dpop') throw new HttpError(401, 'Falsches Schema', 'Nicht DPoP-gebundene Tokens mit «Authorization: Bearer …» senden.', { 'WWW-Authenticate': 'DPoP error="invalid_token"' });
-    const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
+    if (scheme === 'DPoP' && verified.binding !== 'dpop') throw new HttpError(401, 'Falsches Schema', 'Nicht DPoP-gebundene Tokens mit «Authorization: Bearer …» senden.', invalidToken);
+    // Vor dem Resolver: abgewiesene Tokens schreiben nichts (Principal, letzte Rollen und Scopes)
     const dm = cfg.m2m.dpopMode;
-    if (verified.binding === 'none' && req.source !== 'ui' && (dm === 'required' || (dm === 'required-for-clients' && p.kind === 'client'))) {
-      throw new HttpError(401, 'Sendergebundenes Token nötig', 'Maschinen-Clients müssen DPoP- oder mTLS-gebundene Tokens verwenden.', { 'WWW-Authenticate': 'DPoP error="invalid_token"' });
+    if (verified.binding === 'none' && req.source !== 'ui' && (dm === 'required' || (dm === 'required-for-clients' && iam.resolver.kindOf(verified.claims) === 'client'))) {
+      throw new HttpError(401, 'Sendergebundenes Token nötig', 'Maschinen-Clients müssen DPoP- oder mTLS-gebundene Tokens verwenden.', invalidToken);
     }
+    const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
     if (req.source !== 'ui' && p.clientId && p.clientId === cfg.mcp.clientId) req.source = 'mcp';
     req.principal = p;
     otel?.trace.getActiveSpan()?.setAttribute(spanAttribute, p.tenantAlias);
@@ -164,7 +167,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     return a;
   };
   app.decorateRequest('requirePrincipal', function (this: FastifyRequest) {
-    if (!this.principal) throw new HttpError(401, 'Nicht angemeldet');
+    if (!this.principal) throw new HttpError(401, 'Nicht angemeldet', undefined, challenge);
     return this.principal;
   });
   app.decorateRequest('tx', function <T>(this: FastifyRequest, fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -201,15 +204,16 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
  */
 async function checkCookies(app: FastifyInstance, secrets: string[]) {
   // Erst hier geladen: Worker und Skripte nutzen das Paket ohne Fastify
-  const { default: cookie, signerFactory } = await import('@fastify/cookie');
+  const { default: cookie, signerFactory, sign } = await import('@fastify/cookie');
   if (!app.hasDecorator('parseCookie')) {
     await app.register(cookie, { secret: secrets.length ? secrets : undefined });
     return;
   }
   if (!secrets.length) return;
+  // Gleich signieren (erstes Geheimnis) und jedes Geheimnis annehmen, auch die älteren einer Rotation
   const ours = signerFactory(secrets);
   let same = false;
-  try { same = ours.unsign(app.signCookie('iam-check')).valid && app.unsignCookie(ours.sign('iam-check')).valid; } catch { same = false; }
+  try { same = app.signCookie('iam-check') === ours.sign('iam-check') && secrets.every(s => app.unsignCookie(sign('iam-check', s)).valid); } catch { same = false; }
   if (!same) throw new Error('@fastify/cookie ist ohne SESSION_SECRET registriert: mit secret = SESSION_SECRET registrieren oder dem IAM-Plugin überlassen');
 }
 

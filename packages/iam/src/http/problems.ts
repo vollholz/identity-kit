@@ -87,7 +87,10 @@ export function registerErrorHandler(app: FastifyInstance, typeBase: string) {
     const pgCode = (err as { code?: string }).code;
     if (pgCode === '23505') return problem(reply, new HttpError(409, 'Konflikt', 'Ein Eintrag mit diesem Wert existiert bereits.'), typeBase, req.url);
     if (pgCode === '23503') return problem(reply, new HttpError(409, 'Konflikt', 'Verweis auf einen nicht vorhandenen oder noch verwendeten Eintrag.'), typeBase, req.url);
-    if (pgCode === '42501') return problem(reply, new HttpError(403, 'Keine Berechtigung', 'Zugriff durch Zeilenrichtlinie verweigert.'), typeBase, req.url);
+    if (pgCode === '42501') {
+      req.log.warn({ err }, 'Zeilenrichtlinie verweigert');
+      return problem(reply, new HttpError(403, 'Keine Berechtigung', 'Zugriff durch Zeilenrichtlinie verweigert.'), typeBase, req.url);
+    }
     if (err.statusCode && err.statusCode < 500) return problem(reply, new HttpError(err.statusCode, err.message), typeBase, req.url);
     req.log.error({ err }, 'unbehandelter Fehler');
     return problem(reply, new HttpError(500, 'Interner Fehler', `Referenz ${req.id}`), typeBase, req.url);

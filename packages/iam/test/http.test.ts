@@ -64,7 +64,7 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     assert.equal(r.headers['www-authenticate'], 'Bearer realm="notes", DPoP algs="ES256 PS256 RS256"');
     assert.deepEqual(r.json(), { type: 'http://api.test/probleme/401', title: 'Nicht angemeldet', status: 401, detail: 'Access Token im Authorization-Header senden.', instance: '/v1/me' });
     const x = await me({ authorization: 'Basic abc' });
-    assert.deepEqual([x.statusCode, x.json().title], [401, 'Authorization-Header ungültig']);
+    assert.deepEqual([x.statusCode, x.json().title, x.headers['www-authenticate']], [401, 'Authorization-Header ungültig', 'Bearer realm="notes", DPoP algs="ES256 PS256 RS256"']);
   });
 
   test('Person: Mandant aus Organisation, Rollen aus Gruppen (und Client-Rollen mit ROLE_SOURCE=both)', async () => {
@@ -112,6 +112,10 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     const r = await me(await bearer(claims.client({ clientId: 'importer', org: 'acme', roles: ['editor'], scopes: ['notes:read'] })), strict.app);
     assert.equal(r.statusCode, 401);
     assert.match(r.headers['www-authenticate'] as string, /DPoP/);
+    // Abgewiesen vor dem Resolver: kein Principal, keine letzten Rollen
+    await tenant(t.runtime, 'acme', 'ohne-dpop');
+    assert.equal((await me(await bearer(claims.client({ clientId: 'ohne-dpop', org: 'acme', roles: ['editor'], scopes: ['notes:read'] })), strict.app)).statusCode, 401);
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.principal WHERE client_id = 'ohne-dpop'")).rows[0].n, 0);
   });
 
   test('Maschinen-Client mit DPoP: Rechte = Rollen ∩ Scopes', async () => {
@@ -278,6 +282,11 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     await build({ env, before: async app => { await app.register(cookie, { secret }); } });
     await assert.rejects(build({ env, before: async app => { await app.register(cookie, { secret: 'b'.repeat(32) }); } }), /ohne SESSION_SECRET registriert/);
     await assert.rejects(build({ env, before: async app => { await app.register(cookie); } }), /ohne SESSION_SECRET registriert/);
+    // Rotation: SESSION_SECRET=NEU,ALT – die App muss mit NEU signieren und ALT noch annehmen
+    const [neu, alt] = ['n'.repeat(32), 'o'.repeat(32)], rotation = { SESSION_SECRET: `${neu},${alt}` };
+    await build({ env: rotation, before: async app => { await app.register(cookie, { secret: [neu, alt] }); } });
+    await assert.rejects(build({ env: rotation, before: async app => { await app.register(cookie, { secret: [neu] }); } }), /ohne SESSION_SECRET registriert/, 'ALT fehlt');
+    await assert.rejects(build({ env: rotation, before: async app => { await app.register(cookie, { secret: [alt, neu] }); } }), /ohne SESSION_SECRET registriert/, 'signiert mit ALT');
   });
 
   test('Span-Attribut iam.tenant (bzw. spanAttribute) mit dem Alias der Organisation', async () => {

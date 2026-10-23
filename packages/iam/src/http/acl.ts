@@ -118,6 +118,12 @@ export const aclModule: IamModule = {
       // Existenz mit voller Lesesicht (Entwurf 13.3): sonst wäre eine für die Person verborgene Ressource «unbekannt»
       const e = await iam.fullTx(p, async tx => {
         if (b.resourceId && !(await resources.exists(tx, { type: b.resourceType, id: b.resourceId }))) throw notFound(`Ressource ${b.resourceType}`);
+        // Verwalten auf der Ressource selbst: ein Verbot von acl:admin auf X sperrt die Zugriffsregeln von X und darunter
+        if (b.resourceId) await req.need('acl:admin', { type: b.resourceType, id: b.resourceId });
+        // Keine Duplikate (Spezifikation Kap. 7.1; gleichzeitig: eindeutiger Index aus iam_012 → 409)
+        const dup = (await tx.query(`SELECT 1 FROM ${T} WHERE resource_type = $1 AND resource_id IS NOT DISTINCT FROM $2 AND principal_type = $3 AND principal_ref = $4 AND permission = $5 AND effect = $6`,
+          [b.resourceType, b.resourceId ?? null, b.principalType, b.principalRef, b.permission, b.effect])).rowCount;
+        if (dup) throw invalid('Diesen Eintrag gibt es schon.', [{ path: '/', message: 'Ein gleicher Eintrag (Ressource, Principal, Recht, Wirkung) besteht bereits.' }]);
         const id = (await tx.query<{ id: string }>(`INSERT INTO ${T} (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect, created_by)
           VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6, $7) RETURNING id`, [b.resourceType, b.resourceId ?? null, b.principalType, b.principalRef, b.permission, b.effect, p.principalId])).rows[0]!.id;
         await record(iam, req, tx, { action: 'acl.created', resourceType: b.resourceType, resourceId: b.resourceId ?? null, data: { aclId: id, principalType: b.principalType, principalRef: b.principalRef, permission: b.permission, effect: b.effect } });
@@ -136,6 +142,8 @@ export const aclModule: IamModule = {
       await req.tx(async tx => {
         const e = (await tx.query(`DELETE FROM ${T} WHERE id = $1 RETURNING resource_type, resource_id, principal_type, principal_ref, permission, effect`, [id])).rows[0];
         if (!e) throw notFound('ACL-Eintrag');
+        // Verwalten auf der Ressource des Eintrags (sonst rollt der Fehler das Löschen zurück)
+        if (e.resource_id) await req.need('acl:admin', { type: e.resource_type, id: e.resource_id });
         await record(iam, req, tx, { action: 'acl.deleted', resourceType: e.resource_type, resourceId: e.resource_id, data: { aclId: id, principalType: e.principal_type, principalRef: e.principal_ref, permission: e.permission, effect: e.effect } });
       });
       iam.access.invalidate(p.tenantId);
@@ -143,6 +151,8 @@ export const aclModule: IamModule = {
     });
 
     type Source = 'token' | 'keycloak' | 'last-token' | 'simulation';
+    /** Ist der Maschinen-Client im Mandanten freigegeben? */
+    const granted = async (req: FastifyRequest, clientId: string) => ((await req.tx(tx => tx.query(`SELECT 1 FROM ${iam.schema}.client_grant WHERE client_id = $1`, [clientId]))).rowCount ?? 0) > 0;
     const extra = resources.effectiveExtraSchema ?? {};
     app.get(`${prefix}/acl/effective`, {
       schema: routeSchema(ctx, 'GET', `${prefix}/acl/effective`, {
@@ -175,7 +185,8 @@ export const aclModule: IamModule = {
       if (q.client && !q.principal) {
         // Maschinen-Client nach Client-ID: echte Rechte aus dem letzten Token; noch nie benutzt: Simulation als Client
         const row = (await req.tx(tx => tx.query<Row>(`SELECT ${COLS} FROM ${iam.schema}.principal WHERE kind = 'client' AND client_id = $1 ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`, [q.client]))).rows[0];
-        const real = !given && row?.last_roles ? { roles: row.last_roles, scopes: row.last_scopes ?? [] } : null;
+        // Echt nur mit Rollen aus dem letzten Token, nicht entfernt und noch freigegeben
+        const real = !given && row?.last_roles && !row.removed_at && await granted(req, q.client) ? { roles: row.last_roles, scopes: row.last_scopes ?? [] } : null;
         simulated = !real;
         source = real ? 'last-token' : 'simulation';
         target = {
@@ -187,7 +198,7 @@ export const aclModule: IamModule = {
         if (!row) throw notFound('Principal');
         // Echte Rollen und Gruppen: Personen aus Keycloak, Maschinen-Clients aus dem zuletzt gesehenen Token
         const real = given || row.removed_at ? null
-          : row.kind === 'client' ? (row.last_roles ? { roles: row.last_roles, groups: [], scopes: row.last_scopes ?? [] } : null)
+          : row.kind === 'client' ? (row.last_roles && row.client_id && await granted(req, row.client_id) ? { roles: row.last_roles, groups: [], scopes: row.last_scopes ?? [] } : null)
             // Keycloak nicht erreichbar: Simulation statt Fehler (die Antwort sagt es mit `source`)
             : await iam.memberAccess?.(me.tenantAlias, row.subject).then(a => (a ? { ...a, scopes: [] } : null), () => null) ?? null;
         simulated = !real;
@@ -195,6 +206,7 @@ export const aclModule: IamModule = {
         target = {
           ...base, principalId: row.id, kind: row.kind, subject: row.subject, name: row.display_name ?? row.subject, email: row.email,
           clientId: row.client_id, grantId: row.kind === 'client' ? row.client_id : null, roles: real?.roles ?? q.roles ?? [], groups: real?.groups ?? q.groups ?? [], scopes: real?.scopes ?? q.scopes ?? [],
+          scopeBound: row.kind === 'user' && !real && !!q.scopes?.length,
         };
       } else if (!q.principal && !q.client && given) {
         source = 'simulation';

@@ -19,7 +19,13 @@ const skip = await skipDb();
 
 /** Notiz-App mit Prüfer:in (liest Zugriffsregeln, ohne sie zu ändern). */
 const input = notesInput();
-const catalog = defineCatalog({ ...input, roles: { ...input.roles, auditor: { label: 'Prüfer:in', description: 'Liest Notizen, den Zugriff und die Organisation.', permissions: ['tenant:read', 'note:read', 'acl:read'] } } });
+// acl:admin auch auf Ordnern und Notizen: Verbote je Ressource sperren das Verwalten ihrer Zugriffsregeln
+const catalog = defineCatalog({
+  ...input,
+  permissions: { ...input.permissions, 'acl:admin': { label: 'Zugriff verwalten', group: 'access', description: 'Zugriffsregeln anlegen und löschen.', resources: ['tenant', 'folder', 'note'] } },
+  roles: { ...input.roles, auditor: { label: 'Prüfer:in', description: 'Liest Notizen, den Zugriff und die Organisation.', permissions: ['tenant:read', 'note:read', 'acl:read'] } },
+  scopes: { ...input.scopes, 'notes:admin': { text: 'Zugriffsregeln verwalten', permissions: ['acl:read', 'acl:admin'] } },
+});
 
 type Res = { status: number; body: any };
 
@@ -62,6 +68,7 @@ describe('Zugriffsregeln über HTTP (Modul acl)', { skip }, () => {
     tok.ida = await person('ida', []);
     tok.globex = await person('gus', ['org-admin'], [], 'globex');
     tok.client = await idp.token(claims.client({ clientId: 'import', org: 'acme', roles: ['org-admin'], scopes: ['notes:read', 'notes:write'] }));
+    tok.clientAdmin = await idp.token(claims.client({ clientId: 'import', org: 'acme', roles: ['org-admin'], scopes: ['notes:read', 'notes:admin'] }));
     tok.clientRead = await idp.token(claims.client({ clientId: 'reader', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }));
     // Principals anlegen (erster Zugriff)
     for (const who of ['admin', 'auditor', 'editor', 'vera', 'ida', 'client', 'clientRead', 'globex']) ok(await call(who, 'GET', '/v1/me'));
@@ -176,6 +183,43 @@ describe('Zugriffsregeln über HTTP (Modul acl)', { skip }, () => {
     assert.equal((await call('admin', 'DELETE', `/v1/acl/${e.id}`)).status, 404, 'schon gelöscht');
   });
 
+  test('keine Duplikate: derselbe Eintrag ein zweites Mal 422, nichts gespeichert, kein Ereignis', async () => {
+    const b = { resourceType: 'folder', resourceId: id.f1, principalType: 'role', principalRef: 'viewer', permission: 'note:read', effect: 'deny' };
+    const e = ok(await acl(b), 201);
+    n.events.length = 0;
+    try {
+      const again = await acl(b);
+      assert.deepEqual([again.status, again.body.detail, errors(again).map(x => x.path)], [422, 'Diesen Eintrag gibt es schon.', ['/']]);
+      assert.deepEqual(n.events, []);
+      assert.equal(ok(await call('admin', 'GET', `/v1/acl?resourceId=${id.f1}`)).items.length, 1);
+      await del(ok(await acl({ ...b, effect: 'restrict' }), 201));
+      const tenantWide = { resourceType: 'tenant', principalType: 'role', principalRef: 'viewer', permission: 'note:read', effect: 'deny' };
+      const t1 = ok(await acl(tenantWide), 201);
+      assert.equal((await acl(tenantWide)).status, 422, 'auch ohne resourceId (NULL)');
+      await del(t1);
+      // Gleichzeitig (an der Prüfung vorbei): der eindeutige Index aus iam_012 verhindert die zweite Zeile
+      await assert.rejects(withTenant(t.runtime, { tenantId: id.A! }, tx => tx.query(
+        "INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', $2, 'role', 'viewer', 'note:read', 'deny')", [id.A, id.f1])), /acl_entry_unique/);
+    } finally { await del(e); }
+  });
+
+  test('acl:admin je Ressource: ein Verbot auf einem Ordner sperrt das Verwalten seiner Zugriffsregeln', async () => {
+    const deny = ok(await acl({ resourceType: 'folder', resourceId: id.f1, principalType: 'client', principalRef: 'import', permission: 'acl:admin', effect: 'deny' }), 201);
+    const onF1 = ok(await acl({ resourceType: 'note', resourceId: id.n1, principalType: 'role', principalRef: 'viewer', permission: 'note:write', effect: 'deny' }), 201);
+    try {
+      const body = (f: string) => ({ resourceType: 'folder', resourceId: f, principalType: 'role', principalRef: 'viewer', permission: 'note:read', effect: 'deny' });
+      const blocked = await acl(body(id.f1!), 'clientAdmin');
+      assert.deepEqual([blocked.status, blocked.body.detail], [403, `Dir fehlt das Recht «Zugriff verwalten» (acl:admin) für folder ${id.f1}.`]);
+      assert.equal((await acl({ ...body(id.n1!), resourceType: 'note', effect: 'restrict' }, 'clientAdmin')).status, 403, 'auch darunter (Notiz im Ordner)');
+      assert.equal((await call('clientAdmin', 'DELETE', `/v1/acl/${onF1.id}`)).status, 403, 'Löschen eines Eintrags auf der Notiz im Ordner');
+      assert.equal((await call('admin', 'GET', `/v1/acl?resourceId=${id.n1}`)).body.items.length, 1, 'nicht gelöscht');
+      const other = ok(await acl(body(id.f2!), 'clientAdmin'), 201);
+      ok(await call('clientAdmin', 'DELETE', `/v1/acl/${other.id}`), 204);
+      assert.equal((await acl(body(id.f1!), 'admin')).status, 201, 'Person mit org-admin ausgenommen');
+      await del(...ok(await call('admin', 'GET', `/v1/acl?resourceId=${id.f1}&principalRef=viewer`)).items);
+    } finally { await del(deny, onF1); }
+  });
+
   test('Audit und Ereignis acl.changed in derselben Transaktion', async () => {
     n.events.length = 0;
     const e = ok(await acl({ resourceType: 'folder', resourceId: id.f1, principalType: 'role', principalRef: 'viewer', permission: 'note:read', effect: 'deny' }), 201);
@@ -218,6 +262,8 @@ describe('Zugriffsregeln über HTTP (Modul acl)', { skip }, () => {
       const vera = ok(await call('vera', 'GET', '/v1/me')).principal.id;
       const none = ok(await call('admin', 'GET', `/v1/acl/effective?principal=${vera}&simulate=true`));
       assert.deepEqual([none.simulated, none.roles, none.permissions], [true, [], []], 'ohne Rolle simuliert, nicht die echten Rechte');
+      const scoped = ok(await call('admin', 'GET', `/v1/acl/effective?principal=${vera}&roles=editor&scopes=notes:read`));
+      assert.ok(scoped.permissions.includes('note:read') && !scoped.permissions.includes('note:write'), 'Scopes begrenzen auch eine simulierte Person');
     } finally { await del(d); }
   });
 
@@ -238,6 +284,15 @@ describe('Zugriffsregeln über HTTP (Modul acl)', { skip }, () => {
       const c = ok(await call('admin', 'GET', `/v1/acl/effective?principal=${cid}`));
       assert.deepEqual([c.simulated, c.source, c.roles, c.principal.clientId], [false, 'last-token', ['org-admin'], 'import']);
       assert.ok(c.permissions.includes('note:write') && !c.permissions.includes('acl:read'), 'durch die Scopes des Tokens begrenzt');
+      // Entfernt oder Freigabe entzogen: keine «echten» Rechte mehr aus dem letzten Token
+      await withTenant(t.runtime, { tenantId: id.A! }, tx => tx.query("DELETE FROM notes.client_grant WHERE client_id = 'import'"));
+      try {
+        assert.deepEqual([ok(await call('admin', 'GET', `/v1/acl/effective?principal=${cid}`)).source, ok(await call('admin', 'GET', '/v1/acl/effective?client=import')).source], ['simulation', 'simulation'], 'ohne Freigabe');
+      } finally { await tenant(t.runtime, 'acme', 'import'); }
+      await withTenant(t.runtime, { tenantId: id.A! }, tx => tx.query("UPDATE notes.principal SET removed_at = now() WHERE client_id = 'import'"));
+      try {
+        assert.deepEqual([ok(await call('admin', 'GET', `/v1/acl/effective?principal=${cid}`)).source, ok(await call('admin', 'GET', '/v1/acl/effective?client=import')).source], ['simulation', 'simulation'], 'entfernt');
+      } finally { await withTenant(t.runtime, { tenantId: id.A! }, tx => tx.query("UPDATE notes.principal SET removed_at = NULL WHERE client_id = 'import'")); }
       assert.equal((await call('admin', 'GET', '/v1/acl/effective?principal=00000000-0000-4000-8000-000000000000')).status, 404);
       const gus = ok(await call('globex', 'GET', '/v1/me')).principal.id;
       assert.equal((await call('admin', 'GET', `/v1/acl/effective?principal=${gus}`)).status, 404, 'Principal von globex');

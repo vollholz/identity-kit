@@ -7,7 +7,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { iamFetch, IamProvider, useIam, type IamProviderProps } from '../src/index.ts';
+import { ICON_NAMES, iamFetch, IamProvider, orgName, tenantName, useIam, type IamProviderProps } from '../src/index.ts';
 import { json, ME, mockIamApi, type MockHandler } from '../src/testing/index.tsx';
 
 let assign: ReturnType<typeof vi.fn>;
@@ -185,4 +185,22 @@ describe('IamProvider', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     act(() => { /* zurück für die übrigen Tests */ });
   });
+});
+
+describe('Name der Organisation (0.3.1)', () => {
+  const tenant = ME.tenant!;
+  it('leerer Name ohne organizationNames: Alias als Rückfall (auch für den Tab)', () => {
+    const me = { ...ME, tenant: { ...tenant, name: '' }, organizationNames: {} };
+    expect(orgName(me, tenant.alias)).toBe(tenant.alias);
+    expect(tenantName(me)).toBe(tenant.alias);
+  });
+  it('leerer Eintrag in organizationNames: Name aus tenant, sonst Alias', () => {
+    expect(orgName({ ...ME, tenant: { ...tenant, name: 'Demo AG' }, organizationNames: { [tenant.alias]: '' } }, tenant.alias)).toBe('Demo AG');
+    expect(orgName({ ...ME, organizationNames: { andere: '' } }, 'andere')).toBe('andere');
+    expect(orgName({ ...ME, organizationNames: { andere: 'Andere GmbH' } }, 'andere')).toBe('Andere GmbH');
+  });
+});
+
+it('Symbole layers, plug und inbox im Satz des Pakets (0.3.1)', () => {
+  expect(ICON_NAMES).toEqual(expect.arrayContaining(['layers', 'plug', 'inbox']));
 });

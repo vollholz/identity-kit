@@ -14,7 +14,7 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@0.3.0
+npm i -E @vollholz/iam-web@0.3.1
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit

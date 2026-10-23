@@ -44,9 +44,9 @@ export interface IamSession {
 
 const Ctx = createContext<IamSession | null>(null);
 
-/** Name einer Organisation der Person (ohne bekannten Namen der Alias). */
+/** Name einer Organisation der Person (ohne bekannten oder mit leerem Namen der Alias). */
 export function orgName(me: Me, alias: string): string {
-  return me.organizationNames?.[alias] ?? (me.tenant?.alias === alias ? me.tenant.name : undefined) ?? alias;
+  return me.organizationNames?.[alias] || (me.tenant?.alias === alias ? me.tenant.name : '') || alias;
 }
 
 /** Name der Organisation dieses Tabs. */

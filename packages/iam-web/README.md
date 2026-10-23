@@ -14,11 +14,12 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@0.1.0
+npm i -E @vollholz/iam-web@0.2.0
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
-`@vollholz/iam` (BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft.
+`@vollholz/iam` (BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft; ab iam-web 0.2.0 mit `@vollholz/iam`
+0.2.0 oder neuer (Link an die Entra-Administration).
 
 | Import | Inhalt |
 |---|---|
@@ -88,13 +89,27 @@ Die Rückkehrseiten von Microsoft (`<paths.entra>/zustimmung`, `/test`) haben ke
 Zustimmen darf bei Microsoft nur eine globale Administration oder eine Administration für privilegierte Rollen des
 Verzeichnisses – oft die Kunden-IT, nicht die Organisations-Administration der App. Unter «Anmeldung» erzeugt die
 Organisations-Administration deshalb einen Link mit Gültigkeit (15 Minuten bis 24 Stunden) und gibt ihn weiter; die
-Liste zeigt Status, Ablauf, Zustimmung und Fehler und erlaubt das Widerrufen offener Links.
+Liste zeigt Status, Ablauf, Zustimmung und Fehler und erlaubt das Widerrufen aller noch einlösbaren Links (offen, in
+Arbeit, gescheitert; sie zählen zum Limit von 5 offenen Links).
 
 Der Link führt auf `<paths.entra>/freigabe#<token>`. `IamProvider` zeigt diese Seite und ihre Rückkehr von Microsoft
 (`<paths.entra>/zustimmung` mit `state` `h.…`) **ohne Sitzung** und ohne /auth/me (nur mit `features.entra`); die App
 braucht dafür keine eigene Route. Das Token kommt nur aus dem Fragment, verschwindet danach aus der Adresse und geht nur
 im Body an `/v1/entra/handover/*` (ohne Cookie, X-Tenant und CSRF). `paths.entra` muss zu `ENTRA_UI_PATH` des Servers
 passen.
+
+- **Fragment sofort weg:** `IamProvider` nimmt das Token schon beim ersten Rendern aus der Adresse (vor dem Nachladen
+  der Seite). Auf …/freigabe geschieht das auch, wenn die Seite nicht erkannt wird (z. B. `features.entra` fehlt); ein
+  Fragment, das ein Token sein könnte, kommt nie in `returnTo` der Anmeldung.
+- **Seite der App absichern:** Für die Freigabeseite `Content-Security-Policy: frame-ancestors 'none'` und keine
+  Skripte Dritter (Analyse, Session-Replay, Chat), da sie die Seite mit dem Token im Speicher sehen.
+- **Restrisiko:** Der Link selbst liegt bis zum Einlösen in Mail, Chat und ggf. im Verlauf des Browsers. Mail-Gateways
+  mit Link-Prüfung sehen den ganzen Link und können die Seite öffnen; das zeigt nur die Angaben, eingelöst wird erst
+  nach der Zustimmung bei Microsoft. Darum kurz gültig (Standard 15 Minuten), einmal
+  einlösbar, an Organisation und Verzeichnis gebunden und widerrufbar.
+- **Neuladen der Rückkehr:** Nach dem Abschluss entfernt die Rückkehrseite `code` und `state` aus der Adresse. Lädt die
+  Person die Seite danach neu, fehlt der `state`, und `<paths.entra>/zustimmung` braucht wie jede andere Seite die
+  Sitzung (Weiterleitung zur Anmeldung). Die Meldung «Verbunden – Sie können dieses Fenster schliessen» steht vorher.
 
 ## Adapter
 

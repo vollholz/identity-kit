@@ -128,6 +128,64 @@ describe('Freigabe für die Entra-Administration (öffentlich)', () => {
   });
 });
 
+describe('Token nie in Adresse, Logs oder Weiterleitungen', () => {
+  /** Mit 401 auf /auth/me: Weiterleitung zur Anmeldung abfangen. */
+  function redirected(url: string, props: Partial<IamProviderProps>) {
+    window.history.replaceState(null, '', url);
+    const assign = vi.fn();
+    const api = mockIamApi({ 'GET /auth/me': () => problem(401, 'Nicht angemeldet.') });
+    vi.stubGlobal('fetch', api.fetch);
+    const real = window.location;
+    // Lesend wie die echte Adresse (auch nach replaceState), nur assign abgefangen
+    const live = Object.fromEntries(['href', 'origin', 'pathname', 'search', 'hash', 'host', 'hostname', 'protocol'].map(k => [k, { get: () => real[k as 'href'], enumerable: true }]));
+    vi.stubGlobal('location', Object.defineProperties({ assign, replace: assign, reload: vi.fn() }, live));
+    render(<IamProvider product="Notizen" queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} {...props}><p>App</p></IamProvider>);
+    return assign;
+  }
+
+  it('Fragment schon beim ersten Rendern weg (vor dem Nachladen der Seite und vor jedem Aufruf)', async () => {
+    let atCall: string | null = null;
+    open(`/verwalten/anmeldung/freigabe#${TOKEN}`, { 'POST /v1/entra/handover/info': () => { atCall = window.location.href; return json(INFO); } });
+    expect(window.location.hash).toBe('');
+    expect(window.location.href).not.toContain(TOKEN);
+    await screen.findByRole('button', { name: 'Bei Microsoft zustimmen' });
+    expect(atCall).not.toContain(TOKEN);
+  });
+
+  it.each([
+    ['ohne features.entra', '/verwalten/anmeldung/freigabe', { features: {} }],
+    ['anderer paths.entra', '/admin/sso/freigabe', { features: { entra: true } }],
+    ['Schrägstrich am Ende', '/verwalten/anmeldung/freigabe/', { features: { entra: true } }],
+  ] as const)('Seite nicht erkannt (%s): Anmeldung ohne Token in returnTo, Fragment entfernt', async (_, path, props) => {
+    const assign = redirected(`${path}#${TOKEN}`, props);
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    const target = String(assign.mock.calls[0]![0]);
+    expect(target).toBe(`/auth/login?returnTo=${encodeURIComponent(path)}`);
+    expect(target).not.toMatch(/%23|#/);
+    expect(window.location.hash).toBe('');
+  });
+
+  it('returnTo: ein Fragment bleibt, ausser es könnte ein Token sein', async () => {
+    const keep = redirected('/notizen/42#absatz-3', { features: { entra: true } });
+    await waitFor(() => expect(keep).toHaveBeenCalledWith(`/auth/login?returnTo=${encodeURIComponent('/notizen/42#absatz-3')}`));
+    cleanup();
+    const drop = redirected(`/notizen/42#${TOKEN}`, { features: { entra: true } });
+    await waitFor(() => expect(drop).toHaveBeenCalledWith(`/auth/login?returnTo=${encodeURIComponent('/notizen/42')}`));
+  });
+
+  it('öffentliche Aufrufe mit Accept wie alle anderen', async () => {
+    const api = open(`/verwalten/anmeldung/freigabe#${TOKEN}`, { 'POST /v1/entra/handover/info': () => json(INFO) });
+    await screen.findByRole('button', { name: 'Bei Microsoft zustimmen' });
+    expect(api.calls[0]!.headers.get('Accept')).toBe('application/json, application/problem+json');
+  });
+
+  it('404 beim Start (inzwischen abgelaufen oder eingelöst): «Link ungültig»', async () => {
+    open(`/verwalten/anmeldung/freigabe#${TOKEN}`, { 'POST /v1/entra/handover/info': () => json(INFO), 'POST /v1/entra/handover/start': () => problem(404, 'Nicht gefunden.') });
+    await userEvent.click(await screen.findByRole('button', { name: 'Bei Microsoft zustimmen' }));
+    expect(await screen.findByRole('heading', { name: 'Link ungültig' })).toBeInTheDocument();
+  });
+});
+
 describe('Rückkehr von Microsoft für den Link (öffentlich, state h.)', () => {
   const ret = (search: string, complete: MockHandler) => open(`/verwalten/anmeldung/zustimmung${search}`, { 'POST /v1/entra/handover/complete': complete });
 
@@ -231,7 +289,7 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
     await waitFor(() => expect(within(dlg).getByRole('alert')).toHaveTextContent('Es gibt schon 5 offene Links. Widerrufe zuerst einen Link, den du nicht mehr brauchst.'));
   });
 
-  it('Liste: Status, Zustimmung, Fehlertext; Widerrufen nur offene, 409 bleibt im Dialog und lädt die Liste neu', async () => {
+  it('Liste: Status, Zustimmung, Gründe; Widerrufen bei offen, in Arbeit und gescheitert, 409 bleibt im Dialog und lädt die Liste neu', async () => {
     let fail = true;
     const api = admin({ ...notConnected,
       'GET /v1/admin/entra/consent-links': () => json({ items: [
@@ -244,20 +302,29 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
         link({ id: 'l7', status: 'revoked', error: { reason: 'disconnected', detail: 'disconnected' } }),
         link({ id: 'l8', status: 'revoked' }),
         link({ id: 'l9', status: 'claimed' as ConsentLink['status'] }),
+        link({ id: 'l10', status: 'failed', error: { reason: 'conflict', detail: 'Schon mit einem anderen Verzeichnis verbunden.' } }),
+        link({ id: 'l11', status: 'failed', error: { reason: 'error', detail: ' ' } }),
       ] }),
       'DELETE /v1/admin/entra/consent-links/l1': () => (fail ? problem(409, 'Schon eingelöst.') : new Response(null, { status: 204 })),
     });
     const table = await screen.findByRole('table', { name: /Links an die Entra-Administration/ });
-    expect(within(table).getAllByRole('row')).toHaveLength(10);
+    expect(within(table).getAllByRole('row')).toHaveLength(12);
     expect(table).toHaveTextContent('Automatisch widerrufen: Die Verbindung mit Microsoft wurde getrennt.');
-    expect(within(table).getAllByText('in Arbeit')).toHaveLength(2);
+    expect(within(table).getAllByText('in Arbeit')).toHaveLength(1);
+    expect(table).toHaveTextContent('unbekannt (claimed)');
+    // consent-unproven mit eigenem Text (auch englisch), sonst die Meldung des Servers; leere Meldung: nichts
+    expect(table).toHaveTextContent('Nicht nachgewiesen: Die zustimmende Person hat im Microsoft-Verzeichnis keine Administrationsrolle');
+    expect(table).not.toHaveTextContent('Keine Administration des Verzeichnisses.');
+    expect(table).toHaveTextContent('Schon mit einem anderen Verzeichnis verbunden.');
+    expect(within(table).getAllByRole('row')[11]!.querySelector('.iam-ferr')).toBeNull();
     expect(table).toHaveTextContent('Automatisch widerrufen: Die Person, die den Link erzeugt hat, darf die Mitglieder nicht mehr verwalten.');
     expect(table).not.toHaveTextContent(/creator-lost-access|disconnected/);
     expect(table).toHaveTextContent('verbunden');
     expect(table).toHaveTextContent('Zugestimmt von Iris IT');
-    expect(table).toHaveTextContent('Keine Administration des Verzeichnisses.');
-    expect(within(table).getAllByRole('button', { name: /^Widerrufen/ })).toHaveLength(1);
-    await userEvent.click(within(table).getByRole('button', { name: /^Widerrufen/ }));
+    // open (l1), failed (l3, l10, l11) und in-progress (l6): noch einlösbar und zählen zum Limit
+    const revocable = within(table).getAllByRole('row').slice(1).filter(r => within(r).queryByRole('button', { name: /^Widerrufen/ }));
+    expect(revocable.map(r => r.querySelector('.iam-pill')?.textContent)).toEqual(['offen', 'gescheitert', 'in Arbeit', 'gescheitert', 'gescheitert']);
+    await userEvent.click(within(table).getAllByRole('button', { name: /^Widerrufen/ })[0]!);
     const c = await screen.findByRole('alertdialog', { name: 'Link widerrufen?' });
     const lists = () => api.calls.filter(r => r.method === 'GET' && pathOf(r).endsWith('/consent-links')).length;
     const before = lists();

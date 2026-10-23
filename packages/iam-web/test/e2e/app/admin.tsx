@@ -55,7 +55,8 @@ const features = { entra: true };
 // Link an die Entra-Administration: Token nur im Fragment; Microsoft leitet in den Tests auf ?p=handoverReturn zurück
 const HANDOVER_TOKEN = 'demo.e2eHandoverToken_0123456789abcdefABCDEFGHIJ';
 let links: ConsentLink[] = [
-  { id: 'l-alt', entraTenantId: 'demoag.onmicrosoft.com', createdByName: 'Anna Admin', createdAt: ago(3), expiresAt: ago(2.9), status: 'failed', usedAt: ago(2.95), approverName: null, error: { reason: 'consent-unproven', detail: 'Die zustimmende Person ist keine Administration des Verzeichnisses.' } },
+  // Gescheitert wie beim Server: Link bleibt bis zum Ablauf offen (nicht eingelöst, noch gültig)
+  { id: 'l-alt', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', createdByName: 'Anna Admin', createdAt: ago(3), expiresAt: new Date(Date.now() + 20 * 3_600_000).toISOString(), status: 'failed', usedAt: null, approverName: null, error: { reason: 'consent-unproven', detail: 'Die zustimmende Person ist keine Administration des Verzeichnisses.' } },
 ];
 const routes = makeIamRoutes({}, features);
 const roles = () => ({
@@ -64,7 +65,7 @@ const roles = () => ({
 });
 const idOf = (req: Request) => new URL(req.url).pathname.split('/')[4]!;
 
-window.fetch = mockIamApi({
+const api = mockIamApi({
   'GET /v1/roles': () => json(roles()),
   'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, rolesManageable: true, roles: roles().items.map(({ key, label, description, permissions, adminOnly, custom: c }) => ({ key, label, description, permissions, adminOnly, custom: c })) }),
   'GET /v1/admin/members': () => json({ items: members }),
@@ -121,7 +122,7 @@ window.fetch = mockIamApi({
   'GET /v1/admin/entra/consent-links': () => json({ items: links }),
   'POST /v1/admin/entra/consent-links': async req => {
     const b = await req.json() as { tenant: string; validMinutes?: number };
-    const l: ConsentLink = { id: `l-${links.length}`, entraTenantId: b.tenant, createdByName: 'Anna Admin', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (b.validMinutes ?? 15) * 60_000).toISOString(), status: 'open', usedAt: null, approverName: null, error: null };
+    const l: ConsentLink = { id: `l-${links.length}`, entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', createdByName: 'Anna Admin', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + (b.validMinutes ?? 15) * 60_000).toISOString(), status: 'open', usedAt: null, approverName: null, error: null };
     links = [l, ...links];
     return json({ id: l.id, url: `${location.origin}/admin.html?p=handover#${HANDOVER_TOKEN}`, entraTenantId: l.entraTenantId, expiresAt: l.expiresAt }, 201);
   },
@@ -145,7 +146,15 @@ window.fetch = mockIamApi({
     custom = [...custom, r];
     return json(r, 201);
   },
-}, { me: ME }).fetch;
+}, { me: ME });
+// Aufrufe der Seite laufen nicht über das Netz: für die Prüfung, wohin das Token geht, im Tab mitschreiben (auch über
+// die Weiterleitung zu Microsoft und zurück)
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const r = new Request(input, init);
+  const log = JSON.parse(sessionStorage.getItem('iamCalls') ?? '[]') as { url: string; body: string }[];
+  sessionStorage.setItem('iamCalls', JSON.stringify([...log, { url: r.url, body: await r.clone().text() }]));
+  return api.fetch(r);
+};
 
 const params = new URLSearchParams(location.search);
 const p = params.get('p');

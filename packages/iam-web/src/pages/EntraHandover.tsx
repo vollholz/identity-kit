@@ -1,7 +1,8 @@
 /**
  * Link an die Entra-Administration, öffentliche Seiten ohne Sitzung (die Person der Kunden-IT hat kein Konto in der App):
- * - `EntraHandoverPage` unter `<paths.entra>/freigabe#<token>`: liest das Token nur aus dem Fragment (nie aus Suchtext
- *   oder Pfad), entfernt das Fragment sofort aus der Adresse (replace) und schickt das Token nur im Body an die API. Zeigt
+ * - `EntraHandoverPage` unter `<paths.entra>/freigabe#<token>`: das Token kommt nur aus dem Fragment (nie aus Suchtext
+ *   oder Pfad); `IamProvider` nimmt es schon vor dem Nachladen der Seite aus der Adresse (`takeHandoverToken`) und gibt es
+ *   als `token` weiter. Es geht nur im Body an die API. Zeigt
  *   Organisation, App, anfragende Person und Verzeichnis und führt erst auf Klick zur Zustimmung bei Microsoft.
  * - `EntraHandoverReturn` unter `<paths.entra>/zustimmung` mit `state` `h.…`: meldet die Rückkehr der öffentlichen API.
  * `IamProvider` zeigt beide vor der Prüfung von /auth/me (kein Umweg über die Anmeldung). Anrede «Sie»: die Seiten
@@ -13,7 +14,7 @@ import { handoverApi } from '../admin.ts';
 import { isConsentUrl } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
 import type { EntraConsentReturn } from '../contract.ts';
-import { CONSENT_HOSTS, ENTRA_STATE } from '../entra.ts';
+import { CONSENT_HOSTS, ENTRA_STATE, takeHandoverToken } from '../entra.ts';
 import { fmtDateTime } from '../format.ts';
 import { ApiError } from '../problem.ts';
 import { Gate } from '../session.tsx';
@@ -22,29 +23,19 @@ import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { ErrorBox, Loading } from '../ui/states.tsx';
 
-/** Token im Fragment: `<alias>.<43 Zeichen base64url>`, sonst gilt der Link als unvollständig. */
-const TOKEN = /^[a-z0-9][a-z0-9_-]{0,62}\.[A-Za-z0-9_-]{43}$/;
-
+const is404 = (e: unknown) => e instanceof ApiError && e.status === 404;
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 
-/** Seite für die Entra-Administration: Angaben zur Anfrage, dann «Bei Microsoft zustimmen». */
-export function EntraHandoverPage() {
-  const { router: { usePathname, navigate }, entraConsentHosts = CONSENT_HOSTS, product } = useIamConfig();
+/**
+ * Seite für die Entra-Administration: Angaben zur Anfrage, dann «Bei Microsoft zustimmen». `token` von `IamProvider`;
+ * ohne (eigene Route der App) liest die Seite das Fragment selbst und entfernt es sofort aus der Adresse.
+ */
+export function EntraHandoverPage({ token: given }: { token?: string | null }) {
+  const { entraConsentHosts = CONSENT_HOSTS, product } = useIamConfig();
   const { Button, Icon } = useIamUi();
   useIamText();
-  const pathname = usePathname();
-  // Token einmal aus dem Fragment lesen; danach nur noch im Speicher dieser Seite
-  const [token] = useState(() => {
-    const raw = typeof window === 'undefined' ? '' : window.location.hash.slice(1);
-    return TOKEN.test(raw) ? raw : null;
-  });
-  const cleaned = useRef(false);
-  useEffect(() => {
-    if (cleaned.current) return;
-    cleaned.current = true;
-    // Fragment aus der Adresse entfernen (Verlauf, Lesezeichen, geteilte Bildschirme), ohne neuen Verlaufseintrag
-    if (window.location.hash) navigate(`${pathname}${window.location.search}`, { replace: true });
-  });
+  // Danach nur noch im Speicher dieser Seite
+  const [token] = useState(() => (given !== undefined ? given : takeHandoverToken()));
   const info = useQuery({ queryKey: ['iam', 'handover', 'info'], enabled: !!token, retry: false, staleTime: Infinity, gcTime: 0, queryFn: () => handoverApi.info(token!) });
   const start = useMutation({
     mutationFn: async () => {
@@ -59,8 +50,9 @@ export function EntraHandoverPage() {
 
   if (!token) return <Gate title={t('iam.handover.incomplete')} text={t('iam.handover.incompleteText')} />;
   if (info.isPending) return <Gate title={t('iam.handover.title')} text={t('iam.handover.loading')}><Loading inline /></Gate>;
-  if (info.error) {
-    return info.error instanceof ApiError && info.error.status === 404
+  // 404 auch beim Start (inzwischen abgelaufen, widerrufen oder eingelöst)
+  if (info.error || is404(start.error)) {
+    return is404(info.error) || is404(start.error)
       ? <Gate title={t('iam.handover.invalid')} text={t('iam.handover.invalidText')} />
       : <Gate title={t('iam.handover.title')} text={t('iam.handover.failed')}><ErrorBox error={info.error} onRetry={() => void info.refetch()} /></Gate>;
   }

@@ -20,10 +20,20 @@ import { ErrorBox, SkeletonRows } from '../ui/states.tsx';
 /** Gültigkeit in Minuten (Server: 5–1440, Standard 15). */
 const VALIDITY = [15, 60, 240, 1440] as const;
 const STATUS_PILL: Record<ConsentLinkStatus, string> = { open: 'iam-st-warn', 'in-progress': 'iam-st-warn', connected: 'iam-st-ok', failed: 'iam-st-bad', expired: 'iam-st-off', revoked: 'iam-st-off' };
-/** Unbekannter Status wie `in-progress`: «in Arbeit». */
-const statusText = (s: ConsentLinkStatus) => (s in STATUS_PILL && s !== 'in-progress' ? t(`iam.entraLink.status.${s}` as IamTextKey) : t('iam.entraLink.status.inProgress'));
-/** Automatisch widerrufen: eigener Text statt Code. */
-const REVOKED: Record<string, IamTextKey> = { 'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected' };
+const STATUS_TEXT: Record<ConsentLinkStatus, IamTextKey> = {
+  open: 'iam.entraLink.status.open', 'in-progress': 'iam.entraLink.status.inProgress', connected: 'iam.entraLink.status.connected',
+  failed: 'iam.entraLink.status.failed', expired: 'iam.entraLink.status.expired', revoked: 'iam.entraLink.status.revoked',
+};
+const known = (s: string): s is ConsentLinkStatus => Object.hasOwn(STATUS_TEXT, s);
+/** Unbekannter Status (neuer Server): neutral mit dem Wert. */
+const statusText = (s: string) => (known(s) ? t(STATUS_TEXT[s]) : t('iam.entraLink.status.unknown', { status: s }));
+/** Noch einlösbar und zählt zum Limit von 5: lässt sich widerrufen. */
+const REVOCABLE = new Set<string>(['open', 'in-progress', 'failed']);
+/** Gründe mit eigenem Text statt der Meldung des Servers (Zustimmung gescheitert; automatisch widerrufen). */
+const REASON_TEXT: Record<string, IamTextKey> = {
+  'consent-unproven': 'iam.entraLink.reason.unproven', 'consent-error': 'iam.entraLink.reason.declined',
+  'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected',
+};
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 
 /** Dialog: Verzeichnis und Gültigkeit, danach der Link zum Kopieren (nur jetzt sichtbar). */
@@ -104,15 +114,13 @@ export function ConsentLinkList({ alias, orgLabel }: { alias: string | null; org
               <tr key={l.id}>
                 <td className="iam-mono-s">{l.entraTenantId}</td>
                 <td>
-                  <span className={`iam-pill iam-sm ${STATUS_PILL[l.status] ?? 'iam-st-warn'}`}>{statusText(l.status)}</span>
+                  <span className={`iam-pill iam-sm ${known(l.status) ? STATUS_PILL[l.status] : 'iam-st-off'}`}>{statusText(l.status)}</span>
                   {l.status === 'connected' && l.approverName ? <div className="iam-muted iam-small">{t('iam.entraLink.approvedBy', { name: l.approverName, when: l.usedAt ? relTime(l.usedAt) : '' })}</div> : null}
-                  {l.status === 'revoked' && l.error && REVOKED[l.error.reason]
-                    ? <div className="iam-muted iam-small">{t(REVOKED[l.error.reason]!)}</div>
-                    : l.error ? <div className="iam-ferr iam-small">{l.error.detail}</div> : null}
+                  <LinkError link={l} />
                 </td>
                 <td className="iam-small" title={fmtDateTime(l.createdAt)}>{l.createdByName}<div className="iam-muted">{relTime(l.createdAt)}</div></td>
                 <td className="iam-small">{fmtDateTime(l.expiresAt)}</td>
-                <td className="iam-acts">{l.status === 'open'
+                <td className="iam-acts">{REVOCABLE.has(l.status)
                   ? <Button size="sm" variant="ghost" icon="x" onClick={() => setRevoking(l)}>{t('iam.entraLink.revoke')}<span className="iam-sr">: {l.entraTenantId}</span></Button> : null}</td>
               </tr>
             ))}
@@ -127,4 +135,13 @@ export function ConsentLinkList({ alias, orgLabel }: { alias: string | null; org
       ) : null}
     </section>
   );
+}
+
+/** Fehler bzw. Grund eines Links: bekannte Gründe mit eigenem Text, sonst die Meldung des Servers (leer: nichts). */
+function LinkError({ link: l }: { link: ConsentLink }) {
+  if (!l.error) return null;
+  const key = Object.hasOwn(REASON_TEXT, l.error.reason) ? REASON_TEXT[l.error.reason] : undefined;
+  if (l.status === 'revoked') return key ? <div className="iam-muted iam-small">{t(key)}</div> : null;
+  const text = key ? t(key) : l.error.detail.trim();
+  return text ? <div className="iam-ferr iam-small">{text}</div> : null;
 }

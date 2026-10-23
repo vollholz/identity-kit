@@ -65,8 +65,8 @@ test('ganzer Ablauf: Link erzeugen, in einer Seite ohne Sitzung öffnen, bei Mic
 
   // Zweite Seite wie bei der Entra-Administration: keine Sitzung nötig, /auth/me wird nicht gefragt
   const it = await context.newPage();
-  const requests: string[] = [];
-  it.on('request', r => requests.push(r.url()));
+  const network: string[] = [];
+  it.on('request', r => network.push(r.url()));
   await fakeMicrosoft(it);
   await it.goto(url);
   await expect(it.getByText('Anna Admin bittet Sie, die Anmeldung von «Demo AG» in Notizen mit Ihrem Microsoft-Verzeichnis zu verbinden.')).toBeVisible();
@@ -77,6 +77,16 @@ test('ganzer Ablauf: Link erzeugen, in einer Seite ohne Sitzung öffnen, bei Mic
   await expect(it.getByRole('heading', { name: 'Verbunden' })).toBeVisible();
   await expect(it.getByText('Sie können dieses Fenster schliessen.', { exact: false })).toBeVisible();
   expect(new URL(it.url()).search).toBe('');
-  // Das Fragment geht nie über das Netz, auch nicht beim Laden der Seite
-  expect(requests.filter(u => u.includes(TOKEN))).toEqual([]);
+  // Das Token geht nur im Body von info und start an die API: in keiner Adresse (auch nicht encodiert, z. B. in
+  // returnTo), in keinem anderen Body. API-Aufrufe der Testseite laufen über die Nachbildung (iamCalls), Seiten und
+  // Skripte über das Netz.
+  const secret = [TOKEN, encodeURIComponent(TOKEN), TOKEN.split('.')[1]!];
+  const requests = await it.evaluate(() => JSON.parse(sessionStorage.getItem('iamCalls') ?? '[]') as { url: string; body: string }[]);
+  expect(requests.map(r => new URL(r.url).pathname)).toEqual(['/v1/entra/handover/info', '/v1/entra/handover/start', '/v1/entra/handover/complete']);
+  for (const url of [...network, ...requests.map(r => r.url)]) {
+    expect(secret.some(x => url.includes(x)), url).toBe(false);
+    expect(new URL(url).search, url).not.toMatch(/%23/);
+  }
+  expect(requests.filter(r => !/\/v1\/entra\/handover\/(info|start)$/.test(new URL(r.url).pathname) && secret.some(x => r.body.includes(x)))).toEqual([]);
+  expect(requests.filter(r => r.body.includes(TOKEN)).map(r => new URL(r.url).pathname)).toEqual(['/v1/entra/handover/info', '/v1/entra/handover/start']);
 });

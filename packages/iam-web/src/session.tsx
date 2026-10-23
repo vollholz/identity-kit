@@ -13,11 +13,11 @@
  * Herkunft: vollholz/assets `web/src/auth/session.tsx`.
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { createContext, Fragment, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, createContext, Fragment, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { authFetch, loginUrl, onForbidden, onSessionExpired, reportStatus, setCsrfToken, setTenant } from './client.ts';
 import { useIamConfig, type IamConfig } from './config.tsx';
 import type { Me, SwitchResult } from './contract.ts';
-import { publicEntraPage } from './entra.ts';
+import { isHandoverPath, publicEntraPage, takeHandoverToken } from './entra.ts';
 import { iamKeys } from './keys.ts';
 import type { Permission } from './permissions.ts';
 import { ApiError, errorFrom } from './problem.ts';
@@ -128,7 +128,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // Öffentliche Seite nach dem Abmelden (post_logout_redirect_uri): ohne /auth/me, damit sie nicht gleich zur Anmeldung weiterleitet
   const [loggedOut] = useState(() => window.location.pathname === config.paths.loggedOut);
   // Link an die Entra-Administration und seine Rückkehr: öffentlich, ohne Sitzung (nur mit features.entra)
-  const [entraPublic] = useState(() => (config.features.entra ? publicEntraPage(config.paths.entra, window.location) : null));
+  // Das Token der Freigabe sofort aus der Adresse nehmen (vor dem Nachladen, vor Telemetrie und Weiterleitungen); auf
+  // …/freigabe auch dann, wenn die Seite nicht erkannt ist (features.entra fehlt, anderer Pfad)
+  const [{ page: entraPublic, token: handoverToken }] = useState(() => {
+    const page = config.features.entra ? publicEntraPage(config.paths.entra, window.location) : null;
+    const token = page === 'handover' || isHandoverPath(window.location.pathname) ? takeHandoverToken() : null;
+    return { page, token };
+  });
   const meQ = useQuery({
     queryKey: iamKeys.me, queryFn: () => fetchMe(qc, config), enabled: !loggedOut && !entraPublic,
     retry: (n, e) => !(e instanceof ApiError && e.status === 401) && n < 2, refetchOnWindowFocus: true, staleTime: 60_000,
@@ -178,7 +184,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<IamSession | null>(() => (meQ.data ? makeSession(meQ.data, switchOrg, logout) : null), [meQ.data, switchOrg, logout]);
 
   if (loggedOut) return <LoggedOut />;
-  if (entraPublic) return <Suspense fallback={<div className="iam-gate"><Loading /></div>}>{entraPublic === 'handover' ? <HandoverPage /> : <HandoverReturn />}</Suspense>;
+  if (entraPublic) {
+    return (
+      <PublicPageBoundary>
+        <Suspense fallback={<div className="iam-gate"><Loading /></div>}>{entraPublic === 'handover' ? <HandoverPage token={handoverToken} /> : <HandoverReturn />}</Suspense>
+      </PublicPageBoundary>
+    );
+  }
   if (meQ.isPending) return <div className="iam-gate"><Loading label={t('iam.session.checking')} /></div>;
   if (meQ.error && !meQ.data) {
     if (meQ.error instanceof ApiError && meQ.error.status === 401) {
@@ -244,6 +256,13 @@ export function LoggedOut() {
 }
 
 /** Karte für Anmeldung, Auswahl und Abmeldung mit der Marke der App. */
+/** Öffentliche Seite liess sich nicht laden (z. B. Chunk): Hinweis statt leerer Seite; das Token ist schon aus der Adresse. */
+class PublicPageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  override render() { return this.state.failed ? <Gate title={t('iam.handover.title')} text={t('iam.handover.loadFailed')} /> : this.props.children; }
+}
+
 export function Gate({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
   const { product, brand } = useIamConfig();
   return (

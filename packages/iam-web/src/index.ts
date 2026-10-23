@@ -29,7 +29,7 @@ export { useResourceCan } from './resourceCan.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamPickOption, type IamResources, type RoleGroup } from './config.tsx';
 export { defaultPeople, isPrincipalId, PersonName, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
 export { AclHint } from './acl/AclHint.tsx';
-export { CONSENT_HOSTS, ENTRA_STATE, publicEntraPage, type PublicEntraPage } from './entra.ts';
+export { CONSENT_HOSTS, ENTRA_STATE, HANDOVER_TOKEN, publicEntraPage, takeHandoverToken, type PublicEntraPage } from './entra.ts';
 export {
   aclResourceTypes, effectOf, filterEntries, groupByResource, hintCounts, ineffectiveReason, noGrantTypes, permissionsFor, previewEntry,
   type AclFilter, type AclLike, type Effect, type Preview, type ResStep, type RoleOutcome,

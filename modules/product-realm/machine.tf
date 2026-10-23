@@ -1,17 +1,12 @@
 # Maschinen-Clients als Code (Spezifikation 12.1, B4): Organisations-Clients (eine Organisation) und System-Clients
 # (mehrere Organisationen, je Aufruf X-Tenant) aus var.machine_clients statt von Hand in der Konsole nach Vorlage.
 # Je Client: Service Account mit private_key_jwt, DPoP-gebundene Tokens (Richtlinie <produkt>-m2m-dpop), 5 min, keine
-# Refresh-Tokens; Zielgruppe <produkt>-api, fester Claim organization mit den Aliassen, Client-Rollen von
-# <produkt>-platform am Service Account, Rechte-Scopes als Standard-Scopes. Keine Zielgruppe <produkt>-mcp: der
+# Refresh-Tokens; Zielgruppe <produkt>-api, fester Claim organization mit den Aliassen, keine Client-Rollen von
+# <produkt>-platform entfallen (die Rolle der Maschine liegt als Client-Freigabe in der App-Datenbank), Rechte-Scopes
+# als Standard-Scopes. Keine Zielgruppe <produkt>-mcp: der
 # MCP-Dienst tauscht keine sendergebundenen Tokens und nimmt nur die MCP-Hosts an; Maschinen nutzen die REST-API.
 # Wirksam wird ein Client in einer Organisation erst mit ihrer Freigabe in der App (client_grant, members:admin);
 # ein falscher Alias öffnet so keine fremde Organisation.
-
-locals {
-  machine_roles = merge([
-    for c, m in var.machine_clients : { for r in m.roles : "${c}/${r}" => { client = c, role = r } }
-  ]...)
-}
 
 resource "keycloak_openid_client" "machine" {
   for_each                              = var.machine_clients
@@ -75,14 +70,6 @@ resource "keycloak_openid_hardcoded_claim_protocol_mapper" "machine_organization
   add_to_access_token = true
   add_to_id_token     = false
   add_to_userinfo     = false
-}
-
-resource "keycloak_openid_client_service_account_role" "machine" {
-  for_each                = local.machine_roles
-  realm_id                = local.realm
-  service_account_user_id = keycloak_openid_client.machine[each.value.client].service_account_user_id
-  client_id               = keycloak_openid_client.platform.id
-  role                    = keycloak_role.platform[each.value.role].name
 }
 
 # Scopes als vollständige Listen; die Rechte-Scopes des Clients als Standard (Client Credentials ohne scope-Parameter)

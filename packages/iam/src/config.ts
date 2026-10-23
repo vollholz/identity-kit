@@ -133,6 +133,7 @@ export function IAM_VARS(product: string): VarSpec[] {
     { name: 'MCP_DPOP_KEY', kind: 'string', group: 'MCP', secret: true, fileAllowed: true, description: 'Privater Schlüssel (PEM, EC P-256) für DPoP der getauschten API-Tokens. Ohne Angabe erzeugt jede Instanz beim Start einen eigenen.' },
 
     { name: 'SHARED_STATE', kind: 'enum', group: 'Betrieb', values: ['postgres', 'memory'], default: 'postgres', description: 'Speicher für Replay-Schutz (DPoP, Logout-Tokens) und Rate-Limit. `postgres`: geteilt über alle Instanzen (Pflicht bei mehr als einer Instanz). `memory`: nur im Prozess.' },
+    { name: 'RATE_LIMIT_NAMESPACE', kind: 'string', group: 'Betrieb', description: 'Vorsatz der Rate-Limit-Schlüssel des Pakets (`<namespace>:<produkt>:…`), wenn mehrere Umgebungen denselben geteilten Speicher nutzen (z. B. E2E und lokale App mit SHARED_STATE=postgres). Buchstaben, Ziffern, `_`, `-`, `.`; leer: kein Vorsatz.', example: 'e2e' },
   ];
 }
 
@@ -152,7 +153,7 @@ export interface IamConfig {
   session: { secrets: string[]; ttlMs: number; idleMs: number };
   encryptionKeys: { id: string; key: Buffer }[];
   mcp: { publicUrl: string; apiUrl: string; clientId: string; clientSecret: string | null; privateKey: string | null; dpopKey: string | null; /** MCP_HOST_CLIENT_IDS */ hostClients: string[] };
-  ops: { sharedState: 'postgres' | 'memory' };
+  ops: { sharedState: 'postgres' | 'memory'; rateLimitNamespace: string };
 }
 
 /** Rohwerte (nach `_FILE` und Standardwerten). */
@@ -229,6 +230,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
   if (raw.ENTRA_UI_PATH !== undefined && (!/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH) || raw.ENTRA_UI_PATH.split('/').some(x => x === '.' || x === '..'))) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
+  if (raw.RATE_LIMIT_NAMESPACE && !/^[A-Za-z0-9_.-]{1,64}$/.test(raw.RATE_LIMIT_NAMESPACE.trim())) errors.push('RATE_LIMIT_NAMESPACE: Buchstaben, Ziffern, _, - und ., höchstens 64 Zeichen');
   if (raw.GROUP_ROLE_PREFIX !== undefined && !GROUP_PREFIX_RE.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
   try { const ms = parseDuration(raw.MEMBER_SYNC_INTERVAL ?? '1h'); if (ms > 0 && ms < 60_000) errors.push('MEMBER_SYNC_INTERVAL: mindestens 1m oder 0 (aus)'); } catch { /* bereits gemeldet */ }
   try {
@@ -272,7 +274,7 @@ export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
     session: { secrets: list('SESSION_SECRET'), ttlMs: d('SESSION_TTL'), idleMs: d('SESSION_IDLE_TIMEOUT') },
     encryptionKeys: raw.ENCRYPTION_KEYS ? parseEncryptionKeys(raw.ENCRYPTION_KEYS) : [],
     mcp: { publicUrl: s('MCP_PUBLIC_URL').replace(/\/$/, ''), apiUrl: s('MCP_API_URL').replace(/\/$/, ''), clientId: s('MCP_CLIENT_ID'), clientSecret: opt('MCP_CLIENT_SECRET'), privateKey: opt('MCP_PRIVATE_KEY'), dpopKey: opt('MCP_DPOP_KEY'), hostClients: list('MCP_HOST_CLIENT_IDS') },
-    ops: { sharedState: s('SHARED_STATE') as IamConfig['ops']['sharedState'] },
+    ops: { sharedState: s('SHARED_STATE') as IamConfig['ops']['sharedState'], rateLimitNamespace: s('RATE_LIMIT_NAMESPACE').trim() },
   };
 }
 

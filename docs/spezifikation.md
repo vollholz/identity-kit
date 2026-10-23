@@ -805,6 +805,7 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `SESSION_TTL`, `SESSION_IDLE_TIMEOUT` | `8h`, `60m` | |
 | `ENCRYPTION_KEYS` (geheim) | — | `id:base64(32 Bytes)`, kommagetrennt, erster verschlüsselt; Pflicht in Produktion |
 | `SHARED_STATE` | — | `postgres` bei mehreren Instanzen (Replay-Schutz, Ratenbegrenzung) |
+| `RATE_LIMIT_NAMESPACE` | — | Vorsatz der Rate-Limit-Schlüssel (`<namespace>:<produkt>:…`), wenn Umgebungen einen Speicher teilen |
 | `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` (geheim) | — | Laufzeit, Besitzer (Migrationen), Worker ([10.1](#101-rollen)) |
 | `MCP_CLIENT_ID`, `MCP_PRIVATE_KEY` (geheim), `MCP_HOST_CLIENT_IDS`, `OIDC_MCP_AUDIENCE` | `<produkt>-mcp`, —, —, `<produkt>-mcp` | MCP-Dienst ([12.2](#122-mcp-dienst-kann)) |
 | `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS`, `ENTRA_UI_PATH` | —, —, `100`, `/verwalten/anmeldung` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); `ENTRA_UI_PATH` = `paths.entra` der Oberfläche |

@@ -13,6 +13,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **0.2.2:** `RATE_LIMIT_NAMESPACE`: Vorsatz vor den Rate-Limit-Schlüsseln des Pakets (`<namespace>:<produkt>:…`),
+  damit Umgebungen mit demselben geteilten Speicher (z. B. E2E und lokale App) getrennt zählen.
 - **0.2.1:** Rechte im OpenAPI wieder als `enum` aus dem Katalog (`Role.permissions`, `customPermissions` von
   `GET /v1/roles` und der Plattformroute, Rollen im Status). Warnung im Log, wenn Fastify unbekannte Felder still
   entfernt (`removeAdditional`); die Tests des Pakets laufen mit `removeAdditional: false`.

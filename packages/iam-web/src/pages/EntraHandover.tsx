@@ -22,8 +22,8 @@ import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import { ErrorBox, Loading } from '../ui/states.tsx';
 
-/** Token im Fragment: nur diese Zeichen (base64url), sonst gilt der Link als unvollständig. */
-const TOKEN = /^[A-Za-z0-9_-]{16,512}$/;
+/** Token im Fragment: `<alias>.<43 Zeichen base64url>`, sonst gilt der Link als unvollständig. */
+const TOKEN = /^[a-z0-9][a-z0-9_-]{0,62}\.[A-Za-z0-9_-]{43}$/;
 
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 

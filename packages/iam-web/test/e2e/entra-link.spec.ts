@@ -10,7 +10,7 @@ const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const axe = async (page: Page) => (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations
   .filter(v => v.impact === 'serious' || v.impact === 'critical').map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`);
 const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
-const TOKEN = 'e2eHandoverToken_0123456789abcdef';
+const TOKEN = 'demo.e2eHandoverToken_0123456789abcdefABCDEFGHIJ';
 
 /** Microsoft nachgebildet: die Zustimmung leitet sofort auf die Rückkehrseite der Testseite. */
 const fakeMicrosoft = (page: Page) => page.route('https://login.microsoftonline.com/**', r => r.fulfill({

@@ -10,6 +10,7 @@ import { entraApi, useConsentLinks } from '../admin.ts';
 import type { ConsentLink, ConsentLinkCreated, ConsentLinkStatus } from '../contract.ts';
 import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
+import { ApiError } from '../problem.ts';
 import { t, type IamTextKey } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
@@ -19,7 +20,9 @@ import { ErrorBox, SkeletonRows } from '../ui/states.tsx';
 /** Gültigkeit in Minuten (Server: 5–1440, Standard 15). */
 const VALIDITY = [15, 60, 240, 1440] as const;
 const STATUS_PILL: Record<ConsentLinkStatus, string> = { open: 'iam-st-warn', connected: 'iam-st-ok', failed: 'iam-st-bad', expired: 'iam-st-off', revoked: 'iam-st-off' };
-const statusText = (s: ConsentLinkStatus) => t(`iam.entraLink.status.${s}` as IamTextKey);
+/** Unbekannter Status (z. B. gerade beim Einlösen belegt): «in Arbeit». */
+const statusText = (s: ConsentLinkStatus) => (s in STATUS_PILL ? t(`iam.entraLink.status.${s}` as IamTextKey) : t('iam.entraLink.status.busy'));
+const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 
 /** Dialog: Verzeichnis und Gültigkeit, danach der Link zum Kopieren (nur jetzt sichtbar). */
 export function ConsentLinkDialog({ alias, orgLabel, tenant: fixed, onClose }: { alias: string | null; orgLabel: string; tenant?: string; onClose: () => void }) {
@@ -62,7 +65,9 @@ export function ConsentLinkDialog({ alias, orgLabel, tenant: fixed, onClose }: {
           {VALIDITY.map(m => <option key={m} value={m}>{t(`iam.entraLink.valid.${m}` as IamTextKey)}</option>)}
         </select>
       </div>
-      {create.error ? <ErrorBox error={create.error} /> : null}
+      {reasonOf(create.error) === 'too-many-links'
+        ? <p className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t('iam.entraLink.tooMany')}</span></p>
+        : create.error ? <ErrorBox error={create.error} /> : null}
     </Dialog>
   );
 }
@@ -97,9 +102,11 @@ export function ConsentLinkList({ alias, orgLabel }: { alias: string | null; org
               <tr key={l.id}>
                 <td className="iam-mono-s">{l.entraTenantId}</td>
                 <td>
-                  <span className={`iam-pill iam-sm ${STATUS_PILL[l.status]}`}>{statusText(l.status)}</span>
+                  <span className={`iam-pill iam-sm ${STATUS_PILL[l.status] ?? 'iam-st-warn'}`}>{statusText(l.status)}</span>
                   {l.status === 'connected' && l.approverName ? <div className="iam-muted iam-small">{t('iam.entraLink.approvedBy', { name: l.approverName, when: l.usedAt ? relTime(l.usedAt) : '' })}</div> : null}
-                  {l.error ? <div className="iam-ferr iam-small">{l.error.detail}</div> : null}
+                  {l.error?.reason === 'creator-lost-access'
+                    ? <div className="iam-muted iam-small">{t('iam.entraLink.creatorLost')}</div>
+                    : l.error ? <div className="iam-ferr iam-small">{l.error.detail}</div> : null}
                 </td>
                 <td className="iam-small" title={fmtDateTime(l.createdAt)}>{l.createdByName}<div className="iam-muted">{relTime(l.createdAt)}</div></td>
                 <td className="iam-small">{fmtDateTime(l.expiresAt)}</td>

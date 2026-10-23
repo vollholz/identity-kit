@@ -14,7 +14,7 @@ import { axeProblems } from './render.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
 
-const TOKEN = 'h0ver_Tok3n-abcdefghijklmnopqrstuv';
+const TOKEN = 'demo.h0ver_Tok3n-abcdefghijklmnopqrstuvwxyz01234';
 const INFO = { organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', expiresAt: '2030-01-01T10:00:00.000Z' };
 const problem = (status: number, detail: string, extra: Record<string, unknown> = {}) => json({ type: 'about:blank', title: 'Fehler', status, detail, ...extra }, status);
 
@@ -82,6 +82,18 @@ describe('Freigabe für die Entra-Administration (öffentlich)', () => {
     const api = open(`/verwalten/anmeldung/freigabe?token=${TOKEN}`, {});
     expect(await screen.findByRole('heading', { name: 'Link unvollständig' })).toBeInTheDocument();
     expect(api.calls).toHaveLength(0);
+  });
+
+  it('Token ohne Alias oder mit falscher Länge: «Link unvollständig», kein Aufruf', async () => {
+    for (const bad of [TOKEN.slice(5), `${TOKEN}x`, TOKEN.slice(0, -1), `Demo.${TOKEN.slice(5)}`]) {
+      const api = open(`/verwalten/anmeldung/freigabe#${bad}`, {});
+      expect(await screen.findByRole('heading', { name: 'Link unvollständig' })).toBeInTheDocument();
+      expect(api.calls).toHaveLength(0);
+      cleanup();
+    }
+    const api = open(`/verwalten/anmeldung/freigabe#x.${TOKEN.slice(5)}`, { 'POST /v1/entra/handover/info': () => json(INFO) });
+    expect(await screen.findByRole('button', { name: 'Bei Microsoft zustimmen' })).toBeInTheDocument();
+    expect(await body(api.calls[0]!)).toEqual({ token: `x.${TOKEN.slice(5)}` });
   });
 
   it('unbekannt, abgelaufen oder eingelöst (404): «Link ungültig»; anderer Fehler mit «Erneut versuchen»', async () => {
@@ -205,7 +217,8 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
   it('Fehler beim Erzeugen (422 Tenant nicht gefunden, 409 zu viele offene Links) bleiben im Dialog', async () => {
     let status = 422;
     admin({ ...notConnected, 'GET /v1/admin/entra/consent-links': () => json({ items: [] }),
-      'POST /v1/admin/entra/consent-links': () => problem(status, status === 422 ? 'Kein Microsoft-Verzeichnis zu dieser Domäne gefunden.' : 'Zu viele offene Links.') });
+      'POST /v1/admin/entra/consent-links': () => (status === 422 ? problem(422, 'Kein Microsoft-Verzeichnis zu dieser Domäne gefunden.')
+        : problem(409, 'Höchstens 5 offene Links je Organisation.', { reason: 'too-many-links' })) });
     await userEvent.click(await screen.findByRole('button', { name: 'Link an die Entra-Administration senden' }));
     const dlg = await screen.findByRole('dialog', { name: 'Link an die Entra-Administration von «Demo AG»' });
     await userEvent.type(within(dlg).getByLabelText('Verzeichnis'), 'unbekannt.example');
@@ -213,7 +226,7 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
     expect(await within(dlg).findByRole('alert')).toHaveTextContent('Kein Microsoft-Verzeichnis zu dieser Domäne gefunden.');
     status = 409;
     await userEvent.click(within(dlg).getByRole('button', { name: 'Link erzeugen' }));
-    await waitFor(() => expect(within(dlg).getByRole('alert')).toHaveTextContent('Zu viele offene Links.'));
+    await waitFor(() => expect(within(dlg).getByRole('alert')).toHaveTextContent('Es gibt schon 5 offene Links. Widerrufe zuerst einen Link, den du nicht mehr brauchst.'));
   });
 
   it('Liste: Status, Zustimmung, Fehlertext; Widerrufen nur offene, 409 bleibt im Dialog und lädt die Liste neu', async () => {
@@ -224,11 +237,16 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
         link({ id: 'l2', status: 'connected', usedAt: AT, approverName: 'Iris IT' }),
         link({ id: 'l3', status: 'failed', usedAt: AT, error: { reason: 'consent-unproven', detail: 'Keine Administration des Verzeichnisses.' } }),
         link({ id: 'l4', status: 'expired' }),
+        link({ id: 'l5', status: 'revoked', error: { reason: 'creator-lost-access', detail: 'creator-lost-access' } }),
+        link({ id: 'l6', status: 'claimed' as ConsentLink['status'] }),
       ] }),
       'DELETE /v1/admin/entra/consent-links/l1': () => (fail ? problem(409, 'Schon eingelöst.') : new Response(null, { status: 204 })),
     });
     const table = await screen.findByRole('table', { name: /Links an die Entra-Administration/ });
-    expect(within(table).getAllByRole('row')).toHaveLength(5);
+    expect(within(table).getAllByRole('row')).toHaveLength(7);
+    expect(table).toHaveTextContent('Automatisch widerrufen: Die Person, die den Link erzeugt hat, darf die Mitglieder nicht mehr verwalten.');
+    expect(table).not.toHaveTextContent('creator-lost-access');
+    expect(table).toHaveTextContent('in Arbeit');
     expect(table).toHaveTextContent('verbunden');
     expect(table).toHaveTextContent('Zugestimmt von Iris IT');
     expect(table).toHaveTextContent('Keine Administration des Verzeichnisses.');

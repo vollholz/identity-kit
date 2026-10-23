@@ -53,7 +53,7 @@ const tenantPerms = (rs: string[]) => [...new Set(CATALOG.roles.filter(r => rs.i
 const people = () => members.filter(m => m.principalId).map(m => ({ id: m.principalId!, kind: 'user', name: m.name, email: m.email, clientId: null, lastSeenAt: m.lastSeenAt }));
 const features = { entra: true };
 // Link an die Entra-Administration: Token nur im Fragment; Microsoft leitet in den Tests auf ?p=handoverReturn zurück
-const HANDOVER_TOKEN = 'e2eHandoverToken_0123456789abcdef';
+const HANDOVER_TOKEN = 'demo.e2eHandoverToken_0123456789abcdefABCDEFGHIJ';
 let links: ConsentLink[] = [
   { id: 'l-alt', entraTenantId: 'demoag.onmicrosoft.com', createdByName: 'Anna Admin', createdAt: ago(3), expiresAt: ago(2.9), status: 'failed', usedAt: ago(2.95), approverName: null, error: { reason: 'consent-unproven', detail: 'Die zustimmende Person ist keine Administration des Verzeichnisses.' } },
 ];

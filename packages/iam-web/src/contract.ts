@@ -1,12 +1,17 @@
 /**
  * Typen des HTTP-Vertrags (Spezifikation Kap. 5, 7, 8.3, 9, 11; docs/entwurf.md › Teststrategie), von Hand gepflegt:
  * Das Paket hängt nicht von den erzeugten Typen einer App ab. `test/contract.check.ts` prüft sie gegen einen Auszug der
- * OpenAPI von vollholz/assets. Schlüssel von Rechten, Rollen, Scopes und Ressourcentypen sind hier `string`; die App
- * schränkt `Permission` über `Register` ein (siehe `permissions.ts`).
+ * OpenAPI von vollholz/assets. Schlüssel von Rechten sind `Permission` (ohne Registrierung `string`, mit Registrierung
+ * der Typ der App, siehe `permissions.ts`); Rollen, Scopes und Ressourcentypen sind `string`.
  */
+import type { Permission } from './permissions.ts';
 
-/** Fehler nach RFC 9457 mit den Erweiterungen des Vertrags; alles optional, weil auch Antworten ohne problem+json ankommen. */
+/**
+ * Fehler nach RFC 9457 mit den Erweiterungen des Vertrags; alles optional, weil auch Antworten ohne problem+json ankommen.
+ * Weitere Erweiterungsfelder der App (RFC 9457, Abschnitt 3.2) bleiben erhalten und sind als `unknown` lesbar.
+ */
 export interface ProblemDetails {
+  [extension: string]: unknown;
   type?: string;
   title?: string;
   status?: number;
@@ -36,9 +41,9 @@ export interface Me {
   tenantError: string | null;
   roles: string[];
   /** Rechte auf Ebene der Organisation (effektiv). */
-  permissions: string[];
+  permissions: Permission[];
   /** Rechte nur über Freigaben auf einzelnen Ressourcen; immer vorhanden, leer ohne Freigaben (5.1, 7.1). */
-  grantedPermissions: string[];
+  grantedPermissions: Permission[];
   csrfToken: string;
   session: { expiresAt: string; idleTimeoutSeconds: number };
 }
@@ -50,7 +55,7 @@ export interface SwitchResult { redirect: string }
 // ------------------------------------------------------------------------------------------- Katalog (7.2, GET /v1/authz/catalog)
 
 export interface PermissionInfo {
-  key: string;
+  key: Permission;
   label: string;
   description: string;
   group: string;
@@ -60,8 +65,10 @@ export interface PermissionInfo {
   adminOnly: boolean;
 }
 export interface PermissionGroupInfo { key: string; label: string }
-export interface CatalogRole { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean }
-export interface ScopeInfo { key: string; text: string; permissions: string[] }
+export interface CatalogRole { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
+export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
+/** Werkzeug des MCP-Dienstes (12.2) mit dem Recht und dem Scope, die es braucht. */
+export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean }
 export interface ResourceTypeInfo { key: string; label: string }
 
 export interface AuthzCatalog {
@@ -70,6 +77,8 @@ export interface AuthzCatalog {
   roles: CatalogRole[];
   scopes: ScopeInfo[];
   resourceTypes: ResourceTypeInfo[];
+  /** Nur mit MCP-Dienst (7.2). */
+  mcpTools?: McpToolInfo[];
 }
 
 // --------------------------------------------------------------------------------------------- Rollen (8.3, /v1/roles)
@@ -78,7 +87,7 @@ export interface Role {
   key: string;
   label: string;
   description: string;
-  permissions: string[];
+  permissions: Permission[];
   adminOnly: boolean;
   /** Eigene Rolle der Organisation (`c-…`). */
   custom: boolean;
@@ -92,11 +101,11 @@ export interface Role {
 export interface RoleList {
   items: Role[];
   /** Rechte, die eine eigene Rolle enthalten darf. */
-  customPermissions: string[];
+  customPermissions: Permission[];
   maxCustom: number;
 }
-export interface RoleInput { label: string; description?: string; permissions: string[] }
-export interface RolePatch { label?: string; description?: string; permissions?: string[] }
+export interface RoleInput { label: string; description?: string; permissions: Permission[] }
+export interface RolePatch { label?: string; description?: string; permissions?: Permission[] }
 
 // --------------------------------------------------------------------------------------------- Verwaltung (9.2)
 
@@ -107,7 +116,7 @@ export interface AdminStatus {
   platformAdmin: boolean;
   canManageMembers: boolean;
   rolesManageable: boolean;
-  roles: { key: string; label: string; permissions: string[]; adminOnly: boolean; custom?: boolean }[];
+  roles: { key: string; label: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }[];
 }
 
 export interface Member {
@@ -209,7 +218,7 @@ export interface AclEntry {
   resourceId: string | null;
   principalType: string;
   principalRef: string;
-  permission: string;
+  permission: Permission;
   effect: AclEffect;
   createdAt: string;
   createdBy: string | null;
@@ -220,7 +229,7 @@ export interface AclInput {
   resourceId?: string | null;
   principalType: AclPrincipalType;
   principalRef: string;
-  permission: string;
+  permission: Permission;
   effect?: AclEffect;
 }
 
@@ -230,9 +239,9 @@ export interface Effective {
   roles: string[];
   groups: string[];
   scopes: string[];
-  permissions: string[];
-  granted: string[];
-  resources: { resourceType: string; resourceId: string; permission: string; allowed: boolean }[];
+  permissions: Permission[];
+  granted: Permission[];
+  resources: { resourceType: string; resourceId: string; permission: Permission; allowed: boolean }[];
   simulated: boolean;
   source: 'token' | 'keycloak' | 'last-token' | 'simulation';
 }

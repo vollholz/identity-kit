@@ -10,7 +10,7 @@ import { DEFAULT_PATHS, IamConfigProvider, type IamConfig } from '../config.tsx'
 import type { AuthzCatalog, Me, RoleList } from '../contract.ts';
 import { historyRouter } from '../router.tsx';
 import { StaticSession } from '../session.tsx';
-import { configureTexts } from '../texts/index.ts';
+import { configureTexts, type IamLocale, type IamTexts } from '../texts/index.ts';
 import { IamTextProvider } from '../texts/react.tsx';
 import { IamUiProvider, type IamComponents } from '../ui/context.tsx';
 import { CATALOG, ME } from './catalog.ts';
@@ -22,18 +22,21 @@ export interface StaticIamProps {
   config?: Partial<IamConfig>;
   components?: Partial<IamComponents>;
   queryClient?: QueryClient;
+  /** Sprache und Überschreibungen der Texte wie bei `IamProvider`. */
+  locale?: IamLocale;
+  texts?: Record<string, IamTexts>;
   children: ReactNode;
 }
 
 /** Bausteine mit fester Sitzung (ohne /auth/me); Abfragen ohne Wiederholung, damit Fehler sofort sichtbar sind. */
-export function StaticIam({ me, config, components, queryClient, children }: StaticIamProps) {
+export function StaticIam({ me, config, components, queryClient, locale = 'de', texts, children }: StaticIamProps) {
   const [qc] = useState(() => queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }));
   const value = useMemo<IamConfig>(() => ({ product: 'Notizen', paths: DEFAULT_PATHS, features: {}, router: historyRouter, ...config }), [config]);
   const fixed = useMemo<Me>(() => ({ ...ME, ...me }), [me]);
-  const texts = useMemo(() => { configureTexts({ locale: 'de', texts: {} }); return { locale: 'de', version: 0 }; }, []);
+  const textState = useMemo(() => { configureTexts({ locale, texts: texts ?? {} }); return { locale, version: Date.now() }; }, [locale, texts]);
   return (
     <QueryClientProvider client={qc}>
-      <IamTextProvider value={texts}>
+      <IamTextProvider value={textState}>
         <IamConfigProvider value={value}>
           <IamUiProvider components={components}><StaticSession me={fixed}>{children}</StaticSession></IamUiProvider>
         </IamConfigProvider>

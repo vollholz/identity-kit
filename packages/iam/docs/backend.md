@@ -191,7 +191,8 @@ Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantSt
   (`brokerRedirectUris`, `ENTRA_IDP_SLOTS`).
 - Berechtigungen in Microsoft Graph (wie Assets `docs/einrichtung.md`): delegiert `User.Read` (Keycloak liest bei der
   Anmeldung `/me`), Anwendung `Organization.Read.All` (Organisation und verifizierte Domänen, `GET /organization`),
-  Anwendung `User.Read.All` (Personen finden und verknüpfen). Kunden stimmen beim Verbinden allen zu (`.default`); kommt
+  Anwendung `User.Read.All` (`GET /users` mit `$filter`/`$search`, `GET /users/{id}`: Personen finden und verknüpfen).
+  Weitere Aufrufe gibt es nicht (kein `/domains`, die Domänen kommen aus `/organization`). Kunden stimmen beim Verbinden allen zu (`.default`); kommt
   später eine dazu, müssen sie erneut verbinden.
 - **Gruppen-Claim mit Verzeichnisrollen** (`groupMembershipClaims` mit `DirectoryRole`; Portal: Token configuration ›
   groups claim › Directory roles). Ohne diesen Claim fehlt `wids` im ID-Token, und Verbinden scheitert mit 409

@@ -580,6 +580,10 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
 `src/platform/modules/admin/{entra,graph}.ts`, Migrationen `046`, `047`.
 
 - **Eine** mandantenfähige App in Entra ID je Produkt (Betreiber registriert einmal); Kunden stimmen beim Verbinden zu.
+  Berechtigungen in Microsoft Graph (minimal, nach den Aufrufen der App): Anwendung `Organization.Read.All`
+  (`GET /organization`: Tenant und verifizierte Domänen), Anwendung `User.Read.All` (`GET /users` mit `$filter` bzw.
+  `$search`, `GET /users/{id}`), delegiert `User.Read` (Keycloak liest bei der Anmeldung `/me`). Dazu Verzeichnisrollen im
+  Gruppen-Claim (`groupMembershipClaims` mit `DirectoryRole`) für den Nachweis der Zustimmung (`wids`).
   Je Organisation ein Identity Provider `entra-NNN` aus einem Pool von Redirect-URIs (`ENTRA_IDP_SLOTS`), mit der
   Organisation und ihren Domänen verbunden (Keycloak ≥ 26.8). `<produkt>-admin` braucht dafür
   `manage-identity-providers`; Mapper an Anbietern legt die App nie an.

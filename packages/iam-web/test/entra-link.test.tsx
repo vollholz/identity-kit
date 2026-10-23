@@ -15,7 +15,7 @@ import { axeProblems } from './render.tsx';
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
 
 const TOKEN = 'demo.h0ver_Tok3n-abcdefghijklmnopqrstuvwxyz01234';
-const INFO = { organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', expiresAt: '2030-01-01T10:00:00.000Z' };
+const INFO = { organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: '2030-01-01T10:00:00.000Z' };
 const problem = (status: number, detail: string, extra: Record<string, unknown> = {}) => json({ type: 'about:blank', title: 'Fehler', status, detail, ...extra }, status);
 
 /** Öffentliche Seite über IamProvider (ohne Sitzung) an der echten Adresse. */
@@ -49,6 +49,8 @@ describe('Freigabe für die Entra-Administration (öffentlich)', () => {
     expect(screen.getByText(/Sie erteilen Notizen Lesezugriff auf das Microsoft-Verzeichnis demoag\.onmicrosoft\.com/)).toBeInTheDocument();
     expect(screen.getByRole('note')).toHaveTextContent('Nur zustimmen, wenn Sie die Anfrage von Anna Admin erwarten.');
     expect(screen.getByText('Organisation').nextElementSibling).toHaveTextContent('Demo AG');
+    expect(screen.getByText('Verzeichnis-ID').nextElementSibling).toHaveTextContent(INFO.entraTenantId);
+    expect(screen.getByText(INFO.notice)).toBeInTheDocument();
     expect(api.calls.some(c => pathOf(c) === '/auth/me')).toBe(false);
     const info = api.calls.find(c => pathOf(c) === '/v1/entra/handover/info')!;
     expect(await body(info)).toEqual({ token: TOKEN });
@@ -238,15 +240,19 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
         link({ id: 'l3', status: 'failed', usedAt: AT, error: { reason: 'consent-unproven', detail: 'Keine Administration des Verzeichnisses.' } }),
         link({ id: 'l4', status: 'expired' }),
         link({ id: 'l5', status: 'revoked', error: { reason: 'creator-lost-access', detail: 'creator-lost-access' } }),
-        link({ id: 'l6', status: 'claimed' as ConsentLink['status'] }),
+        link({ id: 'l6', status: 'in-progress' }),
+        link({ id: 'l7', status: 'revoked', error: { reason: 'disconnected', detail: 'disconnected' } }),
+        link({ id: 'l8', status: 'revoked' }),
+        link({ id: 'l9', status: 'claimed' as ConsentLink['status'] }),
       ] }),
       'DELETE /v1/admin/entra/consent-links/l1': () => (fail ? problem(409, 'Schon eingelöst.') : new Response(null, { status: 204 })),
     });
     const table = await screen.findByRole('table', { name: /Links an die Entra-Administration/ });
-    expect(within(table).getAllByRole('row')).toHaveLength(7);
+    expect(within(table).getAllByRole('row')).toHaveLength(10);
+    expect(table).toHaveTextContent('Automatisch widerrufen: Die Verbindung mit Microsoft wurde getrennt.');
+    expect(within(table).getAllByText('in Arbeit')).toHaveLength(2);
     expect(table).toHaveTextContent('Automatisch widerrufen: Die Person, die den Link erzeugt hat, darf die Mitglieder nicht mehr verwalten.');
-    expect(table).not.toHaveTextContent('creator-lost-access');
-    expect(table).toHaveTextContent('in Arbeit');
+    expect(table).not.toHaveTextContent(/creator-lost-access|disconnected/);
     expect(table).toHaveTextContent('verbunden');
     expect(table).toHaveTextContent('Zugestimmt von Iris IT');
     expect(table).toHaveTextContent('Keine Administration des Verzeichnisses.');

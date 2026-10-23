@@ -19,9 +19,11 @@ import { ErrorBox, SkeletonRows } from '../ui/states.tsx';
 
 /** Gültigkeit in Minuten (Server: 5–1440, Standard 15). */
 const VALIDITY = [15, 60, 240, 1440] as const;
-const STATUS_PILL: Record<ConsentLinkStatus, string> = { open: 'iam-st-warn', connected: 'iam-st-ok', failed: 'iam-st-bad', expired: 'iam-st-off', revoked: 'iam-st-off' };
-/** Unbekannter Status (z. B. gerade beim Einlösen belegt): «in Arbeit». */
-const statusText = (s: ConsentLinkStatus) => (s in STATUS_PILL ? t(`iam.entraLink.status.${s}` as IamTextKey) : t('iam.entraLink.status.busy'));
+const STATUS_PILL: Record<ConsentLinkStatus, string> = { open: 'iam-st-warn', 'in-progress': 'iam-st-warn', connected: 'iam-st-ok', failed: 'iam-st-bad', expired: 'iam-st-off', revoked: 'iam-st-off' };
+/** Unbekannter Status wie `in-progress`: «in Arbeit». */
+const statusText = (s: ConsentLinkStatus) => (s in STATUS_PILL && s !== 'in-progress' ? t(`iam.entraLink.status.${s}` as IamTextKey) : t('iam.entraLink.status.inProgress'));
+/** Automatisch widerrufen: eigener Text statt Code. */
+const REVOKED: Record<string, IamTextKey> = { 'creator-lost-access': 'iam.entraLink.creatorLost', disconnected: 'iam.entraLink.disconnected' };
 const reasonOf = (e: unknown) => (e instanceof ApiError ? (e.problem as { reason?: string }).reason : undefined);
 
 /** Dialog: Verzeichnis und Gültigkeit, danach der Link zum Kopieren (nur jetzt sichtbar). */
@@ -104,8 +106,8 @@ export function ConsentLinkList({ alias, orgLabel }: { alias: string | null; org
                 <td>
                   <span className={`iam-pill iam-sm ${STATUS_PILL[l.status] ?? 'iam-st-warn'}`}>{statusText(l.status)}</span>
                   {l.status === 'connected' && l.approverName ? <div className="iam-muted iam-small">{t('iam.entraLink.approvedBy', { name: l.approverName, when: l.usedAt ? relTime(l.usedAt) : '' })}</div> : null}
-                  {l.error?.reason === 'creator-lost-access'
-                    ? <div className="iam-muted iam-small">{t('iam.entraLink.creatorLost')}</div>
+                  {l.status === 'revoked' && l.error && REVOKED[l.error.reason]
+                    ? <div className="iam-muted iam-small">{t(REVOKED[l.error.reason]!)}</div>
                     : l.error ? <div className="iam-ferr iam-small">{l.error.detail}</div> : null}
                 </td>
                 <td className="iam-small" title={fmtDateTime(l.createdAt)}>{l.createdByName}<div className="iam-muted">{relTime(l.createdAt)}</div></td>

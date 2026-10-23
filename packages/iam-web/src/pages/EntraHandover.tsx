@@ -72,9 +72,11 @@ export function EntraHandoverPage() {
         <dt>{t('iam.handover.app')}</dt><dd>{d.product}</dd>
         <dt>{t('iam.handover.requestedBy')}</dt><dd>{d.requestedBy}</dd>
         <dt>{t('iam.handover.directory')}</dt><dd className="iam-mono-s">{d.tenant}</dd>
+        <dt>{t('iam.handover.directoryId')}</dt><dd className="iam-mono-s">{d.entraTenantId}</dd>
         <dt>{t('iam.handover.validUntil')}</dt><dd>{fmtDateTime(d.expiresAt)}</dd>
       </dl>
       <p>{t('iam.handover.grants', { product: d.product, directory: d.tenant, organization: d.organization })}</p>
+      {d.notice ? <p>{d.notice}</p> : null}
       <p className="iam-warnbox" role="note"><Icon name="warn" className="iam-ico" /><span>{t('iam.handover.onlyIf', { person: d.requestedBy })}</span></p>
       {start.error ? <ErrorBox error={start.error} compact /> : null}
       <Button variant="primary" icon="link" busy={start.isPending || start.isSuccess} onClick={() => start.mutate()}>{t('iam.handover.consent')}</Button>

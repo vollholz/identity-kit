@@ -127,7 +127,7 @@ window.fetch = mockIamApi({
   },
   'DELETE /v1/admin/entra/consent-links/l-1': () => { links = links.map(l => (l.id === 'l-1' ? { ...l, status: 'revoked' as const } : l)); return new Response(null, { status: 204 }); },
   'POST /v1/entra/handover/info': async req => ((await req.json() as { token: string }).token === HANDOVER_TOKEN
-    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', expiresAt: new Date(Date.now() + 900_000).toISOString() })
+    ? json({ organization: 'Demo AG', product: 'Notizen', requestedBy: 'Anna Admin', tenant: 'demoag.onmicrosoft.com', entraTenantId: '0f1e2d3c-4b5a-4697-8876-a5b4c3d2e1f0', notice: 'Verifizierte Domänen des Verzeichnisses gehen an die Organisation «Demo AG».', expiresAt: new Date(Date.now() + 900_000).toISOString() })
     : json({ title: 'Nicht gefunden', status: 404 }, 404)),
   'POST /v1/entra/handover/start': () => json({ url: 'https://login.microsoftonline.com/demoag.onmicrosoft.com/oauth2/v2.0/authorize?state=h.demo.e2e' }),
   'POST /v1/entra/handover/complete': () => json({ organization: 'Demo AG', connected: true }),

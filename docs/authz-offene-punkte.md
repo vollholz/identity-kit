@@ -26,21 +26,23 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 
 | Paket | Repo | Branch | Stand |
 |---|---|---|---|
-| 0 Spezifikation (Vertrag) | identity-kit | `authz-p0-spec` | offen |
+| 0 Spezifikation (Vertrag) | identity-kit | `authz-p0-spec` | in Arbeit |
 | 1–3, 5 Backend + Testkit | identity-kit | `authz-p1-backend` | wartet auf 0 |
-| 4 Realm-Modul | identity-kit | `authz-p4-realm` | offen |
+| 4 Realm-Modul | identity-kit | `authz-p4-realm` | PR #44 |
 | 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | wartet auf 0 |
 | 7 Release 1.0 | identity-kit | – | wartet auf 1–6 |
 | 8, 9a Assets Backend + Standardschema | assets | `authz-p8-backend` | wartet auf 7 |
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | wartet auf 8 |
 | 10 Doku Assets | assets | `authz-p10-docs` | wartet auf 9 |
-| 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | offen |
+| 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
 ## Offene Punkte
 
 | # | Punkt | Herkunft | Entscheid |
 |---|---|---|---|
 | O1 | Entra-Gruppen: Überlauf bei mehr als 200 Gruppen (Entra liefert dann keinen `groups`-Claim); ggf. Gruppen-Filter in der App-Registrierung oder Abfrage über Graph | Review #43 | offen, nach P1 |
+| O2 | Attribut `entra_groups` im Realm-User-Profile | P4 | entschieden: im Modul deklariert, nur admin, mehrwertig |
+| O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | an P1 |
 
 ## Verworfen
 

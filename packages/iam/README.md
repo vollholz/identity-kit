@@ -13,6 +13,12 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **0.3.0:** Entra mit eigener App der Organisation (`PUT …/entra/app`, Migration `iam_014`): Tenant, Anwendungs-ID
+  und Geheimnis der Kunden-App, geprüft bei Microsoft vor dem Speichern, Geheimnis verschlüsselt (`ENCRYPTION_KEYS`,
+  Rotation `rewrapEntraSecrets`), Anbieter `entra-app-<alias>`, Ablauf des Geheimnisses mit Warnung. Link
+  `kind: 'credentials'` mit öffentlichem `POST /v1/entra/handover/credentials`. `ENTRA_CLIENT_ID` ist optional (ohne:
+  Zustimmung 409 `platform-app-disabled`). Status mit `methods`, `ownApp`; Verbindung mit `method`, `clientId`,
+  `secretExpiresAt`, `secretExpiresSoon`, `redirectUri`. Fehler mit `reason` `tenant-mismatch`.
 - **0.2.2:** `RATE_LIMIT_NAMESPACE`: Vorsatz vor den Rate-Limit-Schlüsseln des Pakets (`<namespace>:<produkt>:…`),
   damit Umgebungen mit demselben geteilten Speicher (z. B. E2E und lokale App) getrennt zählen.
 - **0.2.1:** Rechte im OpenAPI wieder als `enum` aus dem Katalog (`Role.permissions`, `customPermissions` von

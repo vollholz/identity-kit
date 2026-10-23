@@ -35,8 +35,8 @@ export { AdminService, entraAddress, type EntraLink, roleCatalog, roleList, MAX_
 export { MemberSync, syncAllMembers, syncTenantMembers, syncTenantName, orgMatches, pendingActions, displayName, type SyncContext, type SyncResult, type RoleCleanup } from './sync.ts';
 export { roleKey } from './http/roles.ts';
 export { defaultPeoplePermissions } from './http/people.ts';
-export { EntraService, brokerRedirectUris, consentPath, consentRedirectUri, testPath, entraFirstLoginFlow, idpRepresentation, slotAlias, type EntraConnection, type EntraConnectionOut, type EntraStatus, type EntraCandidate, type BindResult, type ConnectResult } from './entra.ts';
-export { EntraGraph, EntraError, notLinkable, ENTRA_LOGIN, GRAPH, type EntraUser, type EntraOrganization } from './graph.ts';
+export { EntraService, brokerRedirectUri, brokerRedirectUris, ownAppAlias, encryptAppSecret, decryptAppSecret, rewrapEntraSecrets, type OwnAppGuide, type LinkKind, type ConsentLinkOut, consentPath, consentRedirectUri, testPath, entraFirstLoginFlow, idpRepresentation, slotAlias, type EntraConnection, type EntraConnectionOut, type EntraStatus, type EntraCandidate, type BindResult, type ConnectResult } from './entra.ts';
+export { EntraGraph, EntraError, notLinkable, ENTRA_LOGIN, GRAPH, OWN_APP_PERMISSIONS, type AppPermission, type AppCheck, type EntraAppConfig, type EntraUser, type EntraOrganization } from './graph.ts';
 export { DpopSigner, wantsNonce } from './mcp/dpop.ts';
 export { TokenExchanger, type ExchangedToken } from './mcp/exchange.ts';
 export { ApiClient, ApiError, type CallOptions } from './mcp/api.ts';

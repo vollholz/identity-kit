@@ -5,6 +5,11 @@
  * nach UPN oder mail, `$search` mit ConsistencyLevel: eventual). Verhalten wie Microsoft, soweit die Plattform es nutzt:
  * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215. Zustimmung mit
  * Anmeldung: `approve` spielt den Browser nach, der Token-Endpunkt löst den Code (PKCE) gegen ein signiertes ID-Token ein.
+ * Eigene App einer Organisation (`app`): App-Registrierung in einem Tenant mit eigenem Geheimnis, erteilten
+ * Anwendungsberechtigungen (`roles` im Token, Graph prüft sie: sonst 403) und Registrierung mit Ablauf des Geheimnisses
+ * (`/applications(appId='…')`, nur im Heimat-Tenant und mit Application.Read.All). `consentedIn`: weitere Tenants, die
+ * der (mandantenfähigen) App zugestimmt haben – dort gibt es Tokens, aber keine Registrierung. Wie Microsoft: App ohne
+ * Zustimmung im Tenant AADSTS700016, falsches Geheimnis AADSTS7000215, abgelaufenes AADSTS7000222.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from 'jose';
@@ -25,8 +30,18 @@ export interface FakeEntraUser {
 
 export interface FakeTenant { id: string; name: string; domains: string[]; users: FakeEntraUser[]; consented: boolean }
 
+/** App-Registrierung einer Organisation in ihrem Tenant (eigene App). `roles`: erteilte Anwendungsberechtigungen. */
+export interface FakeApp {
+  clientId: string; tenantId: string; secret: string; roles: string[]; expired: boolean; consentedIn: string[];
+  passwordCredentials: { keyId: string; hint: string; endDateTime: string }[];
+}
+
 export class EntraFake {
   readonly tenants = new Map<string, FakeTenant>();
+  /** Eigene Apps der Organisationen, nach Anwendungs-ID. */
+  readonly apps = new Map<string, FakeApp>();
+  /** Rollen der Tokens eigener Apps (Graph prüft sie). */
+  private readonly tokenRoles = new Map<string, string[]>();
   readonly calls: string[] = [];
   /** Suchausdrücke von `$search` (Teil 2). */
   readonly searches: string[] = [];
@@ -67,6 +82,19 @@ export class EntraFake {
     this.tenants.set(t.id, t);
     return t;
   }
+  /**
+   * Eigene App im Tenant `t` registrieren. Standard: Organization.Read.All, User.Read.All und Application.Read.All
+   * erteilt, Geheimnis gültig bis `endDateTime` (Standard in einem Jahr). `consentedIn`: weitere Tenants mit Zustimmung.
+   */
+  app(t: FakeTenant, o: { clientId?: string; secret?: string; roles?: string[]; expired?: boolean; endDateTime?: string; consentedIn?: FakeTenant[] } = {}): FakeApp {
+    const secret = o.secret ?? `kunde~${randomUUID()}`;
+    const a: FakeApp = {
+      clientId: o.clientId ?? randomUUID(), tenantId: t.id, secret, roles: o.roles ?? ['Organization.Read.All', 'User.Read.All', 'Application.Read.All'], expired: o.expired ?? false, consentedIn: (o.consentedIn ?? []).map(x => x.id),
+      passwordCredentials: [{ keyId: randomUUID(), hint: secret.slice(0, 3), endDateTime: o.endDateTime ?? new Date(Date.now() + 365 * 86_400_000).toISOString() }],
+    };
+    this.apps.set(a.clientId, a);
+    return a;
+  }
   user(t: FakeTenant, upn: string, o: Partial<FakeEntraUser> = {}): FakeEntraUser {
     const u: FakeEntraUser = { id: randomUUID(), userPrincipalName: upn, mail: upn, displayName: upn, givenName: null, surname: null, userType: 'Member', accountEnabled: true, ...o };
     t.users.push(u);
@@ -89,6 +117,17 @@ export class EntraFake {
       if (rest.join('/') === 'oauth2/v2.0/token' && method === 'POST') {
         const f = new URLSearchParams(String(init?.body));
         if (!t || t.id !== key) return json(400, { error: 'invalid_request', error_description: 'AADSTS900023: Specified tenant identifier is neither a valid DNS name, nor a valid external domain.' });
+        const own = this.apps.get(f.get('client_id') ?? '');
+        if (own && f.get('grant_type') === 'client_credentials') {
+          if (own.tenantId !== t.id && !own.consentedIn.includes(t.id)) return json(400, { error: 'unauthorized_client', error_description: `AADSTS700016: Application with identifier '${own.clientId}' was not found in the directory.` });
+          if (f.get('client_secret') !== own.secret) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' });
+          if (own.expired) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000222: The provided client secret keys are expired.' });
+          // Wie Microsoft ein JWT mit `roles` (hier unsigniert; die Plattform liest nur die Rollen)
+          const part = (x: unknown) => Buffer.from(JSON.stringify(x)).toString('base64url');
+          const token = `${part({ alg: 'none', typ: 'JWT' })}.${part({ tid: t.id, appid: own.clientId, roles: [...own.roles] })}.x`;
+          this.tokens.set(token, t.id); this.tokenRoles.set(token, [...own.roles]);
+          return json(200, { access_token: token, expires_in: 3599, token_type: 'Bearer' });
+        }
         if (f.get('client_secret') !== this.secret) return json(401, { error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' });
         if (f.get('grant_type') === 'authorization_code') {
           // Code nur einmal, im selben Tenant, mit derselben Redirect-URI und passendem PKCE-Verifier
@@ -113,9 +152,20 @@ export class EntraFake {
       return json(404, { error: 'unbekannt' });
     }
     if (url.host === 'graph.microsoft.com') {
-      const tid = this.tokens.get(String((init?.headers as Record<string, string> | undefined)?.authorization ?? '').replace(/^Bearer /, ''));
+      const bearer = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '').replace(/^Bearer /, '');
+      const tid = this.tokens.get(bearer);
       const t = tid ? this.tenants.get(tid) : undefined;
-      if (!t || !t.consented) return json(401, { error: { code: 'InvalidAuthenticationToken' } });
+      const roles = this.tokenRoles.get(bearer);
+      if (!t || (!t.consented && !roles)) return json(401, { error: { code: 'InvalidAuthenticationToken' } });
+      // Eigene App: nur mit der passenden Anwendungsberechtigung (sonst 403 wie Graph)
+      const path = decodeURIComponent(url.pathname);
+      const needed = path === '/v1.0/organization' ? 'Organization.Read.All' : path.startsWith('/v1.0/users') ? 'User.Read.All' : path.startsWith('/v1.0/applications') ? 'Application.Read.All' : null;
+      if (roles && needed && !roles.includes(needed)) return json(403, { error: { code: 'Authorization_RequestDenied' } });
+      const appRead = /^\/v1\.0\/applications\(appId='([^']+)'\)$/.exec(path);
+      if (appRead) {
+        const a = this.apps.get(appRead[1]!);
+        return a && a.tenantId === t.id ? json(200, { passwordCredentials: a.passwordCredentials }) : json(404, { error: { code: 'Request_ResourceNotFound' } });
+      }
       if (url.pathname === '/v1.0/organization') return json(200, { value: [{ id: t.id, displayName: t.name, verifiedDomains: t.domains.map(name => ({ name, isVerified: true })) }] });
       if (url.pathname === '/v1.0/users' && url.searchParams.has('$search')) {
         // Wie Graph: $search nur mit ConsistencyLevel: eventual; Wortanfang in Name, mail oder UPN (je Ausdruck "feld:wert")

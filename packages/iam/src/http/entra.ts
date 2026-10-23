@@ -8,9 +8,11 @@
  * - …/members/entra-search, …/members/entra         Personen aus Entra ID suchen und hinzufügen
  * - /v1/admin/entra/test                           Testanmeldung festhalten (jede Person der Organisation)
  * - /v1/platform/entra/refresh                     alle Verbindungen nachführen (z. B. neues ENTRA_CLIENT_SECRET)
+ * - /v1/entra/handover/*                           öffentliche Seite eines Links (ohne Anmeldung)
  *
- * Ohne Verwaltungs-Client 503 wie das Modul `admin`; ohne ENTRA_CLIENT_ID sagt der Status das, die übrigen Endpunkte
- * antworten mit 503. Die Personensuche ist je Person auf 30 Anfragen pro Minute begrenzt, wenn die App
+ * Verbinden über eine eigene App der Organisation (`PUT …/entra/app`, braucht ENCRYPTION_KEYS) oder über die App der
+ * Plattform (Zustimmung, ENTRA_CLIENT_ID). Ohne Verwaltungs-Client 503 wie das Modul `admin`; ohne ENTRA_CLIENT_ID sagt
+ * der Status das (`methods`), die Zustimmung antwortet mit 409 `platform-app-disabled`. Die Personensuche ist je Person auf 30 Anfragen pro Minute begrenzt, wenn die App
  * `@fastify/rate-limit` registriert (`config.rateLimit` der Route).
  */
 import { Type, type TSchema } from '@sinclair/typebox';
@@ -47,8 +49,23 @@ const EntraCandidates = Type.Object({
   })),
   more: Type.Boolean({ description: 'Es gäbe weitere Treffer: Suche verfeinern' }),
 });
+const Permission = Type.Object({
+  name: Type.String({ description: 'Berechtigung in Microsoft Graph, z. B. User.Read.All' }),
+  type: Type.Unsafe<'Application' | 'Delegated'>({ type: 'string', enum: ['Application', 'Delegated'], description: '`Application`: Anwendungsberechtigung, braucht die Administratorzustimmung im Tenant' }),
+  why: Type.String({ description: 'Wofür die Plattform sie braucht (für die Anleitung)' }),
+  optional: Type.Boolean({ description: 'true: nicht nötig (zurzeit sind alle nötig)' }),
+});
+const OwnAppGuide = Type.Object({
+  redirectUri: Type.String({ description: 'In der App einzutragende Umleitungs-URI, Plattform «Web» (Broker-Endpunkt des Anbieters in Keycloak); fest je Organisation' }),
+  permissions: Type.Array(Permission),
+}, { description: 'Anleitung für die App-Registrierung im eigenen Tenant (Kontotyp «Nur Konten in diesem Organisationsverzeichnis»)' });
 const EntraConnection = Type.Object({
   entraTenantId: Type.String({ description: 'Tenant-ID in Microsoft Entra ID' }),
+  method: Type.Unsafe<'platform' | 'own'>({ type: 'string', enum: ['platform', 'own'], description: '`own`: eigene App der Organisation; `platform`: App der Plattform (Zustimmung)' }),
+  clientId: Nullable(Type.String({ description: 'Anwendungs-ID der eigenen App (nur `own`); das Geheimnis gibt die API nie aus' })),
+  secretExpiresAt: Nullable(DateTime), // Ablauf des Geheimnisses der eigenen App (aus Graph oder angegeben), sonst null
+  secretExpiresSoon: Type.Boolean({ description: 'Geheimnis läuft in höchstens 30 Tagen ab oder ist abgelaufen: in der App ein neues anlegen und eintragen' }),
+  redirectUri: Type.String({ description: 'Redirect-URI des Anbieters (bei eigener App in der App eingetragen)' }),
   entraName: Type.String({ description: 'Name der Organisation in Entra ID' }),
   domains: Type.Array(Type.String(), { description: 'Gebundene Domänen: Personen mit diesen Adressen melden sich nur noch über Entra ID an' }),
   availableDomains: Type.Array(Type.String(), { description: 'Weitere im Tenant verifizierte Domänen (beim letzten Aktualisieren), nicht gebunden' }),
@@ -62,8 +79,14 @@ const EntraConnection = Type.Object({
   connectedAt: DateTime, connectedBy: Type.String(), refreshedAt: DateTime,
 }, { $id: 'EntraConnection', title: 'EntraConnection' });
 const EntraStatus = Type.Object({
-  enabled: Type.Boolean({ description: 'Entra-App eingerichtet (ENTRA_CLIENT_ID)' }),
+  enabled: Type.Boolean({ description: 'App der Plattform eingerichtet (ENTRA_CLIENT_ID); ohne sie geht nur die eigene App (`methods`)' }),
   reason: Nullable(Type.String()),
+  methods: Type.Object({
+    platformApp: Type.Boolean({ description: 'Verbinden über die App der Plattform (Zustimmung bei Microsoft)' }),
+    ownApp: Type.Boolean({ description: 'Verbinden mit einer eigenen App der Organisation (`PUT …/app`)' }),
+  }),
+  ownAppReason: Nullable(Type.String({ description: 'Warum die eigene App nicht geht (z. B. ENCRYPTION_KEYS fehlt)' })),
+  ownApp: Nullable(OwnAppGuide),
   consentPath: Type.String({ description: 'Pfad der Oberfläche, auf den Microsoft nach der Admin-Zustimmung zurückleitet (ENTRA_UI_PATH + `/zustimmung`; Redirect-URI der Entra-App)' }),
   testPath: Type.String({ description: 'Pfad der Oberfläche nach der Testanmeldung (ENTRA_UI_PATH + `/test`)' }),
   connection: Nullable(Type.Ref('EntraConnection')),
@@ -77,8 +100,9 @@ const EntraResult = Type.Object({
   }), { description: 'Mitglieder mit Adresse in einer betroffenen Domäne; bei «Nur Entra» wurde ihr Passwort entfernt' }),
   rejectedDomains: Type.Array(Type.String(), { description: 'Verifizierte Domänen, die bereits einer anderen Organisation zugeordnet sind (welcher, bleibt verborgen)' }),
 });
+const LinkKind = Type.Unsafe<'consent' | 'credentials'>({ type: 'string', enum: ['consent', 'credentials'], description: '`consent`: Zustimmung bei Microsoft (App der Plattform); `credentials`: die Kunden-IT trägt die eigene App ein' });
 const ConsentLink = Type.Object({
-  id: Type.String({ format: 'uuid' }), entraTenantId: Type.String({ format: 'uuid' }), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
+  id: Type.String({ format: 'uuid' }), kind: LinkKind, entraTenantId: Type.String({ format: 'uuid' }), createdByName: Type.String(), createdAt: DateTime, expiresAt: DateTime,
   status: Type.Union(['open', 'in-progress', 'expired', 'revoked', 'connected', 'failed'].map(x => Type.Literal(x)), { description: '`in-progress`: Rückkehr von Microsoft wird gerade eingelöst (Frist 5 Minuten). `revoked` mit `error.reason` `creator-lost-access` (erzeugende Person darf nicht mehr) bzw. `disconnected` (Verbindung getrennt), von Hand widerrufen ohne `error`; `failed` mit dem Fehler des letzten Versuchs' }),
   usedAt: Nullable(DateTime), approverName: Nullable(Type.String({ description: 'Person, die bei Microsoft zugestimmt hat' })),
   error: Nullable(Type.Object({ reason: Type.String(), detail: Type.String() })),
@@ -89,6 +113,12 @@ const ConsentComplete = Type.Object({
   error: Type.Optional(Type.String({ maxLength: 200 })),
   errorDescription: Type.Optional(Type.String({ maxLength: 2000 })),
 }, { additionalProperties: false, description: 'Parameter der Rückkehr von Microsoft (`code`, `state`, `error`, `error_description`)' });
+const AppCredentials = {
+  clientId: Type.String({ minLength: 36, maxLength: 36, description: 'Anwendungs-ID (Client-ID) der App im eigenen Tenant' }),
+  clientSecret: Type.String({ minLength: 1, maxLength: 1000, description: 'Wert des geheimen Clientschlüssels (verschlüsselt gespeichert, nie ausgegeben)' }),
+  secretExpiresAt: Type.Optional(Nullable(Type.String({ format: 'date-time', description: 'Ablauf des Geheimnisses, falls er in der Registrierung nicht zu finden ist (Graph liest ihn sonst selbst)' }))),
+};
+const APP_ERRORS = '409 mit `reason`: `invalid-secret`, `secret-expired`, `wrong-tenant` (keine App mit dieser ID im Tenant), `invalid-client`, `missing-permissions` (mit `missing`; auch ohne Administratorzustimmung), `app-not-registered-in-tenant` (App nicht in diesem Tenant registriert, z. B. die eines Herstellers), `domains-taken`, `tenant-mismatch` (anders verbunden); 503 `encryption-missing`.';
 const NotLinked = Type.Array(Type.String({ maxLength: 254 }), { maxItems: 10_000, description: 'Bestätigt: Diese Mitglieder verlieren die Anmeldung (Adressen aus der Vorschau)' });
 
 export const entraModule: IamModule = {
@@ -178,6 +208,15 @@ export const entraModule: IamModule = {
         }),
       }, async req => { const sc = await scope(req); return on().ent.completeConsent(sc, req.body as { state: string }); });
 
+      app.put(`${base}/app`, {
+        schema: routeSchema(ctx, 'PUT', `${base}/app`, {
+          tags: [TAG], summary: 'Verbinden mit eigener App', ...p,
+          body: Type.Object({ tenant: Type.String({ minLength: 3, maxLength: 253, description: 'Tenant-ID (GUID) oder eine Domäne des Tenants' }), ...AppCredentials }, { additionalProperties: false }),
+          description: `Ohne Zustimmung über die Plattform und ohne ENTRA_CLIENT_ID: Die Organisation registriert eine App in ihrem Tenant (Anleitung \`ownApp\` im Status). Vor dem Speichern prüft die Plattform bei Microsoft: Token der App im Tenant (die App liegt dort, das Geheimnis stimmt), erteilte Anwendungsberechtigungen, Organisation und verifizierte Domänen; dann verbindet sie wie nach der Zustimmung. Bei bestehender Verbindung (gleicher Tenant): Geheimnis bzw. App wechseln, Stufe und Domänen bleiben. ${APP_ERRORS}`,
+          response: { 200: EntraResult },
+        }),
+      }, async req => { const sc = await scope(req); return on().ent.connectApp(sc, req.body as { tenant: string; clientId: string; clientSecret: string; secretExpiresAt?: string | null }); });
+
       app.get(`${base}/preview`, {
         schema: routeSchema(ctx, 'GET', `${base}/preview`, { tags: [TAG], summary: '«Nur Entra»: Vorschau', ...p, description: 'Welche Mitglieder der gebundenen Domänen verknüpft sind bzw. werden und welche die Anmeldung verlieren (in Entra nicht verknüpfbar, mit Grund). Ändert nichts.', response: { 200: Type.Object({ members: EntraResult.properties.members }) } }),
       }, async req => { const sc = await scope(req); return on().ent.preview(sc); });
@@ -229,17 +268,18 @@ export const entraModule: IamModule = {
           body: Type.Object({
             tenant: Type.String({ minLength: 3, maxLength: 253, description: 'Tenant-ID (GUID) oder eine Domäne des Tenants' }),
             validMinutes: Type.Optional(Type.Integer({ minimum: 5, maximum: 1440, description: 'Gültigkeit in Minuten (Standard 15, höchstens 24 Stunden)' })),
+            kind: Type.Optional(LinkKind),
           }, { additionalProperties: false }),
-          description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf (höchstens 5 offene je Organisation, sonst 409 \`too-many-links\`; 10 pro Minute und Person): \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator»).`,
-          response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), url: Type.String(), entraTenantId: Type.String({ format: 'uuid' }), expiresAt: DateTime }) },
+          description: `Für eine andere Person der Kunden-IT, die bei Microsoft zustimmen darf (höchstens 5 offene je Organisation, sonst 409 \`too-many-links\`; 10 pro Minute und Person): \`url\` führt ohne Anmeldung in der App auf die öffentliche Seite \`${handoverPath(iam.cfg)}\` der Oberfläche (Token im Fragment). Einmal einlösbar, an Organisation und Tenant gebunden, widerrufbar. \`kind\` (Standard: \`consent\` mit App der Plattform, sonst \`credentials\`): Zustimmung mit Nachweis wie beim eigenen Verbinden (ID-Token einer globalen Administration oder «Privileged Role Administrator») bzw. eigene App eintragen (Tenant fest aus dem Link).`,
+          response: { 201: Type.Object({ id: Type.String({ format: 'uuid' }), kind: LinkKind, url: Type.String(), entraTenantId: Type.String({ format: 'uuid' }), expiresAt: DateTime }) },
         }),
         config: { rateLimit: linkLimit },
-      }, async (req, reply) => { const sc = await scope(req); return reply.status(201).send(await on().ent.createConsentLink(sc, req.body as { tenant: string; validMinutes?: number })); });
+      }, async (req, reply) => { const sc = await scope(req); return reply.status(201).send(await on().ent.createConsentLink(sc, req.body as { tenant: string; validMinutes?: number; kind?: 'consent' | 'credentials' })); });
 
       app.get(`${base}/consent-links`, {
         schema: routeSchema(ctx, 'GET', `${base}/consent-links`, {
           tags: [TAG], summary: 'Verbinden: Links an die Entra-Administration', ...p,
-          description: 'Die neuesten 20 Links mit Zustand: `open`, `expired`, `revoked`, `connected` (mit zustimmender Person), `failed` (letzter Versuch mit Fehler, Link noch offen bis zum Ablauf).',
+          description: 'Alle offenen und die letzten 20 erledigten Links mit Art und Zustand: `open`, `in-progress`, `expired`, `revoked`, `connected` (mit zustimmender Person, bei `credentials` ohne), `failed` (letzter Versuch mit Fehler, Link noch offen bis zum Ablauf).',
           response: { 200: Type.Object({ items: Type.Array(Type.Ref('EntraConsentLink')) }) },
         }),
       }, async req => { const sc = await scope(req); return { items: await on().ent.consentLinks(sc) }; });
@@ -265,16 +305,20 @@ export const entraModule: IamModule = {
     const Token = Type.Object({ token: Type.String({ maxLength: 107, pattern: '^[a-z0-9][a-z0-9_-]{0,62}\\.[A-Za-z0-9_-]{43}$', description: 'Token aus dem Fragment des Links: `<alias>.<43 Zeichen base64url>`' }) }, { additionalProperties: false });
     publicRoute('info', 'Link der Entra-Administration: Angaben', 'Ohne Anmeldung. Name der Organisation, Produkt, wer fragt, Verzeichnis und Hinweis für die Seite. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404.',
       Token, Type.Object({
-        organization: Type.String(), product: Type.String(),
+        kind: LinkKind, organization: Type.String(), product: Type.String(),
         requestedBy: Type.String({ description: 'Name der Person, die den Link erzeugt hat' }),
         tenant: Type.String({ description: 'Verzeichnis (Domäne bzw. Tenant-ID) wie bei der Erzeugung angegeben' }),
         entraTenantId: Type.String({ format: 'uuid', description: 'Tenant-ID, in dem zugestimmt werden muss' }), expiresAt: DateTime,
         notice: Type.String({ description: 'Hinweis für die Seite: Was die Zustimmung bewirkt (verifizierte Domänen gehen an die Organisation)' }),
+        ownApp: Nullable(OwnAppGuide),
       }), b => on().ent.handoverInfo(b.token));
     publicRoute('start', 'Link der Entra-Administration: Zustimmung starten', 'Ohne Anmeldung. Adresse der Zustimmung bei Microsoft (Code-Flow mit PKCE, `prompt=admin_consent`); Rückkehr auf dieselbe Seite wie beim eigenen Verbinden, `state` mit `h.`. Wiederholbar, solange der Link offen ist.',
       Token, Type.Object({ url: Type.String() }), b => on().ent.handoverStart(b.token));
     publicRoute('complete', 'Link der Entra-Administration: Rückkehr von Microsoft', 'Ohne Anmeldung. Gleicher Nachweis wie `…/consent/complete` (sonst 409 `consent-unproven` bzw. `consent-error`); verbindet im Namen der Person, die den Link erzeugt hat. Erfolg löst den Link ein; ein Fehlschlag verbraucht nur den `state`.',
       ConsentComplete, Type.Object({ organization: Type.String(), connected: Type.Literal(true) }), b => on().ent.handoverComplete(b));
+    publicRoute('credentials', 'Link der Entra-Administration: eigene App eintragen', `Ohne Anmeldung, nur für Links mit \`kind: credentials\` (sonst 409 \`link-kind\`). Tenant fest aus dem Link; gleiche Prüfung wie \`PUT …/entra/app\`, verbunden im Namen der Person, die den Link erzeugt hat. Erfolg löst den Link ein, ein Fehlschlag gibt ihn mit dem Fehler wieder frei. ${APP_ERRORS}`,
+      Type.Object({ token: Token.properties.token, ...AppCredentials }, { additionalProperties: false }), Type.Object({ organization: Type.String(), connected: Type.Literal(true) }),
+      b => on().ent.handoverApp(b.token, b));
 
     // Testanmeldung: jede Person der Organisation, deren Sitzung über den Anbieter angemeldet ist (nicht nur org-admin)
     app.post(`${prefix}/admin/entra/test`, {

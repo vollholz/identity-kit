@@ -34,7 +34,7 @@ describe('Entra ID: Regeln ohne Datenbank', () => {
   });
 
   test('Anbieter: «microsoft» mit Tenant, ohne E-Mail-Vertrauen, Erstanmeldung verweigert; Redirect-URIs je Platz', () => {
-    const r = idpRepresentation('entra-007', 'tid-1', { clientId: 'cid', clientSecret: 's', slots: 3, timeoutMs: 1000, uiPath: '/verwalten/anmeldung' }, 'notes');
+    const r = idpRepresentation('entra-007', 'tid-1', { clientId: 'cid', clientSecret: 's' }, 'notes');
     assert.deepEqual([r.providerId, r.config.tenantId, r.trustEmail, r.hideOnLogin, r.firstBrokerLoginFlowAlias, r.config.clientId, r.config.syncMode], ['microsoft', 'tid-1', false, true, 'notes-entra-first-login', 'cid', 'IMPORT']);
     assert.deepEqual(brokerRedirectUris({ oidc: { issuer: 'https://login.test/realms/notes' } as never, entra: { slots: 3 } as never }),
       ['https://login.test/realms/notes/broker/entra-001/endpoint', 'https://login.test/realms/notes/broker/entra-002/endpoint', 'https://login.test/realms/notes/broker/entra-003/endpoint']);
@@ -125,13 +125,17 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
   });
   after(async () => { await app?.app.close(); await off?.app.close(); await small?.app.close(); await idp?.close(); await t?.drop(); });
 
-  test('abgeschaltet ohne ENTRA_CLIENT_ID (Konfiguration: test/config.test.ts)', async () => {
+  test('ohne ENTRA_CLIENT_ID: nur der Weg «eigene App»; Zustimmung 409 platform-app-disabled (Konfiguration: test/config.test.ts)', async () => {
     const s = ok(await call(anna(), 'GET', '/v1/admin/entra', undefined, { app: off }));
-    assert.deepEqual([s.enabled, s.connection], [false, null]);
+    assert.deepEqual([s.enabled, s.methods.platformApp], [false, false]);
     assert.match(s.reason, /ENTRA_CLIENT_ID/);
-    assert.equal((await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: 'demo.example' }, { app: off })).status, 503);
-    assert.equal((await call(anna(), 'POST', '/v1/platform/entra/refresh', undefined, { app: off })).status, 403, 'erst das Recht, dann 503');
-    assert.equal((await call(paula(), 'POST', '/v1/platform/entra/refresh', undefined, { app: off })).status, 503);
+    assert.deepEqual([s.methods.ownApp, s.ownApp], [false, null], 'ohne ENCRYPTION_KEYS auch keine eigene App');
+    assert.match(s.ownAppReason, /ENCRYPTION_KEYS/);
+    const consent = await call(anna(), 'POST', '/v1/admin/entra/consent', { tenant: 'demo.example' }, { app: off });
+    assert.deepEqual([consent.status, consent.body.reason], [409, 'platform-app-disabled']);
+    const link = await call(anna(), 'POST', '/v1/admin/entra/consent-links', { tenant: 'demo.example', kind: 'consent' }, { app: off });
+    assert.deepEqual([link.status, link.body.reason], [409, 'platform-app-disabled'], 'Link mit Zustimmung');
+    assert.equal((await call(anna(), 'POST', '/v1/platform/entra/refresh', undefined, { app: off })).status, 403, 'erst das Recht');
     assert.deepEqual([s.consentPath, s.testPath], ['/verwalten/anmeldung/zustimmung', '/verwalten/anmeldung/test'], 'Rückkehrpfade aus ENTRA_UI_PATH (Standard)');
   });
 

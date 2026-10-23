@@ -199,7 +199,7 @@ export class Bff implements SessionBridge {
     const url = client.buildAuthorizationUrl(c, {
       response_type: 'code', redirect_uri: this.redirectUri, scope: scopesFor(this.cfg.oidc.scopes),
       state: st.state, nonce: st.nonce, code_challenge: await client.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256',
-      ...(idp && /^entra-\d{3}$/.test(idp) ? { kc_idp_hint: idp, prompt: 'login' } : {}),
+      ...(idp && /^entra-(\d{3}|app-[a-z0-9][a-z0-9_-]{0,62})$/.test(idp) ? { kc_idp_hint: idp, prompt: 'login' } : {}),
     });
     reply.setCookie(this.loginCookieName, this.sealer.sealString(JSON.stringify(st), 'login'), this.cookieOpts(LOGIN_TTL_MS / 1000));
     return url.href;

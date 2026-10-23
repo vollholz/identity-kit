@@ -285,8 +285,8 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 
 | Endpunkt | Verhalten |
 |---|---|
-| `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-\d{3}$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
-| `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-\d{3}$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
+| `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-(\d{3}|app-<alias>)$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
+| `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-(\d{3}|app-<alias>)$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
 | `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
 | `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles`, `permissions` (effektiv), `grantedPermissions` (immer, leer ohne Freigaben; [7.1](#71-entscheidung)), `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds`. Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
@@ -579,7 +579,26 @@ Eine Organisation verbindet ihre Anmeldung selbst mit Microsoft Entra ID; Person
 sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzepte/entra-id.md`,
 `src/platform/modules/admin/{entra,graph}.ts`, Migrationen `046`, `047`.
 
-- **Eine** mandantenfähige App in Entra ID je Produkt (Betreiber registriert einmal); Kunden stimmen beim Verbinden zu.
+- **Eigene App der Organisation (Kit 0.3, Normalfall):** Die Organisation registriert eine App in ihrem eigenen Tenant
+  und trägt Tenant, Anwendungs-ID und Geheimnis ein (`PUT …/entra/app`); Kunden haben so nichts mit einer App des
+  Betreibers zu tun. Vor dem Speichern prüft die API bei Microsoft: Token der App im Tenant (Client Credentials),
+  erteilte Anwendungsberechtigungen (`roles`; Token ohne lesbare Rollen: abgelehnt), Registrierung der App im Tenant
+  (`GET /applications(appId=…)`, nur im Heimat-Tenant der App – ein Token allein belegt nur eine Zustimmung, auch für die
+  mandantenfähige App eines Herstellers), Organisation und verifizierte Domänen.
+  Fehler: 409 `invalid-secret`, `secret-expired`, `wrong-tenant`, `invalid-client`, `missing-permissions` (mit
+  `missing`), `app-not-registered-in-tenant`, `tenant-mismatch` (anders verbunden), `domains-taken`; 503
+  `encryption-missing`. Kein Nachweis über `wids`:
+  Anwendungsberechtigungen mit Administratorzustimmung erteilt nur die Administration des Tenants. Erneut `PUT` wechselt
+  Geheimnis bzw. App im selben Tenant; Stufe und Domänen bleiben. Anbieter `entra-app-<alias>` (kein Platz): die
+  Redirect-URI steht vorab fest; `GET …/entra` liefert `methods` (`ownApp`, `platformApp`), `ownApp` (Redirect-URI,
+  Berechtigungen mit Grund: delegiert `User.Read`, Anwendung `Organization.Read.All`, `User.Read.All`, `Application.Read.All`
+  für den Nachweis der Registrierung und den Ablauf des Geheimnisses) und an der Verbindung
+  `method`, `clientId`, `secretExpiresAt`, `secretExpiresSoon` (30 Tage). Das Geheimnis liegt verschlüsselt
+  (ENCRYPTION_KEYS, AAD an Mandant und App) in der Datenbank und in Keycloak, nie in Antworten oder im Protokoll.
+  Personensuche, Vorschau, «Nur Entra» und Aktualisieren laufen mit der App der Verbindung.
+- **App der Plattform (optional):** Eine mandantenfähige App in Entra ID je Produkt (`ENTRA_CLIENT_ID`); Kunden stimmen
+  beim Verbinden zu. Ohne `ENTRA_CLIENT_ID` antworten die Zustimmung und Links mit Zustimmung mit 409
+  `platform-app-disabled`; eine mit eigener App verbundene Organisation wechselt nur über Trennen (409 `own-app`).
   Berechtigungen in Microsoft Graph (minimal, nach den Aufrufen der App): Anwendung `Organization.Read.All`
   (`GET /organization`: Tenant und verifizierte Domänen), Anwendung `User.Read.All` (`GET /users` mit `$filter` bzw.
   `$search`, `GET /users/{id}`), delegiert `User.Read` (Keycloak liest bei der Anmeldung `/me`). Dazu Verzeichnisrollen im
@@ -619,7 +638,11 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   App vor der Zustimmung nicht), `…/start` (Adresse zu Microsoft), Rückkehr über `<paths.entra>/zustimmung` mit `state` `h.<alias>.…` an
   `POST /v1/entra/handover/complete`. Gleicher Nachweis wie oben; verbunden wird im Namen der erzeugenden Person, `consentBy` und
   `viaLink` im Audit; eingelöst in derselben Transaktion wie die Verbindung. Unbekannt, abgelaufen, widerrufen oder eingelöst: immer 404; Ratenbegrenzung je IP, `no-store`. Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
-  `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`); `GET …/entra` nennt beide
+  `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`). Links haben eine Art (`kind`):
+  `consent` wie oben oder `credentials` (Standard ohne App der Plattform): Die Kunden-IT sieht auf der öffentlichen Seite
+  die Anleitung (`info.ownApp`) und trägt Anwendungs-ID und Geheimnis selbst ein (`POST /v1/entra/handover/credentials`,
+  Tenant fest aus dem Link, Prüfung wie `PUT …/app`, gleiche Schutzmechanismen); niemand gibt das Geheimnis weiter.
+  Falsche Art: 409 `link-kind`; `GET …/entra` nennt beide
   (`consentPath`, `testPath`), `testLoginPath` führt mit `returnTo` auf `testPath`. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
   `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei
   `login.microsoftonline.com` (per Konfiguration erweiterbar).
@@ -808,7 +831,7 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `RATE_LIMIT_NAMESPACE` | — | Vorsatz der Rate-Limit-Schlüssel (`<namespace>:<produkt>:…`), wenn Umgebungen einen Speicher teilen |
 | `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` (geheim) | — | Laufzeit, Besitzer (Migrationen), Worker ([10.1](#101-rollen)) |
 | `MCP_CLIENT_ID`, `MCP_PRIVATE_KEY` (geheim), `MCP_HOST_CLIENT_IDS`, `OIDC_MCP_AUDIENCE` | `<produkt>-mcp`, —, —, `<produkt>-mcp` | MCP-Dienst ([12.2](#122-mcp-dienst-kann)) |
-| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS`, `ENTRA_UI_PATH` | —, —, `100`, `/verwalten/anmeldung` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); `ENTRA_UI_PATH` = `paths.entra` der Oberfläche |
+| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS`, `ENTRA_UI_PATH` | —, —, `100`, `/verwalten/anmeldung` | App der Plattform für Entra ID, optional ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); eigene Apps der Organisationen brauchen nur `ENCRYPTION_KEYS`; `ENTRA_UI_PATH` = `paths.entra` der Oberfläche |
 
 Zu jedem `…_PRIVATE_KEY` gibt es übergangsweise `…_CLIENT_SECRET`; dann warnt der Dienst beim Start (P3). Alle
 Geheimnisse auch als `…_FILE`.

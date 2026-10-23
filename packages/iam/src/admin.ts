@@ -131,9 +131,14 @@ export function entraAddress(u: EntraUser, domains: readonly string[]): string {
 }
 
 /** Was addFromEntra von der Entra-Verbindung braucht (EntraService in entra.ts; ohne Abhängigkeit in diese Richtung). */
+interface EntraLinkConnection {
+  tenantId: string; appClientId: string | null; appSecretEnc: string | null;
+  entraTenantId: string; idpAlias: string; domains: string[]; stage: 'pending' | 'enforced';
+}
 export interface EntraLink {
-  readonly graph: Pick<EntraGraph, 'user'> | null;
-  connectionOf(tx: Tx): Promise<{ entraTenantId: string; idpAlias: string; domains: string[]; stage: 'pending' | 'enforced' } | null>;
+  connectionOf(tx: Tx): Promise<EntraLinkConnection | null>;
+  /** Graph mit der App der Verbindung (eigene App der Organisation oder die der Plattform). */
+  graphFor(c: EntraLinkConnection): Pick<EntraGraph, 'user'>;
   linkAccount(w: Pick<Work, 'done'>, c: { idpAlias: string; domains: string[] }, user: KcUser, entra: EntraUser): Promise<void>;
   removeFirstFactor(w: Pick<Work, 'done'>, user: KcUser): Promise<boolean>;
 }
@@ -151,7 +156,7 @@ interface Target { id: string; userId: string; user: KcUser | null; member: bool
 /** In Keycloak erfolgte Änderung, für das Protokoll, falls danach etwas scheitert. Nur Angaben dieser Organisation. */
 export interface Step {
   step: 'account_created' | 'membership_added' | 'membership_removed' | 'account_deleted' | 'role_added' | 'role_removed' | 'organization_updated'
-    | 'idp_created' | 'idp_linked' | 'idp_deleted' | 'account_linked' | 'password_removed';
+    | 'idp_created' | 'idp_linked' | 'idp_updated' | 'idp_deleted' | 'account_linked' | 'password_removed';
   role?: string;
 }
 
@@ -611,8 +616,6 @@ export class AdminService {
     const roles = [...new Set(input.roles)];
     await this.checkRoles(s, roles);
     if (roles.includes(ADMIN_ROLE)) this.requireAdminChange(s);
-    if (!ent.graph) throw new HttpError(503, 'Entra ID nicht eingerichtet', 'Die Anmeldung über Microsoft Entra ID ist in dieser Instanz nicht eingerichtet (ENTRA_CLIENT_ID).');
-    const g = ent.graph;
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     return this.padded(() => this.locked(s, org, { action: 'member.entra_add_failed', resourceType: 'member', resourceId: null }, async w => {
@@ -620,7 +623,7 @@ export class AdminService {
       await this.recheckRoles(s, org, roles);
       const c = await ent.connectionOf(tx);
       if (!c) throw conflict('Die Organisation ist nicht mit Microsoft Entra ID verbunden.', { reason: 'entra-not-connected' });
-      const p = await g.user(c.entraTenantId, input.id);
+      const p = await ent.graphFor(c).user(c.entraTenantId, input.id);
       if (!p) throw notFound('Person in Entra ID');
       const why = notLinkable(p, c.domains);
       if (why) throw conflict(`Diese Person lässt sich nicht hinzufügen: ${why}.`, { reason: 'not-linkable' });

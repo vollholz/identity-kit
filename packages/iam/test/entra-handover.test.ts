@@ -103,7 +103,7 @@ describe('Link an die Entra-Administration', { skip }, () => {
   test('öffentlich ohne Anmeldung: nur Organisation, Produkt, wer fragt, Verzeichnis und Ablauf; nie zwischengespeichert; unbekannt immer 404; Ratenbegrenzung je IP', async () => {
     const l = await newLink();
     const r = await call(null, 'POST', '/v1/entra/handover/info', { token: l.token });
-    assert.deepEqual(Object.keys(ok(r)).sort(), ['entraTenantId', 'expiresAt', 'notice', 'organization', 'product', 'requestedBy', 'tenant']);
+    assert.deepEqual(Object.keys(ok(r)).sort(), ['entraTenantId', 'expiresAt', 'kind', 'notice', 'organization', 'ownApp', 'product', 'requestedBy', 'tenant']);
     assert.deepEqual([r.body.organization, r.body.product], [(await t.inspect.query("SELECT name FROM notes.tenant WHERE alias = 'demo'")).rows[0].name, 'notes']);
     assert.deepEqual([r.body.requestedBy, r.body.tenant, r.body.entraTenantId], ['Anna Admin', 'demo.example', contoso.id], 'wer fragt und für welches Verzeichnis (gegen fremde Links)');
     assert.equal(r.headers['cache-control'], 'no-store');

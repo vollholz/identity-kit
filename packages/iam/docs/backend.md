@@ -213,9 +213,38 @@ KEYCLOAK_TF_URL=https://identity.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC
 - `--initial-password` setzt nur ohne bestehendes Passwort ein temporäres und legt es ausschliesslich in
   `~/.identity/initial-password-<realm>-<e-mail>.txt` ab (0600). Programmatisch: `orgBootstrap(keycloakAdmin, …)`.
 
-Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant`.
+Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant`. `relinkTenant` ist
+nicht atomar (Personen, Organisations-ID und Protokoll in drei Transaktionen): Scheitert das Protokoll, ist der Mandant
+umgehängt ohne Eintrag `tenant.relinked` – den Eintrag dann von Hand nachtragen.
 
-**Anmeldung über Microsoft Entra ID (Modul `entra`).** Einmal je Produkt eine mandantenfähige App in Entra ID:
+**Anmeldung über Microsoft Entra ID mit eigener App der Organisation (Modul `entra`, ab 0.3).** Der Normalfall: Jede
+Organisation registriert eine App in ihrem eigenen Tenant und trägt Tenant, Anwendungs-ID und Geheimnis ein
+(`PUT …/entra/app`, oder die Kunden-IT über einen Link mit `kind: 'credentials'`, öffentlich
+`POST /v1/entra/handover/credentials`). Die Plattform braucht dafür keine eigene Entra-App, nur `ENCRYPTION_KEYS`:
+
+- Vor dem Speichern prüft das Paket bei Microsoft: Token der App im Tenant (Client Credentials), erteilte
+  Anwendungsberechtigungen (`roles` im Token), Organisation und verifizierte Domänen. Fehler mit `reason`:
+  `invalid-secret`, `secret-expired`, `wrong-tenant`, `invalid-client`, `missing-permissions` (mit `missing`).
+- Anleitung für die Kunden-IT im Status (`ownApp`): Umleitungs-URI `<OIDC_ISSUER_URL>/broker/entra-app-<alias>/endpoint`
+  (Plattform «Web», Kontotyp «Nur Konten in diesem Organisationsverzeichnis»), delegiert `User.Read`, Anwendung
+  `Organization.Read.All`, `User.Read.All` und `Application.Read.All` mit Administratorzustimmung. `Application.Read.All`
+  ist Pflicht: Das Paket weist damit nach, dass die App im Tenant registriert ist (`GET /applications(appId=…)` gibt
+  sie nur im Heimat-Tenant; die mandantenfähige App eines Herstellers, der der Tenant zugestimmt hat, ergibt 409
+  `app-not-registered-in-tenant`), und liest den Ablauf des Geheimnisses (sonst `secretExpiresAt` bei der Eingabe).
+  Der Status warnt 30 Tage vorher (`secretExpiresSoon`); Wechsel: erneut `PUT …/app` mit dem neuen Geheimnis, Stufe und
+  Domänen bleiben. Nach dem Verbinden verfallen übrige offene Links für die eigene App (`superseded`).
+- Das Geheimnis liegt verschlüsselt in `entra_connection.app_secret_enc` (Migration `iam_014`, AAD an Mandant und App)
+  und im Anbieter in Keycloak, nie in einer Antwort oder im Protokoll. Beim Wechsel der Hauptschlüssel ruft das
+  Rotationsskript der App je Mandant `rewrapEntraSecrets(tx, keys, { schema })` auf.
+- Eine Organisation, die mit einer eigenen App verbunden ist, wechselt zur App der Plattform nur über Trennen (409
+  `own-app`). Ohne `ENTRA_CLIENT_ID` antworten Zustimmung und Links mit Zustimmung mit 409 `platform-app-disabled`.
+- **Neu anbinden statt übernehmen:** Einen von Hand angelegten Entra-Anbieter vor dem Neuverbinden in Keycloak löschen
+  (samt Zuordnung der Domänen an der Organisation). Die Konten bleiben; beim Verbinden verknüpft das Paket die Mitglieder
+  der gebundenen Domänen über die Objekt-ID mit dem neuen Anbieter. Eine erste Anmeldung ohne Verknüpfung legt nie ein
+  Konto an (Erstanmeldung verweigert); wer später dazukommt, über «Person aus Entra ID hinzufügen».
+
+**Anmeldung über die App der Plattform (optional, `ENTRA_CLIENT_ID`).** Einmal je Produkt eine mandantenfähige App in
+Entra ID; die Kunden stimmen ihr zu:
 
 - Redirect-URIs: `<PUBLIC_BASE_URL><ENTRA_UI_PATH>/zustimmung` und die Plätze `entra-NNN` des Realms
   (`brokerRedirectUris`, `ENTRA_IDP_SLOTS`).

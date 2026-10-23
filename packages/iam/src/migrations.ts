@@ -1,7 +1,8 @@
 /**
  * Migrationen: Runner (wie Assets `db/migrate.ts`) und die SQL-Migrationen des IAM (Spezifikation Kap. 10, 15.3).
  *
- * - Jede Migration läuft in einer Transaktion, danach `app.secure_tenant_tables()`; geschützt durch eine Advisory-Lock
+ * - Jede Migration läuft in einer Transaktion (`lock_timeout` 10 s: wartet sie länger auf eine Sperre, bricht sie ab, statt
+ *   den laufenden Betrieb hinter sich anzustauen), danach `app.secure_tenant_tables()`; geschützt durch eine Advisory-Lock
  *   (LOCKS.migrate), mehrere Instanzen gleichzeitig sind unkritisch. Ausgeführte Migrationen stehen mit Prüfsumme in
  *   `public.schema_migrations`; eine nachträglich geänderte Datei bricht ab.
  * - Mehrere Quellen in fester Reihenfolge (IAM vor App); Namen eindeutig über alle Quellen (`iam_…` neben `NNN_…`).
@@ -11,7 +12,7 @@
  * - Ressourcentypen der Zugriffsregeln und Blätter der Kette (CHECK-Bedingungen von `acl_entry`) hängen am Katalog der
  *   App und ändern sich mit ihm. Sie stehen deshalb nicht in einer Migration, sondern werden nach den IAM-Migrationen
  *   abgeglichen (`syncAclChecks`): ein neuer Ressourcentyp braucht keine eigene Migration und bricht keine Prüfsumme.
- * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat (Assets bis 049), trägt die
+ * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat (Assets bis 049, mit `adopted.map` bis 053), trägt die
  *   IAM-Migrationen bis IAM_BASELINE als angewendet ein, ohne sie auszuführen – nur wenn ihre Vorbedingungen erfüllt
  *   sind (in derselben Transaktion), sonst bricht der Runner ab und trägt nichts ein. Die IAM-Migrationen laufen dann
  *   direkt nach der Marke der App (`after`), spätere Migrationen der App danach; so dürfen auch diese spätere
@@ -107,6 +108,9 @@ export const ASSETS_ADOPTION = {
 
 /** Letzte IAM-Migration, die dem Stand von Assets nach Migration 049 entspricht (Übernahme). */
 export const IAM_BASELINE = 'iam_008_entra.sql';
+
+/** Längste Wartezeit einer Migration auf eine Sperre (Tabellen im Betrieb). */
+const MIGRATION_LOCK_TIMEOUT = '10s';
 
 /** Ordner der SQL-Vorlagen (im Paket neben `src` bzw. `dist`). */
 export const IAM_MIGRATIONS_DIR = join(import.meta.dirname, '..', 'migrations');
@@ -380,6 +384,7 @@ export async function migrate(adminUrl: string, sources: MigrationSource[], log:
         if (done.has(m.name)) continue;
         await client.query('BEGIN');
         try {
+          await client.query(`SET LOCAL lock_timeout = '${MIGRATION_LOCK_TIMEOUT}'`);
           await client.query(m.sql);
           await client.query('SELECT app.secure_tenant_tables()');
           await client.query('INSERT INTO public.schema_migrations (name, checksum) VALUES ($1, $2)', [m.name, m.checksum]);

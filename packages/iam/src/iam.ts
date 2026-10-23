@@ -96,7 +96,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
     : null;
   const e = o.cfg.entra;
   const graph = e.clientId && e.clientSecret ? new EntraGraph({ clientId: e.clientId, clientSecret: e.clientSecret, timeoutMs: e.timeoutMs }, o.entraFetch) : null;
-  const entra = admin ? new EntraService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, admin, graph, { retryMs: o.entraRetryMs }) : null;
+  const entra = admin ? new EntraService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
   return {
     cfg: o.cfg, catalog: o.catalog, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),

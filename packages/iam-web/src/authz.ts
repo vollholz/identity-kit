@@ -66,6 +66,20 @@ export function roleGroupProblems(roleGroups: RoleGroup[], catalog: AuthzCatalog
   return out;
 }
 
+/**
+ * Voraussetzungen der Oberfläche (`requires` im Katalog), die in einer Auswahl von Rechten fehlen: je gewähltem Recht die
+ * fehlenden, in Katalogreihenfolge. `possible` begrenzt auf Rechte, die überhaupt wählbar sind (eigene Rollen ohne die
+ * Rechte nur für org-admin); ohne Angabe alle.
+ */
+export function missingRequirements(catalog: AuthzCatalog | undefined, picked: ReadonlySet<string>, possible?: ReadonlySet<string>): { perm: PermissionInfo; missing: PermissionInfo[] }[] {
+  if (!catalog) return [];
+  const byKey = new Map(catalog.permissions.map(p => [p.key, p]));
+  return catalog.permissions.filter(p => picked.has(p.key)).flatMap(perm => {
+    const missing = (perm.requires ?? []).filter(k => !picked.has(k) && (!possible || possible.has(k))).flatMap(k => byKey.get(k) ?? []);
+    return missing.length ? [{ perm, missing }] : [];
+  });
+}
+
 /** Helfer zu einem (evtl. noch nicht geladenen) Katalog; auch für Tests ohne Abruf. */
 export function makeAuthz(catalog: AuthzCatalog | undefined, roleGroups?: RoleGroup[]): Authz {
   const perms = new Map(catalog?.permissions.map(p => [p.key, p]));

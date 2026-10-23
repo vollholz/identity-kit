@@ -20,8 +20,16 @@ describe('Fehlendes Recht', () => {
   const authz = makeAuthz(CATALOG);
 
   it('nennt Label und alle Rollen mit dem Recht, org-admin zuletzt, und wer Rollen vergibt', () => {
-    expect(missingRightText(authz, 'note:write')).toBe('Dafür fehlt dir das Recht «Notizen ändern». Es gehört zu den Rollen «Ordner-Admin», «Bearbeiter:in» und «Organisations-Admin». Rollen vergibt die Organisations-Administration.');
+    expect(missingRightText(authz, 'note:write')).toBe('Dafür fehlt dir das Recht «Notizen ändern». Es gehört zu den Rollen «Ordner-Admin», «Bearbeiter:in» und «Organisations-Admin». Rollen vergibt die Organisations-Administration. Für einzelne Bereiche kann sie es auch über eine Zugriffsregel freigeben.');
     expect(missingRightText(authz, 'note:delete', 'Zum Löschen')).toMatch(/^Zum Löschen fehlt dir das Recht «Notizen löschen»\. Es gehört zu den Rollen «Ordner-Admin» und «Organisations-Admin»\./);
+  });
+
+  it('Freigabe für einzelne Bereiche nur, wo eine Zugriffsregel unterhalb der Organisation wirkt und es Zugriffsregeln gibt', () => {
+    // «Protokoll lesen» wirkt nur auf Ebene der Organisation: dafür hilft nur eine Rolle
+    expect(missingRightText(authz, 'audit:read')).not.toContain('Zugriffsregel');
+    // Ohne Zugriffsregeln im Katalog (kein acl:read): kein Hinweis auf Freigaben
+    const noAcl = makeAuthz({ ...CATALOG, permissions: CATALOG.permissions.filter(p => !p.key.startsWith('acl:')) });
+    expect(missingRightText(noAcl, 'note:write')).toMatch(/Rollen vergibt die Organisations-Administration\.$/);
   });
 
   it('Recht nur bei org-admin: nur diese Rolle, vergeben von der Plattform-Administration', () => {

@@ -2,7 +2,8 @@
  * Dialog «Meine Rollen und Rechte» (Spezifikation 11.2): eigene Rollen als Karten (Label und Kurzbeschreibung, ganze
  * Beschreibung als title), darunter die Rechte-Übersicht für mich mit Hinweis auf Zugriffsregeln (Organisations-Admin
  * als ein Satz) und eingeklappt «Rollen vergleichen» mit den eigenen Rollen hervorgehoben. Rechte nur über Freigaben
- * einzelner Bereiche als Satz, ohne die Bereiche zu nennen (keine Liste einzelner Zugriffsregeln).
+ * einzelner Bereiche stehen in der Übersicht mit eigenem Status «in einzelnen Bereichen» (nicht «fehlt») und zählen zu
+ * «Darf n von m»; die Bereiche selbst nennt sie nicht (keine Liste einzelner Zugriffsregeln), nur einen Hinweis.
  * Herkunft: vollholz/assets `web/src/shell/MyRights.tsx`.
  */
 import { useAuthz } from '../authz.ts';
@@ -36,8 +37,8 @@ export function MyRightsDialog({ onClose }: { onClose: () => void }) {
           })}</ul>
         ) : <p>{granted.length ? t('iam.myRights.noRoleGranted') : t('iam.myRights.noRole')}</p>}
         <h4>{t('iam.myRights.rights')}</h4>
-        <RightsOverview roles={me.roles} permissions={me.permissions} rulesNote={<>{t('iam.rights.rulesNote')} {t('iam.myRights.ask')}</>} />
-        {granted.length ? <p className="iam-note">{t('iam.myRights.granted', { perms: granted.map(p => `«${authz.permLabel(p)}»`).join(', ') })}</p> : null}
+        <RightsOverview roles={me.roles} permissions={me.permissions} granted={granted}
+          rulesNote={<>{granted.length ? `${t('iam.myRights.granted')} ` : ''}{t('iam.rights.rulesNote')} {t('iam.myRights.ask')}</>} />
         {cat ? <RoleCompare roles={cat.roles} highlight={me.roles} /> : null}
       </div>
     </Dialog>

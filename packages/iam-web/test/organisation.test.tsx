@@ -26,7 +26,7 @@ const ORGS: Record<string, { id: string; name: string }> = { demo: { id: 't-demo
 
 /** BFF wie Spezifikation 5.1: eine Sitzung, Vorgabe `def`, X-Tenant wählt je Anfrage, nur Organisationen im Token. */
 function server() {
-  const s = { def: 'demo' as string | null, orgs: ['demo', 'muster'], removed: new Set<string>(), person: ME.person, switchStatus: 200, calls: [] as { method: string; path: string; tenant: string | null }[] };
+  const s = { def: 'demo' as string | null, orgs: ['demo', 'muster'], removed: new Set<string>(), person: ME.person, permissions: ME.permissions as string[], switchStatus: 200, calls: [] as { method: string; path: string; tenant: string | null }[] };
   const allowed = (x: string | null) => !!x && s.orgs.includes(x) && !s.removed.has(x);
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(String(input), init);
@@ -39,7 +39,7 @@ function server() {
         ...ME, person: s.person, tenant: ok ? { id: ORGS[tn!]!.id, alias: tn!, name: ORGS[tn!]!.name } : null, organizations: s.orgs,
         organizationNames: Object.fromEntries(s.orgs.map(o => [o, ORGS[o]!.name])), selectedOrganization: s.def,
         tenantError: ok ? null : s.removed.has(tn!) ? 'Du wurdest aus dieser Organisation entfernt. Bitte melde dich neu an.' : `Kein Zugriff auf «${tn}».`,
-        permissions: ok ? ME.permissions : [],
+        permissions: ok ? s.permissions : [],
       };
       return json(me);
     }
@@ -186,6 +186,22 @@ describe('Organisation je Tab (zwei Tabs, eine Sitzung)', () => {
     expect(await tab.in.findByText('Daten von: sub-ben@t-demo')).toBeInTheDocument();
     expect(tab.in.queryByText('Daten von: sub-anna@t-demo')).toBeNull();
     expect(tab.qc.getQueryData<{ owner: string }>(['notes'])?.owner).toBe('sub-ben@t-demo');
+  });
+
+  it('andere Rechte bei gleicher Person und Organisation (z. B. in einem anderen Browser geändert): Daten der App neu geladen, Daten des Pakets bleiben', async () => {
+    const srv = server();
+    const tab = await openTab(new MemoryStorage());
+    expect(await tab.in.findByText('Daten von: sub-anna@t-demo')).toBeInTheDocument();
+    tab.qc.setQueryData(['iam', 'roles'], ['Daten des Pakets']);
+    const notes = () => srv.calls.filter(c => c.path === '/v1/notes').length;
+    const before = notes();
+    // Unverändert: nichts neu laden
+    await act(async () => { await tab.qc.refetchQueries({ queryKey: ['iam', 'me'] }); });
+    expect(notes()).toBe(before);
+    srv.permissions = ['tenant:read', 'note:read'];
+    await act(async () => { await tab.qc.refetchQueries({ queryKey: ['iam', 'me'] }); });
+    await waitFor(() => expect(notes()).toBe(before + 1));
+    expect(tab.qc.getQueryData(['iam', 'roles'])).toEqual(['Daten des Pakets']);
   });
 
   it('401 beim Wechsel: «Sitzung abgelaufen» wie bei jeder Anfrage, keine Meldung «Organisation nicht gewechselt»', async () => {

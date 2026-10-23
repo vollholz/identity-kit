@@ -33,7 +33,7 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 | Teil | Stand |
 |---|---|
 | `packages/iam` | **0.3.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP, Migrationen; Entra ID mit eigener App der Organisation ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
-| `packages/iam-web` | **0.3.1** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» ([README](packages/iam-web/README.md)) |
+| `packages/iam-web` | **0.4.0** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» ([README](packages/iam-web/README.md)) |
 | `packages/iam-testkit` | **0.4.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen ([README](packages/iam-testkit/README.md)) |
 | `modules/product-realm`, `modules/product-realm-bootstrap` | **0.1.0** – Realm-Soll als OpenTofu-Modul; für Assets gegen Keycloak 26.8.1 dasselbe Ergebnis (`moved`-Blöcke, [README](modules/product-realm/README.md)) |
 | `templates/create-iam-app` | leer; bis dahin [docs/neue-app.md](docs/neue-app.md) |

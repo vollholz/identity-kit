@@ -49,7 +49,8 @@ describe('Rollen', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(within(viewer).getByText(`Darf 2 von ${CATALOG.permissions.length}`)).toBeInTheDocument();
+    // Rechte der Rolle, keine Erlaubnis einer Person
+    expect(within(viewer).getByText(`Enthält 2 von ${CATALOG.permissions.length} Rechten`)).toBeInTheDocument();
     const own = screen.getByRole('region', { name: 'Eigene Rollen' });
     expect(within(own).getByText('Noch keine eigenen Rollen')).toBeInTheDocument();
     expect(within(own).getByRole('button', { name: 'Rolle erstellen' })).toBeEnabled();
@@ -86,6 +87,90 @@ describe('Rollen', () => {
     expect(await screen.findByText('Rolle «Notizpflege» in «Demo AG» erstellt')).toBeInTheDocument();
   });
 
+  // Katalog mit Voraussetzungen der Oberfläche und Aufgaben (wie Assets)
+  const WITH_TASKS = {
+    ...CATALOG,
+    permissions: CATALOG.permissions.map(p => (p.key === 'note:write' ? { ...p, requires: ['tenant:read', 'note:read'] } : p.key === 'folder:admin' ? { ...p, requires: ['note:read', 'acl:admin'] } : p)),
+    tasks: [
+      { key: 'notes-edit', label: 'Notizen bearbeiten', description: 'Notizen öffnen und ändern:', permissions: ['tenant:read', 'note:read', 'note:write'] },
+      // Enthält ein Recht nur für org-admin: für eigene Rollen nicht angeboten
+      { key: 'access', label: 'Zugriff verwalten', description: 'Zugriffsregeln pflegen:', permissions: ['acl:read', 'acl:admin'] },
+    ],
+  };
+
+  it('Voraussetzungen der Oberfläche: Warnung mit Begründung, «ergänzen» auf Klick, sonst Speichern erst nach Bestätigung', async () => {
+    const { calls } = setup(page, { 'GET /v1/authz/catalog': () => json(WITH_TASKS), 'GET /v1/roles': () => json(list()), 'POST /v1/roles': () => json(PFLEGE, 201) });
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Rolle erstellen' }))[0]!);
+    const dlg = await screen.findByRole('dialog', { name: 'Rolle in «Demo AG» erstellen' });
+    await userEvent.type(within(dlg).getByRole('textbox', { name: 'Name' }), 'Nur ändern');
+    // Vorgewählt ist «Organisation lesen»; «Notizen ändern» allein reicht in der Oberfläche nicht
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Notizen ändern' }));
+    const warn = within(dlg).getByRole('status');
+    expect(warn).toHaveTextContent('Für die Oberfläche fehlen Voraussetzungen');
+    expect(warn).toHaveTextContent('«Notizen ändern» braucht auch «Notizen lesen».');
+    // Nichts wird still ergänzt
+    expect(within(dlg).getByRole('checkbox', { name: 'Notizen lesen' })).not.toBeChecked();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Rolle erstellen' }));
+    expect(calls.some(c => c.method === 'POST')).toBe(false);
+    expect(warn).toHaveTextContent('Voraussetzungen fehlen. Ergänze sie oder speichere nochmals');
+    expect(warn).toHaveFocus();
+    // Bewusst ohne: zweites Speichern mit derselben Auswahl
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Rolle erstellen' }));
+    await waitFor(() => expect(calls.some(c => c.method === 'POST')).toBe(true));
+    expect((await calls.find(c => c.method === 'POST')!.json() as { permissions: string[] }).permissions).toEqual(['tenant:read', 'note:write']);
+  });
+
+  it('Voraussetzungen ergänzen: nur wählbare Rechte; Bestätigung gilt nur für die bestätigte Auswahl', async () => {
+    const { calls } = setup(page, { 'GET /v1/authz/catalog': () => json(WITH_TASKS), 'GET /v1/roles': () => json(list()), 'POST /v1/roles': () => json(PFLEGE, 201) });
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Rolle erstellen' }))[0]!);
+    const dlg = await screen.findByRole('dialog');
+    await userEvent.type(within(dlg).getByRole('textbox', { name: 'Name' }), 'Ordner');
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Ordner verwalten' }));
+    // «Zugriff verwalten» hat nur org-admin: keine Voraussetzung, die eine eigene Rolle erfüllen könnte
+    expect(within(dlg).getByRole('status')).toHaveTextContent('«Ordner verwalten» braucht auch «Notizen lesen».');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Rolle erstellen' }));
+    expect(calls.some(c => c.method === 'POST')).toBe(false);
+    // Auswahl geändert: die Bestätigung gilt nicht mehr
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Notizen ändern' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Rolle erstellen' }));
+    expect(calls.some(c => c.method === 'POST')).toBe(false);
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Voraussetzungen ergänzen' }));
+    expect(within(dlg).getByRole('checkbox', { name: 'Notizen lesen' })).toBeChecked();
+    expect(within(dlg).queryByRole('status')).toBeNull();
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Rolle erstellen' }));
+    await waitFor(() => expect(calls.some(c => c.method === 'POST')).toBe(true));
+    expect((await calls.find(c => c.method === 'POST')!.json() as { permissions: string[] }).permissions).toEqual(['tenant:read', 'note:read', 'note:write', 'folder:admin']);
+  });
+
+  it('Aufgaben: Stand je Aufgabe, «Rechte ergänzen» fügt die fehlenden hinzu; Aufgaben mit Rechten nur für org-admin fehlen', async () => {
+    setup(page, { 'GET /v1/authz/catalog': () => json(WITH_TASKS), 'GET /v1/roles': () => json(list()) });
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Rolle erstellen' }))[0]!);
+    const dlg = await screen.findByRole('dialog');
+    const tasks = within(dlg).getByRole('region', { name: 'Aufgaben' });
+    expect(tasks).toHaveTextContent('Notizen bearbeiten · teilweise (1 von 3)');
+    expect(tasks).toHaveTextContent('Notizen öffnen und ändern: «Organisation lesen», «Notizen lesen» und «Notizen ändern».');
+    expect(tasks).not.toHaveTextContent('Zugriff verwalten');
+    await userEvent.click(within(tasks).getByRole('button', { name: 'Rechte für «Notizen bearbeiten» ergänzen' }));
+    expect(tasks).toHaveTextContent('Notizen bearbeiten · vollständig');
+    expect(within(tasks).queryByRole('button', { name: /ergänzen$/ })).toBeNull();
+    expect(within(dlg).getByRole('checkbox', { name: 'Notizen ändern' })).toBeChecked();
+    expect(await axeProblems(dlg)).toEqual([]);
+  });
+
+  it('Bearbeiten: neue und entzogene Rechte und betroffene Personen vor dem Speichern', async () => {
+    setup(page, { 'GET /v1/roles': () => json(list([PFLEGE])) });
+    const row = (await screen.findByRole('heading', { name: 'Notizpflege' })).closest('li')!;
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Notizpflege' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Bearbeiten …' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Rolle «Notizpflege» bearbeiten' });
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Notizen ändern' }));
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Protokoll lesen' }));
+    await userEvent.click(within(dlg).getByRole('checkbox', { name: 'Notizen löschen' }));
+    expect(dlg).toHaveTextContent('2 Personen haben diese Rolle');
+    expect(dlg).toHaveTextContent('Neu: «Protokoll lesen» und «Notizen löschen»');
+    expect(dlg).toHaveTextContent('Entzogen: «Notizen ändern»');
+  });
+
   it('ohne Recht: Hinweis «Mindestens ein Recht wählen», Fokus aufs erste Recht; Vorlage mit Rechten nur für org-admin', async () => {
     setup(page, { 'GET /v1/roles': () => json(list()) });
     const admin = (await screen.findByRole('heading', { name: /^Organisations-Admin/ })).closest('li')!;
@@ -113,7 +198,8 @@ describe('Rollen', () => {
     expect(screen.getAllByRole('menuitem').map(i => i.getAttribute('aria-label'))).toEqual(['Bearbeiten …', 'Kopieren …', 'Löschen …']);
     await userEvent.click(screen.getByRole('menuitem', { name: 'Bearbeiten …' }));
     const dlg = await screen.findByRole('dialog', { name: 'Rolle «Notizpflege» bearbeiten' });
-    expect(within(dlg).getByText('2 Personen haben diese Rolle; geänderte Rechte gelten für sie sofort.')).toBeInTheDocument();
+    expect(dlg).toHaveTextContent('Änderungen an der Rolle – 2 Personen haben diese Rolle; geänderte Rechte gelten für sie sofort.');
+    expect(dlg).toHaveTextContent('Rechte unverändert.');
     await userEvent.click(within(dlg).getByRole('button', { name: 'Speichern' }));
     await waitFor(() => expect(calls.some(c => c.method === 'PATCH')).toBe(true));
     expect(calls.find(c => c.method === 'PATCH')!.headers.get('if-match')).toBe('W/"3"');

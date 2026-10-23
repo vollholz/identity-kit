@@ -135,15 +135,27 @@ describe('Kontomenü', () => {
     expect(api.calls).toHaveLength(api.calls.filter(c => c.method === 'GET').length);
   });
 
-  it('«Meine Rollen und Rechte» nennt Rechte nur aus Freigaben einzelner Bereiche als Satz, ohne Bereiche', async () => {
+  it('«Meine Rollen und Rechte»: Rechte nur aus Freigaben einzelner Bereiche mit eigenem Status statt «fehlt», gezählt, ohne Bereiche', async () => {
     const u = userEvent.setup();
     setup(<AccountMenu avatar="AA" />, { roles: ['viewer'], permissions: ['tenant:read', 'note:read'], grantedPermissions: ['folder:admin', 'note:write'] });
     await u.click(screen.getByRole('button', { name: /^AAKonto:/ }));
     await u.click(within(screen.getByRole('menu', { name: 'Konto' })).getByRole('menuitem', { name: 'Meine Rollen und Rechte' }));
     const dlg = await screen.findByRole('dialog', { name: 'Meine Rollen und Rechte' });
-    expect(await within(dlg).findByText('Zusätzlich in einzelnen Bereichen freigegeben: «Ordner verwalten», «Notizen ändern».')).toBeInTheDocument();
     const row = (name: string) => within(dlg).getByText(name, { selector: '.iam-rights-l' }).closest('li')!;
-    expect(row('Ordner verwalten')).toHaveTextContent('fehlt (Rolle)');
+    await within(dlg).findByText(/^Darf/);
+    // Kein widersprüchliches «fehlt» für dieselbe Fähigkeit: eigener Status, gezählt und im Filter «Erlaubt»
+    expect(row('Ordner verwalten')).toHaveTextContent('in einzelnen Bereichen');
+    expect(row('Ordner verwalten')).not.toHaveTextContent('fehlt');
+    expect(row('Notizen ändern')).toHaveTextContent('in einzelnen Bereichen');
+    expect(row('Notizen lesen')).toHaveTextContent('erlaubt');
+    expect(within(dlg).getByText('Darf 4 von 10')).toBeInTheDocument();
+    expect(dlg).toHaveTextContent('2 Rechte davon nur in einzelnen Bereichen.');
+    await u.click(within(row('Ordner verwalten')).getByRole('button', { name: 'Warum? Ordner verwalten' }));
+    expect(row('Ordner verwalten')).toHaveTextContent('Eine Freigabe für einzelne Bereiche (Zugriffsregel)');
+    // Datensparsam: kein Bereich, nur der Hinweis, wer ihn kennt
+    expect(dlg).toHaveTextContent('Rechte «in einzelnen Bereichen» gelten nur dort, wo eine Zugriffsregel sie freigibt');
+    await u.click(within(dlg).getByRole('button', { name: /^Fehlt/ }));
+    expect(within(dlg).queryByText('Ordner verwalten', { selector: '.iam-rights-l' })).toBeNull();
   });
 
   it('«Meine Rollen und Rechte» ohne Rolle, aber mit Freigaben: eigener Satz statt «siehst nichts»; ohne beides «siehst nichts»', async () => {
@@ -166,7 +178,7 @@ describe('Kontomenü', () => {
     expect(within(dlg).getByText('Alle Rechte. Zugriffsregeln gelten nicht.')).toBeInTheDocument();
     expect(dlg.querySelectorAll('.iam-rights-r')).toHaveLength(0);
     expect(dlg).not.toHaveTextContent('Zugriffsregeln können');
-    expect(dlg).not.toHaveTextContent('Zusätzlich in einzelnen Bereichen');
+    expect(dlg).not.toHaveTextContent('in einzelnen Bereichen');
   });
 });
 

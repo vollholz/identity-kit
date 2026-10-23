@@ -8,11 +8,16 @@
  * kopieren, löschen. Darunter «Rollen vergleichen» mit allen Rollen. Eigene Rollen enthalten keine Rechte, die nur
  * org-admin hat (`customPermissions` aus GET /v1/roles); im Dialog stehen sie gesperrt mit Grund. Rechte, Gruppen und
  * Labels kommen aus dem Katalog (useAuthz), nie aus eigenen Listen.
+ *
+ * Damit eine eigene Rolle einen Arbeitsablauf in der Oberfläche ergibt: Aufgaben des Katalogs (`tasks`) ergänzen ihre
+ * Rechte auf Klick, fehlende Voraussetzungen (`requires`) stehen als Warnung mit Begründung und lassen sich ergänzen;
+ * gespeichert wird ohne sie erst nach einer Bestätigung (erneutes Speichern). Rechte ergänzt der Dialog nie still.
+ * Beim Bearbeiten zeigt er neue und entzogene Rechte und wie viele Personen das betrifft.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useMemo, useState } from 'react';
 import { roleApi } from '../admin.ts';
-import { useAuthz, useRoles } from '../authz.ts';
+import { missingRequirements, useAuthz, useRoles } from '../authz.ts';
 import { useIamConfig } from '../config.tsx';
 import type { Role, RoleList } from '../contract.ts';
 import { iamKeys } from '../keys.ts';
@@ -21,8 +26,9 @@ import { ADMIN_ROLE } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { RightsOverview, roleSummary } from '../rights/RightsOverview.tsx';
 import { RoleCompare } from '../rights/RoleMatrix.tsx';
+import { useRefreshRights } from '../rightsData.ts';
 import { useIam } from '../session.tsx';
-import { t, tn } from '../texts/index.ts';
+import { listAnd, t, tn } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
 import type { IamIconName } from '../ui/icons.ts';
@@ -45,8 +51,10 @@ export function RolesPage() {
   const items = q.data?.items ?? [];
   const builtin = items.filter(r => !r.custom), custom = items.filter(r => r.custom);
   const full = !!q.data && custom.length >= q.data.maxCustom;
-  // Rechte der Rollen wirken sofort (8.3): Rollen, Status, Mitgliederlisten und /auth/me (eigene Rechte) neu laden
-  const refresh = () => Promise.all([iamKeys.roles, iamKeys.adminStatus, ['iam', 'admin', 'members'], iamKeys.me].map(queryKey => qc.invalidateQueries({ queryKey })));
+  // Rechte der Rollen wirken sofort (8.3): Rollen, Status, Mitgliederlisten, /auth/me (eigene Rechte) und Fähigkeiten der
+  // App (rightsData.ts) neu laden
+  const refreshRights = useRefreshRights();
+  const refresh = () => Promise.all([...[iamKeys.roles, iamKeys.adminStatus, ['iam', 'admin', 'members']].map(queryKey => qc.invalidateQueries({ queryKey })), refreshRights()]);
   // 412: inzwischen geändert – Liste mit der aktuellen Version neu laden, der nächste Versuch nimmt sie
   const onStale = (e: unknown) => { if (e instanceof ApiError && e.status === 412) void qc.invalidateQueries({ queryKey: iamKeys.roles }); };
   const remove = useMutation({
@@ -147,7 +155,7 @@ function RoleRow({ role: r, full, onEdit, onTemplate, onDelete }: { role: Role; 
       {open ? (
         <div id={id} className="iam-role-rights-open">
           {!r.custom && r.description !== summary ? <p className="iam-small">{r.description}</p> : null}
-          <RightsOverview roles={[r.key]} headingLevel={4} />
+          <RightsOverview roles={[r.key]} headingLevel={4} roleView />
         </div>
       ) : null}
     </li>
@@ -165,7 +173,9 @@ function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { lis
   const [label, setLabel] = useState(role ? role.label : from ? t('iam.rolesPage.copyName', { role: from.label }) : '');
   const [description, setDescription] = useState(role?.description ?? (from?.custom ? from.description : ''));
   const [perms, setPerms] = useState<ReadonlySet<string>>(() => new Set((start?.permissions ?? ['tenant:read']).filter(p => allowed.has(p))));
-  const [err, setErr] = useState<{ label?: string; perms?: string }>({});
+  const [err, setErr] = useState<{ label?: string; perms?: string; needs?: string }>({});
+  // Bewusst ohne Voraussetzungen speichern: gilt nur für die Auswahl, bei der die Warnung bestätigt wurde
+  const [ackFor, setAckFor] = useState<string | null>(null);
   // Rechte, die eine eigene Rolle nicht (mehr) enthalten darf: aus der Vorlage oder beim Bearbeiten aus der Rolle selbst
   const dropped = (start?.permissions ?? []).filter(p => !allowed.has(p));
   const save = useMutation({
@@ -180,6 +190,9 @@ function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { lis
     onError: onStale,
   });
   const toggle = (k: string) => setPerms(s => { const x = new Set(s); if (!x.delete(k)) x.add(k); return x; });
+  const add = (keys: readonly string[]) => setPerms(s => new Set([...s, ...keys.filter(k => allowed.has(k))]));
+  const needs = missingRequirements(authz.catalog, perms, allowed);
+  const pickKey = [...perms].sort().join(' ');
   const takeOver = (key: string) => {
     const base = list.items.find(r => r.key === key);
     if (base) setPerms(new Set(base.permissions.filter(p => allowed.has(p))));
@@ -188,17 +201,24 @@ function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { lis
     const e: typeof err = {};
     if (!label.trim()) e.label = t('iam.rolesPage.needName');
     if (!perms.size) e.perms = t('iam.rolesPage.needRight');
+    else if (needs.length && ackFor !== pickKey) e.needs = t('iam.rolesPage.needs.confirm');
     setErr(e);
     if (e.label) { document.getElementById(`${fid}-l`)?.focus(); return; }
     if (e.perms) { document.getElementById(`${fid}-p`)?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus(); return; }
+    if (e.needs) { setAckFor(pickKey); document.getElementById(`${fid}-n`)?.focus(); return; }
     save.mutate();
   };
   const groups = (authz.catalog?.groups ?? []).map(g => ({ ...g, perms: authz.catalog!.permissions.filter(p => p.group === g.key) })).filter(g => g.perms.length);
   const adminLabel = authz.roleLabel(ADMIN_ROLE);
+  const quoted = (keys: readonly string[]) => listAnd(keys.map(k => `«${authz.permLabel(k)}»`));
+  // Aufgaben, deren Rechte eine eigene Rolle enthalten darf
+  const tasks = (authz.catalog?.tasks ?? []).filter(x => x.permissions.length && x.permissions.every(p => allowed.has(p)));
+  const added = role ? [...perms].filter(p => !role.permissions.includes(p)) : [];
+  const removed = role ? role.permissions.filter(p => !perms.has(p)) : [];
+  const order = (keys: string[]) => (authz.catalog?.permissions ?? []).map(p => p.key).filter(k => keys.includes(k));
   return (
     <Dialog title={role ? t('iam.rolesPage.editTitle', { role: role.label }) : t('iam.rolesPage.createTitle', { org: orgLabel })} onClose={onClose} onSubmit={submit} width={720}
       footer={<><Button variant="ghost" onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="primary" icon="check" busy={save.isPending}>{role ? t('iam.common.save') : t('iam.rolesPage.create')}</Button></>}>
-      {role && role.memberCount ? <p className="iam-note iam-small">{tn('iam.rolesPage.inUse', role.memberCount)}</p> : null}
       <div className="iam-form iam-compact">
         <label htmlFor={`${fid}-l`}>{t('iam.rolesPage.name')}</label>
         <input id={`${fid}-l`} className="iam-inp" value={label} maxLength={60} onChange={e => setLabel(e.target.value)} required autoComplete="off" data-autofocus
@@ -215,6 +235,28 @@ function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { lis
       </div>
       {dropped.length ? (
         <p className="iam-note iam-small"><Icon name="warn" className="iam-ico" />{t('iam.rolesPage.dropped', { role: adminLabel, perms: dropped.map(p => authz.permLabel(p)).join(', ') })}</p>
+      ) : null}
+      {tasks.length ? (
+        <section className="iam-role-tasks" aria-labelledby={`${fid}-tk`}>
+          <div id={`${fid}-tk`} className="iam-role-group-h">{t('iam.rolesPage.tasks')}</div>
+          <p className="iam-hint iam-muted iam-small">{t('iam.rolesPage.tasksHint')}</p>
+          <ul className="iam-rp-list">
+            {tasks.map(x => {
+              const n = x.permissions.filter(p => perms.has(p)).length, m = x.permissions.length;
+              const state = n === m ? t('iam.rolesPage.task.complete') : n ? t('iam.rolesPage.task.partial', { n, m }) : t('iam.rolesPage.task.none');
+              return (
+                <li key={x.key} className={`iam-rp-r${n === m ? ' iam-is-on' : ''}`}>
+                  <span />
+                  <div className="iam-rp-t">
+                    <span className="iam-rp-l">{x.label} <span className="iam-muted iam-small">· {state}</span></span>
+                    <span className="iam-rp-s">{x.description} {quoted(x.permissions)}.</span>
+                  </div>
+                  {n < m ? <Button size="sm" icon="plus" aria-label={t('iam.rolesPage.task.addFor', { task: x.label })} onClick={() => add(x.permissions)}>{t('iam.rolesPage.task.add')}</Button> : <span />}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       ) : null}
       <fieldset id={`${fid}-p`} className="iam-perm-pick" aria-describedby={err.perms ? `${fid}-pe` : undefined}>
         <legend>{t('iam.members.rights')} <span className="iam-muted iam-small">{t('iam.rolesPage.picked', { n: perms.size })}</span></legend>
@@ -241,6 +283,25 @@ function RoleDialog({ list, editing, orgLabel, onStale, onClose, onDone }: { lis
           </div>
         ))}
       </fieldset>
+      {needs.length ? (
+        <div id={`${fid}-n`} className="iam-note iam-small" role="status" tabIndex={-1}>
+          <p><Icon name="warn" className="iam-ico" /><b>{t('iam.rolesPage.needs.title')}</b> – {t('iam.rolesPage.needs.text')}</p>
+          <ul>{needs.map(x => <li key={x.perm.key}>{t('iam.rolesPage.needs.item', { label: x.perm.label, perms: quoted(x.missing.map(p => p.key)) })}</li>)}</ul>
+          {err.needs ? <p className="iam-ferr"><Icon name="warn" className="iam-ico" />{err.needs}</p> : null}
+          <Button size="sm" icon="plus" onClick={() => add(needs.flatMap(x => x.missing.map(p => p.key)))}>{t('iam.rolesPage.needs.add')}</Button>
+        </div>
+      ) : null}
+      {role ? (
+        <div className="iam-note iam-small" aria-live="polite">
+          <p><b>{t('iam.rolesPage.diff.title')}</b>{role.memberCount ? <> – {tn('iam.rolesPage.inUse', role.memberCount)}</> : null}</p>
+          {added.length || removed.length ? (
+            <ul>
+              {added.length ? <li>{t('iam.rolesPage.diff.added', { perms: quoted(order(added)) })}</li> : null}
+              {removed.length ? <li>{t('iam.rolesPage.diff.removed', { perms: quoted(order(removed)) })}</li> : null}
+            </ul>
+          ) : <p className="iam-muted">{t('iam.rolesPage.diff.none')}</p>}
+        </div>
+      ) : null}
       {save.error ? <ErrorBox error={save.error} /> : null}
     </Dialog>
   );

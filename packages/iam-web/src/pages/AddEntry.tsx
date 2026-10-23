@@ -19,6 +19,7 @@ import { iamKeys } from '../keys.ts';
 import { ADMIN_ROLE, type Permission } from '../permissions.ts';
 import { isPrincipalId } from '../people.tsx';
 import { ApiError } from '../problem.ts';
+import { useRefreshRights } from '../rightsData.ts';
 import { useIam } from '../session.tsx';
 import { t, tn, type IamTextKey } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
@@ -62,6 +63,7 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
   const fid = useId();
   const ids = { rt: `${fid}-rt`, rid: `${fid}-rid`, pt: `${fid}-pt`, pr: `${fid}-pr`, eff: `${fid}-eff`, what: `${fid}-what`, bundle: `${fid}-bundle`, perm: `${fid}-perm` };
   const qc = useQueryClient();
+  const refreshRights = useRefreshRights();
   const res = useResources();
   const who = useWhoText();
   const perm = usePermLabel();
@@ -91,7 +93,8 @@ function AddEntryForm({ entries, onClose }: { entries: AclEntry[]; onClose: () =
   const isExisting = (p: string, effect: string) => entries.some(e => e.resourceType === d.resourceType && (e.resourceId ?? null) === ridNow && e.principalType === d.principalType
     && e.principalRef === d.principalRef && e.permission === p && effectOf(e) === effect);
   const toSave = bundleRole && d.effect === 'grant' ? bundlePerms.filter(p => !isExisting(p, 'grant')) : [d.permission];
-  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), qc.invalidateQueries({ queryKey: iamKeys.me })]);
+  // Wirkt sofort: Regeln, eigene Rechte (/auth/me) und Fähigkeiten der App (rightsData.ts)
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), refreshRights()]);
   const save = useMutation({
     mutationFn: async () => {
       for (const permission of toSave) {

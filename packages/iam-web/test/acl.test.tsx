@@ -455,6 +455,31 @@ describe('Seite «Zugriff»', () => {
     await waitFor(() => expect(lists()).toBeGreaterThan(before));
   });
 
+  it('nach Anlegen und Entfernen: auch die Daten der App (Fähigkeiten `can`) neu, die des Pakets nicht; `rightsData` grenzt ein', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const fill = () => { for (const k of [['notes', 'n1'], ['folders'], ['iam', 'roles']]) qc.setQueryData(k, { alt: true }); };
+    const stale = (k: unknown[]) => qc.getQueryState(k)?.isInvalidated;
+    setup('/verwalten/zugriff', { queryClient: qc, config: { resources: RESOURCES, rightsData: k => k[0] === 'notes' }, routes: routes({
+      'POST /v1/acl': () => json(note({ id: 'neu', principalRef: 'viewer' }), 201),
+      'DELETE /v1/acl/e1': () => new Response(null, { status: 204 }),
+    }) });
+    fill();
+    const dlg = await openAdd();
+    await pickFolder(dlg, 'Archiv');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
+    await screen.findByText('Zugriffsregel in «Demo AG» hinzugefügt');
+    await waitFor(() => expect(stale(['notes', 'n1'])).toBe(true));
+    expect(stale(['folders'])).toBe(false);
+    expect(stale(['iam', 'roles'])).toBe(false);
+    fill();
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu «Notizen ändern» beschränkt für Rolle «Bearbeiter:in» auf Projekte' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Zugriffsregel entfernen …' }));
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Entfernen' }));
+    await screen.findByText('Zugriffsregel in «Demo AG» entfernt');
+    await waitFor(() => expect(stale(['notes', 'n1'])).toBe(true));
+    expect(stale(['iam', 'roles'])).toBe(false);
+  });
+
   it('Fehler ohne eigenes Feld erscheint in der Box, auch neben einem Feldfehler', async () => {
     setup('/verwalten/zugriff', { routes: routes({ 'POST /v1/acl': () => json({ title: 'Die Eingabe ist ungültig.', status: 422, detail: 'Zwei Fehler.', errors: [{ path: '/principalRef', message: 'Unbekannte Rolle' }, { path: '/effect', message: 'Wirkung passt nicht' }] }, 422) }) });
     const dlg = await openAdd();

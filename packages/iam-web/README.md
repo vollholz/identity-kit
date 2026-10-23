@@ -14,7 +14,7 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@0.3.1
+npm i -E @vollholz/iam-web@0.4.0
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
@@ -62,6 +62,7 @@ Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 | `resources`, `people` | Adapter für Zugriffsregeln und Personenverzeichnis (unten) |
 | `texts`, `locale` | eigene Texte je Sprache, z. B. `{ de: { 'iam.rights.rulesNote': '…' } }` |
 | `onTenant`, `onLogout` | Rückmeldungen für persönliche Einstellungen der App |
+| `rightsData` | Abfragen der App, die nach Änderungen an Rollen oder Zugriffsregeln neu laden (Fähigkeiten `can`); Standard: alle ausser denen des Pakets |
 | `legacyTabKey` | früherer Schlüssel der Organisation je Tab (einmal übernommen) |
 
 ## Routen und Navigation

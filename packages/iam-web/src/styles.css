@@ -350,6 +350,9 @@ details.iam-more.iam-card.iam-pad{gap:0}
 .iam-rights-r.iam-is-scope .iam-rights-st{color:var(--iam-warn)}
 .iam-rights-r.iam-is-acl .iam-rights-ico{background:var(--iam-bad-soft);color:var(--iam-bad)}
 .iam-rights-r.iam-is-acl .iam-rights-st{color:var(--iam-bad)}
+/* In einzelnen Bereichen erlaubt: wie erlaubt, aber mit Kontur statt Fläche */
+.iam-rights-r.iam-is-area .iam-rights-ico{color:var(--iam-ok);box-shadow:inset 0 0 0 1px var(--iam-ok)}
+.iam-rights-r.iam-is-area .iam-rights-st{color:var(--iam-ok)}
 .iam-rights-wb{background:none;border:0;padding:2px 4px;border-radius:4px;font-size:12px;color:var(--iam-text-3);text-decoration:underline dotted;text-underline-offset:3px}
 .iam-rights-wb:hover,.iam-rights-wb[aria-expanded="true"]{color:var(--iam-text)}
 .iam-rights-wb:focus-visible{outline:2px solid var(--iam-focus);outline-offset:1px}
@@ -516,6 +519,9 @@ span.iam-rp-ctl .iam-ico{width:14px;height:14px;stroke-width:2.4;color:var(--iam
 .iam-type-ico.iam-accent{background:var(--iam-accent-soft);color:var(--iam-accent)}
 .iam-role-row .iam-btn .iam-ico.iam-rot90{transform:rotate(90deg)}
 .iam-note .iam-ico{width:13px;height:13px;margin-right:5px;vertical-align:-2px}
+.iam-note ul{margin:4px 0 6px;padding-left:18px}
+.iam-note p{margin:0 0 4px}
+.iam-role-tasks{margin:12px 0}
 /* IamNav: Gruppe «Zugang» (eigene Leisten der App nutzen useIamNav) */
 .iam-nav ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .iam-nav-h{font:600 11px var(--iam-font);letter-spacing:.06em;text-transform:uppercase;color:var(--iam-text-3);padding:10px 10px 4px}

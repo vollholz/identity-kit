@@ -89,6 +89,11 @@ export interface IamConfig {
   people?: IamPeople;
   onTenant?: (me: Me) => void;
   onLogout?: () => void;
+  /**
+   * Abfragen der App, deren Antworten von Rechten abhängen (Fähigkeiten `can`, sichtbare Ressourcen); nach Änderungen an
+   * Rollen oder Zugriffsregeln neu geladen (rightsData.ts). Standard: alle Abfragen ausser denen des Pakets.
+   */
+  rightsData?: (queryKey: readonly unknown[]) => boolean;
 }
 
 export const DEFAULT_CONFIG: IamConfig = { product: '', paths: DEFAULT_PATHS, features: {}, router: historyRouter };

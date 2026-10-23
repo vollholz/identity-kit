@@ -13,7 +13,7 @@ dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), da
 | Teil | Version | Bezug |
 |---|---|---|
 | `@vollholz/iam` (Backend) | 0.3.0 | GitHub Packages |
-| `@vollholz/iam-web` (Oberfläche) | 0.3.1 | GitHub Packages |
+| `@vollholz/iam-web` (Oberfläche) | 0.4.0 | GitHub Packages |
 | `@vollholz/iam-testkit` (Tests) | 0.4.0 | GitHub Packages |
 | `product-realm`, `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `<modul>-v0.1.0` |
 
@@ -291,7 +291,7 @@ app.get('/v1/notes/:id', { preHandler: need('note:read', r => ({ type: 'note', i
 
 ## 8. Frontend
 
-React 19 mit `@tanstack/react-query` 5; `@vollholz/iam-web` 0.3.1, Server an derselben Herkunft (`/auth/*`, `/v1/…`).
+React 19 mit `@tanstack/react-query` 5; `@vollholz/iam-web` 0.4.0, Server an derselben Herkunft (`/auth/*`, `/v1/…`).
 
 ```tsx
 import { IamProvider } from '@vollholz/iam-web';

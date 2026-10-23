@@ -24,7 +24,7 @@ export { Picker, usePicker, type PickerProps, type PickItem } from './ui/Picker.
 export type { ToastApi, ToastOptions } from './ui/Toasts.tsx';
 export { IamProvider, type IamProviderProps } from './provider.tsx';
 export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } from './session.tsx';
-export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAuthz, useAuthzCatalog, useRoles, withCustomRoles, type Authz } from './authz.ts';
+export { defaultRoleGroups, groupRoles, makeAuthz, missingRequirements, roleGroupProblems, useAuthz, useAuthzCatalog, useRoles, withCustomRoles, type Authz } from './authz.ts';
 export { useResourceCan } from './resourceCan.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamPickOption, type IamResources, type RoleGroup } from './config.tsx';
 export { defaultPeople, isPrincipalId, PersonName, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
@@ -37,13 +37,14 @@ export {
 export { aclApi, PersonPick, ResourcePick, useAclEntries, type EffectiveQuery } from './acl/shared.tsx';
 export { historyRouter, type IamLinkProps, type IamRouter } from './router.tsx';
 export { iamKeys } from './keys.ts';
+export { defaultRightsData, invalidateRightsData, useRefreshRights } from './rightsData.ts';
 export { useIamText } from './texts/react.tsx';
 export { useIamFetch } from './fetch.ts';
 export { clientApi, entraApi, entraTest, memberApi, orgApi, roleApi, handoverApi, useAdminStatus, useClientGrants, useConsentLinks, useGroupRolePrefix, useEntra, useMembers, useOrganization, useOrganizations } from './admin.ts';
 export { MissingRight, missingRightText, NoPermission, type Need } from './rights/MissingRight.tsx';
 export { AdminHead, type AdminHeadProps } from './rights/AdminHead.tsx';
 export { Requires, RequiresPlatformAdmin, type RequiresProps } from './rights/Requires.tsx';
-export { RightsOverview, rightsModel, roleSummary, type RightRow, type RightsInput, type RightsOverviewProps, type RightStatus } from './rights/RightsOverview.tsx';
+export { isPermitted, RightsOverview, rightsModel, roleSummary, type RightRow, type RightsInput, type RightsOverviewProps, type RightStatus } from './rights/RightsOverview.tsx';
 export { RoleCompare, RoleMatrix, type RoleMatrixProps } from './rights/RoleMatrix.tsx';
 export { MyRightsDialog } from './rights/MyRights.tsx';
 export { AccountMenu, type AccountMenuProps } from './rights/AccountMenu.tsx';

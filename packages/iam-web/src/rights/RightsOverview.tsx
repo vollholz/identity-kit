@@ -2,7 +2,7 @@
  * Rechte-Übersicht (Spezifikation 11.2): ein Baustein für die Frage «Was darf ⟨wer⟩ – und warum?». Der Aufrufer wählt
  * den Blickwinkel nur über die Eingaben:
  *
- * - ich:                  `roles={me.roles} permissions={me.permissions} rulesNote`
+ * - ich:                  `roles={me.roles} permissions={me.permissions} granted={me.grantedPermissions} rulesNote`
  * - Person:               `roles={member.roles}` (Simulation aus den Rollen, keine effektiven Rechte anderer)
  * - Rolle(n):             `roles={['editor', 'viewer']}`
  * - Maschinen-Client:     `roles={client.lastRoles} scopes={client.lastScopes}` – erlaubt ist nur Rolle ∧ Scope
@@ -12,8 +12,9 @@
  * Standardsatz `iam.rights.rulesNote`), `admin` (Sonderfall Organisations-Admin, Standard aus `roles`), `headingLevel`,
  * `before` (Rollen bisher: Änderung «+ x, − y» und Markierung in der Liste).
  *
- * Darstellung: «Darf n von m» mit Satz, Gruppen aus dem Katalog mit Zählung, je Recht Symbol und Text (erlaubt / fehlt
- * (Rolle) / fehlt (Scope)) und «Warum?». Ab 10 Rechten Umschalter «Alle / Erlaubt / Fehlt» und Suche. Organisations-Admin
+ * Darstellung: «Darf n von m» mit Satz, Gruppen aus dem Katalog mit Zählung, je Recht Symbol und Text (erlaubt / in
+ * einzelnen Bereichen / fehlt (Rolle) / fehlt (Scope)) und «Warum?». Mit `roleView` die Rechte einer Rolle («Enthält n von
+ * m Rechten») statt einer Erlaubnis. Ab 10 Rechten Umschalter «Alle / Erlaubt / Fehlt» und Suche. Organisations-Admin
  * als ein Satz «Alle Rechte. Zugriffsregeln gelten nicht.», Liste erst auf «Rechte anzeigen».
  * Herkunft: vollholz/assets `web/src/ui/RightsOverview.tsx`.
  */
@@ -28,8 +29,14 @@ import { useIamUi } from '../ui/context.tsx';
 import type { IamIconName } from '../ui/icons.ts';
 import { Loading } from '../ui/states.tsx';
 
-/** `acl`: Rolle und Scope reichen, eine Zugriffsregel auf Ebene der Organisation verbietet oder beschränkt es. */
-export type RightStatus = 'allowed' | 'role' | 'scope' | 'acl';
+/**
+ * `area`: nicht auf Ebene der Organisation, aber über eine Freigabe für einzelne Bereiche (Zugriffsregel `grant`).
+ * `acl`: Rolle und Scope reichen, eine Zugriffsregel auf Ebene der Organisation verbietet oder beschränkt es.
+ */
+export type RightStatus = 'allowed' | 'area' | 'role' | 'scope' | 'acl';
+
+/** Erlaubt – auf Ebene der Organisation oder in einzelnen Bereichen. */
+export const isPermitted = (s: RightStatus) => s === 'allowed' || s === 'area';
 
 export interface RightRow {
   perm: PermissionInfo;
@@ -50,6 +57,8 @@ export interface RightsInput {
    * fehlt, obwohl Rolle und Scope reichen, ist `acl`; was hier steht, ohne dass eine Rolle es gibt, kommt aus einer Freigabe.
    */
   effective?: readonly string[];
+  /** Rechte nur über Freigaben für einzelne Bereiche (`grantedPermissions` von /auth/me). */
+  granted?: readonly string[];
 }
 
 /** Kurzbeschreibung einer Rolle: der erste Teil der Beschreibung bis «;» oder «:» (ganze Beschreibung als title). */
@@ -58,7 +67,7 @@ export function roleSummary(description: string): string {
 }
 
 /** Status je Recht in Katalogreihenfolge; ohne Katalog leer. Auch für Zählungen ausserhalb der Ansicht. */
-export function rightsModel(authz: Authz, { roles = [], permissions, scopes, admin, effective }: RightsInput): RightRow[] {
+export function rightsModel(authz: Authz, { roles = [], permissions, scopes, admin, effective, granted }: RightsInput): RightRow[] {
   const cat = authz.catalog;
   if (!cat) return [];
   const isAdmin = admin ?? roles.includes(ADMIN_ROLE);
@@ -67,15 +76,16 @@ export function rightsModel(authz: Authz, { roles = [], permissions, scopes, adm
   const has = isAdmin ? new Set(cat.permissions.map(p => p.key)) : new Set<string>([...permissions ?? fromRoles, ...effective ?? []]);
   const eff = effective ? new Set(effective) : null;
   const tok = scopes ? new Set(scopes) : null;
+  const area = new Set(granted ?? []);
   return cat.permissions.map(perm => {
     const sc = cat.scopes.filter(s => s.permissions.includes(perm.key));
     const scopeOk = !tok || sc.some(s => tok.has(s.key));
-    const status: RightStatus = !has.has(perm.key) ? 'role' : !scopeOk ? 'scope' : eff && !eff.has(perm.key) ? 'acl' : 'allowed';
+    const status: RightStatus = !has.has(perm.key) ? (area.has(perm.key) && scopeOk ? 'area' : 'role') : !scopeOk ? 'scope' : eff && !eff.has(perm.key) ? (area.has(perm.key) ? 'area' : 'acl') : 'allowed';
     return { perm, status, givenBy: own.filter(r => r.permissions.includes(perm.key)), scopes: tok ? [...sc.filter(s => tok.has(s.key)), ...sc.filter(s => !tok.has(s.key))] : sc };
   });
 }
 
-const STATUS_ICON: Record<RightStatus, IamIconName> = { allowed: 'check', role: 'x', scope: 'key', acl: 'shield' };
+const STATUS_ICON: Record<RightStatus, IamIconName> = { allowed: 'check', area: 'check', role: 'x', scope: 'key', acl: 'shield' };
 const statusText = (s: RightStatus) => t(`iam.rights.status.${s}`);
 
 type Filter = 'all' | 'allowed' | 'missing';
@@ -93,7 +103,8 @@ function Why({ row, authz, scoped }: { row: RightRow; authz: Authz; scoped: bool
       if (!all.length) return t('iam.rights.why.noRole');
       return all.length === 1 ? t('iam.rights.why.onlyRole', { role: all[0]!.label }) : t('iam.rights.why.roles', { roles: listAnd(all.map(r => q(r.label))) });
     })()
-    : givenBy.length ? tn('iam.rights.why.givenBy', givenBy.length, { roles: listAnd(givenBy.map(r => q(r.label))) }) : t('iam.rights.why.session');
+    : status === 'area' ? t('iam.rights.why.area')
+      : givenBy.length ? tn('iam.rights.why.givenBy', givenBy.length, { roles: listAnd(givenBy.map(r => q(r.label))) }) : t('iam.rights.why.session');
   const scopeText = (s: ScopeInfo) => <span key={s.key} title={t('iam.rights.scopeTitle', { key: s.key })}>{q(s.text)}</span>;
   let scopeLine: ReactNode = null;
   if (scoped) {
@@ -165,9 +176,11 @@ export interface RightsOverviewProps extends RightsInput {
   headingLevel?: 3 | 4 | 5 | 6;
   /** Rollen bisher (Rollendialog): Änderung gegenüber bisher. */
   before?: readonly string[];
+  /** Rechte einer Rolle (Seite «Rollen»): Kopfzeile «Enthält n von m Rechten» statt «Darf n von m». */
+  roleView?: boolean;
 }
 
-export function RightsOverview({ roles = [], permissions, scopes, rulesNote, admin, headingLevel = 5, before, effective }: RightsOverviewProps) {
+export function RightsOverview({ roles = [], permissions, scopes, rulesNote, admin, headingLevel = 5, before, effective, granted, roleView }: RightsOverviewProps) {
   const authz = useAuthz();
   const { Icon } = useIamUi();
   useIamText();
@@ -180,8 +193,9 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
   if (!cat) return <Loading inline />;
 
   const isAdmin = admin ?? roles.includes(ADMIN_ROLE);
-  const rows = rightsModel(authz, { roles, permissions, scopes, admin: isAdmin, effective });
-  const n = rows.filter(r => r.status === 'allowed').length;
+  const rows = rightsModel(authz, { roles, permissions, scopes, admin: isAdmin, effective, granted });
+  const n = rows.filter(r => isPermitted(r.status)).length;
+  const byArea = rows.filter(r => r.status === 'area').length;
   const byScope = rows.filter(r => r.status === 'scope').length;
   const byAcl = rows.filter(r => r.status === 'acl').length;
   const roleNames = authz.groupRoles(cat.roles.filter(r => roles.includes(r.key))).flatMap(g => g.roles.map(r => r.label));
@@ -189,7 +203,7 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
   const sentence = scopes
     ? `${t('iam.rights.scoped', { who })}${byScope ? ` ${tn('iam.rights.scopeMissing', byScope)}` : ''}`
     : t('iam.rights.who', { who });
-  const aclNote = byAcl ? ` ${tn('iam.rights.aclMissing', byAcl)}` : '';
+  const aclNote = `${byAcl ? ` ${tn('iam.rights.aclMissing', byAcl)}` : ''}${byArea ? ` ${tn('iam.rights.areaOnly', byArea)}` : ''}`;
   const adminShort = isAdmin && !scopes;
   const toggle = (key: string) => setWhy(s => { const x = new Set(s); if (!x.delete(key)) x.add(key); return x; });
   const groupLabel = (k: string) => cat.groups.find(g => g.key === k)?.label;
@@ -204,7 +218,7 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
 
   const head = (
     <div className="iam-rights-head">
-      <p className="iam-rights-n" aria-live={before ? 'polite' : undefined}><b>{t('iam.rights.count', { n, m: rows.length })}</b> <span className="iam-muted">– {sentence}{aclNote}</span></p>
+      <p className="iam-rights-n" aria-live={before ? 'polite' : undefined}><b>{t(roleView && !isAdmin ? 'iam.rights.countRole' : 'iam.rights.count', { n, m: rows.length })}</b> <span className="iam-muted">– {sentence}{aclNote}</span></p>
       {adminShort ? (
         <p className="iam-rights-admin">
           <Icon name="shield" className="iam-ico" /><span>{t('iam.rights.admin')}</span>
@@ -217,10 +231,10 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
   if (adminShort && !showAdmin) return <div className="iam-rights">{head}<div id={`${id}-list`} hidden /></div>;
 
   const term_ = term.trim().toLowerCase();
-  const visible = rows.filter(r => (filter === 'all' || (filter === 'allowed') === (r.status === 'allowed'))
+  const visible = rows.filter(r => (filter === 'all' || (filter === 'allowed') === isPermitted(r.status))
     && (!term_ || [r.perm.label, r.perm.description, r.perm.key].some(s => s.toLowerCase().includes(term_))));
   const groups = cat.groups.map(g => ({ ...g, all: rows.filter(r => r.perm.group === g.key), rows: visible.filter(r => r.perm.group === g.key) })).filter(g => g.rows.length);
-  const count = (f: Filter) => (f === 'all' ? rows.length : rows.filter(r => (f === 'allowed') === (r.status === 'allowed')).length);
+  const count = (f: Filter) => (f === 'all' ? rows.length : rows.filter(r => (f === 'allowed') === isPermitted(r.status)).length);
   const tools = rows.length >= FILTER_FROM && !adminShort;
   const adminRole = cat.roles.find(r => r.key === ADMIN_ROLE)?.label ?? ADMIN_ROLE;
 
@@ -241,7 +255,7 @@ export function RightsOverview({ roles = [], permissions, scopes, rulesNote, adm
       {adminShort ? <p className="iam-rights-why-all iam-muted iam-small">{t('iam.rights.adminFrom', { role: adminRole })}</p> : null}
       <div id={`${id}-list`} className="iam-rights-groups">
         {groups.length ? groups.map(g => {
-          const gn = g.all.filter(r => r.status === 'allowed').length;
+          const gn = g.all.filter(r => isPermitted(r.status)).length;
           return (
             <section key={g.key} className="iam-rights-g" aria-labelledby={`${id}-${g.key}`}>
               {createElement(`h${headingLevel}`, { className: 'iam-rights-gh', id: `${id}-${g.key}` },

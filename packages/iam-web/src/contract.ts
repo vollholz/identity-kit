@@ -63,7 +63,14 @@ export interface PermissionInfo {
   resources: string[];
   /** Nur die Rolle org-admin hat dieses Recht. */
   adminOnly: boolean;
+  /**
+   * Rechte, ohne die die Oberfläche die Aktion nicht erreicht (z. B. «Objekte lesen» für «Objekte ändern»); der
+   * Rollendialog warnt, wenn sie fehlen. Fehlt bei Servern, die es nicht melden.
+   */
+  requires?: Permission[];
 }
+/** Aufgabe für den Rollendialog: Rechte, die zusammen einen Arbeitsablauf in der Oberfläche ergeben. */
+export interface TaskInfo { key: string; label: string; description: string; permissions: Permission[] }
 export interface PermissionGroupInfo { key: string; label: string }
 export interface CatalogRole { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
 export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
@@ -80,6 +87,8 @@ export interface AuthzCatalog {
   resourceTypes: ResourceTypeInfo[];
   /** Nur mit MCP-Dienst (7.2). */
   mcpTools?: McpToolInfo[];
+  /** Aufgaben für den Rollendialog (Rechte nach Arbeitsabläufen); fehlt bei Servern, die es nicht melden. */
+  tasks?: TaskInfo[];
 }
 
 // --------------------------------------------------------------------------------------------- Rollen (8.3, /v1/roles)

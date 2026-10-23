@@ -20,6 +20,7 @@ import { iamKeys } from '../keys.ts';
 import { isPrincipalId } from '../people.tsx';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { MissingRight } from '../rights/MissingRight.tsx';
+import { useRefreshRights } from '../rightsData.ts';
 import { useIam } from '../session.tsx';
 import { t, tn } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
@@ -112,11 +113,12 @@ function Rules({ q, admin, onAdd }: { q: UseQueryResult<AclEntry[]>; admin: bool
   // Eigene Rollen der Organisation (aus dem Zwischenspeicher, den useAuthz füllt): erst damit sind unbekannte `c-…` wirkungslos
   const customRoles = useRoles(false);
   const [del, setDel] = useState<AclEntry | null>(null);
+  const refreshRights = useRefreshRights();
   // Fehler bleiben im Dialog, damit der Bezug zum Eintrag erhalten bleibt
   const remove = useMutation({
     mutationFn: (id: string) => aclApi.remove(id),
-    // Wirkt sofort, auch auf die eigenen Rechte (/auth/me)
-    onSuccess: async () => { setDel(null); await Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), qc.invalidateQueries({ queryKey: iamKeys.me })]); toast.show(t('iam.acl.removed', { org })); },
+    // Wirkt sofort, auch auf die eigenen Rechte (/auth/me) und die Fähigkeiten der App (rightsData.ts)
+    onSuccess: async () => { setDel(null); await Promise.all([qc.invalidateQueries({ queryKey: iamKeys.acl }), refreshRights()]); toast.show(t('iam.acl.removed', { org })); },
     // Schon entfernt oder nicht mehr erlaubt (404, 403): Liste neu laden, der Fehler bleibt im Dialog
     onError: () => void qc.invalidateQueries({ queryKey: iamKeys.acl }),
   });

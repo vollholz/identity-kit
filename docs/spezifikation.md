@@ -414,7 +414,9 @@ Der Rechtekatalog steht an **einer** Stelle im Code (`authz/permissions.ts`) und
   `groups[].match` (Stichwörter der Gruppe als regulärer Ausdruck, [8.2](#82-regeln-für-den-katalog)) und
   `permissions[].personOnly` (`true` für Rechte, die Personen vorbehalten sind) und `resourceTypes[].leaf` (`true` für
   Blätter der Kette: dort keine Freigaben), jeweils nur, wo gesetzt; für Assets
-  ist die Antwort die bisherige plus diese Felder.
+  ist die Antwort die bisherige plus diese Felder. Optional für den Rollendialog: `permissions[].requires` (Rechte, ohne
+  die die Oberfläche die Aktion nicht erreicht, z. B. «Objekte lesen» für «Objekte ändern») und `tasks[]` (`key`,
+  `label`, `description`, `permissions`: Rechte, die zusammen einen Arbeitsablauf ergeben).
 - Die Oberfläche hat **keine** eigenen Listen und Labels; ein Test prüft, dass ihr Typ `Permission` genau dem Katalog
   entspricht.
 - `infra/keycloak/platform.json` wird aus dem Katalog erzeugt und vom Test auf Aktualität geprüft.
@@ -719,13 +721,24 @@ MenuButton,org}.tsx`, `web/src/features/{admin,acl}/*`, `docs/oberflaeche.md`, K
 - Bedienelemente nach `permissions` aus `/auth/me` und nach `can` der Ressource; Labels nur aus
   `GET /v1/authz/catalog` (`useAuthz()`).
 - **Fehlendes Recht** an der Stelle der Aktion, ein Baustein (`MissingRight`): Recht mit Label, Rollen, die es
-  enthalten, wer Rollen vergibt («Diese Rolle vergibt die Plattform-Administration» bei Rechten nur von `org-admin`).
+  enthalten, wer Rollen vergibt («Diese Rolle vergibt die Plattform-Administration» bei Rechten nur von `org-admin`)
+  und – mit Zugriffsregeln, für Rechte, die unterhalb der Organisation wirken – dass auch eine Freigabe für einzelne
+  Bereiche genügt.
 - Seiten mit Rechtebedarf: Routen-Guard `requires(…)` zeigt «Recht fehlt» statt eines 403.
 - **Meine Rollen und Rechte** im Kontomenü: Rollen als Karten, Rechte-Übersicht, Hinweis auf mögliche
-  Zugriffsregeln (keine Liste einzelner Regeln, sie gäbe verborgene Ressourcen preis), «Rollen vergleichen».
+  Zugriffsregeln (keine Liste einzelner Regeln, sie gäbe verborgene Ressourcen preis), «Rollen vergleichen». Rechte
+  nur aus Freigaben (`grantedPermissions`) stehen mit eigenem Status «in einzelnen Bereichen», nie als «fehlt».
 - Baustein **Rechte-Übersicht** für alle Blickwinkel (ich, Person, Rolle, Maschinen-Client mit Rolle ∧ Scope,
-  Assistent): «Darf n von m», Gruppen mit Zählung, je Recht erlaubt / fehlt (Rolle) / fehlt (Scope), «Warum?»;
-  `org-admin` als ein Satz «Alle Rechte. Zugriffsregeln gelten nicht.»
+  Assistent): «Darf n von m» (für eine Rolle «Enthält n von m Rechten»), Gruppen mit Zählung, je Recht erlaubt / in
+  einzelnen Bereichen / fehlt (Rolle) / fehlt (Scope), «Warum?»; `org-admin` als ein Satz «Alle Rechte.
+  Zugriffsregeln gelten nicht.»
+- **Rollendialog** für eigene Rollen: Aufgaben des Katalogs ergänzen ihre Rechte auf Klick; fehlende Voraussetzungen
+  der Oberfläche (`requires`) als Warnung mit Begründung, ergänzbar, sonst Speichern erst nach Bestätigung; nie still
+  ergänzt. Beim Bearbeiten neue und entzogene Rechte und die Zahl betroffener Personen.
+- **Fähigkeiten aktuell:** Nach eigenen Änderungen an Zugriffsregeln oder Rollen lädt das Paket `/auth/me` und die
+  Daten der App neu (`rightsData`, Standard: alle Abfragen ausser denen des Pakets), damit `can` der Ressourcen stimmt;
+  meldet `/auth/me` andere Rollen oder Rechte (Änderung anderswo; geprüft beim Zurückkehren in den Tab und nach jedem
+  403), ebenso.
 - **Rollenmatrix** Rechtegruppe × Rolle im Rollendialog, ohne waagrechtes Scrollen.
 - Begriffe (sichtbar, verbindlich): **Rolle**, **Recht**, **Scope** («Freigabe im Token»), **Zugriffsregel** (nicht
   «ACL», nicht «Principal»), **Organisation** (nicht «Mandant»).

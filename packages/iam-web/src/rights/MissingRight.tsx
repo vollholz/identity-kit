@@ -1,8 +1,9 @@
 /**
  * Hinweis auf ein fehlendes Recht, überall gleich (Spezifikation 11.2): Recht mit Label aus dem Katalog, die Rollen, die
- * es enthalten, und wer Rollen vergibt. Kompakt als Satz unter einer Aktion oder als ganze Seite «Recht fehlt» (auch für
- * die Guards). Der Schlüssel erscheint nur als technischer Zusatz (title). Statt eines Rechts kann die
- * Plattform-Administration fehlen (`PLATFORM_ADMIN`). Herkunft: vollholz/assets `web/src/ui/MissingRight.tsx`.
+ * es enthalten, wer Rollen vergibt und – wo möglich – dass auch eine Freigabe für einzelne Bereiche genügt. Kompakt als
+ * Satz unter einer Aktion oder als ganze Seite «Recht fehlt» (auch für die Guards). Der Schlüssel erscheint nur als
+ * technischer Zusatz (title). Statt eines Rechts kann die Plattform-Administration fehlen (`PLATFORM_ADMIN`).
+ * Herkunft: vollholz/assets `web/src/ui/MissingRight.tsx`.
  */
 import type { ReactNode } from 'react';
 import { useAuthz, type Authz } from '../authz.ts';
@@ -27,7 +28,11 @@ export function missingRightText(authz: Authz, perm: Need, lead = t('iam.missing
   const who = !roles.length ? '' : roles.length === 1 ? ` ${t('iam.missing.onlyRole', { role: roles[0]! })}` : ` ${t('iam.missing.roles', { roles: listAnd(quoted(roles)) })}`;
   // Nur org-admin (adminOnly): diese Rolle vergibt die Plattform-Administration, nicht die Organisation selbst
   const by = with_.length && with_.every(r => r.adminOnly) ? t('iam.missing.byPlatform') : t('iam.missing.byOrg');
-  return `${t('iam.missing.sentence', { lead, label: authz.permLabel(perm) })}${who} ${by}`;
+  // Statt einer Rolle genügt oft eine Freigabe für einzelne Bereiche: nur mit Zugriffsregeln (Katalog mit acl:read), nie
+  // für Rechte nur von org-admin, und nur, wenn eine Regel unterhalb der Organisation wirkt
+  const info = authz.permission(perm);
+  const area = !!authz.permission('acl:read') && !!info && !info.adminOnly && info.resources.some(r => r !== 'tenant') ? ` ${t('iam.missing.byArea')}` : '';
+  return `${t('iam.missing.sentence', { lead, label: authz.permLabel(perm) })}${who} ${by}${area}`;
 }
 
 /**

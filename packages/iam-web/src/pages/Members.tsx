@@ -219,7 +219,7 @@ export function MemberList({ alias, roles, platform, rolesManageable, self, orgL
               {rows.map(m => {
                 const [st, cls, why] = STATUS[m.status];
                 const inv = m.status === 'invited';
-                const fixed = !rolesManageable || (!platform && m.roles.includes(ADMIN));
+                const fixed = !rolesManageable || (platform ? m.roles.some(k => !label[k]) : m.roles.includes(ADMIN));
                 return (
                   <tr key={m.id}>
                     <td><div className="iam-b">{m.name}{m.id === self ? <span className="iam-muted iam-small"> {t('iam.members.you')}</span> : null}</div><div className="iam-mono-s iam-muted">{m.email ?? m.username}</div></td>
@@ -454,7 +454,10 @@ function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable
   const { Dialog, Button, Icon, toast } = useIamUi();
   const authz = useAuthz();
   const fid = useId();
-  const viewOnly = !rolesManageable || (!platform && member.roles.includes(ADMIN));
+  // Plattformansicht: Rollen, die sie nicht kennt, sind eigene Rollen dieser Organisation – nur ansehen, sonst gingen sie
+  // beim Speichern verloren. In der eigenen Organisation ist eine unbekannte Rolle gelöscht und fällt beim Speichern weg.
+  const foreign = platform ? member.roles.filter(k => !roles.some(r => r.key === k)) : [];
+  const viewOnly = !rolesManageable || (!platform && member.roles.includes(ADMIN)) || foreign.length > 0;
   const [sel, setSel] = useState<Set<string>>(() => new Set(member.roles));
   const [confirming, setConfirming] = useState(false);
   const save = useMutation({
@@ -471,7 +474,7 @@ function RolesDialog({ alias, orgLabel, member, roles, platform, rolesManageable
     return (
       <Dialog title={title} onClose={onClose} width={680} footer={<Button variant="primary" data-autofocus onClick={onClose}>{t('iam.common.close')}</Button>}>
         {intro}
-        <p className="iam-note" role="note">{rolesManageable ? t('iam.roles.adminOnlyPlatform', { role: name(ADMIN) }) : t('iam.members.rolesFixed')}</p>
+        <p className="iam-note" role="note">{!rolesManageable ? t('iam.members.rolesFixed') : foreign.length ? t('iam.roles.unknownRoles', { roles: foreign.join(', ') }) : t('iam.roles.adminOnlyPlatform', { role: name(ADMIN) })}</p>
         <RoleView member={member} roles={roles} />
       </Dialog>
     );

@@ -7,7 +7,7 @@
  */
 import type { ComponentType } from 'react';
 import { useAdminStatus } from './admin.ts';
-import { DEFAULT_PATHS, useIamConfig, type IamPaths } from './config.tsx';
+import { DEFAULT_PATHS, useIamConfig, type IamFeatures, type IamPaths } from './config.tsx';
 import type { Permission } from './permissions.ts';
 import { useIam } from './session.tsx';
 import { t } from './texts/index.ts';
@@ -15,11 +15,14 @@ import { useIamText } from './texts/react.tsx';
 import { useIamUi } from './ui/context.tsx';
 import type { IamIconName } from './ui/icons.ts';
 
-export type IamRouteId = 'members' | 'roles';
+export type IamRouteId = 'members' | 'roles' | 'clients' | 'organizations' | 'organization';
 
 export interface IamRoute {
   id: IamRouteId;
-  /** Aus `paths` (Standard wie vollholz/assets). */
+  /**
+   * Aus `paths` (Standard wie vollholz/assets). Parameter in der Schreibweise des Routers der App (`param` von
+   * `makeIamRoutes`; Standard React Router `:alias`, TanStack Router `$alias`). Die Seite liest ihn selbst aus dem Pfad.
+   */
   path: string;
   /** Bedarf der Seite; der Guard in `load()` prüft ihn, die Navigation blendet die Seite ohne ihn aus. */
   need: { perm: Permission } | { platformAdmin: true } | null;
@@ -34,13 +37,21 @@ export interface IamRoute {
 
 const pages = () => import('./pages/index.ts');
 
-/** Routen mit den Pfaden der App (`paths` wie bei `IamProvider`). */
-export function makeIamRoutes(paths: Partial<IamPaths> = {}): IamRoute[] {
+/** Parameter für TanStack Router (`$alias`), z. B. `makeIamRoutes(paths, features, { param: tanstackParam })`. */
+export const tanstackParam = (name: string) => `$${name}`;
+
+/** Routen mit den Pfaden und Schaltern der App (`paths`, `features` wie bei `IamProvider`; ohne `platform` keine Organisationen). */
+export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatures = {}, o: { param?: (name: string) => string } = {}): IamRoute[] {
   const p = { ...DEFAULT_PATHS, ...paths };
-  return [
+  const param = o.param ?? ((name: string) => `:${name}`);
+  const all: IamRoute[] = [
     { id: 'members', path: p.members, need: { perm: 'members:admin' }, get title() { return t('iam.members.title'); }, icon: 'users', nav: true, load: () => pages().then(m => ({ default: m.MembersScreen })) },
     { id: 'roles', path: p.roles, need: { perm: 'members:admin' }, get title() { return t('iam.rolesPage.title'); }, icon: 'tag', nav: true, load: () => pages().then(m => ({ default: m.RolesScreen })) },
+    { id: 'clients', path: p.clients, need: { perm: 'members:admin' }, get title() { return t('iam.clients.title'); }, icon: 'key', nav: true, load: () => pages().then(m => ({ default: m.ClientsScreen })) },
+    { id: 'organizations', path: p.organizations, need: { platformAdmin: true }, get title() { return t('iam.orgs.title'); }, icon: 'building', nav: true, load: () => pages().then(m => ({ default: m.OrganizationsScreen })) },
+    { id: 'organization', path: `${p.organizations}/${param('alias')}`, need: { platformAdmin: true }, get title() { return t('iam.orgs.one'); }, icon: 'building', nav: false, load: () => pages().then(m => ({ default: m.OrganizationScreen })) },
   ];
+  return features.platform === false ? all.filter(r => !(r.need && 'platformAdmin' in r.need)) : all;
 }
 
 /** Routen mit den Standardpfaden. */
@@ -54,7 +65,7 @@ export function useIamNav(): IamNavItem[] {
   const { canSomewhere } = useIam();
   useIamText();
   const pathname = router.usePathname();
-  const routes = makeIamRoutes(paths).filter(r => r.nav);
+  const routes = makeIamRoutes(paths, features).filter(r => r.nav);
   const platform = useAdminStatus(features.platform !== false && routes.some(r => r.need && 'platformAdmin' in r.need)).data?.platformAdmin ?? false;
   return routes
     .filter(r => !r.need || ('perm' in r.need ? canSomewhere(r.need.perm) : platform))

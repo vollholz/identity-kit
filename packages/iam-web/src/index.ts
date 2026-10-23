@@ -31,7 +31,7 @@ export { historyRouter, type IamLinkProps, type IamRouter } from './router.tsx';
 export { iamKeys } from './keys.ts';
 export { useIamText } from './texts/react.tsx';
 export { useIamFetch } from './fetch.ts';
-export { memberApi, roleApi, useAdminStatus, useMembers } from './admin.ts';
+export { clientApi, memberApi, orgApi, roleApi, useAdminStatus, useClientGrants, useMembers, useOrganization, useOrganizations } from './admin.ts';
 export { MissingRight, missingRightText, NoPermission, type Need } from './rights/MissingRight.tsx';
 export { AdminHead, type AdminHeadProps } from './rights/AdminHead.tsx';
 export { Requires, RequiresPlatformAdmin, type RequiresProps } from './rights/Requires.tsx';
@@ -43,4 +43,4 @@ export { OrgName, useOrgSwitchItems, type OrgSwitchItem } from './rights/OrgSwit
 export { listAnd, listOr } from './texts/index.ts';
 export { formatNode } from './texts/node.tsx';
 export { containers, includedIn } from './roles.ts';
-export { IamNav, iamRoutes, makeIamRoutes, useIamNav, type IamNavItem, type IamRoute, type IamRouteId } from './routes.tsx';
+export { IamNav, iamRoutes, makeIamRoutes, tanstackParam, useIamNav, type IamNavItem, type IamRoute, type IamRouteId } from './routes.tsx';

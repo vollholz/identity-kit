@@ -284,13 +284,21 @@ export class EntraService {
 
   /**
    * Verknüpfung planen: Mitglieder mit Adresse in `domains`, je genau eine verknüpfbare Person in Entra mit dieser
-   * Adresse (UPN oder mail). Schon verknüpfte Konten zählen als verknüpft (`entra` null, `reason` null). Ändert nichts.
+   * Adresse (UPN oder mail). Schon verknüpfte Konten zählen als verknüpft (`entra` null), wenn die verknüpfte Person in
+   * Entra noch verknüpfbar ist, sonst mit Grund. Ändert nichts.
    */
   private async plan(g: EntraGraph, tid: string, members: KcUser[], domains: string[], idp: string | null): Promise<Plan[]> {
     const out: Plan[] = [];
     for (const u of members) {
       if (!domains.includes(domainOf(u.email) ?? '')) continue;
-      if (idp && (await this.kc.federatedIdentities(u.id)).some(f => f.identityProvider === idp)) { out.push({ user: u, entra: null, reason: null }); continue; }
+      const link = idp ? (await this.kc.federatedIdentities(u.id)).find(f => f.identityProvider === idp) : undefined;
+      if (link) {
+        // Bestehende Verknüpfung nur, solange die Person in Entra verknüpfbar bleibt (deaktiviert, gelöscht, Gast, Domäne
+        // gewechselt: Anmeldung ginge verloren); die Objekt-ID zählt, nicht die Adresse
+        const e = await g.user(tid, link.userId);
+        out.push({ user: u, entra: null, reason: e ? notLinkable(e, domains) : 'In Entra ID nicht gefunden' });
+        continue;
+      }
       const hits = await g.usersByAddress(tid, u.email!);
       const ok = hits.filter(h => !notLinkable(h, domains, u.email));
       if (ok.length === 1) out.push({ user: u, entra: ok[0]!, reason: null });

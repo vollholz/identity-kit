@@ -252,6 +252,14 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
       assert.deepEqual([self.status, self.body.reason], [409, 'self-not-linkable']);
       assert.ok(u.carla.password, 'nichts geändert');
     } finally { contoso.users.find(x => x.id === oid.anna)!.userType = 'Member'; kc.links.get(u.anna.id)!.set('entra-001', annaLink); }
+    // auch mit Verknüpfung: die verknüpfte Person ist in Entra deaktiviert – Vorschau nennt sie, nicht selbst aussperren
+    contoso.users.find(x => x.id === oid.anna)!.accountEnabled = false;
+    try {
+      const p2 = ok(await call(anna(), 'GET', '/v1/admin/entra/preview')).members.find((m: any) => m.email === 'anna@demo.example');
+      assert.deepEqual([p2.linked, p2.reason], [false, 'In Entra ID deaktiviert']);
+      const self = await call(anna(), 'POST', '/v1/admin/entra/enforce', { notLinked: ['carla@demo.example', 'dana@demo.example', 'anna@demo.example'] });
+      assert.deepEqual([self.status, self.body.reason], [409, 'self-not-linkable']);
+    } finally { contoso.users.find(x => x.id === oid.anna)!.accountEnabled = true; }
     assert.equal(ok(await call(anna(), 'GET', '/v1/admin/entra')).connection.stage, 'pending');
     const r = ok(await call(anna(), 'POST', '/v1/admin/entra/enforce', { notLinked: ['DANA@demo.example', 'carla@demo.example'] }));
     assert.deepEqual([r.connection.stage, r.connection.enforcedBy], ['enforced', 'Anna Admin']);

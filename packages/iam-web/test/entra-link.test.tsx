@@ -4,7 +4,7 @@
  * Das Token kommt nur aus dem Fragment, verschwindet danach aus der Adresse und geht nur im Body an die API.
  */
 import { QueryClient } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IamProvider, publicEntraPage, type ConsentLink, type EntraConnection, type IamProviderProps } from '../src/index.ts';
@@ -94,6 +94,16 @@ describe('Freigabe für die Entra-Administration (öffentlich)', () => {
     open(`/verwalten/anmeldung/freigabe#${TOKEN}`, { 'POST /v1/entra/handover/info': () => problem(503, 'Nicht verfügbar.') });
     expect(await screen.findByRole('alert')).toHaveTextContent('Nicht verfügbar.');
     expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeInTheDocument();
+  });
+
+  it('nur genau diese zwei Pfade: Rückkehr mit o.-state und andere Seiten unter paths.entra brauchen die Sitzung', async () => {
+    for (const url of ['/verwalten/anmeldung/zustimmung?code=c&state=o.demo.abc', '/verwalten/anmeldung/zustimmung?code=c&state=p.muster.abc', '/verwalten/anmeldung/test', '/verwalten/anmeldung/freigabe/x']) {
+      const api = open(url, {});
+      expect(await screen.findByText('App')).toBeInTheDocument();
+      expect(api.calls.some(c => pathOf(c) === '/auth/me')).toBe(true);
+      expect(api.calls.some(c => pathOf(c).startsWith('/v1/entra/handover'))).toBe(false);
+      cleanup();
+    }
   });
 
   it('ohne features.entra: keine öffentliche Seite, normale Anmeldung über /auth/me', async () => {

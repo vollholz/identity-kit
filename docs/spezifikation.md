@@ -549,6 +549,7 @@ Organisationen und Mitgliedern, `docs/mandantentrennung.md` › Verwaltung.
 | `GET /v1/people` (Suche `q`, `ids` bis 100 je Aufruf), `GET /v1/people/{id}`: Personenverzeichnis der Organisation (Mitglieder ohne `removed_at`, für Auswahlen und Zugriffsregeln) | Recht irgendwo (`canSomewhere`) eines lesenden Fachrechts bzw. `acl:read`; Vertrag für die Oberflächen-Bausteine |
 | `GET/POST /v1/platform/organizations`, `GET/PATCH /v1/platform/organizations/{alias}`, `POST …/{alias}/suspend`, `POST …/{alias}/resume` (Body optional `reason`) | `platform-admin` |
 | `…/v1/platform/organizations/{alias}/members…`, `…/{alias}/clients…` (wie oben) | `platform-admin` |
+| `GET /v1/platform/organizations/{alias}/roles` (nur lesend, Format wie `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation, `memberCount`, `maxCustom`, `customPermissions`; noch nie benutzt: nur vordefinierte) | `platform-admin` |
 
 Datentyp Mitglied: `id`, `principalId`, `username`, `name`, `email`, `status` (`active` | `invited` | `disabled`),
 `roles`, `lastSeenAt` (letzter Zugriff auf die App), `createdAt`. Organisation: `id` (Keycloak), `alias`, `name`,

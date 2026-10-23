@@ -52,6 +52,7 @@ const FOREIGN: { route: string; label: string; call: (i: Ids) => Call }[] = [
   { route: 'POST /v1/platform/organizations/{alias}/suspend', label: 'Organisation A sperren', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/suspend`, body: { reason: 'fremd' } }) },
   { route: 'POST /v1/platform/organizations/{alias}/resume', label: 'Organisation A entsperren', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/resume` }) },
   { route: 'GET /v1/platform/organizations/{alias}/members', label: 'Mitglieder von A', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/members` }) },
+  { route: 'GET /v1/platform/organizations/{alias}/roles', label: 'Rollen von A', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/roles` }) },
   { route: 'POST /v1/platform/organizations/{alias}/members', label: 'in A einladen', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/members`, body: { email: 'neu@globex.example' } }) },
   { route: 'PUT /v1/platform/organizations/{alias}/members/{id}/roles', label: 'Rollen in A setzen', call: i => ({ method: 'PUT', url: `/v1/platform/organizations/${i.alias}/members/${i.member}/roles`, body: { roles: ['viewer'] } }) },
   { route: 'POST /v1/platform/organizations/{alias}/members/{id}/invitation', label: 'Einladung in A erneut senden', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/members/${i.invitation}/invitation` }) },

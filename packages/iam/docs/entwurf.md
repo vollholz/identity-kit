@@ -658,6 +658,11 @@ Audit-Trigger darauf warten.
     offene Einladung und nicht «Passwort setzen» offen ohne Zugriff (wie `status: 'active'` in der Liste). Assets
     (`service.ts:232` `activeAdmins`, `:664` `lastAdminGuard`) zählt auch eine nie angenommene Einladung mit angelegtem
     Konto, weil das neue Konto ab der Einladung Mitglied ist.
+  - `GET /v1/platform/organizations/{alias}/roles` (Frontend #21): Rollen einer anderen Organisation für die
+    Plattform-Administration, nur lesend, im Format von `GET /v1/roles` (Schema `Role`, `roleList`, `MAX_CUSTOM_ROLES`
+    im Kern; das Modul `roles` in 6c nutzt dieselben Bausteine). Mit Anzahl Personen je Rolle; Organisation ohne
+    Mandant: nur vordefinierte Rollen, kein Mandant angelegt. Auch im Auszug `iam-web/test/fixtures/openapi-iam.json`
+    (zusammen mit `groupRolePrefix` und dem Body von suspend/resume).
 - **Alias nur ASCII klein** auch in der Verwaltung und im Abgleich (Zwischenspeicher der Organisationen, Zuordnung zum
   Mandanten, Anlegen): Assets nutzt `toLowerCase()` (`service.ts:152/154/695/697/698/736`, `sync.ts:144`), das das
   Kelvin-Zeichen zu «k» faltet.

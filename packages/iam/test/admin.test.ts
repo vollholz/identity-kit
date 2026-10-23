@@ -386,10 +386,39 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await call('anna', 'GET', '/v1/platform/organizations')).status, 403);
     assert.equal((await call('mona', 'POST', '/v1/platform/organizations', { alias: 'x', name: 'X' })).status, 403);
     const list = ok(await call('paula', 'GET', '/v1/platform/organizations')).items;
-    assert.deepEqual(list.map((o: any) => o.alias), ['demo', 'muster', 'ops']);
+    assert.deepEqual(list.map((o: any) => o.alias).filter((a: string) => a !== 'leer'), ['demo', 'muster', 'ops']);
     assert.equal(list.find((o: any) => o.alias === 'ops').tenant.status, 'active');
     assert.equal(list.find((o: any) => o.alias === 'demo').tenant.status, 'active');
     assert.deepEqual(list.find((o: any) => o.alias === 'demo').domains, ['demo.example']);
+  });
+
+  test('Plattform: Rollen einer anderen Organisation lesen (Format von /v1/roles, mit eigenen Rollen) und eigene Rolle zuweisen', async () => {
+    const demoId = (await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'demo'")).rows[0].id;
+    await t.inspect.query("INSERT INTO notes.tenant_role (tenant_id, key, label, description, permissions) VALUES ($1, 'c-pruefung', 'Prüfung', 'Liest Notizen', '{note:read,tenant:read}')", [demoId]);
+    try {
+      assert.equal((await call('anna', 'GET', '/v1/platform/organizations/demo/roles')).status, 403, 'nur platform-admin');
+      assert.equal((await call('mcp', 'GET', '/v1/platform/organizations/demo/roles')).status, 403);
+      assert.equal((await call('paula', 'GET', '/v1/platform/organizations/unbekannt/roles')).status, 404);
+      assert.equal((await call('paula', 'GET', '/v1/platform/organizations/demo/roles', undefined, { app: off })).status, 503);
+      const r = ok(await call('paula', 'GET', '/v1/platform/organizations/demo/roles'));
+      assert.deepEqual(r.items.map((x: any) => [x.key, x.custom, x.adminOnly]), [['org-admin', false, true], ['editor', false, false], ['viewer', false, false], ['c-pruefung', true, false]]);
+      const c = r.items.at(-1);
+      assert.deepEqual([c.label, c.permissions, c.version, typeof c.id, c.memberCount], ['Prüfung', ['tenant:read', 'note:read'], 1, 'string', 0]);
+      assert.equal(r.items[0].memberCount, 1, 'org-admin: anna');
+      assert.deepEqual([r.maxCustom, r.customPermissions.includes('members:admin'), r.customPermissions.includes('note:read')], [50, false, true]);
+      // eigene Rolle über die Plattform zuweisen (legt die Gruppe an) und wieder entziehen
+      n.iam.admin!.forgetRoles('demo');
+      assert.deepEqual(ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: ['viewer', 'c-pruefung'] })).roles.sort(), ['c-pruefung', 'viewer']);
+      assert.equal(ok(await call('paula', 'GET', '/v1/platform/organizations/demo/roles')).items.at(-1).memberCount, 1);
+      ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: ['viewer'] }));
+      // Organisation in Keycloak, noch nie benutzt: nur vordefinierte Rollen, kein Mandant angelegt
+      kc.org('leer', 'Leer');
+      assert.deepEqual(ok(await call('paula', 'GET', '/v1/platform/organizations/leer/roles')).items.map((x: any) => x.key), ['org-admin', 'editor', 'viewer']);
+      assert.equal((await t.inspect.query("SELECT 1 FROM notes.tenant WHERE alias = 'leer'")).rowCount, 0);
+    } finally {
+      await t.inspect.query("DELETE FROM notes.tenant_role WHERE key = 'c-pruefung'");
+      n.iam.admin!.forgetRoles('demo');
+    }
   });
 
   test('Plattform: Name aus Keycloak ist massgeblich – Liste und Detail führen den Namen des Mandanten nach (protokolliert)', async () => {

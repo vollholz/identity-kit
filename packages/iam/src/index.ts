@@ -31,5 +31,5 @@ export { pointlessAcl } from './http/acl.ts';
 export { Bff, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';
 export { KeycloakAdmin, KeycloakError, keyInfo, seg as keycloakSegment, type KcOrg, type KcUser, type KcGroup, type KcOrgDomain, type KcIdp, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
 export { listTenants, findTenant, createTenant, setTenantStatus, relinkTenant, type TenantRow, type TenantActor, type TenantsContext } from './tenants.ts';
-export { AdminService, roleCatalog, entraLoginPath, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type Organization, type CustomRole, type RoleInfo, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';
+export { AdminService, roleCatalog, roleList, MAX_CUSTOM_ROLES, TENANT_ROLE_COLS, entraLoginPath, type RoleOut, type TenantRoleRow, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type Organization, type CustomRole, type RoleInfo, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';
 export { MemberSync, syncAllMembers, syncTenantMembers, syncTenantName, orgMatches, pendingActions, displayName, type SyncContext, type SyncResult, type RoleCleanup } from './sync.ts';

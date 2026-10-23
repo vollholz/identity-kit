@@ -41,6 +41,24 @@ const Organization = Type.Object({
 }, { $id: 'Organization', title: 'Organization' });
 
 const Role = Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(Type.String()), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }), custom: Type.Optional(Type.Boolean({ description: 'Eigene Rolle der Organisation' })) });
+/** Rolle als Ressource (`GET /v1/roles`, Modul `roles`; Plattform: `…/organizations/{alias}/roles`), aus Assets `roles.ts`. */
+export const RoleSchema = Type.Object({
+  key: Type.String({ description: 'Technischer Name; bei eigenen Rollen `c-…`. Rolle in Keycloak-Gruppen (`<prefix>/<alias>/<key>`) und ACL-Einträgen' }),
+  label: Type.String(), description: Type.String(),
+  permissions: Type.Array(Type.String()),
+  custom: Type.Boolean({ description: 'Eigene Rolle der Organisation (änderbar); false: vordefinierte Rolle' }),
+  adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }),
+  id: Nullable(Type.String({ description: 'Nur eigene Rollen: ID (Audit-Protokoll)' })),
+  version: Nullable(Type.Integer({ description: 'Nur eigene Rollen: gleich dem ETag W/"<version>"' })),
+  memberCount: Nullable(Type.Integer({ description: 'Personen mit der Rolle (auch eingeladene); null ohne Recht `members:admin` oder ohne Verwaltung in Keycloak' })),
+  createdAt: Nullable(DateTime), updatedAt: Nullable(DateTime),
+}, { $id: 'Role', title: 'Role' });
+/** Antwort von `GET /v1/roles` und `…/organizations/{alias}/roles`. */
+export const RoleListSchema = Type.Object({
+  items: Type.Array(Type.Ref('Role')),
+  maxCustom: Type.Integer({ description: 'Höchstzahl eigener Rollen' }),
+  customPermissions: Type.Array(Type.String(), { description: 'Rechte, die eine eigene Rolle enthalten darf' }),
+});
 const Roles = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true });
 const ALIAS = Type.String({ minLength: 1, maxLength: 63, pattern: '^[a-z0-9][a-z0-9_-]{0,62}$' });
 const UserParams = Type.Object({ id: Type.String({ format: 'uuid' }) });
@@ -70,6 +88,7 @@ export const adminModule: IamModule = {
     const svc = iam.admin;
     app.addSchema(Member);
     app.addSchema(Organization);
+    if (!app.getSchema('Role')) app.addSchema(RoleSchema);
     // Echte Rollen und Gruppen anderer Personen für GET /v1/acl/effective; nur mit Rollen aus Gruppen (eine von der App
     // gesetzte Funktion bleibt)
     if (svc && iam.cfg.tenancy.roleSource === 'groups') iam.memberAccess ??= (alias, subject) => svc.accessOf(alias, subject);
@@ -176,6 +195,14 @@ export const adminModule: IamModule = {
       const b = req.body as { alias: string; name: string; description?: string; domains?: string[] };
       return reply.status(201).send(await on().createOrganization(sc, { ...b, domains: b.domains ?? [] }));
     });
+
+    app.get(`${orgs}/:alias/roles`, {
+      schema: routeSchema(ctx, 'GET', `${orgs}/:alias/roles`, {
+        tags: [TAG_ORGS], summary: 'Rollen einer Organisation', params: AliasParams,
+        description: 'Nur lesend, im Format von `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation mit Anzahl Personen, damit die Plattform-Administration auch eigene Rollen zuweisen kann. Organisation noch nie benutzt: nur die vordefinierten Rollen.',
+        response: { 200: RoleListSchema },
+      }),
+    }, async req => { platform(req); return on().rolesOfOrganization(alias(req)); });
 
     app.get(`${orgs}/:alias`, {
       schema: routeSchema(ctx, 'GET', `${orgs}/:alias`, { tags: [TAG_ORGS], summary: 'Organisation lesen', params: AliasParams, response: { 200: Type.Ref('Organization') } }),

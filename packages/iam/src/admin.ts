@@ -55,6 +55,36 @@ export function roleCatalog(catalog: Catalog, custom: CustomRole[] = []): RoleIn
   ];
 }
 
+/** Höchstzahl eigener Rollen je Organisation (wie Assets `MAX_CUSTOM_ROLES`). */
+export const MAX_CUSTOM_ROLES = 50;
+
+/** Eigene Rolle, wie sie in `tenant_role` steht. */
+export interface TenantRoleRow { id: string; key: string; label: string; description: string; permissions: string[]; version: number; created_at: Date; updated_at: Date }
+/** Spalten von `TenantRoleRow` für Abfragen. */
+export const TENANT_ROLE_COLS = 'id, key, label, description, permissions, version, created_at, updated_at';
+
+/** Rolle wie `GET /v1/roles` (Schema `Role`). `memberCount` null ohne Zahlen. */
+export interface RoleOut {
+  key: string; label: string; description: string; permissions: string[]; custom: boolean; adminOnly: boolean;
+  id: string | null; version: number | null; memberCount: number | null; createdAt: Date | null; updatedAt: Date | null;
+}
+
+/**
+ * Rollen einer Organisation wie `GET /v1/roles` (aus Assets `modules/admin/roles.ts`): zuerst die vordefinierten in
+ * Katalogreihenfolge, dann die eigenen in der gegebenen Reihenfolge; Rechte in Katalogreihenfolge.
+ */
+export function roleList(catalog: Catalog, rows: TenantRoleRow[], counts: Map<string, number> | null): { items: RoleOut[]; maxCustom: number; customPermissions: string[] } {
+  const count = (key: string) => (counts ? counts.get(key) ?? 0 : null);
+  return {
+    items: [
+      ...[...catalog.roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...r.permissions], custom: false, adminOnly: key === ADMIN_ROLE, id: null, version: null, memberCount: count(key), createdAt: null, updatedAt: null })),
+      ...rows.map(r => ({ key: r.key, label: r.label, description: r.description, permissions: catalog.permissions.filter(p => r.permissions.includes(p)), custom: true, adminOnly: false, id: r.id, version: r.version, memberCount: count(r.key), createdAt: r.created_at, updatedAt: r.updated_at })),
+    ],
+    maxCustom: MAX_CUSTOM_ROLES,
+    customPermissions: [...catalog.customRolePermissions],
+  };
+}
+
 /** Was der Service vom IAM braucht (`createIam` übergibt sich selbst). */
 export interface AdminDeps {
   readonly cfg: IamConfig;
@@ -195,6 +225,19 @@ export class AdminService {
     if (g) await this.kc.deleteGroup(g.id);
     this.forgetRoles(alias);
     return n;
+  }
+
+  /**
+   * Rollen einer beliebigen Organisation für die Plattform-Administration (nur lesend, Format von `GET /v1/roles`, mit
+   * Anzahl Personen). Unbekannte Organisation 404; noch nie benutzt (kein Mandant): nur die vordefinierten Rollen.
+   * Scheitert das Zählen in Keycloak, ohne Zahlen.
+   */
+  async rolesOfOrganization(alias: string) {
+    const org = await this.org(alias, true);
+    const t = await findTenant(this.deps.db, org.alias);
+    const rows = t ? await withTenant(this.deps.db, { tenantId: t.id }, async tx => (await tx.query<TenantRoleRow>(`SELECT ${TENANT_ROLE_COLS} FROM ${this.S}.tenant_role WHERE deleted_at IS NULL ORDER BY lower(label)`)).rows) : [];
+    const counts = await this.roleMemberCounts(org.alias).catch(() => null);
+    return roleList(this.deps.catalog, rows, counts);
   }
 
   /** Anzahl Personen je Rolle (Gruppenmitglieder, auch eingeladene). Rollen ohne Gruppe fehlen. */

@@ -23,7 +23,7 @@ const IAM_ROUTES = [
   'GET /v1/platform/organizations/{alias}/members', 'POST /v1/platform/organizations/{alias}/members', 'PUT /v1/platform/organizations/{alias}/members/{id}/roles',
   'DELETE /v1/platform/organizations/{alias}/members/{id}', 'POST /v1/platform/organizations/{alias}/members/{id}/invitation',
   'GET /v1/platform/organizations', 'POST /v1/platform/organizations', 'GET /v1/platform/organizations/{alias}', 'PATCH /v1/platform/organizations/{alias}',
-  'POST /v1/platform/organizations/{alias}/suspend', 'POST /v1/platform/organizations/{alias}/resume',
+  'POST /v1/platform/organizations/{alias}/suspend', 'POST /v1/platform/organizations/{alias}/resume', 'GET /v1/platform/organizations/{alias}/roles',
 ];
 
 describe('OpenAPI der Routen des Pakets', { skip }, () => {
@@ -63,7 +63,9 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     }
     assert.equal(op('POST /v1/admin/members').requestBody.required, true);
     assert.ok(op('POST /v1/admin/members').responses['202']);
-    for (const s of ['Member', 'Organization']) assert.ok(doc.components.schemas[s], s);
+    for (const s of ['Member', 'Organization', 'Role']) assert.ok(doc.components.schemas[s], s);
+    const roles = op('GET /v1/platform/organizations/{alias}/roles').responses['200'].content['application/json'].schema;
+    assert.deepEqual([roles.properties.items.items.$ref, roles.required.sort()], ['#/components/schemas/Role', ['customPermissions', 'items', 'maxCustom']]);
   });
 
   test('übliche Fehlerantworten als problem+json, auch für Routen der App', () => {

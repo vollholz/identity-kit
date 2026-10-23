@@ -16,6 +16,7 @@ import { dpopKey, startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { withTenant } from '../src/db.ts';
 import { iamPlugin } from '../src/http/plugin.ts';
 import { readinessChecks } from '../src/iam.ts';
+import { OidcProvider, TokenVerifier } from '../src/tokens.ts';
 import { notesCatalog } from './support/catalogs.ts';
 import { skipDb } from './support/db.ts';
 import { claims, folderWithNote, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
@@ -138,6 +139,13 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
       ['ohne Proof', { authorization: `DPoP ${tok}` }],
     ];
     for (const [label, h] of cases) assert.equal((await me(h)).statusCode, 401, label);
+    // Schema DPoP mit einem nicht gebundenen Token: kein Nachweis geprüft, also abgelehnt (auch mit DPOP_MODE=optional)
+    const unbound = await idp.token(claims.user({ org: 'acme' }));
+    for (const dp of [undefined, await k.proof('GET', ME, unbound)]) {
+      const r = await me({ authorization: `DPoP ${unbound}`, ...(dp ? { dpop: dp } : {}) });
+      assert.deepEqual([r.statusCode, r.json().title, r.headers['www-authenticate']], [401, 'Falsches Schema', 'DPoP error="invalid_token"'], 'DPoP-Schema ohne Bindung');
+    }
+    assert.equal((await me({ authorization: `Bearer ${unbound}` })).statusCode, 200);
     const proof = await k.proof('GET', ME, tok);
     assert.equal((await me({ authorization: `DPoP ${tok}`, dpop: proof })).statusCode, 200);
     assert.equal((await me({ authorization: `DPoP ${tok}`, dpop: proof })).statusCode, 401, 'Replay');
@@ -222,6 +230,15 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     assert.equal(await run(readinessChecks(n.iam)), null);
     const down = await build({ issuer: 'http://127.0.0.1:1/realms/notes' });
     assert.deepEqual(await run(readinessChecks(down.iam)), { check: 'anmeldedienst', error: 'Anmeldedienst nicht erreichbar oder falsch konfiguriert' });
+    // Ausfall nach erfolgreicher Discovery: der Verifier arbeitet mit der bisherigen weiter, /readyz meldet den Ausfall
+    let fail = false;
+    const flaky = new OidcProvider(idp.issuer, async (u, init) => { if (fail) throw new TypeError('fetch failed'); return fetch(u, init); });
+    const checks = readinessChecks({ db: t.runtime, verifier: new TokenVerifier(flaky, n.iam.cfg) });
+    assert.equal(await run(checks), null);
+    await flaky.discovery();
+    fail = true;
+    assert.equal((await flaky.discovery()).issuer, idp.issuer, 'Verifier: aus dem Zwischenspeicher');
+    assert.deepEqual(await run(checks), { check: 'anmeldedienst', error: 'Anmeldedienst nicht erreichbar oder falsch konfiguriert' });
     const noDb = new pg.Pool({ connectionString: 'postgres://notes:x@127.0.0.1:1/notes', connectionTimeoutMillis: 500 });
     try {
       assert.deepEqual(await run(readinessChecks({ db: noDb, verifier: n.iam.verifier })), { check: 'datenbank', error: 'Datenbank nicht erreichbar' });
@@ -305,7 +322,14 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
     assert.equal((await n.app.inject({ method: 'GET', url: `/v1/folders/${folder}`, headers: viewer })).json().name, 'Projekt');
     const denied = await n.app.inject({ method: 'GET', url: `/v1/folders/${folder}`, headers: nobody });
     assert.deepEqual([denied.statusCode, denied.json().detail], [403, `Dir fehlt das Recht «Notizen lesen» (note:read) für folder ${folder}.`]);
-    assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: true, can: { write: true } });
+    // Ein Stand der Zugriffsregeln je Anfrage: can und Fähigkeiten laden sie gemeinsam einmal
+    const load = n.iam.access.load.bind(n.iam.access);
+    let loads = 0;
+    n.iam.access.load = (tenantId: string) => { loads++; return load(tenantId); };
+    try {
+      assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: true, can: { write: true } });
+      assert.equal(loads, 2, 'need (AccessService) und einmal für can und Fähigkeiten');
+    } finally { n.iam.access.load = load; }
     await withTenant(t.runtime, { tenantId: A }, tx => tx.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', $2, 'role', 'editor', 'note:write', 'deny')", [A, folder]));
     assert.deepEqual((await n.app.inject({ method: 'GET', url: `/v1/notes/${note}`, headers: editor })).json(), { id: note, write: false, can: { write: false } }, 'Verbot auf dem Ordner wirkt auf die Notiz');
     assert.equal(notesCatalog.capabilities.note!.write, 'note:write');

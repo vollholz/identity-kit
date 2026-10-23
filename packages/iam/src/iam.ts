@@ -85,6 +85,6 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
 export function readinessChecks(iam: Pick<Iam, 'db' | 'verifier'>): { name: string; failure: string; run: () => Promise<unknown> }[] {
   return [
     { name: 'datenbank', failure: 'Datenbank nicht erreichbar', run: () => iam.db.query('SELECT 1') },
-    { name: 'anmeldedienst', failure: 'Anmeldedienst nicht erreichbar oder falsch konfiguriert', run: () => iam.verifier.provider.discovery() },
+    { name: 'anmeldedienst', failure: 'Anmeldedienst nicht erreichbar oder falsch konfiguriert', run: () => iam.verifier.provider.probe() },
   ];
 }

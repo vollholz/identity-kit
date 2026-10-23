@@ -8,7 +8,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AccessService, TenantAccess } from '../access.ts';
-import { capabilitiesFor } from '../access.ts';
+import { capabilities } from '../access.ts';
 import type { AuditEntry, Source } from '../audit.ts';
 import type { RegisteredPermission } from '../catalog.ts';
 import type { Tx } from '../db.ts';
@@ -142,6 +142,8 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
       clientCert: typeof certHeader === 'string' ? certHeader : null,
     });
     if (scheme === 'Bearer' && verified.binding === 'dpop') throw new HttpError(401, 'Falsches Schema', 'DPoP-gebundene Tokens mit «Authorization: DPoP …» senden.');
+    // Das Schema DPoP behauptet eine Bindung: ohne DPoP-gebundenes Token wurde kein Nachweis geprüft (RFC 9449, 7.1)
+    if (scheme === 'DPoP' && verified.binding !== 'dpop') throw new HttpError(401, 'Falsches Schema', 'Nicht DPoP-gebundene Tokens mit «Authorization: Bearer …» senden.', { 'WWW-Authenticate': 'DPoP error="invalid_token"' });
     const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
     const dm = cfg.m2m.dpopMode;
     if (verified.binding === 'none' && req.source !== 'ui' && (dm === 'required' || (dm === 'required-for-clients' && p.kind === 'client'))) {
@@ -178,7 +180,9 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     return access.decide(this.requirePrincipal(), await aclOf(this), perm, ref, hint);
   });
   app.decorateRequest('capabilities', async function (this: FastifyRequest) {
-    return capabilitiesFor(access, this.requirePrincipal());
+    // Derselbe Stand der Zugriffsregeln wie `can` in dieser Anfrage
+    const p = this.requirePrincipal(), acl = await aclOf(this);
+    return (kind: string, id: string, hint?: string | null) => capabilities(access, p, acl, kind, id, hint);
   });
   app.decorateRequest('audit', async function (this: FastifyRequest, tx: Tx, e: AuditEntry) {
     const p = this.principal;

@@ -189,7 +189,10 @@ Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantSt
 
 - Redirect-URIs: `<PUBLIC_BASE_URL><ENTRA_UI_PATH>/zustimmung` und die Plätze `entra-NNN` des Realms
   (`brokerRedirectUris`, `ENTRA_IDP_SLOTS`).
-- Anwendungsberechtigung `User.Read.All` (Graph).
+- Berechtigungen in Microsoft Graph (wie Assets `docs/einrichtung.md`): delegiert `User.Read` (Keycloak liest bei der
+  Anmeldung `/me`), Anwendung `Organization.Read.All` (Organisation und verifizierte Domänen, `GET /organization`),
+  Anwendung `User.Read.All` (Personen finden und verknüpfen). Kunden stimmen beim Verbinden allen zu (`.default`); kommt
+  später eine dazu, müssen sie erneut verbinden.
 - **Gruppen-Claim mit Verzeichnisrollen** (`groupMembershipClaims` mit `DirectoryRole`; Portal: Token configuration ›
   groups claim › Directory roles). Ohne diesen Claim fehlt `wids` im ID-Token, und Verbinden scheitert mit 409
   `consent-unproven`: Die Zustimmung gilt nur mit Nachweis einer globalen Administration oder «Privileged Role

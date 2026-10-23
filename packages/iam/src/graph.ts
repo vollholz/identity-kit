@@ -5,7 +5,8 @@
  * Eine mandantenfähige App der Plattform (ENTRA_CLIENT_ID) meldet sich je Kunden-Tenant mit Client Credentials an
  * (`/{tid}/oauth2/v2.0/token`, Scope `https://graph.microsoft.com/.default`). Das klappt erst, wenn eine Administration
  * des Tenants der App zugestimmt hat (Zustimmung mit Anmeldung, `consentUrl` und `verifyConsent`). Gelesen wird nur: die Organisation mit ihren
- * verifizierten Domänen und Personen (`User.Read.All`, für die Verknüpfung bestehender Konten und das Hinzufügen aus Entra ID).
+ * verifizierten Domänen (`Organization.Read.All`) und Personen (`User.Read.All`, für die Verknüpfung bestehender Konten und das
+ * Hinzufügen aus Entra ID).
  *
  * Wie keycloak.ts kennt diese Klasse keine Mandantengrenze; welcher Tenant zu welcher Organisation gehört, entscheidet
  * entra.ts. Adressen von Microsoft sind fest (kein SSRF über Eingaben); die Tenant-ID wird vor jeder Verwendung geprüft.

@@ -41,6 +41,7 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Verwaltung: Zugriff', description: 'Zugriffsregeln (Freigaben, Beschränkungen, Verbote) auf Ressourcen und wirksame Rechte.' },
   { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder der eigenen Organisation einladen, entfernen und ihre Rollen setzen (Rolle org-admin).' },
+  { name: 'Verwaltung: Anmeldung über Microsoft Entra ID', description: 'Organisation mit ihrem Entra-Tenant verbinden, «Nur Entra» aktivieren, Personen aus Entra ID hinzufügen.' },
   { name: 'Verwaltung: Rollen', description: 'Vordefinierte und eigene Rollen der Organisation; eigene anlegen, ändern und löschen (Rolle org-admin).' },
   { name: 'Verwaltung: Maschinen-Clients', description: 'Freigabe von Maschinen-Clients für den Mandanten.' },
   { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },

@@ -237,6 +237,8 @@ export class KeycloakAdmin {
   }
 
   async updateUser(id: string, rep: Partial<KcUser>) { await this.call('PUT', `/users/${seg(id)}`, rep, { what: 'Konto ändern' }); }
+  /** Realm-Rollen eines Kontos samt zusammengesetzten (z. B. platform-admin über eine Gruppe oder Rolle). */
+  async realmRoles(id: string): Promise<string[]> { return ((await this.call<{ name: string }[]>('GET', `/users/${seg(id)}/role-mappings/realm/composite`)).data ?? []).map(r => r.name); }
   async credentials(id: string): Promise<KcCredential[]> { return (await this.call<KcCredential[]>('GET', `/users/${seg(id)}/credentials`)).data ?? []; }
   async deleteCredential(id: string, credentialId: string) { await this.call('DELETE', `/users/${seg(id)}/credentials/${seg(credentialId)}`, undefined, { ok: [404], what: 'Anmeldedaten entfernen' }); }
   async federatedIdentities(id: string): Promise<KcFederatedIdentity[]> { return (await this.call<KcFederatedIdentity[]>('GET', `/users/${seg(id)}/federated-identity`)).data ?? []; }

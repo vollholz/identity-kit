@@ -586,10 +586,21 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   (`enforced`) mit bestätigter Liste der Personen, die die Anmeldung verlieren. Nur verifizierte Domänen, die keine
   andere Organisation hat; Gastkonten nie verknüpfen. `state` 15 min, einmalig, an Person, Organisation und Tenant
   gebunden.
-- Rückkehrseiten der Oberfläche: `<paths.entra>/zustimmung` (Zustimmung bei Microsoft, sendet `state`, `tenant`,
-  `admin_consent`, `error`, `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die
-  Testanmeldung). Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
-  `ENTRA_*` des Servers passen. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
+- **Zustimmung mit Nachweis:** Verbinden startet einen Code-Flow im Tenant (`/{tid}/oauth2/v2.0/authorize`, Scopes
+  `openid profile https://graph.microsoft.com/.default`, `prompt=admin_consent`, PKCE und `nonce` aus `state`). Die API löst den
+  Code selbst ein und prüft das ID-Token (Schlüssel des Tenants, `iss` und `tid` = gestarteter Tenant, `aud` = Entra-App,
+  `nonce`, kein Gast, `wids` mit «Global Administrator» oder «Privileged Role Administrator»); sonst 409
+  `consent-unproven`. `wids` liefert Microsoft nur, wenn die Entra-App Verzeichnisrollen im Gruppen-Claim ausgibt
+  (`groupMembershipClaims` mit `DirectoryRole`, Portal: Token configuration › groups claim › Directory roles); fehlt der
+  Claim, scheitert die Zustimmung. Ein Tenant, der der App schon früher zugestimmt hat, genügt nie. Wer zugestimmt hat (Objekt-ID,
+  Name), steht im Audit von `entra.connected`; Start und Fehlschläge als `entra.consent_started` bzw.
+  `entra.consent_failed`.
+- Konten der Plattform-Administration (`PLATFORM_ADMIN_ROLE`, auch zusammengesetzt) behalten bei «Nur Entra» Passwort und
+  Passkey (Notfallzugang); Vorschau und Ergebnis melden sie mit `passwordKept`.
+- Rückkehrseiten der Oberfläche: `<paths.entra>/zustimmung` (Rückkehr von Microsoft, sendet `code`, `state`, `error`,
+  `error_description` an `…/entra/consent/complete`) und `<paths.entra>/test` (meldet die Testanmeldung). Beide ohne Guard; die API prüft selbst. Die Pfade müssen zu den Redirect-URIs der Entra-App und zu
+  `ENTRA_UI_PATH` des Servers passen (Standard `/verwalten/anmeldung` wie `paths.entra`); `GET …/entra` nennt beide
+  (`consentPath`, `testPath`), `testLoginPath` führt mit `returnTo` auf `testPath`. `state` hat das Format `o.<alias>.<zufall>` (eigene Organisation) bzw.
   `p.<alias>.<zufall>` (Plattform-Administration); die Oberfläche öffnet die Zustimmung nur über https bei
   `login.microsoftonline.com` (per Konfiguration erweiterbar).
 - Mit «Nur Entra» prüft der Resolver, dass die Sitzung über den Anbieter angemeldet ist (`identity_provider`), sonst 403
@@ -776,7 +787,7 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/p
 | `SHARED_STATE` | — | `postgres` bei mehreren Instanzen (Replay-Schutz, Ratenbegrenzung) |
 | `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` (geheim) | — | Laufzeit, Besitzer (Migrationen), Worker ([10.1](#101-rollen)) |
 | `MCP_CLIENT_ID`, `MCP_PRIVATE_KEY` (geheim), `MCP_HOST_CLIENT_IDS`, `OIDC_MCP_AUDIENCE` | `<produkt>-mcp`, —, —, `<produkt>-mcp` | MCP-Dienst ([12.2](#122-mcp-dienst-kann)) |
-| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS` | —, —, `100` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) |
+| `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` (geheim), `ENTRA_IDP_SLOTS`, `ENTRA_UI_PATH` | —, —, `100`, `/verwalten/anmeldung` | Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); `ENTRA_UI_PATH` = `paths.entra` der Oberfläche |
 
 Zu jedem `…_PRIVATE_KEY` gibt es übergangsweise `…_CLIENT_SECRET`; dann warnt der Dienst beim Start (P3). Alle
 Geheimnisse auch als `…_FILE`.

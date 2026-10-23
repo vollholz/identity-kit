@@ -728,3 +728,35 @@ Audit-Trigger darauf warten.
   `customRolePermissions`, es gibt keine Teilmengenregel. Wer `members:admin` über eine vordefinierte Rolle ohne
   org-admin hat, kann eine eigene Rolle mit allen diesen Rechten anlegen und sich selbst geben. `members:admin` also
   nur Rollen geben, denen alle `customRolePermissions` zustehen dürfen.
+
+### 13.15 Modul `entra` (Teil-PR 7)
+
+- **`EntraGraph`** (`src/graph.ts`) und **`EntraService`** (`src/entra.ts`) aus Assets `modules/admin/{graph,entra}.ts`;
+  `createIam` baut den Dienst als `iam.entra`, wenn die Verwaltung eingerichtet ist (`entra.graph` null ohne
+  `ENTRA_CLIENT_ID`); `entraFetch` und `entraRetryMs` für Tests. `AdminService.addFromEntra`, `entraAddress` und
+  `EntraLink` kommen nach `admin.ts`.
+- **Modul `entra`** (`src/http/entra.ts`): `…/admin/entra…`, `…/platform/organizations/:alias/entra…`,
+  `…/members/entra-search`, `…/members/entra`, `/v1/admin/entra/test`, `/v1/platform/entra/refresh`; standardmässig
+  aktiv (braucht das Modul `admin` davor). Ratenbegrenzung der Personensuche über `config.rateLimit` der Route (30 je
+  Minute, Schlüssel Mandant und Person); sie wirkt, wenn die App `@fastify/rate-limit` registriert.
+- **Rückkehrpfade konfigurierbar** (Hauptsession, 2026-10-23): `ENTRA_UI_PATH` (Standard `/verwalten/anmeldung`, wie
+  `paths.entra` in `@vollholz/iam-web`) statt der festen Pfade in Assets; Zustimmung `<pfad>/zustimmung` (Redirect-URI),
+  Testanmeldung `<pfad>/test` (`returnTo` in `testLoginPath`). `GET …/entra` nennt beide (`consentPath`, `testPath`).
+  Spez. 9.4 und 13 nachgeführt, ebenso der OpenAPI-Auszug von `@vollholz/iam-web`.
+- **Ablauf der Erstanmeldung** `<produkt>-entra-first-login` (Realm-Modul `entra.tf`) statt `assets-entra-first-login`.
+- **Review zu #26 (Hauptsession)**, Abweichungen von Assets:
+  - F1, Sicherheit: Die Admin-Zustimmung (`…/adminconsent`) bewies nichts. Microsoft stellt Client-Credentials-Tokens aus,
+    sobald der Tenant irgendwann zugestimmt hat; eine org-admin hätte mit dem `state` aus der Adresse `complete` direkt
+    aufrufen und einen fremden Tenant samt Domänen und Verzeichnis übernehmen können. Jetzt Code-Flow mit PKCE und
+    `nonce` (beide per HMAC mit `ENTRA_CLIENT_SECRET` aus `state` abgeleitet, keine neue Spalte), Einlösen auf dem
+    Server und Prüfung des ID-Tokens (`EntraGraph.verifyConsent`, Spez. 9.4). `consentBy` im Audit.
+    `prompt=admin_consent` (Zustimmung für den Tenant). `wids` nur mit `groupMembershipClaims` «DirectoryRole» in der
+    Entra-App; fehlt der Claim, 409 mit Hinweis darauf (fail-closed; «Default User» b79fbf4d-… genügt nie).
+    Vertragsänderung: `POST …/entra/consent/complete` nimmt `code` statt `tenant` und `adminConsent`.
+  - F2: «Nur Entra» lässt Konten mit `PLATFORM_ADMIN_ROLE` (zusammengesetzt gelesen) Passwort und Passkey
+    (`removeFirstFactor`, auch beim Hinzufügen aus Entra ID); Vorschau und Ergebnis mit `passwordKept`.
+  - F3–F6: Schlüssel der Ratenbegrenzung mit Produkt (`<produkt>:entra-search:…`), `POST /v1/platform/entra/refresh`
+    prüft das Recht vor «nicht eingerichtet», `ENTRA_UI_PATH` ohne `.`/`..`, Audit `entra.consent_started` und
+    `entra.consent_failed`.
+- **Tests**: Die Nachbildung von Microsoft ist `EntraFake` im Test-Kit (0.3.0), mit `approve` für die Anmeldung im
+  Browser und ID-Tokens mit eigenem JWKS.

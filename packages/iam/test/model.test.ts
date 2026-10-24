@@ -1,5 +1,5 @@
 /**
- * Modell der App (Spezifikation Kap. 7.3, 8; Pflichttest `model` in Kap. 14): `defineModel` mit den Regeln M1–M12,
+ * Modell der App (Spezifikation Kap. 7.3, 8; Pflichttest `model` in Kap. 14): `defineModel` mit den Regeln M1–M13,
  * reservierte Namen (8.1), Katalog nach 9.5 (besteht `checkModel` des Test-Kits), `platform.json` nur Scopes (O4), CHECKs
  * von `authz_tuple` über `syncModelChecks` (Tupel mit entfernten Relationen lassen den Abgleich scheitern, 8.2).
  */
@@ -83,6 +83,23 @@ describe('defineModel', () => {
     assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'access:admin', 'members:admin']);
   });
 
+  test('membersRole (D10): Standard viewer bei owner-Typen, eigene Rolle im Katalog, sonst nichts', () => {
+    const mr = (x: { types: ReadonlyMap<any, { membersRole: string | null }> }) => ({ get: (k: string) => x.types.get(k)!.membersRole });
+    const viewType = (j: ReturnType<typeof notesModel.toJSON>) => j.types.find(t => t.key === 'view')!;
+    assert.equal(viewType(notesModel.toJSON()).membersRole, 'viewer');
+    assert.equal(mr(notesModel).get('view'), 'viewer');
+    assert.equal(mr(notesModel).get('folder'), null, 'ohne owner kein Schalter');
+    const input = structuredClone(notesInput()) as any;
+    input.roles['share-viewer'] = { label: 'Teilen (lesen)', description: 'Liest Ansichten.', permissions: ['view:read'] };
+    input.types.view.roles = ['editor', 'share-viewer'];
+    assert.equal(mr(defineModel(structuredClone(input))).get('view'), null, 'viewer nicht am Typ: kein Schalter');
+    input.types.view.membersRole = 'share-viewer';
+    const m = defineModel(input as ModelInput);
+    assert.equal(mr(m).get('view'), 'share-viewer');
+    assert.equal(viewType(m.toJSON()).membersRole, 'share-viewer');
+    assert.deepEqual(checkModel(m.toJSON()).errors, []);
+  });
+
   test('platform.json nur Scopes (O4)', () => {
     assert.equal(notesModel.platformJson(), `${JSON.stringify({ scopes: ['notes:read', 'notes:write'] }, null, 2)}\n`);
   });
@@ -111,6 +128,10 @@ describe('defineModel', () => {
     ['M7 read ohne Typ in resources', m => { m.types.view.read = 'note:read'; }, /read «note:read» hat «view» nicht in resources/],
     ['M8 andere Beziehung', m => { m.types.team.relations = ['boss']; }, /Beziehung «boss» nicht zulässig/],
     ['M9 owner an org', m => { m.types.org = { label: 'Organisation', roles: '*', owner: true }; }, /owner nicht erlaubt \(M9\)/],
+    ['M13 membersRole nicht am Typ', m => { m.types.view.membersRole = 'schema-admin'; }, /membersRole «schema-admin» ist am Typ nicht zulässig \(M13\)/],
+    ['M13 membersRole mit Rechten nur von org-admin', m => { m.types.view.membersRole = 'org-admin'; }, /membersRole «org-admin» ist am Typ nicht zulässig \(M13\)/],
+    ['M13 membersRole ohne owner', m => { m.types.folder.membersRole = 'viewer'; }, /membersRole nur bei Typen mit owner \(M13\)/],
+    ['M13 membersRole an org', m => { m.types.org = { label: 'Organisation', roles: '*', membersRole: 'viewer' }; }, /membersRole nicht erlaubt \(M13\)/],
     ['M10 access:admin im Scope', m => { m.scopes['notes:write'].permissions.push('access:admin'); }, /enthält «access:admin»/],
     ['M10 scope:false im Scope', m => { m.scopes['notes:write'].permissions.push('note:share'); }, /enthält «note:share»/],
     ['M11 Fähigkeit mit fremdem Typ', m => { m.capabilities.nix = { a: 'note:read' }; }, /Fähigkeiten: Typ «nix»/],

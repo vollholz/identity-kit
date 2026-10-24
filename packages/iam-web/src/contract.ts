@@ -113,6 +113,8 @@ export interface TypeInfo {
   leaf?: true;
   classified?: true;
   owner?: true;
+  /** Rolle des Schalters «Für alle Mitglieder»; fehlt: kein Schalter (Kit < 1.2: `viewer`, falls zulässig). */
+  membersRole?: string;
   scope?: { relation: string };
   read?: string;
   write?: string;

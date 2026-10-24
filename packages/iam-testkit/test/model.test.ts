@@ -51,6 +51,7 @@ describe('checkModel', () => {
     ['Blatt ohne write', c => { c.types[2]!.write = undefined; }, /M7 Typ «note»: write fehlt/],
     ['read ohne Typ in resources', c => { c.permissions[2]!.resources = ['org']; }, /M7 Typ «folder»: «note:read» hat den Typ nicht in resources/],
     ['fremde Beziehung', c => { c.types[1]!.relations.push('boss'); }, /M8 Typ «folder»: Beziehung «boss»/],
+    ['membersRole an org', c => { c.types[0]!.membersRole = 'viewer'; }, /M13 Typ «org»/],
     ['owner an org', c => { c.types[0]!.owner = true; }, /M9 Typ «org»/],
     ['access:admin im Scope', c => { c.scopes[1]!.permissions.push('access:admin'); }, /M10 Scope «notes:write» enthält «access:admin»/],
     ['Stufen', c => { c.classifications = c.classifications.slice(0, 2); }, /M12/],

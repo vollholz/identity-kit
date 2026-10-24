@@ -444,6 +444,9 @@ interface TypeDef<P extends string, R extends string, T extends string> {
   classified?: true;
   /** Ressource hat Besitzer:in (Relation `owner`); Regel 4 in 7.5. */
   owner?: true;
+  /** Rolle des Schalters «Für alle Mitglieder» (`org:members`, 11, A7; Entscheid D10). Nur mit `owner`; Standard `viewer`,
+   *  falls am Typ zulässig, sonst kein Schalter (M13). */
+  membersRole?: R;
   /** Zuständigkeit über Fachbeziehungen (`ResourceModel.edges`, 7.7); `relation` benennt sie in «Warum?». */
   scope?: { via: 'reference'; relation: string };
   /** Lese- und Schreibrecht des Typs für Lesesicht, Zuständigkeit, «Wer hat Zugriff?» und «Warum?» (A1, A13).
@@ -472,6 +475,7 @@ Beispiel (Stufe «mittel», [neue-app.md](neue-app.md#4-modell-und-ressourcen)) 
 | M10 | `members:admin` und `access:admin` in keinem Scope; Rechte mit `scope: false` in keinem Scope; jeder Scope hat Text und Rechte |
 | M11 | `capabilities` nur für Typen des Modells und Rechte des Modells; `mcpTools` nur Rechte des Modells, mit Titel |
 | M12 | `classifications`: drei nicht leere Labels |
+| M13 | `membersRole` nur bei Typen mit `owner`; die Rolle ist am Typ zulässig (`roles`) und enthält keine Rechte, die nur `org-admin` hat (`adminOnly`) |
 
 Ergebnis `Model` (Nachfolger von `Catalog`, gleiche Hilfen): `product`, `permissions`, `info`, `groups`, `roles`,
 `scopes`, `types` (Kette, Rollen je Ort, Schalter), `classifications`, `capabilities`, `mcpTools`, `adminOnly`,
@@ -938,7 +942,9 @@ interface AuthzCatalog {
     key: string; label: string; parent: string | null; self?: true;
     roles: string[];             // Rollen, die hier hängen dürfen (org: alle)
     relations: string[];         // roles plus Beziehungen ohne Rechte ('member') und 'owner', wo zulässig
-    leaf?: true; classified?: true; owner?: true; scope?: { relation: string };
+    leaf?: true; classified?: true; owner?: true;
+    membersRole?: string;        // Rolle des Schalters «Für alle Mitglieder» (nur bei owner; Standard viewer, falls zulässig)
+    scope?: { relation: string };
     read?: string; write?: string;
   }[];
   classifications: { level: Level; label: string }[];
@@ -1266,8 +1272,10 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
   lassen sich ändern (Ablauf, `PATCH`) und entfernen; geerbte nur am Ursprung.
 - «Freigeben» (`GrantDialog`): Person (Personenverzeichnis), Gruppe aus Entra (nur mit Entra-Verbindung,
   `me.tenant.entraConnected`, 409 `entra-not-connected` der Suche als Rückfall; Suche über `GET /v1/access/groups?q=`, A4) oder «Alle Mitglieder»; Rolle nur aus `grantable`; Ablaufdatum optional (Ende des gewählten Tages in Ortszeit, als ISO-Zeitpunkt mit Zeitzone). Clients nicht (nur über Mitglieder).
-- Bei Ressourcen mit `owner` ist «Für alle Mitglieder» die erste Zeile (Schalter = Tupel `org:members viewer`; ohne
-  Rolle `viewer` am Typ fehlt der Schalter) (A7).
+- Bei Ressourcen mit `owner` ist «Für alle Mitglieder» die erste Zeile (Schalter = Tupel `org:members` mit
+  `types[].membersRole` des Typs, Standard `viewer`; ohne `membersRole` und ohne Rolle `viewer` am Typ fehlt der
+  Schalter; Server < 1.2 liefern das Feld nicht, dann gilt `viewer`) (A7, D10). `/v1/access` nimmt für `org:members`
+  jede vergebbare Rolle, die Wahl der Rolle liegt allein beim Schalter.
 
 ```ts
 // Konfiguration (Props von IamProvider), Änderungen gegenüber 0.x
@@ -1635,7 +1643,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | A4 | Gruppen aus Entra | **entschieden 2026-10-23:** Subjekt `group:<entra-object-id>`; Mapper `groups` entfällt, neu `entra-groups` (3.4, 3.5); Auswahl im `GrantDialog` über die Graph-Anbindung, nur mit Entra-Verbindung (`GET /v1/access/groups`), Name aus Graph zwischengespeichert; keine Kollision (eine Verbindung je Organisation). Überlauf: O1 |
 | A5 | `org:members` | **entschieden 2026-10-23:** nur Personen, nicht Clients |
 | A6 | Relation `member` | **entschieden 2026-10-23:** einzige Beziehung ohne Rechte (`types[].relations`) |
-| A7 | Relation `owner` | **entschieden 2026-10-23:** setzt die App beim Anlegen; nicht über `/v1/access`; kein Übertragen (O6); «Für alle Mitglieder» = `org:members viewer` |
+| A7 | Relation `owner` | **entschieden 2026-10-23:** setzt die App beim Anlegen; nicht über `/v1/access`; kein Übertragen (O6); «Für alle Mitglieder» = `org:members` mit `membersRole` des Typs (Standard `viewer`, D10) |
 | A8 | Aufräumen | **entschieden 2026-10-23:** im Worker mit dem Abgleich; Ablauf eines Break-Glass als `break_glass.ended` mit `expired: true` |
 | A9 | Plattform-Administration | **entschieden 2026-10-23:** von «niemand gibt mehr, als er hat» ausgenommen; die Regel gilt auch für Entziehen und Ablauf |
 | A10 | Lesesicht weiterer Typen | **entschieden 2026-10-23:** `app.write_all()`, `app.read_all_of(permission)`, `app.relations_of(permission)` |

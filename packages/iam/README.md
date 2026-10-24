@@ -14,6 +14,8 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **1.2.0:** `TypeDef.membersRole` (D10, Spez. 7.3, M13): Rolle des Schalters «Für alle Mitglieder» (Standard `viewer` bei Typen mit
+  `owner`, falls am Typ zulässig); Ausgabe in `GET /v1/authz/catalog` (`types[].membersRole`). Abwärtsverträglich.
 - **1.1.0:** Zuständigkeit über Personen aus Fachdaten (Spez. 7.5 Regel 2, 7.7): `ResourceModel.edges.persons` (SQL mit
   `$1 uuid[]`, Spalten `id`, `principal_id`, `grants`, `label`) und optional `edges.personGrants` (für «Recht
   irgendwo»); `can`, `need`, `capabilities(refs)` berücksichtigen sie (∧ Klassifizierung ∧ Scope). Migration

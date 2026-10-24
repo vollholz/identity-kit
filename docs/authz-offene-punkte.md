@@ -38,8 +38,8 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | erledigt (#50), Release 1.2.0 |
 | 1d Kit 1.3: Rollen an org begrenzen | identity-kit | `authz-p1d-org-roles` | erledigt (#51), Release 1.3.0 |
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
-| 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | PR assets#43 (wird zusammen mit P9 gemergt) |
-| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | in Arbeit (session_01PvfpnohjZyvyNnJQPwQohG), auf Stand von P8 |
+| 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | PR assets#43, enthält P9; Merge nach main nach grüner CI |
+| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 in `authz-p8-backend`) |
 | 10 Doku Assets | assets | `authz-p10-docs` | wartet auf 9 |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
@@ -57,6 +57,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | O9 | «Warum?» für andere Personen kennt deren Entra-Gruppen nicht (nur aus dem eigenen Token); Vorschlag: Gruppen beim Login am Principal speichern | P1 #47 | offen, nach Assets |
 | O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Assets erzeugt `access.changed` übergangsweise über einen Audit-Wrapper | P8 assets#43 | offen, Kit-Folgearbeit |
 | O11 | Alte Dateien in Assets löschen (Liste in assets#43) | P8 | wartet auf die Person (wie O8) |
+| O12 | E2E-Tests (Playwright) gegen lokalen Stack für Zugriff/Klassifizierung in Assets nicht ausgeführt (CI-Umgebung ohne Docker) | P9 assets#44 | offen, vor produktivem Einsatz |
 | O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 
 ## Verworfen

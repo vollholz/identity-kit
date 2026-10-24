@@ -38,9 +38,9 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | erledigt (#50), Release 1.2.0 |
 | 1d Kit 1.3: Rollen an org begrenzen | identity-kit | `authz-p1d-org-roles` | erledigt (#51), Release 1.3.0 |
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
-| 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | PR assets#43, enthält P9; Merge nach main nach grüner CI |
-| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 in `authz-p8-backend`) |
-| 10 Doku Assets | assets | `authz-p10-docs` | wartet auf 9 |
+| 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | erledigt (assets#43, enthält P9) |
+| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 → #43) |
+| 10 Doku Assets | assets | `authz-p10-docs` | in Arbeit (session_015f3V26s4hnfKAbMMwBvFxJ) |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
 ## Offene Punkte

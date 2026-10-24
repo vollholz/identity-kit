@@ -40,7 +40,8 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
 | 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | erledigt (assets#43, enthält P9) |
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 → #43) |
-| 10 Doku Assets | assets | `authz-p10-docs` | in Arbeit (session_015f3V26s4hnfKAbMMwBvFxJ) |
+| 10 Doku Assets | assets | `authz-p10-docs` | erledigt (assets#45) |
+| 8b Nachtrag: Diskussions-Webhooks maskieren (Codex auf #45) | assets | `authz-p8b-discussion-webhooks` | in Arbeit (session_01WGnanqgXWt5BmNZ59FhjWp) |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
 ## Offene Punkte

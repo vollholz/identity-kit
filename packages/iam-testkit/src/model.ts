@@ -129,6 +129,7 @@ export function checkModel(c: AuthzModel, o: { product?: string; members?: boole
     const missing = c.roles.map(r => r.key).filter(r => !org.roles.includes(r));
     if (missing.length) errors.push(`M5 Typ «org»: alle Rollen dürfen dort hängen (fehlen: ${missing.join(', ')})`);
     if (org.owner || org.classified) errors.push('M9 Typ «org»: owner und classified nicht erlaubt');
+    if (org.membersRole !== undefined) errors.push('M13 Typ «org»: membersRole nicht erlaubt');
   }
   const leaves = c.types.filter(t => t.leaf);
   if (leaves.length > 1) errors.push(`M6 höchstens ein Blatt-Typ (${leaves.map(t => t.key).join(', ')})`);

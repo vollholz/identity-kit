@@ -14,6 +14,14 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **1.5.0:** `iam-org-bootstrap` (`orgBootstrap`, `orgBootstrapFile`) schickt neu angelegten Personen ohne Passwort und
+  ohne Identitätsanbieter die Einladung «Passwort festlegen» von Keycloak (`execute-actions-email`, `UPDATE_PASSWORD`,
+  gültig 7 Tage; `--invite-days`, `--client-id`, `--redirect-uri`, programmatisch `invite`). Bisher fehlte sie: nach
+  `iam-reset` konnte sich die erste Person nicht anmelden. `--no-email` (`sendEmail: false`) schaltet sie ab, `--resend`
+  (`resend`) sendet auch an bestehende Konten ohne Passwort. Ohne SMTP: Meldung, kein Abbruch; Zusammenfassung
+  `Einladung gesendet an: …` / `Einladung NICHT gesendet an: …`. Ergebnis neu mit `email` und `invitation`
+  (`sent`/`failed`/null); `inviteErrors`, `INVITE_LIFESPAN_SEC`. Mit `--initial-password` keine Einladung. Abwärtsverträglich
+  bis auf die nun standardmässig gesendete E-Mail.
 - **1.4.0:** Zurücksetzen und neu aufsetzen. Neue Kommandozeile `iam-reset` (`resetKeycloak`, `resetDatabase`):
   `--keycloak` löscht im Realm alle Organisationen samt ihrer Identitätsanbieter und alle Personen (Service Accounts
   bleiben), `--database` leert als Migrationsrolle alle Tabellen im Schema der App (`TRUNCATE … RESTART IDENTITY

@@ -47,5 +47,5 @@ export { DpopSigner, wantsNonce } from './mcp/dpop.ts';
 export { TokenExchanger, type ExchangedToken } from './mcp/exchange.ts';
 export { ApiClient, ApiError, type CallOptions } from './mcp/api.ts';
 export { McpAuth, registerMcpAuth, exchangeScopes, type McpAuthOptions, type McpAuthorized, type McpOrg, type McpMe, type McpRequest } from './mcp/auth.ts';
-export { InitFileSchema, initFileErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult } from './bootstrap.ts';
+export { InitFileSchema, initFileErrors, INVITE_LIFESPAN_SEC, inviteErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult } from './bootstrap.ts';
 export { isServiceAccountUser, MIGRATION_TABLES, resetDatabase, resetKeycloak, type DatabaseResetOptions, type DatabaseResetResult, type KeycloakResetResult, type ResetOptions } from './reset.ts';

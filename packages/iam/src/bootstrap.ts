@@ -5,9 +5,13 @@
  * Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned`. Idempotent. Rollen stehen nie in
  * Keycloak; danach verwaltet org-admin die Mitglieder in der Oberfläche.
  *
- * Die Person erhält die Pflichtaktion «Passwort festlegen» (per E-Mail, sobald SMTP eingerichtet ist). Ohne SMTP setzt
- * `initialPassword` ein zufälliges temporäres Passwort, nur wenn das Konto noch keines hat, und legt es ausschliesslich in
- * `<secretDir>/initial-password-<realm>-<e-mail>.txt` ab (Datei 0600, Verzeichnis 0700; nie ausgegeben).
+ * Die Person erhält die Pflichtaktion «Passwort festlegen» und, wenn sie neu angelegt ist, eine Einladung von Keycloak
+ * (`execute-actions-email` mit `UPDATE_PASSWORD`, gültig `invite.lifespanSec`, Standard 7 Tage); nie an Konten mit
+ * Passwort oder Identitätsanbieter. `sendEmail: false` schaltet sie ab, `resend` sendet auch an bestehende Konten ohne
+ * Passwort. Scheitert der Versand (meist kein SMTP im Realm), meldet der Lauf das und läuft weiter. Alternative ohne
+ * SMTP: `initialPassword` (dann keine Einladung) setzt ein zufälliges temporäres Passwort, nur wenn das Konto noch keines
+ * hat, und legt es ausschliesslich in `<secretDir>/initial-password-<realm>-<e-mail>.txt` ab (Datei 0600, Verzeichnis
+ * 0700; nie ausgegeben).
  * Mehrere Organisationen mit je mehreren Admins aus einer Datei (`orgBootstrapFile`, `iam-org-bootstrap --file`): Format
  * `InitFile`, als JSON Schema im Paket (`schema/init.schema.json`); je Admin wie `orgBootstrap`.
  * Kommandozeile: `iam-org-bootstrap` (src/bin/org-bootstrap.ts).
@@ -39,18 +43,42 @@ export interface OrgBootstrapOptions {
   /** Realm-Rolle der Plattform-Administration zusätzlich vergeben (Name aus PLATFORM_ADMIN_ROLE). */
   platformAdminRole?: string | null;
   initialPassword?: { realm: string; secretDir: string } | null;
+  /** Einladung per E-Mail an neu angelegte Personen ohne Passwort (Standard an). */
+  sendEmail?: boolean;
+  /** Einladung auch an bestehende Personen ohne Passwort und ohne Identitätsanbieter (erneut) senden. */
+  resend?: boolean;
+  /** Gültigkeit der Einladung (Standard 7 Tage); Client und Weiterleitung nach dem Festlegen des Passworts. */
+  invite?: { lifespanSec?: number; clientId?: string; redirectUri?: string };
   /** Probelauf: nur lesen, Schritte melden. */
   dryRun?: boolean;
   log?: (message: string) => void;
 }
 
-export interface OrgBootstrapResult { orgId: string | null; userId: string | null; tenantId: string | null; principalId: string | null; steps: string[]; passwordFile: string | null }
+export interface OrgBootstrapResult {
+  orgId: string | null; userId: string | null; tenantId: string | null; principalId: string | null; steps: string[]; passwordFile: string | null;
+  /** Adresse der Person (klein geschrieben). */
+  email: string;
+  /** Einladung: `sent` gesendet, `failed` Versand gescheitert (meist kein SMTP), null keine (nicht nötig, abgeschaltet, Probelauf). */
+  invitation: 'sent' | 'failed' | null;
+}
+
+/** Standard-Gültigkeit der Einladung: 7 Tage. */
+export const INVITE_LIFESPAN_SEC = 7 * 24 * 3600;
 
 /** Prüft die Eingaben; Fehlertexte für die Kommandozeile. */
-export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email'>): string[] {
-  const out: string[] = [];
+export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email' | 'invite'>): string[] {
+  const out = inviteErrors(o.invite);
   if (!ALIAS_PATTERN.test(o.alias)) out.push('Alias: Kleinbuchstaben, Ziffern, «-» und «_», beginnt mit Buchstabe oder Ziffer (höchstens 63 Zeichen)');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) out.push('E-Mail-Adresse ungültig');
+  return out;
+}
+
+/** Prüft die Angaben zur Einladung (Gültigkeit, Weiterleitung nur mit Client). */
+export function inviteErrors(invite: OrgBootstrapOptions['invite']): string[] {
+  const out: string[] = [];
+  const life = invite?.lifespanSec;
+  if (life !== undefined && !(Number.isInteger(life) && life > 0)) out.push('Gültigkeit der Einladung: ganze Zahl Sekunden grösser 0');
+  if (invite?.redirectUri && !invite.clientId) out.push('Weiterleitung der Einladung (--redirect-uri) nur zusammen mit dem Client (--client-id)');
   return out;
 }
 
@@ -89,7 +117,7 @@ export function initFileErrors(data: unknown): string[] {
   return out;
 }
 
-export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'dryRun' | 'log'> & {
+export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'dryRun' | 'log'> & {
   /** Name der Realm-Rolle für Admins mit `platformAdmin` (PLATFORM_ADMIN_ROLE). */
   platformAdminRole: string;
 };
@@ -105,7 +133,7 @@ export async function orgBootstrapFile(kc: KeycloakAdmin, file: InitFile, o: Org
       out.push(await orgBootstrap(kc, {
         alias: org.alias, name: org.name, email: a.email, firstName: a.first, lastName: a.last,
         platformAdminRole: a.platformAdmin ? o.platformAdminRole : null,
-        database: o.database, initialPassword: o.initialPassword, dryRun: o.dryRun, log: o.log,
+        database: o.database, initialPassword: o.initialPassword, sendEmail: o.sendEmail, resend: o.resend, invite: o.invite, dryRun: o.dryRun, log: o.log,
       }));
     }
   }
@@ -139,12 +167,12 @@ function writeSecret(file: string, content: string) {
 
 export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): Promise<OrgBootstrapResult> {
   const alias = o.alias.toLowerCase(), email = o.email.trim().toLowerCase();
-  const errors = orgBootstrapErrors({ alias, email });
+  const errors = orgBootstrapErrors({ alias, email, invite: o.invite });
   if (errors.length) throw new Error(errors.join('\n'));
   const dry = !!o.dryRun;
   const steps: string[] = [];
   const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
-  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null };
+  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, invitation: null };
 
   // Organisation
   res.orgId = (await kc.listOrgs()).find(x => x.alias.toLowerCase() === alias)?.id ?? null;
@@ -155,6 +183,7 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
 
   // Person (ohne Passwort, Pflichtaktion «Passwort festlegen»)
   res.userId = (await kc.findUserByEmail(email))?.id ?? null;
+  const created = !res.userId;
   if (!res.userId) {
     step(`Person ${email} anlegen (ohne Passwort)`);
     if (!dry) res.userId = await kc.createUser({ username: email, email, emailVerified: true, enabled: true, firstName: o.firstName, lastName: o.lastName, requiredActions: ['UPDATE_PASSWORD'] });
@@ -162,6 +191,7 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   if (!res.userId || !res.orgId) {
     if (!dry) throw new Error('Organisation oder Person fehlt nach dem Anlegen');
     step(`${email} → Organisation ${alias}, Rolle ${ADMIN_ROLE}, Freigabestufe 2`);
+    if (o.sendEmail !== false && !o.initialPassword) step(`${email}: Einladung «Passwort festlegen» würde gesendet`);
     return res;
   }
   if (!(await kc.member(res.orgId, res.userId))) {
@@ -201,8 +231,29 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
     const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
     res.tenantId = r.tenantId; res.principalId = r.principalId;
   } else step('Ohne Datenbank: Rolle org-admin und Freigabestufe nicht gesetzt (DATABASE_ADMIN_URL)');
+  // Einladung zuletzt: die Person findet beim Anmelden ihre Rolle schon vor
+  if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) res.invitation = await invite(kc, res.userId, email, o, dry, step);
   step('Fertig.');
   return res;
+}
+
+/**
+ * Einladung «Passwort festlegen» per E-Mail (Keycloak `execute-actions-email`), nur an Konten ohne Passwort und ohne
+ * Identitätsanbieter. Scheitert der Versand, bleibt es bei einer Meldung (Lauf geht weiter).
+ */
+async function invite(kc: KeycloakAdmin, userId: string, email: string, o: OrgBootstrapOptions, dry: boolean, step: (m: string) => void): Promise<'sent' | 'failed' | null> {
+  if (await kc.hasPassword(userId)) { step(`${email} hat schon ein Passwort – keine Einladung`); return null; }
+  if ((await kc.federatedIdentities(userId)).length) { step(`${email} meldet sich über einen Identitätsanbieter an – keine Einladung`); return null; }
+  const lifespanSec = o.invite?.lifespanSec ?? INVITE_LIFESPAN_SEC;
+  const days = Math.round(lifespanSec / 864) / 100;
+  if (dry) { step(`${email}: Einladung «Passwort festlegen» würde gesendet (gültig ${days} Tage)`); return null; }
+  if (await kc.sendActionsEmail(userId, ['UPDATE_PASSWORD'], { lifespanSec, clientId: o.invite?.clientId, redirectUri: o.invite?.redirectUri })) {
+    step(`${email}: Einladung «Passwort festlegen» gesendet (gültig ${days} Tage)`);
+    return 'sent';
+  }
+  step(`${email}: Einladung NICHT gesendet – Versand gescheitert (SMTP im Realm eingerichtet? Client/Weiterleitung gültig?). `
+    + 'Nach dem Einrichten erneut mit --resend, oder --initial-password');
+  return 'failed';
 }
 
 /**

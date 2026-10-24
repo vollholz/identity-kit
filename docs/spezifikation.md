@@ -314,8 +314,8 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 | `POST /auth/backchannel-logout` | OIDC Back-Channel Logout 1.0: Logout-Token prüfen (`iss`, `aud` = BFF-Client, `iat`, `jti`, höchstens 10 min alt, Ereignis `backchannel-logout`, kein `nonce`, `sid` oder `sub`), `jti` gegen Wiederholung, betroffene Sitzungen löschen |
 | `/abgemeldet` | öffentliche Seite «Du bist abgemeldet», fragt `/auth/me` nicht ab, meldet nicht automatisch an |
 
-Fehler der Browser-Routen (`GET /auth/login`, `/auth/entra/{idp}`, `/auth/callback`, `/auth/switch`; `POST
-/auth/switch` und `/auth/logout` ohne `Accept: application/json`) zeigen nie Problem-JSON, sondern eine schlichte
+Fehler der Browser-Routen (`GET /auth/login`, `/auth/entra/{idp}`, `/auth/callback`, `/auth/switch`, `POST
+/auth/switch`, `/auth/logout`; jeweils ohne `Accept: application/json`) zeigen nie Problem-JSON, sondern eine schlichte
 HTML-Seite in Du-Form mit Knopf «Erneut anmelden» (`/auth/login`), Status wie der Fehler, eigene CSP, ohne technische
 Details (die stehen im Log). `/auth/me`, Aufrufe mit `Accept: application/json` und die API (`/v1/…`) bleiben bei
 Problem-JSON.

@@ -57,7 +57,7 @@ export const bffModule: IamModule = {
     // Browser-Routen: Fehler als Seite statt Problem-JSON; Details nur ins Log. Mit Accept: application/json (Aufruf aus
     // der Oberfläche) weiter an die Fehlerbehandlung der App.
     const page = async (err: Error & { statusCode?: number; validation?: unknown }, req: FastifyRequest, reply: FastifyReply) => {
-      if (req.method !== 'GET' && wantsJson(req.headers.accept)) throw err;
+      if (wantsJson(req.headers.accept)) throw err;
       const status = err instanceof HttpError ? err.status : err.validation ? 422 : err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
       if (err instanceof HttpError) reply.headers(err.headers);
       if (status >= 500) req.log.error({ err }, 'Anmeldung: Fehlerseite');

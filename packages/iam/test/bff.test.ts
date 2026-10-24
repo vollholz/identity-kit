@@ -373,6 +373,8 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.equal(json.statusCode, 401);
     assert.match(json.headers['content-type'] as string, /^application\/problem\+json/);
     assert.equal(json.json().title, 'Nicht angemeldet');
+    const getJson = await app.inject({ url: '/auth/login?org=B%C3%B6se', headers: { accept: 'application/json' } });
+    assert.deepEqual([getJson.statusCode, getJson.json().title], [400, 'Organisation ungültig']);
     const meJson = await app.inject({ url: '/auth/me' });
     assert.deepEqual([meJson.statusCode, meJson.json().title], [401, 'Nicht angemeldet']);
   });

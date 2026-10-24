@@ -8,11 +8,15 @@
  * Die Person erhält die Pflichtaktion «Passwort festlegen» (per E-Mail, sobald SMTP eingerichtet ist). Ohne SMTP setzt
  * `initialPassword` ein zufälliges temporäres Passwort, nur wenn das Konto noch keines hat, und legt es ausschliesslich in
  * `<secretDir>/initial-password-<realm>-<e-mail>.txt` ab (Datei 0600, Verzeichnis 0700; nie ausgegeben).
+ * Mehrere Organisationen mit je mehreren Admins aus einer Datei (`orgBootstrapFile`, `iam-org-bootstrap --file`): Format
+ * `InitFile`, als JSON Schema im Paket (`schema/init.schema.json`); je Admin wie `orgBootstrap`.
  * Kommandozeile: `iam-org-bootstrap` (src/bin/org-bootstrap.ts).
  */
 import { randomInt } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
+import { Type, type Static } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import pg from 'pg';
 import { schemaName } from './db.ts';
 import { ADMIN_ROLE } from './model.ts';
@@ -47,6 +51,64 @@ export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email
   const out: string[] = [];
   if (!ALIAS_PATTERN.test(o.alias)) out.push('Alias: Kleinbuchstaben, Ziffern, «-» und «_», beginnt mit Buchstabe oder Ziffer (höchstens 63 Zeichen)');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) out.push('E-Mail-Adresse ungültig');
+  return out;
+}
+
+const EMAIL = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
+
+/** Datei für `iam-org-bootstrap --file` (mitgeliefert als `schema/init.schema.json`). */
+export const InitFileSchema = Type.Object({
+  $schema: Type.Optional(Type.String()),
+  organizations: Type.Array(Type.Object({
+    alias: Type.String({ pattern: ALIAS_PATTERN.source, description: 'Alias der Organisation in Keycloak und des Mandanten' }),
+    name: Type.Optional(Type.String({ minLength: 1, description: 'Anzeigename; Standard der Alias' })),
+    admins: Type.Array(Type.Object({
+      email: Type.String({ pattern: EMAIL }),
+      first: Type.Optional(Type.String()),
+      last: Type.Optional(Type.String()),
+      platformAdmin: Type.Optional(Type.Boolean({ description: 'Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE) zusätzlich' })),
+    }, { additionalProperties: false }), { minItems: 1, description: 'Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2' }),
+  }, { additionalProperties: false }), { minItems: 1 }),
+}, { $id: 'https://github.com/vollholz/identity-kit/packages/iam/schema/init.schema.json', title: 'iam-org-bootstrap --file', additionalProperties: false });
+export type InitFile = Static<typeof InitFileSchema>;
+
+/** Prüft eine Datei für `--file` (Schema, doppelte Aliasse); Fehlertexte für die Kommandozeile. */
+export function initFileErrors(data: unknown): string[] {
+  if (!Value.Check(InitFileSchema, data)) return [...Value.Errors(InitFileSchema, data)].map(e => `${e.path || '/'}: ${e.message}`);
+  const seen = new Set<string>(), out: string[] = [];
+  data.organizations.forEach((o, i) => {
+    if (seen.has(o.alias)) out.push(`/organizations/${i}/alias: ${o.alias} doppelt`);
+    seen.add(o.alias);
+    const mails = new Set<string>();
+    o.admins.forEach((a, j) => {
+      const m = a.email.trim().toLowerCase();
+      if (mails.has(m)) out.push(`/organizations/${i}/admins/${j}/email: ${m} doppelt`);
+      mails.add(m);
+    });
+  });
+  return out;
+}
+
+export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'dryRun' | 'log'> & {
+  /** Name der Realm-Rolle für Admins mit `platformAdmin` (PLATFORM_ADMIN_ROLE). */
+  platformAdminRole: string;
+};
+
+/** Alle Organisationen und Admins einer Datei, je Admin wie `orgBootstrap` (idempotent). */
+export async function orgBootstrapFile(kc: KeycloakAdmin, file: InitFile, o: OrgBootstrapFileOptions): Promise<OrgBootstrapResult[]> {
+  const errors = initFileErrors(file);
+  if (errors.length) throw new Error(errors.join('\n'));
+  const out: OrgBootstrapResult[] = [];
+  for (const org of file.organizations) {
+    for (const a of org.admins) {
+      o.log?.(`— ${org.alias}: ${a.email.trim().toLowerCase()}`);
+      out.push(await orgBootstrap(kc, {
+        alias: org.alias, name: org.name, email: a.email, firstName: a.first, lastName: a.last,
+        platformAdminRole: a.platformAdmin ? o.platformAdminRole : null,
+        database: o.database, initialPassword: o.initialPassword, dryRun: o.dryRun, log: o.log,
+      }));
+    }
+  }
   return out;
 }
 

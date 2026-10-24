@@ -6,20 +6,17 @@
  * Datei, Eingaben geprüft. Die Kommandozeile läuft als eigener Prozess gegen den Fake über HTTP.
  */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { promisify } from 'node:util';
 import { KeycloakFake } from '@vollholz/iam-testkit';
-import { orgBootstrap, orgBootstrapErrors } from '../src/bootstrap.ts';
+import { InitFileSchema, initFileErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile } from '../src/bootstrap.ts';
 import type { IamConfig } from '../src/config.ts';
 import { KeycloakAdmin } from '../src/keycloak.ts';
 import { productDb, skipDb } from './support/db.ts';
+import { runBin, serveFake } from './support/keycloak-http.ts';
 import { notesModel } from './support/models.ts';
 
 const ISSUER = 'http://idp.test/realms/notes';
@@ -153,33 +150,76 @@ describe('Ersteinrichtung einer Organisation', () => {
     assert.deepEqual([eva.password, r.passwordFile], [false, null]);
   });
 
+  describe('mehrere Organisationen aus einer Datei (--file)', () => {
+    const init: InitFile = { organizations: [
+      { alias: 'solutions', name: 'Solutions', admins: [{ email: 'Anna@Solutions.example', first: 'Anna', last: 'Admin', platformAdmin: true }, { email: 'ben@solutions.example' }] },
+      { alias: 'muster', admins: [{ email: 'cleo@muster.example' }] },
+    ] };
+
+    test('Format: mitgeliefertes JSON Schema entspricht der Prüfung', () => {
+      const shipped = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'schema', 'init.schema.json'), 'utf8'));
+      const { $schema: _draft, ...rest } = shipped;
+      assert.deepEqual(rest, JSON.parse(JSON.stringify(InitFileSchema)));
+      assert.deepEqual(initFileErrors({ $schema: './init.schema.json', ...init }), []);
+    });
+
+    test('Format: Fehler mit Pfad (unbekanntes Feld, Alias, leere Admins, E-Mail, doppelt)', () => {
+      const e = (x: unknown) => initFileErrors(x).join('\n');
+      assert.match(e({}), /organizations/);
+      assert.match(e({ organizations: [] }), /\/organizations/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }], extra: 1 }] }), /\/organizations\/0/);
+      assert.match(e({ organizations: [{ alias: 'Böse', admins: [{ email: 'a@b.ch' }] }] }), /\/organizations\/0\/alias/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [] }] }), /\/organizations\/0\/admins/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'kaputt' }] }] }), /\/organizations\/0\/admins\/0\/email/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch', platformAdmin: 'ja' }] }] }), /platformAdmin/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }] }, { alias: 'a', admins: [{ email: 'x@b.ch' }] }] }), /\/organizations\/1\/alias: a doppelt/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }, { email: 'A@b.ch' }] }] }), /\/organizations\/0\/admins\/1\/email: a@b.ch doppelt/);
+    });
+
+    test('ohne Datenbank: alle Organisationen und Admins, platformAdmin je Person; Probelauf schreibt nichts; idempotent', async () => {
+      const fake = new KeycloakFake();
+      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', dryRun: true });
+      assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, 0, 'Probelauf schreibt nichts');
+      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin' });
+      const org = (alias: string) => [...fake.orgs.values()].find(o => o.alias === alias)!;
+      assert.deepEqual([...fake.orgs.values()].map(o => [o.alias, o.name]).sort(), [['muster', 'muster'], ['solutions', 'Solutions']]);
+      const anna = fake.byEmail('anna@solutions.example')!, ben = fake.byEmail('ben@solutions.example')!, cleo = fake.byEmail('cleo@muster.example')!;
+      assert.deepEqual([...fake.orgMembers.get(org('solutions').id)!].sort(), [anna.id, ben.id].sort());
+      assert.deepEqual([...fake.orgMembers.get(org('muster').id)!], [cleo.id]);
+      assert.deepEqual([fake.realmRoleMappings.get(anna.id)?.size, fake.realmRoleMappings.get(ben.id)?.size ?? 0], [1, 0]);
+      const writes = fake.calls.filter(c => !c.startsWith('GET ')).length;
+      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin' });
+      assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, writes, 'idempotent');
+      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin' }), /organizations/);
+    });
+
+    test('mit Datenbank: je Admin org-admin an org und Freigabestufe 2', { skip }, async () => {
+      const db = productDb({ model: notesModel });
+      const t = await db.create();
+      try {
+        const fake = new KeycloakFake();
+        const r = await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: { url: t.adminUrl, schema: 'notes' } });
+        assert.equal(r.length, 3);
+        const rows = (await t.inspect.query(
+          `SELECT x.alias, p.email, p.clearance, a.relation FROM notes.tenant x JOIN notes.principal p ON p.tenant_id = x.id
+             JOIN notes.authz_tuple a ON a.tenant_id = x.id AND a.subject = 'user:' || p.id AND a.object_type = 'org' ORDER BY 1, 2`)).rows;
+        assert.deepEqual(rows.map(x => [x.alias, x.email, x.clearance, x.relation]), [
+          ['muster', 'cleo@muster.example', 2, 'org-admin'], ['solutions', 'anna@solutions.example', 2, 'org-admin'], ['solutions', 'ben@solutions.example', 2, 'org-admin'],
+        ]);
+        assert.equal(Number((await t.inspect.query("SELECT count(*) AS n FROM notes.audit_log WHERE action = 'tenant.provisioned'")).rows[0].n), 3, 'je Admin ein tenant.provisioned');
+      } finally { await t.drop(); }
+    });
+  });
+
   describe('Kommandozeile', { skip }, () => {
     const fake = new KeycloakFake();
     const db = productDb({ model: notesModel });
     let t: Awaited<ReturnType<typeof db.create>>;
-    let server: Server, base = '';
+    let srv: Awaited<ReturnType<typeof serveFake>>;
     const key = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
-    before(async () => {
-      t = await db.create();
-      server = createServer((req, res) => {
-        const chunks: Buffer[] = [];
-        req.on('data', c => chunks.push(c));
-        req.on('end', () => void (async () => {
-          const body = chunks.length ? Buffer.concat(chunks).toString() : undefined;
-          const r = await fake.fetch(`http://idp.test${req.url}`, { method: req.method, headers: req.headers as Record<string, string>, body });
-          const headers: Record<string, string> = {};
-          r.headers.forEach((v, k) => { headers[k] = v; });
-          res.writeHead(r.status, headers);
-          res.end(Buffer.from(await r.arrayBuffer()));
-        })());
-      });
-      await new Promise<void>(ok => server.listen(0, '127.0.0.1', ok));
-      base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    });
-    after(async () => { await new Promise<void>(ok => server.close(() => ok())); await t?.drop(); });
-    const run = (args: string[], env: Record<string, string> = {}) => promisify(execFile)(process.execPath, [join(import.meta.dirname, '..', 'src', 'bin', 'org-bootstrap.ts'), ...args], {
-      env: { PATH: process.env.PATH, KEYCLOAK_TF_URL: base, KEYCLOAK_TF_REALM: 'notes', KEYCLOAK_IAC_PRIVATE_KEY: key, DATABASE_ADMIN_URL: t.adminUrl, ...env },
-    }).then(r => ({ code: 0, out: r.stdout, err: r.stderr }), (e: { code: number; stdout: string; stderr: string }) => ({ code: e.code, out: e.stdout, err: e.stderr }));
+    before(async () => { t = await db.create(); srv = await serveFake(fake); });
+    after(async () => { await srv?.close(); await t?.drop(); });
+    const run = (args: string[], env: Record<string, string> = {}) => runBin('org-bootstrap.ts', args, { KEYCLOAK_TF_URL: srv.base, KEYCLOAK_TF_REALM: 'notes', KEYCLOAK_IAC_PRIVATE_KEY: key, DATABASE_ADMIN_URL: t.adminUrl, ...env });
 
     test('legt an mit dem Service Account der Einrichtung (private_key_jwt, <realm>-iac)', async () => {
       const r = await run(['--alias', 'demo', '--email', 'anna@demo.example']);
@@ -196,6 +236,7 @@ describe('Ersteinrichtung einer Organisation', () => {
       const n = fake.calls.length;
       for (const [args, env, m] of [
         [['--email', 'a@b.ch'], {}, /--alias fehlt/],
+        [['--alias', 'x', '--email', 'a@b.ch', '--falsch'], {}, /--falsch/],
         [['--alias', 'x', '--email', 'kaputt'], {}, /E-Mail/],
         [['--alias', 'x', '--email', 'a@b.ch'], { KEYCLOAK_TF_REALM: 'master' }, /master/],
         [['--alias', 'x', '--email', 'a@b.ch'], { DATABASE_ADMIN_URL: '' }, /DATABASE_ADMIN_URL fehlt/],
@@ -205,6 +246,32 @@ describe('Ersteinrichtung einer Organisation', () => {
         assert.match(r.err, m);
       }
       assert.equal(fake.calls.length, n);
+    });
+    test('--file: alle Organisationen aus der Datei; nicht zusammen mit Einzel-Flags; ungültige Datei → Code 64', async () => {
+      const file = join(mkdtempSync(join(tmpdir(), 'iam-init-')), 'init.json');
+      writeFileSync(file, JSON.stringify({ organizations: [{ alias: 'datei', name: 'Datei AG', admins: [{ email: 'dora@datei.example', platformAdmin: true }, { email: 'emil@datei.example' }] }] }));
+      const r = await run(['--file', file]);
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.out, /— datei: dora@datei\.example[\s\S]*— datei: emil@datei\.example[\s\S]*Fertig\./);
+      const rows = (await t.inspect.query("SELECT p.email FROM notes.principal p JOIN notes.tenant x ON x.id = p.tenant_id JOIN notes.authz_tuple a ON a.subject = 'user:' || p.id WHERE x.alias = 'datei' AND a.relation = 'org-admin' ORDER BY 1")).rows;
+      assert.deepEqual(rows.map(x => x.email), ['dora@datei.example', 'emil@datei.example']);
+      assert.ok(fake.realmRoleMappings.get(fake.byEmail('dora@datei.example')!.id)?.has('platform-admin'));
+      assert.ok(!fake.realmRoleMappings.get(fake.byEmail('emil@datei.example')!.id)?.size);
+
+      const n = fake.calls.length;
+      const bad = join(dirname(file), 'bad.json');
+      writeFileSync(bad, JSON.stringify({ organizations: [{ alias: 'x', admins: [] }] }));
+      for (const [args, m] of [
+        [['--file', file, '--alias', 'x'], /nicht zusammen mit --alias/],
+        [['--file', file, '--platform-admin'], /nicht zusammen mit --platform-admin/],
+        [['--file', bad], /ungültig[\s\S]*\/organizations\/0\/admins/],
+        [['--file', join(dirname(file), 'fehlt.json')], /fehlt\.json/],
+      ] as [string[], RegExp][]) {
+        const x = await run(args);
+        assert.equal(x.code, 64, x.err);
+        assert.match(x.err, m);
+      }
+      assert.equal(fake.calls.length, n, 'nichts angelegt');
     });
   });
 });

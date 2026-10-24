@@ -17,6 +17,8 @@ export interface KcOrg { id: string; alias: string; name: string; enabled: boole
 export interface KcUser {
   id: string; username: string; email?: string; firstName?: string; lastName?: string; enabled: boolean; emailVerified?: boolean;
   requiredActions?: string[]; createdTimestamp?: number; membershipType?: string;
+  /** Gesetzt beim Service-Account-Benutzer eines Clients. */
+  serviceAccountClientId?: string;
 }
 /** Domain einer Organisation; ab Keycloak 26.8 mit Anbieter und automatischer Weiterleitung je Domain. */
 export interface KcOrgDomain { name: string; verified?: boolean; identityProviderAlias?: string; autoRedirect?: boolean }
@@ -224,6 +226,8 @@ export class KeycloakAdmin {
   }
   /** Konten, deren Benutzername, Name oder Adresse `search` enthält (Teiltreffer, alle Seiten). */
   searchUsers(search: string) { return this.page<KcUser>(`/users?search=${encodeURIComponent(search)}&briefRepresentation=false`); }
+  /** Alle Konten des Realms (alle Seiten). */
+  listUsers() { return this.page<KcUser>('/users?briefRepresentation=false'); }
   async getUser(id: string): Promise<KcUser | null> { const r = await this.call<KcUser>('GET', `/users/${seg(id)}`, undefined, { ok: [404] }); return r.status === 404 ? null : r.data; }
   async createUser(rep: Omit<KcUser, 'id'>): Promise<string> { return KeycloakAdmin.idFrom((await this.call('POST', '/users', rep, { what: 'Konto anlegen' })).location); }
   async deleteUser(id: string) { await this.call('DELETE', `/users/${seg(id)}`, undefined, { ok: [404], what: 'Konto löschen' }); }
@@ -268,6 +272,7 @@ export class KeycloakAdmin {
     await this.call('POST', base, alias, { ok: [409], what: 'Anbieter mit Organisation verbinden' });
     await this.call('PUT', `${base}/${seg(alias)}`, { autoMembership: false, membershipType: 'UNMANAGED' }, { what: 'Anbieter mit Organisation verbinden' });
   }
+  async orgIdps(orgId: string): Promise<KcIdp[]> { return (await this.call<KcIdp[]>('GET', `/organizations/${seg(orgId)}/identity-providers`)).data ?? []; }
   async unlinkOrgIdp(orgId: string, alias: string) { await this.call('DELETE', `/organizations/${seg(orgId)}/identity-providers/${seg(alias)}`, undefined, { ok: [400, 404], what: 'Anbieter von Organisation lösen' }); }
 
   // ---------------------------------------------------------------- Gruppen

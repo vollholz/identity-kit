@@ -254,6 +254,13 @@ KEYCLOAK_TF_URL=https://identity.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC
 - Die Anmeldung läuft über den Service Account `<realm>-iac` (`private_key_jwt`, realm-admin).
 - `--initial-password` setzt nur ohne bestehendes Passwort ein temporäres und legt es ausschliesslich in
   `~/.identity/initial-password-<realm>-<e-mail>.txt` ab (0600). Programmatisch: `orgBootstrap(keycloakAdmin, …)`.
+- Mehrere Organisationen mit je mehreren Admins: `--file init.json` (Format `schema/init.schema.json`;
+  programmatisch `orgBootstrapFile`, Prüfung `initFileErrors`).
+
+**Zurücksetzen** (`iam-reset`, ab 1.4): `--keycloak` löscht alle Organisationen samt ihrer Anbieter und alle Personen
+(Service Accounts bleiben), `--database` leert alle Tabellen im Schema ausser `schema_migrations` und `--keep-table`;
+Pflicht `--confirm <realm>`, `--dry-run` zählt nur. Programmatisch: `resetKeycloak`, `resetDatabase`. Nach dem Leeren
+eine Zeile `audit {"action":"platform.reset", …}` auf stdout (das Audit-Protokoll ist je Mandant und danach leer).
 
 Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant`. `relinkTenant` ist
 nicht atomar (Personen, Organisations-ID und Protokoll in drei Transaktionen): Scheitert das Protokoll, ist der Mandant

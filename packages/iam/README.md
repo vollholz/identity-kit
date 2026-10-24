@@ -14,6 +14,13 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **1.4.0:** Zurücksetzen und neu aufsetzen. Neue Kommandozeile `iam-reset` (`resetKeycloak`, `resetDatabase`):
+  `--keycloak` löscht im Realm alle Organisationen samt ihrer Identitätsanbieter und alle Personen (Service Accounts
+  bleiben), `--database` leert als Migrationsrolle alle Tabellen im Schema der App (`TRUNCATE … RESTART IDENTITY
+  CASCADE`) ausser `schema_migrations` und `--keep-table`; Pflicht `--confirm <realm>`, `--dry-run`, Zeile
+  `audit platform.reset` auf stdout. `iam-org-bootstrap --file <init.json>` für mehrere Organisationen mit je mehreren
+  Admins (`orgBootstrapFile`, `initFileErrors`, `InitFileSchema`; JSON Schema `schema/init.schema.json` im Paket).
+  `KeycloakAdmin.listUsers()`, `orgIdps()`. Abwärtsverträglich.
 - **1.3.0:** `types.org.roles` darf eine Liste sein (Spez. 7.3, M5): Rollen, die nur an bestimmten Typen vorgesehen sind, hängen nicht an `org` (`org-admin` wird ergänzt, Standard `'*'`). `POST /v1/access`, Mitglieder › Rollen, Einladungen und Clients lehnen sie an `org` ab (422); `GET /v1/admin/status` liefert nur Rollen, die an `org` zulässig sind. Bestehende Tupel mit einer am Typ nicht (mehr) zulässigen Rolle zählen in Entscheidung, Lesesicht (`read_relations` je Blatt) und «Wer hat Zugriff?» nicht mehr; `syncModelChecks` legt dafür den CHECK `authz_tuple_type_relation_check` an (NOT VALID: bestehende Tupel bleiben, neue werden abgelehnt). Abwärtsverträglich.
 - **1.2.0:** `TypeDef.membersRole` (D10, Spez. 7.3, M13): Rolle des Schalters «Für alle Mitglieder» (Standard `viewer` bei Typen mit
   `owner`, falls am Typ zulässig); Ausgabe in `GET /v1/authz/catalog` (`types[].membersRole`). Abwärtsverträglich.
@@ -99,7 +106,8 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | `optionalBodies` | `transformObject` für `@fastify/swagger`: optionale Bodies (`POST …/suspend`, `…/resume`) als optional ausweisen |
 | `Bff`, Modul `bff` | Anmeldung der Oberfläche unter `/auth/*`: Code-Flow mit PKCE, verschlüsselte Sitzung, CSRF, Erneuerung, Organisation je Tab, Abmeldung und Backchannel-Logout |
 | `McpAuth`, `registerMcpAuth`, `TokenExchanger`, `DpopSigner`, `ApiClient` | MCP-Dienst der App: Anmeldung (RFC 9728, nur Hosts aus `MCP_HOST_CLIENT_IDS`), Token Exchange DPoP-gebunden, Organisation über `X-Tenant`/`?org=`, Aufrufe der REST-API |
-| `orgBootstrap`, `iam-org-bootstrap` | Ersteinrichtung einer Organisation: Organisation und erste Person in Keycloak, Mandant, Tupel `org-admin` und Freigabestufe 2 in der Datenbank (idempotent, Probelauf) |
+| `orgBootstrap`, `orgBootstrapFile`, `iam-org-bootstrap` | Ersteinrichtung einer Organisation: Organisation und erste Person in Keycloak, Mandant, Tupel `org-admin` und Freigabestufe 2 in der Datenbank (idempotent, Probelauf); mit `--file` mehrere Organisationen und Admins (`schema/init.schema.json`) |
+| `resetKeycloak`, `resetDatabase`, `iam-reset` | App zurücksetzen: Organisationen, ihre Anbieter und Personen in Keycloak, Tabellen im Schema der App (ausser Migrationen und `--keep-table`); `--confirm <realm>`, Probelauf |
 | `IAM_API_TAGS`, Option `openapi` | Tags der Routen; Tags, Texte und Feldbeschreibungen der App ersetzen die produktneutralen Standardtexte |
 
 ```ts

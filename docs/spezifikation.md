@@ -23,7 +23,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 ## Inhalt
 
 1. [Überblick](#1-überblick) · [Standard und App-lokal](#11-standard-und-app-lokal)
-2. [Anbindung an die Identity-Plattform](#2-anbindung-an-die-identity-plattform)
+2. [Anbindung an die Identity-Plattform](#2-anbindung-an-die-identity-plattform) · [Kommandozeilen](#21-kommandozeilen)
 3. [Realm des Produkts](#3-realm-des-produkts)
 4. [Mandanten](#4-mandanten)
 5. [Anmeldung der Oberfläche (BFF)](#5-anmeldung-der-oberfläche-bff)
@@ -109,7 +109,7 @@ Modul `modules/product-realm-bootstrap`; assets `docs/produktion.md` › Keycloa
 | 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
 | 5 | identity | `grant_realm_admin = true`, Workflow «Keycloak» | identity-iac weist `<produkt>-iac` `realm-management/realm-admin` zu (mit FGAP v2 darf das nur ein Server-Admin) |
 | 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
-| 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen») mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20) |
+| 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` oder `iam-org-bootstrap --file <init.json>` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen») mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
 
 Regeln:
 
@@ -131,6 +131,28 @@ Plan **nur Verschiebungen** (`Plan: 0 to add, 0 to change, 0 to destroy`, Exit 2
 Apply nach Freigabe schreibt nur den State; erst der Kontrollplan danach zeigt «No changes». Freigegeben wird nur ein
 Plan, der ausschliesslich Verschiebungen enthält (Anzahl = Ressourcen im State, keine Zeile `will be …`/`must be …`,
 keine Änderung an Outputs). Der `import`-Block für den Realm bleibt beim Aufrufer (in Modulen nicht erlaubt).
+
+### 2.1 Kommandozeilen
+
+Im Backend-Paket `@vollholz/iam` (`npx …`). Anmeldung bei Keycloak mit dem Service Account der Einrichtung
+`<produkt>-iac` (`private_key_jwt`): `KEYCLOAK_TF_URL`, `KEYCLOAK_TF_REALM` (nie `master`), `KEYCLOAK_IAC_CLIENT_ID`
+(Standard `<realm>-iac`), `KEYCLOAK_IAC_PRIVATE_KEY` bzw. `KEYCLOAK_IAC_PRIVATE_KEY_B64`. Datenbank: `DATABASE_ADMIN_URL`
+(Migrationsrolle), Schema `--schema` (Standard der Realm mit «_»). Ausgabe ohne Geheimnisse; Exit-Code ≠ 0 bei Fehler
+(64 falscher Aufruf).
+
+| Befehl | Wirkung |
+|---|---|
+| `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last] [--platform-admin]` | Organisation und eine Person als org-admin (Schritt 7, A20); idempotent |
+| `iam-org-bootstrap --file <init.json>` | dasselbe für alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "organizations": [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"?, "platformAdmin"? } ] } ] }`; nicht zusammen mit den Einzel-Flags |
+| beide zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
+| `iam-reset --keycloak` | im Realm alle Organisationen samt ihrer Identitätsanbieter (`entra-NNN`, `entra-app-<alias>`) und alle Personen löschen; Service-Account-Benutzer der Clients, Realm, Clients, Scopes, übrige Anbieter und Einstellungen bleiben (sie gehören dem Realm-Modul) |
+| `iam-reset --database [--keep-table <name> …]` | als Migrationsrolle alle Tabellen im Schema der App leeren (`TRUNCATE … RESTART IDENTITY CASCADE`) ausser `schema_migrations` und `--keep-table`; Struktur, Rollen, Policies bleiben. Abbruch, wenn CASCADE eine ausgenommene Tabelle mitleeren würde |
+| `iam-reset` Schutz | Pflicht `--confirm <realm>` (= `KEYCLOAK_TF_REALM`); `--dry-run` zeigt Organisationen, Anbieter, Anzahl Personen und Zeilen je Tabelle; ohne `--keycloak`/`--database` Fehler. Reihenfolge: erst Datenbank, dann Keycloak |
+
+`platform.reset`: Das Audit-Protokoll (`audit_log`) gehört je Mandant (`tenant_id NOT NULL`, Hash-Kette je Mandant)
+und ist nach dem Zurücksetzen leer; einen Eintrag ohne Mandanten gibt es nicht. `iam-reset` schreibt deshalb nach dem
+Leeren der Datenbank eine Zeile `audit {"action":"platform.reset", …}` (Zeitpunkt, Realm, Schema, Anzahl Tabellen und
+Zeilen, ausgenommene Tabellen, `GITHUB_ACTOR`) auf stdout; im Workflow der App bleibt sie im Protokoll des Laufs.
 
 ## 3. Realm des Produkts
 
@@ -1559,7 +1581,8 @@ app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note
 3. Realm: Bootstrap und `kc.sh apply` mit dem Modul (Schritte 3–6).
 4. Pakete einbinden (Backend, Frontend), Migration ausführen, Konfiguration und Geheimnisse ([Kapitel 13](#13-konfiguration-und-geheimnisse)).
 5. Erste Organisation mit `iam-org-bootstrap` (im Backend-Paket enthalten): Keycloak und, mit `DATABASE_ADMIN_URL`,
-   Principal, Tupel `org-admin` und Freigabestufe 2 in der Datenbank der App (A20).
+   Principal, Tupel `org-admin` und Freigabestufe 2 in der Datenbank der App (A20). Zurücksetzen und neu aufsetzen:
+   `iam-reset`, dann `iam-org-bootstrap --file` ([Kommandozeilen](#21-kommandozeilen)).
 6. Abnahme ([Kapitel 16](#16-abnahme)) mit dem Test-Kit.
 
 Versionierung und Pflege:

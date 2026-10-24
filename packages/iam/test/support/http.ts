@@ -49,7 +49,7 @@ export const notesMigration = migration('001_notes.sql', `
 
 /**
  * Zuständige Personen je Notiz (Fachdaten, `edges.persons`; wie in Assets das Attribut «Verantwortlich») und die
- * Policies der Notizen mit dem Weg über `app.read_person()`/`app.write_person()` (Muster Kap. 7.6).
+ * Policies der Notizen mit dem Weg über `app.read_person()`, `app.write_person()` und `app.person_for()` (Muster Kap. 7.6).
  */
 export const notesPersonsMigration = migration('002_notes_persons.sql', `
   CREATE TABLE notes.note_person (tenant_id uuid NOT NULL REFERENCES notes.tenant(id), note_id uuid NOT NULL, principal_id uuid NOT NULL,
@@ -67,7 +67,7 @@ export const notesPersonsMigration = migration('002_notes_persons.sql', `
   CREATE POLICY note_update ON notes.note AS RESTRICTIVE FOR UPDATE TO notes_app
     USING (classification <= app.clearance() AND (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations())
       OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))
-      OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.write_person() AND r.grants = 'edit')))
+      OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.person_for('note:write') AND r.grants = 'edit')))
     WITH CHECK (classification <= app.clearance() AND (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations())
       OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))
       OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.write_person() AND r.grants = 'edit')));`);

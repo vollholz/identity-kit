@@ -503,7 +503,8 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
   über `ResourceModel.edges` ([7.7](#77-resourcemodel-der-app)).
 - Abgelaufene Tupel zählen nie. Ein Job im Worker löscht sie bei jedem Lauf des Abgleichs ([9.3](#93-abgleich-ins-personenverzeichnis))
   und schreibt je Tupel `access.expired` (A8).
-- Jede Änderung erhöht `tenant.acl_version` (Trigger); die Entscheidung speichert Tupel und Zustand der Kette je Mandant
+- Jede Änderung erhöht `tenant.acl_version` (Trigger; ebenso Freigabestufen, auch beim Anlegen eines Principals mit
+  Stufe > 0 oder Break-Glass, `iam_016`); die Entscheidung speichert Tupel und Zustand der Kette je Mandant
   bis zur nächsten Änderung zwischen.
 
 ### 7.5 Entscheidung
@@ -518,8 +519,8 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
    mit Tupel `member` eines Subjekts von `p`, dazu transitiv alle darunter (Kanten mit `inherits_scope`, Tiefe ≤ 16).
    **Über Personen** (ab 1.1, `ResourceModel.edges.persons`): `p` ist eine Person und steht in den Fachdaten von `ref`
    mit `grants ≠ none` (Assets: Attribut «Verantwortlich» der Art `user`); `read` und `edit` wirken wie oben. Es zählt
-   nur `principal.id` der Person selbst, nie Gruppen, «Alle Mitglieder» oder Clients; nur an `ref` selbst, nicht an
-   Ressourcen darunter.
+   nur `principal.id` der Person selbst, solange sie im Mandanten aktiv ist (`kind = 'user'`, nicht entfernt), nie
+   Gruppen, «Alle Mitglieder» oder Clients; nur an `ref` selbst, nicht an Ressourcen darunter.
 3. **Klassifizierung** (nur Typen mit `classified`): `classification(ref) ≤ clearance(p)`.
 4. **Besitz** (nur Typen mit `owner`): Tupel `owner` eines Subjekts von `p` an `ref`.
 5. **Scope** (nur `scopeBound`): `perm ∈ permissionsForScopes(p.scopes)`; gilt für jeden Weg 1, 2, 4.
@@ -560,6 +561,7 @@ Einstellung: leeres Array, `false` bzw. `0`). `dbContext` der App entfällt.
 | `app.write_units` | `app.write_units()` | `uuid[]` | `units(p)`; leer, wenn 5 `write` nicht deckt |
 | `app.read_person` | `app.read_person()` | `uuid` | `principal.id` der Person für Regel 2 über Personen (ab 1.1, `iam_016`); `NULL` bei Clients, ohne `edges.persons` oder wenn 5 `read` nicht deckt |
 | `app.write_person` | `app.write_person()` | `uuid` | wie `read_person` für `write` |
+| `app.person`, `app.person_permissions` | `app.person_for(permission text)` | `uuid` | wie `read_person` für ein beliebiges Recht `read` oder `write` eines Typs mit `scope` (`read_person`/`write_person` gelten für den ersten, das Blatt); `NULL`, wenn 5 das Recht nicht deckt |
 | `app.org_permissions` | `app.read_all_of(permission text)` | `boolean` | Recht gilt an `org` (∩ Scope); für Typen mit Tupeln ausser dem Blatt (A10) |
 | `app.read_relations`, `app.write_relations` | `app.read_relations()`, `app.write_relations()` | `text[]` | Relationen (Rollen, bei `owner`-Typen auch `owner`), die `read` bzw. `write` des Blatts enthalten, **je Anfrage** aus Modell ∩ Scope berechnet: leer, wenn 5 das Recht nicht deckt; nie `member` |
 | `app.permission_relations` | `app.relations_of(permission text)` | `text[]` | wie oben für ein beliebiges Recht (Typen ausser dem Blatt) (A10) |
@@ -615,15 +617,18 @@ interface ResourceModel<S = unknown> {
     /** Zugehörigkeit der Ressourcen $1; Spalten `id uuid`, `unit_id uuid`, `grants text` ('read' | 'edit'), `label text` (Name der Kante). */
     belongs: string;
     /** Ab 1.1: zuständige Personen der Ressourcen $1; Spalten `id uuid` (Ressource), `principal_id uuid` (`principal.id`
-     *  einer Person), `grants text` ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, z. B. «Verantwortlich»). */
+     *  einer Person), `grants text` ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, z. B. «Verantwortlich»),
+     *  optional `type text`. Abfrage je Typ mit den IDs dieses Typs; mit `type` zählen nur Zeilen dieses Typs. */
     persons?: string;
-    /** Ab 1.1: Wirkungen der Person $1 (uuid) über alle Ressourcen; Spalte `grants text`. Nur für «Recht irgendwo». */
+    /** Ab 1.1: Wirkungen der Person $1 (uuid) über alle Ressourcen; Spalten `grants text`, `type text` (ohne: jeder Typ mit
+     *  scope; Pflicht bei mehreren). Nur für «Recht irgendwo». */
     personGrants?: string;
   };
 }
 ```
 
-`edges.persons` gilt für Typen mit `scope` (wie `belongs`); dasselbe SQL dient einer und vielen Ressourcen
+`unit`, `children` und `belongs` stehen nur gemeinsam; ab 1.1 dürfen alle drei fehlen, wenn die App nur `persons`
+liefert (`personGrants` nur mit `persons`; Prüfung beim Start). `edges.persons` gilt für Typen mit `scope` (wie `belongs`); dasselbe SQL dient einer und vielen Ressourcen
 (`req.can`, `req.need`, `req.capabilities(refs)`, `capabilitiesFor(access, p, refs)`). Fehlt `edges.persons`, gibt es
 den Weg nicht. Beispiel Assets: `SELECT v.object_id AS id, v.principal_id, d.grants, d.name AS label FROM
 attribute_value v JOIN attribute_def d ON … WHERE v.object_id = ANY($1) AND d.kind = 'user'`.

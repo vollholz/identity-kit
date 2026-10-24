@@ -86,8 +86,6 @@ describe('Lesesicht = can', { skip }, () => {
       const p: Principal = { ...base, subjects: subjectsOf(base) };
       for (const [subject, relation, type, id] of s.tuples(p.subjects[0]!)) await grant(t.runtime, A, subject, relation, { type, id });
       for (const [k, g] of Object.entries(s.persons ?? {})) await responsible(t.runtime, A, N[k]!, pid, g);
-      // Freigabestufe beim Anlegen des Principals ohne neues Tupel: Zwischenspeicher verwerfen
-      if (s.persons) iam.access.invalidate(A);
 
       const readable = new Set(await iam.tx(p, async tx => (await tx.query<{ id: string }>('SELECT id FROM notes.note')).rows.map(r => r.id)));
       const writable = new Set<string>();

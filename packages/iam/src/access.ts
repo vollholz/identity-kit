@@ -53,8 +53,11 @@ export type Who = Pick<Principal, 'kind' | 'principalId' | 'subjects' | 'scopes'
 /** Zugehörigkeit einer Ressource zu einer Einheit (`edges.belongs`). */
 export interface Belong { id: string; unit_id: string; grants: 'read' | 'edit' | 'none'; label: string }
 
-/** Zuständige Person einer Ressource aus Fachdaten (`edges.persons`). */
-export interface PersonEdge { id: string; principal_id: string; grants: 'read' | 'edit' | 'none'; label: string }
+/** Zuständige Person einer Ressource aus Fachdaten (`edges.persons`); `type` optional (Typ der Ressource). */
+export interface PersonEdge { id: string; principal_id: string; grants: 'read' | 'edit' | 'none'; label: string; type?: string | null }
+
+/** Wirkungen der Zuständigkeit über Personen irgendwo (`personGrants`): Schlüssel `<typ>:<grants>`, `*:<grants>` ohne Typ. */
+export type PersonGrants = ReadonlySet<string>;
 
 /** Fachdaten je Anfrage: Klassifizierung, Zugehörigkeit und zuständige Personen je Ressource, units(p). */
 export interface Facts {
@@ -109,11 +112,15 @@ export class AccessService<P extends string = string, S = unknown> {
   readonly scopeType: TypeInfo<P> | null;
   /** Alle Typen mit Zuständigkeit (`scope`). */
   readonly scopeTypes: TypeInfo<P>[];
+  /** Zuständigkeit über Einheiten (`edges.unit`, `children`, `belongs`); null, wenn die App nur `persons` liefert. */
+  readonly unitEdges: { unit: string; children: string; belongs: string } | null;
 
   constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null }) {
     this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null;
     this.scopeTypes = [...o.model.types.values()].filter(t => t.scope);
     this.scopeType = this.scopeTypes[0] ?? null;
+    const e = this.resources?.edges;
+    this.unitEdges = e?.unit && e.children && e.belongs ? { unit: e.unit, children: e.children, belongs: e.belongs } : null;
   }
 
   /** Transaktion mit voller Sicht im Mandanten. */
@@ -224,7 +231,7 @@ export class AccessService<P extends string = string, S = unknown> {
   /** Regel 2 für eine Ressource mit gelesenen Fachdaten. */
   scopeReasons(acl: TenantAccess<S>, perm: string, ref: ResourceRef, facts: Facts): Reason[] {
     const t = this.model.types.get(ref.type);
-    const e = this.resources?.edges;
+    const e = this.unitEdges;
     if (!t?.scope || !e || !ref.id || !facts.units) return [];
     const wantsEdit = perm === t.write && perm !== t.read;
     if (perm !== t.read && perm !== t.write) return [];
@@ -270,7 +277,7 @@ export class AccessService<P extends string = string, S = unknown> {
 
   /** units(p): Einheiten mit Tupel `member` eines Subjekts, transitiv alle darunter (Tiefe ≤ 16, Kreise erlaubt). */
   async units(tx: Tx, who: Pick<Who, 'subjects'>, acl: TenantAccess<S>): Promise<Set<string>> {
-    const e = this.resources?.edges;
+    const e = this.unitEdges;
     const out = new Set<string>();
     if (!e) return out;
     const subjects = new Set(who.subjects);
@@ -296,10 +303,10 @@ export class AccessService<P extends string = string, S = unknown> {
         if (!r.classification) throw new Error('ResourceModel.classification fehlt (Pflicht bei Typen mit classified)');
         for (const [k, v] of await r.classification(tx, classified)) out.classification.set(k, v);
       }
-      if (scoped.length && r.edges) {
+      if (scoped.length && this.unitEdges) {
         out.units = o.units ?? await this.units(tx, who, acl);
         const ids = scoped.map(x => x.id!);
-        for (const b of (await tx.query<Belong>(r.edges.belongs, [ids])).rows) {
+        for (const b of (await tx.query<Belong>(this.unitEdges.belongs, [ids])).rows) {
           for (const x of scoped.filter(s => s.id === b.id)) {
             const k = refKey(x), list = out.belongs.get(k);
             if (list) list.push(b); else out.belongs.set(k, [b]);
@@ -307,11 +314,17 @@ export class AccessService<P extends string = string, S = unknown> {
         }
       }
       if (scoped.length && r.edges?.persons) {
-        const ids = scoped.map(x => x.id!);
-        for (const x of (await tx.query<PersonEdge>(r.edges.persons, [ids])).rows) {
-          for (const s of scoped.filter(y => y.id === x.id)) {
-            const k = refKey(s), list = out.persons.get(k);
-            if (list) list.push(x); else out.persons.set(k, [x]);
+        // Nur Personen, die im Mandanten aktiv sind (kind user, nicht entfernt): gleich für Entscheidung und Auskunft
+        const sql = `SELECT x.* FROM (${r.edges.persons}) x
+          JOIN ${this.schema}.principal pr ON pr.id = x.principal_id AND pr.kind = 'user' AND pr.removed_at IS NULL`;
+        // Je Typ eine Abfrage mit dessen IDs: eine Kante gilt nur für die Ressource dieses Typs (Spalte type, falls geliefert)
+        for (const type of new Set(scoped.map(x => x.type))) {
+          const ids = new Set(scoped.filter(x => x.type === type).map(x => x.id!));
+          for (const x of (await tx.query<PersonEdge>(sql, [[...ids]])).rows) {
+            if (!ids.has(x.id) || (x.type != null && x.type !== type)) continue;
+            const k = refKey({ type, id: x.id }), list = out.persons.get(k);
+            const edge: PersonEdge = { id: x.id, principal_id: x.principal_id, grants: x.grants, label: x.label };
+            if (list) list.push(edge); else out.persons.set(k, [edge]);
           }
         }
       }
@@ -321,13 +334,13 @@ export class AccessService<P extends string = string, S = unknown> {
 
   /**
    * Wirkungen, mit denen p als Person über Fachdaten irgendwo zuständig ist (`edges.personGrants`, volle Sicht), für
-   * «Recht irgendwo». Ohne `personGrants` zählt dieser Weg dort nicht.
+   * «Recht irgendwo», je Typ (Spalte `type`; ohne: für jeden Typ mit scope). Ohne `personGrants` zählt dieser Weg dort nicht.
    */
-  async personGrants(who: Pick<Who, 'kind' | 'principalId'>, tenantId: string): Promise<Set<'read' | 'edit'>> {
+  async personGrants(who: Pick<Who, 'kind' | 'principalId'>, tenantId: string): Promise<Set<string>> {
     const sql = this.resources?.edges?.personGrants;
     if (!sql || !this.resources?.edges?.persons || who.kind !== 'user' || !who.principalId || !this.scopeTypes.length) return new Set();
-    const rows = await this.fullTx(tenantId, async tx => (await tx.query<{ grants: string }>(sql, [who.principalId])).rows);
-    return new Set(rows.map(r => r.grants).filter((g): g is 'read' | 'edit' => g === 'read' || g === 'edit'));
+    const rows = await this.fullTx(tenantId, async tx => (await tx.query<{ grants: string; type?: string | null }>(sql, [who.principalId])).rows);
+    return new Set(rows.filter(r => r.grants === 'read' || r.grants === 'edit').map(r => `${r.type ?? '*'}:${r.grants}`));
   }
 
   /** Hinweis zur Kette (Assets: Typ eines Objekts), falls die App ihn nicht mitgibt. */
@@ -371,15 +384,18 @@ export class AccessService<P extends string = string, S = unknown> {
    * Recht irgendwo (Regeln 1, 2 oder 4 an mindestens einem Ort) ∧ Scope. `persons`: Wirkungen der Zuständigkeit über
    * Personen aus Fachdaten (`personGrants`), sonst zählt dieser Weg nicht.
    */
-  somewhere(who: Who, acl: TenantAccess<S>, perm: string, persons: ReadonlySet<'read' | 'edit'> = new Set()): boolean {
+  somewhere(who: Who, acl: TenantAccess<S>, perm: string, persons: PersonGrants = new Set()): boolean {
     if (!this.model.isPermission(perm) || !this.scopeAllows(who, perm)) return false;
-    if (persons.size && this.scopeTypes.some(st => perm === st.read || (perm === st.write && persons.has('edit')))) return true;
+    if (persons.size) {
+      const has = (type: string, g: string) => persons.has(`${type}:${g}`) || persons.has(`*:${g}`);
+      if (this.scopeTypes.some(st => (perm === st.read && (has(st.key, 'read') || has(st.key, 'edit'))) || (perm === st.write && has(st.key, 'edit')))) return true;
+    }
     const subjects = new Set(who.subjects), now = Date.now();
     for (const t of acl.tuples) {
       if (!subjects.has(t.subject) || !live(t, now)) continue;
       if (t.relation === MEMBER) {
         // Zuständigkeit: irgendein Typ mit scope, dessen Lese- oder Schreibrecht perm ist
-        if (this.resources?.edges?.unit === t.object_type && this.scopeTypes.some(st => perm === st.read || perm === st.write)) return true;
+        if (this.unitEdges?.unit === t.object_type && this.scopeTypes.some(st => perm === st.read || perm === st.write)) return true;
       } else if (this.grants(t.relation, t.object_type, perm)) return true;
     }
     return false;
@@ -407,7 +423,7 @@ export class AccessService<P extends string = string, S = unknown> {
   }
 
   /** Rechte, die an mindestens einem Ort gelten (Obermenge der Rechte an org); `persons` wie bei `somewhere`. */
-  somewherePermissions(who: Who, acl: TenantAccess<S>, persons?: ReadonlySet<'read' | 'edit'>): P[] {
+  somewherePermissions(who: Who, acl: TenantAccess<S>, persons?: PersonGrants): P[] {
     return this.model.permissions.filter(x => this.decide(who, acl, x) || this.somewhere(who, acl, x, persons));
   }
 
@@ -467,7 +483,7 @@ export class AccessService<P extends string = string, S = unknown> {
       }
     }
     const st = this.scopeType;
-    if (st && this.resources?.edges) {
+    if (st && this.unitEdges) {
       const units = allowed(st.read) || allowed(st.write) ? [...await this.fullTx(tenantId, tx => this.units(tx, who, acl))] : [];
       out['app.read_units'] = pgArray(allowed(st.read) ? units : []);
       out['app.write_units'] = pgArray(allowed(st.write) ? units : []);
@@ -475,8 +491,11 @@ export class AccessService<P extends string = string, S = unknown> {
     if (st && this.resources?.edges?.persons) {
       // Zuständigkeit über Personen aus Fachdaten: nur die Person selbst, leer (NULL) bei Clients oder ohne Scope
       const me = who.kind === 'user' && who.principalId ? who.principalId : '';
+      // read_person/write_person: erster Typ mit scope (Blatt); app.person_for(Recht) für jeden Typ mit scope
       out['app.read_person'] = allowed(st.read) ? me : '';
       out['app.write_person'] = allowed(st.write) ? me : '';
+      out['app.person'] = me;
+      out['app.person_permissions'] = pgArray(me ? [...new Set(this.scopeTypes.flatMap(t => [t.read, t.write]).filter((x): x is P => !!x && allowed(x)))] : []);
     }
     return out;
   }

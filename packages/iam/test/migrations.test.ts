@@ -37,7 +37,7 @@ describe('IAM-Migrationen: Parameter', () => {
   'iam_013_entra_consent_link.sql': 'b61dd7827c1efd3a4cba80b126eac93645ec930abbe9b27eeb8676f8faea3fb9',
   'iam_014_entra_own_app.sql': '4cf838b2aee77a309fe78d6528e2506d7ce1a1e928537478b796ef5ab8f9efe4',
   'iam_015_authz.sql': '742337a726016c7582ed36b4a9c085065ec291fa1ddff6c5d1784ab73fac8bc2',
-  'iam_016_person_scope.sql': '9ca1cda02b68ba481aa812d280abb8dd0bbc76dc12f9aea356bd7b42a17116e1',
+  'iam_016_person_scope.sql': '0cd628e620cd8a119d24be651e291d05de6828608a7c34a90141420528f1296a',
     };
     const now = new Map(iamMigrations({ product: 'assets', schema: 'assets' }).migrations.map(m => [m.name, m.checksum]));
     for (const [name, sum] of Object.entries(pinned)) {

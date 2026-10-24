@@ -158,7 +158,7 @@ export class AccessInfo {
 
   /** Zuständigkeit: Mitglieder (Tupel `member`) der Einheiten, zu denen die Ressource gehört, und der Einheiten darüber. */
   private async scopeEntries(tenantId: string, acl: TenantAccess<any>, ref: ResourceRef): Promise<{ t: Tuple; via: 'scope'; removable: false; unit: AccessEntry['unit'] }[]> {
-    const a = this.access, e = a.resources?.edges;
+    const a = this.access, e = a.unitEdges;
     if (!e || !ref.id || !a.model.types.get(ref.type)?.scope) return [];
     const now = Date.now();
     const members = acl.tuples.filter(t => t.relation === MEMBER && t.object_type === e.unit && t.object_id && live(t, now));
@@ -180,7 +180,7 @@ export class AccessInfo {
 
   /** Je Einheit sie selbst und alle darunter (Tiefe ≤ 16). */
   private async descendants(tx: Tx, roots: string[]): Promise<Map<string, Set<string>>> {
-    const e = this.access.resources!.edges!;
+    const e = this.access.unitEdges!;
     const out = new Map(roots.map(r => [r, new Set([r])]));
     let frontier = new Map(roots.map(r => [r, [r]]));
     for (let d = 0; d < 16 && frontier.size; d++) {

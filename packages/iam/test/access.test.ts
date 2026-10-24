@@ -47,6 +47,17 @@ const me = `user:${U(1)}`;
 const N1 = { type: 'note', id: U(21) }, N2 = { type: 'note', id: U(22) }, F1 = { type: 'folder', id: U(11) }, F2 = { type: 'folder', id: U(12) };
 const facts = (o: Partial<Facts>): Facts => ({ ...noFacts(), ...o });
 
+/** Notizen und Dokumente, beide mit Zuständigkeit (`scope`); notes:read deckt doc:read nicht. */
+function twoScoped() {
+  const i = notesInput();
+  return defineModel({
+    ...i,
+    permissions: { ...i.permissions, 'doc:read': { label: 'Dokumente lesen', group: 'notes', description: 'Dokumente sehen.', resources: ['org', 'doc'] }, 'doc:write': { label: 'Dokumente ändern', group: 'notes', description: 'Dokumente ändern.', resources: ['org', 'doc'] } },
+    roles: { ...i.roles, viewer: { ...i.roles.viewer, permissions: [...i.roles.viewer.permissions, 'doc:read'] }, editor: { ...i.roles.editor, permissions: [...i.roles.editor.permissions, 'doc:read', 'doc:write'] } },
+    types: { ...i.types, doc: { label: 'Dokument', parent: 'org', roles: ['editor', 'viewer'], scope: { via: 'reference', relation: 'betrifft' }, read: 'doc:read', write: 'doc:write' } },
+  } as never);
+}
+
 describe('Entscheidung (ohne Datenbank)', () => {
   const acc = new AccessService(null as never, { model: notesModel, schema: 'notes', resources: notesResources });
 
@@ -70,13 +81,7 @@ describe('Entscheidung (ohne Datenbank)', () => {
   });
 
   test('canSomewhere über Zuständigkeit gilt für jeden Typ mit scope, nicht nur den ersten', () => {
-    const i = notesInput();
-    const two = defineModel({
-      ...i,
-      permissions: { ...i.permissions, 'doc:read': { label: 'Dokumente lesen', group: 'notes', description: 'Dokumente sehen.', resources: ['org', 'doc'] }, 'doc:write': { label: 'Dokumente ändern', group: 'notes', description: 'Dokumente ändern.', resources: ['org', 'doc'] } },
-      roles: { ...i.roles, viewer: { ...i.roles.viewer, permissions: [...i.roles.viewer.permissions, 'doc:read'] }, editor: { ...i.roles.editor, permissions: [...i.roles.editor.permissions, 'doc:read', 'doc:write'] } },
-      types: { ...i.types, doc: { label: 'Dokument', parent: 'org', roles: ['editor', 'viewer'], scope: { via: 'reference', relation: 'betrifft' }, read: 'doc:read', write: 'doc:write' } },
-    } as never);
+    const two = twoScoped();
     const a2 = new AccessService(null as never, { model: two, schema: 'notes', resources: notesResources });
     const a = acl([tuple(me, 'member', 'team', U(31))]);
     for (const perm of ['note:read', 'note:write', 'doc:read', 'doc:write']) assert.equal(a2.somewhere(p({ subjects: [me] }), a, perm), true, perm);
@@ -87,6 +92,21 @@ describe('Entscheidung (ohne Datenbank)', () => {
     const { version: _, ...noVersion } = notesResources;
     assert.ok(resourceProblems(notesModel, noVersion as never).some(x => /version fehlt/.test(x)));
     assert.deepEqual(resourceProblems(notesModel, notesResources), []);
+  });
+
+  test('edges: nur persons genügt; unit, children, belongs nur gemeinsam; personGrants nur mit persons', () => {
+    const e = notesResources.edges!;
+    const only = { ...notesResources, edges: { persons: e.persons } };
+    assert.deepEqual(resourceProblems(notesModel, only), []);
+    assert.ok(resourceProblems(notesModel, { ...notesResources, edges: { unit: e.unit, persons: e.persons } }).some(x => /nur gemeinsam/.test(x)));
+    assert.ok(resourceProblems(notesModel, { ...notesResources, edges: {} }).some(x => /edges fehlt/.test(x)));
+    assert.ok(resourceProblems(notesModel, { ...notesResources, edges: { unit: e.unit, children: e.children, belongs: e.belongs, personGrants: 'x' } }).some(x => /personGrants ohne persons/.test(x)));
+    // Ohne Einheiten: Zuständigkeit über Personen wirkt, über Einheiten nichts
+    const a2 = new AccessService(null as never, { model: notesModel, schema: 'notes', resources: only });
+    assert.equal(a2.unitEdges, null);
+    const f = facts({ persons: new Map([[refKey(N1), [{ id: U(21), principal_id: U(1), grants: 'edit', label: 'Verantwortlich' }]]]) });
+    assert.equal(a2.decide(p(), acl([]), 'note:write', N1, null, f), true);
+    assert.equal(a2.somewhere(p(), acl([tuple(me, 'member', 'team', U(31))]), 'note:read'), false, 'member ohne Einheiten zählt nicht');
   });
 
   test('Blatt-Tupel: Rolle an der Notiz; member gibt keine Rechte, auch nicht an der Einheit selbst', () => {
@@ -145,10 +165,40 @@ describe('Entscheidung (ohne Datenbank)', () => {
     assert.deepEqual(capabilities(acc, p(), a, 'note', U(21), null, of('edit')), { write: true, share: false });
     // Recht irgendwo nur mit den Wirkungen aus personGrants
     assert.equal(acc.somewhere(p(), a, 'note:read'), false);
-    assert.equal(acc.somewhere(p(), a, 'note:read', new Set(['read'])), true);
-    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['read'])), false);
-    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['edit'])), true);
-    assert.equal(acc.somewhere(p({ scopeBound: true, scopes: ['notes:read'] }), a, 'note:write', new Set(['edit'])), false, 'Scope');
+    assert.equal(acc.somewhere(p(), a, 'note:read', new Set(['*:read'])), true);
+    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['*:read'])), false);
+    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['*:edit'])), true);
+    assert.equal(acc.somewhere(p({ scopeBound: true, scopes: ['notes:read'] }), a, 'note:write', new Set(['*:edit'])), false, 'Scope');
+  });
+
+  test('Mehrere Typen mit scope: Personen je Typ (gleiche ID), personGrants je Typ, Lesesicht je Recht', async () => {
+    const two = twoScoped();
+    const res = { ...notesResources, edges: { persons: 'PERSONS', personGrants: 'GRANTS' } };
+    const a2 = new AccessService(null as never, { model: two, schema: 'notes', resources: res });
+    const queries: unknown[][] = [];
+    // Fachdaten wie aus einer UNION über zwei Tabellen: dieselbe ID als Notiz (read) und als Dokument (edit, mit type)
+    const tx = { query: async (sql: string, params: unknown[]) => {
+      if (sql.includes('PERSONS')) queries.push(params);
+      if (sql.includes('PERSONS')) return { rows: [{ id: U(21), principal_id: U(1), grants: 'read', label: 'N', type: 'note' }, { id: U(21), principal_id: U(1), grants: 'edit', label: 'D', type: 'doc' }] };
+      if (sql.includes('GRANTS')) return { rows: [{ grants: 'edit', type: 'note' }] };
+      return { rows: [] };
+    } };
+    (a2 as unknown as { fullTx: unknown }).fullTx = async (_t: string, fn: (tx: unknown) => unknown) => fn(tx);
+    const D = { type: 'doc', id: U(21) };
+    const f = await a2.facts(p(), acl([]), [N1, D], 't');
+    assert.deepEqual(queries, [[[U(21)]], [[U(21)]]], 'eine Abfrage je Typ');
+    assert.deepEqual(f.persons.get(refKey(N1))!.map(x => x.label), ['N']);
+    assert.deepEqual(f.persons.get(refKey(D))!.map(x => x.label), ['D']);
+    assert.equal(a2.decide(p(), acl([]), 'note:write', N1, null, f), false, 'Kante des Dokuments gilt nicht für die Notiz');
+    assert.equal(a2.decide(p(), acl([]), 'doc:write', D, null, f), true);
+    const g = await a2.personGrants(p(), 't');
+    assert.deepEqual([...g], ['note:edit']);
+    assert.equal(a2.somewhere(p(), acl([]), 'note:write', g), true);
+    assert.equal(a2.somewhere(p(), acl([]), 'doc:read', g), false, 'edit an Notizen gibt kein doc:read irgendwo');
+    const view = await a2.readView('t', p({ scopeBound: true, scopes: ['notes:read'] }), acl([]));
+    assert.equal(view['app.person'], U(1));
+    assert.equal(view['app.person_permissions'], '{"note:read"}', 'doc:read nicht im Scope: app.person_for(doc:read) ist NULL');
+    assert.equal((await a2.readView('t', p({ kind: 'client' }), acl([])))['app.person_permissions'], '{}');
   });
 
   test('Klassifizierung: Stufe ≤ Freigabestufe, auch org-admin scheitert; Break-Glass hebt, Ablauf beendet', () => {
@@ -303,6 +353,29 @@ describe('Entscheidung mit PostgreSQL', { skip }, () => {
     assert.deepEqual(capabilities(acc, who, acl1, 'note', n1, null, f), { write: true, share: false });
     assert.deepEqual(capabilities(acc, who, acl1, 'note', n2, null, f), { write: false, share: false });
     assert.equal(await acc.can(p({ tenantId: A, principalId: other }), 'note:read', { type: 'note', id: n1 }), false, 'andere Person');
+    // Nur aktive Personen: entfernt oder Client zählt nicht (Entscheidung und Auskunft lesen dieselben Fakten)
+    assert.equal(await acc.can(p({ tenantId: A, principalId: other }), 'note:write', { type: 'note', id: n2 }), true);
+    await full(t.runtime, A, tx => tx.query('UPDATE notes.principal SET removed_at = now() WHERE id = $1', [other]));
+    assert.equal(await acc.can(p({ tenantId: A, principalId: other }), 'note:write', { type: 'note', id: n2 }), false, 'entfernt');
+    const cid = (await full(t.runtime, A, tx => tx.query<{ id: string }>("INSERT INTO notes.principal (tenant_id, kind, subject, client_id, last_seen_at) VALUES ($1, 'client', 'resp-client', 'resp-client', NULL) RETURNING id", [A]))).rows[0]!.id;
+    await responsible(t.runtime, A, n1, cid, 'edit');
+    const f2 = await acc.facts(who, await acc.load(A), [{ type: 'note', id: n1 }], A);
+    assert.deepEqual(f2.persons.get(refKey({ type: 'note', id: n1 }))!.map(x => x.principal_id), [pid], 'Client nicht in den Fakten');
+  });
+
+  test('Principal mit Freigabestufe angelegt (INSERT): acl_version steigt, Stufe wirkt sofort', async () => {
+    await acc.load(A);
+    const v = async () => (await full(t.runtime, A, tx => tx.query<{ v: string }>('SELECT acl_version::text AS v FROM notes.tenant WHERE id = $1', [A]))).rows[0]!.v;
+    const before = await v();
+    await person(t.runtime, A, 'plain');
+    assert.equal(await v(), before, 'ohne Freigabestufe keine neue Version');
+    await acc.load(A);
+    const pid = await person(t.runtime, A, 'cleared', { clearance: 2 });
+    assert.notEqual(await v(), before);
+    assert.equal(acc.clearanceOf({ kind: 'user', principalId: pid }, await acc.load(A)), 2, 'ohne neues Tupel nicht aus dem alten Zwischenspeicher');
+    const v2 = await v();
+    await full(t.runtime, A, tx => tx.query("INSERT INTO notes.principal (tenant_id, kind, subject, clearance_boost, clearance_until, last_seen_at) VALUES ($1, 'user', 'boosted', 2, now() + interval '5 minutes', NULL)", [A]));
+    assert.notEqual(await v(), v2, 'mit Break-Glass angelegt');
   });
 
   test('Klassifizierung aus der Datenbank; 403 mit Grund clearance', async () => {

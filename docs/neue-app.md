@@ -411,7 +411,10 @@ DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
   --email anna@example.ch --first Anna --last Admin --platform-admin
 ```
 
-In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); in der
+In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); ab
+`@vollholz/iam` 1.5 erhält die neue Person von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
+nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» und läuft weiter – dann SMTP einrichten und mit `--resend`
+wiederholen oder `--initial-password`). `--no-email` schaltet die Einladung ab. In der
 Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal, das Tupel `org-admin` an der
 Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). Rollen stehen nicht mehr in Keycloak (Spezifikation
 [9.1](spezifikation.md#91-regeln)).
@@ -428,6 +431,44 @@ Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 
 > Assets: `docs/einrichtung.md` › Microsoft Entra ID › Organisation (Kunden-IT, im eigenen Tenant),
 > `docs/konzepte/entra-id.md`.
+
+## Zurücksetzen und neu aufsetzen
+
+Ab `@vollholz/iam` 1.4.0 lässt sich eine App automatisiert vollständig zurücksetzen und frisch aufsetzen, etwa für
+eine Test- oder Vorführumgebung (Workflow der App mit `KEYCLOAK_IAC_PRIVATE_KEY` und `DATABASE_ADMIN_URL` als
+Secrets). Realm, Clients, Scopes und Einstellungen gehören weiter dem Realm-Modul; Struktur, Rollen und Policies der
+Datenbank den Migrationen.
+
+```sh
+export KEYCLOAK_TF_URL=https://identity.project-suite.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+       DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes
+npx iam-reset --keycloak --database --confirm notes --dry-run     # zeigt nur, was gelöscht würde
+npx iam-reset --keycloak --database --confirm notes [--keep-table <tabelle> …]
+npx iam-org-bootstrap --file init.json
+```
+
+- `iam-reset --database` leert als Migrationsrolle alle Tabellen im Schema der App ausser der Migrationsbuchhaltung
+  (`schema_migrations`) und den mit `--keep-table` genannten (z. B. Stammdaten der App). Verweist eine ausgenommene
+  Tabelle per Fremdschlüssel auf eine zu leerende, bricht der Befehl ab, statt sie mitzuleeren.
+- `iam-reset --keycloak` löscht alle Organisationen samt ihrer Entra-Anbieter und alle Personen im Realm; die Service
+  Accounts der Clients bleiben.
+- `--confirm` muss dem Realm entsprechen. Die Zeile `audit {"action":"platform.reset", …}` der Ausgabe ist der
+  Nachweis (das Audit-Protokoll der App ist danach leer).
+- `init.json` (Format `node_modules/@vollholz/iam/schema/init.schema.json`), je Organisation alle Admins wie Schritt 10
+  (Konto, Mitgliedschaft, `org-admin`, Freigabestufe 2, Einladung per E-Mail an neue Konten), idempotent, mit
+  `--dry-run` als Probelauf. Nach dem Zurücksetzen sind alle Konten neu: ohne Einladung (bis 1.4) konnte sich niemand
+  anmelden. Die Zeilen `Einladung gesendet an: …` / `Einladung NICHT gesendet an: …` gehören in die Zusammenfassung des
+  Workflows:
+
+```json
+{
+  "$schema": "./node_modules/@vollholz/iam/schema/init.schema.json",
+  "organizations": [
+    { "alias": "solutions", "name": "Solutions",
+      "admins": [ { "email": "anna@example.ch", "first": "Anna", "last": "Admin", "platformAdmin": true } ] }
+  ]
+}
+```
 
 ---
 

@@ -23,7 +23,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 ## Inhalt
 
 1. [Überblick](#1-überblick) · [Standard und App-lokal](#11-standard-und-app-lokal)
-2. [Anbindung an die Identity-Plattform](#2-anbindung-an-die-identity-plattform)
+2. [Anbindung an die Identity-Plattform](#2-anbindung-an-die-identity-plattform) · [Kommandozeilen](#21-kommandozeilen)
 3. [Realm des Produkts](#3-realm-des-produkts)
 4. [Mandanten](#4-mandanten)
 5. [Anmeldung der Oberfläche (BFF)](#5-anmeldung-der-oberfläche-bff)
@@ -109,7 +109,7 @@ Modul `modules/product-realm-bootstrap`; assets `docs/produktion.md` › Keycloa
 | 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
 | 5 | identity | `grant_realm_admin = true`, Workflow «Keycloak» | identity-iac weist `<produkt>-iac` `realm-management/realm-admin` zu (mit FGAP v2 darf das nur ein Server-Admin) |
 | 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
-| 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen») mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20) |
+| 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` oder `iam-org-bootstrap --file <init.json>` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail) mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
 
 Regeln:
 
@@ -131,6 +131,29 @@ Plan **nur Verschiebungen** (`Plan: 0 to add, 0 to change, 0 to destroy`, Exit 2
 Apply nach Freigabe schreibt nur den State; erst der Kontrollplan danach zeigt «No changes». Freigegeben wird nur ein
 Plan, der ausschliesslich Verschiebungen enthält (Anzahl = Ressourcen im State, keine Zeile `will be …`/`must be …`,
 keine Änderung an Outputs). Der `import`-Block für den Realm bleibt beim Aufrufer (in Modulen nicht erlaubt).
+
+### 2.1 Kommandozeilen
+
+Im Backend-Paket `@vollholz/iam` (`npx …`). Anmeldung bei Keycloak mit dem Service Account der Einrichtung
+`<produkt>-iac` (`private_key_jwt`): `KEYCLOAK_TF_URL`, `KEYCLOAK_TF_REALM` (nie `master`), `KEYCLOAK_IAC_CLIENT_ID`
+(Standard `<realm>-iac`), `KEYCLOAK_IAC_PRIVATE_KEY` bzw. `KEYCLOAK_IAC_PRIVATE_KEY_B64`. Datenbank: `DATABASE_ADMIN_URL`
+(Migrationsrolle), Schema `--schema` (Standard der Realm mit «_»). Ausgabe ohne Geheimnisse; Exit-Code ≠ 0 bei Fehler
+(64 falscher Aufruf).
+
+| Befehl | Wirkung |
+|---|---|
+| `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last] [--platform-admin]` | Organisation und eine Person als org-admin (Schritt 7, A20); idempotent |
+| `iam-org-bootstrap --file <init.json>` | dasselbe für alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "organizations": [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"?, "platformAdmin"? } ] } ] }`; nicht zusammen mit den Einzel-Flags |
+| beide zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
+| Einladung (ab 1.5) | neu angelegte Personen ohne Passwort und ohne Identitätsanbieter erhalten von Keycloak eine E-Mail «Passwort festlegen» (`execute-actions-email`, `UPDATE_PASSWORD`, gültig 7 Tage, `--invite-days <1–30>`, optional `--client-id <client> [--redirect-uri <url>]`). `--no-email`: keine; `--resend`: auch an bestehende Personen ohne Passwort (z. B. nach Abbruch oder eingerichtetem SMTP). Scheitert der Versand (kein SMTP), meldet der Lauf das und endet mit 0. Am Schluss die Zeilen `Einladung gesendet an: …` bzw. `Einladung NICHT gesendet an: …`. `--initial-password` ist die Alternative ohne SMTP (dann keine Einladung; nicht zusammen mit `--resend`, `--invite-days`, `--client-id`, `--redirect-uri`) |
+| `iam-reset --keycloak` | im Realm alle Organisationen samt ihrer Identitätsanbieter (`entra-NNN`, `entra-app-<alias>`) und alle Personen löschen; Service-Account-Benutzer der Clients, Realm, Clients, Scopes, übrige Anbieter und Einstellungen bleiben (sie gehören dem Realm-Modul) |
+| `iam-reset --database [--keep-table <name> …]` | als Migrationsrolle alle Tabellen im Schema der App leeren (`TRUNCATE … RESTART IDENTITY CASCADE`) ausser `schema_migrations` und `--keep-table`; Struktur, Rollen, Policies bleiben. Abbruch, wenn CASCADE eine ausgenommene Tabelle mitleeren würde |
+| `iam-reset` Schutz | Pflicht `--confirm <realm>` (= `KEYCLOAK_TF_REALM`); `--dry-run` zeigt Organisationen, Anbieter, Anzahl Personen und Zeilen je Tabelle; ohne `--keycloak`/`--database` Fehler. Reihenfolge: erst Datenbank, dann Keycloak |
+
+`platform.reset`: Das Audit-Protokoll (`audit_log`) gehört je Mandant (`tenant_id NOT NULL`, Hash-Kette je Mandant)
+und ist nach dem Zurücksetzen leer; einen Eintrag ohne Mandanten gibt es nicht. `iam-reset` schreibt deshalb nach dem
+Leeren der Datenbank eine Zeile `audit {"action":"platform.reset", …}` (Zeitpunkt, Realm, Schema, Anzahl Tabellen und
+Zeilen, ausgenommene Tabellen, `GITHUB_ACTOR`) auf stdout; im Workflow der App bleibt sie im Protokoll des Laufs.
 
 ## 3. Realm des Produkts
 
@@ -284,12 +307,18 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 |---|---|
 | `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-(\d{3}|app-<alias>)$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
 | `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-(\d{3}|app-<alias>)$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
-| `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
+| `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo`. Anmeldezustand unbekannt oder abgelaufen (z. B. «Passwort vergessen» in einem anderen Tab): mit gültiger Sitzung Rücksprung nach `/`, sonst einmal automatisch neue Anmeldung (Cookie `<produkt>_login_retry`, 10 min, Schutz gegen Schleifen; nicht bei `error=` von Keycloak), danach die Fehlerseite (ab 1.5) |
 | `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles` (an `org`), `permissions` (an `org`), `somewhere`, `clearance`, `breakGlassUntil`, `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds` (Typ `Me`, [9.5](#95-zugriff-v1access)). Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
 | `POST /auth/logout` | CSRF; Sitzung löschen, RP-initiated Logout mit `id_token_hint` und `post_logout_redirect_uri = <url>/abgemeldet` |
 | `POST /auth/backchannel-logout` | OIDC Back-Channel Logout 1.0: Logout-Token prüfen (`iss`, `aud` = BFF-Client, `iat`, `jti`, höchstens 10 min alt, Ereignis `backchannel-logout`, kein `nonce`, `sid` oder `sub`), `jti` gegen Wiederholung, betroffene Sitzungen löschen |
 | `/abgemeldet` | öffentliche Seite «Du bist abgemeldet», fragt `/auth/me` nicht ab, meldet nicht automatisch an |
+
+Fehler der Browser-Routen (`GET /auth/login`, `/auth/entra/{idp}`, `/auth/callback`, `/auth/switch`, `POST
+/auth/switch`, `/auth/logout`; jeweils ohne `Accept: application/json`) zeigen nie Problem-JSON, sondern eine schlichte
+HTML-Seite in Du-Form mit Knopf «Erneut anmelden» (`/auth/login`), Status wie der Fehler, eigene CSP, ohne technische
+Details (die stehen im Log). `/auth/me`, Aufrufe mit `Accept: application/json` und die API (`/v1/…`) bleiben bei
+Problem-JSON.
 
 ### 5.2 Sitzung
 
@@ -1559,7 +1588,8 @@ app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note
 3. Realm: Bootstrap und `kc.sh apply` mit dem Modul (Schritte 3–6).
 4. Pakete einbinden (Backend, Frontend), Migration ausführen, Konfiguration und Geheimnisse ([Kapitel 13](#13-konfiguration-und-geheimnisse)).
 5. Erste Organisation mit `iam-org-bootstrap` (im Backend-Paket enthalten): Keycloak und, mit `DATABASE_ADMIN_URL`,
-   Principal, Tupel `org-admin` und Freigabestufe 2 in der Datenbank der App (A20).
+   Principal, Tupel `org-admin` und Freigabestufe 2 in der Datenbank der App (A20). Zurücksetzen und neu aufsetzen:
+   `iam-reset`, dann `iam-org-bootstrap --file` ([Kommandozeilen](#21-kommandozeilen)).
 6. Abnahme ([Kapitel 16](#16-abnahme)) mit dem Test-Kit.
 
 Versionierung und Pflege:

@@ -245,15 +245,27 @@ app.route({ method: ['GET', 'POST', 'DELETE'], url: '/mcp', handler: async (req,
 ```sh
 KEYCLOAK_TF_URL=https://identity.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… DATABASE_ADMIN_URL=… \
   npx iam-org-bootstrap --alias solutions --name "Solutions" --email anna@example.ch --first Anna --last Admin \
-  [--schema notes] [--platform-admin] [--initial-password] [--dry-run]
+  [--schema notes] [--platform-admin] [--initial-password | --no-email | --resend] [--dry-run]
 ```
 
 - In Keycloak: Organisation, Person, Mitgliedschaft (keine Rollengruppen). In der Datenbank der App als Besitzer-Rolle
   (Policies `owner_tenant`): Mandant gebunden an die Organisation, Principal, Tupel `org-admin` an org, Freigabestufe 2,
   Audit `tenant.provisioned`.
 - Die Anmeldung läuft über den Service Account `<realm>-iac` (`private_key_jwt`, realm-admin).
-- `--initial-password` setzt nur ohne bestehendes Passwort ein temporäres und legt es ausschliesslich in
-  `~/.identity/initial-password-<realm>-<e-mail>.txt` ab (0600). Programmatisch: `orgBootstrap(keycloakAdmin, …)`.
+- Einladung (ab 1.5): neu angelegte Personen ohne Passwort und ohne Identitätsanbieter erhalten die E-Mail «Passwort
+  festlegen» (`execute-actions-email`, `UPDATE_PASSWORD`, 7 Tage; `--invite-days`, `--client-id`, `--redirect-uri`).
+  `--no-email` keine, `--resend` auch an bestehende ohne Passwort. Ohne SMTP: Meldung, Lauf geht weiter (Code 0);
+  programmatisch `sendEmail`, `resend`, `invite`, Ergebnis `invitation` (`sent`/`failed`/null) und `email`.
+- `--initial-password` (Alternative ohne SMTP, dann keine Einladung) setzt nur ohne bestehendes Passwort ein temporäres
+  und legt es ausschliesslich in `~/.identity/initial-password-<realm>-<e-mail>.txt` ab (0600). Programmatisch:
+  `orgBootstrap(keycloakAdmin, …)`.
+- Mehrere Organisationen mit je mehreren Admins: `--file init.json` (Format `schema/init.schema.json`;
+  programmatisch `orgBootstrapFile`, Prüfung `initFileErrors`).
+
+**Zurücksetzen** (`iam-reset`, ab 1.4): `--keycloak` löscht alle Organisationen samt ihrer Anbieter und alle Personen
+(Service Accounts bleiben), `--database` leert alle Tabellen im Schema ausser `schema_migrations` und `--keep-table`;
+Pflicht `--confirm <realm>`, `--dry-run` zählt nur. Programmatisch: `resetKeycloak`, `resetDatabase`. Nach dem Leeren
+eine Zeile `audit {"action":"platform.reset", …}` auf stdout (das Audit-Protokoll ist je Mandant und danach leer).
 
 Mandanten über alle Organisationen: `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant`. `relinkTenant` ist
 nicht atomar (Personen, Organisations-ID und Protokoll in drei Transaktionen): Scheitert das Protokoll, ist der Mandant

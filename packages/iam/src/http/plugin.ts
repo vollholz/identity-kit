@@ -45,7 +45,7 @@ export interface IamPluginOptions {
   errorHandler?: boolean;
   /** Fehlerschemas als Komponenten und übliche Fehlerantworten je Route unter `apiPrefix` (Standard `true`). */
   problemSchemas?: boolean;
-  /** Präfix für `type` der Fehler (Assets: `https://assets.example.ch/probleme/`); Standard `<PUBLIC_BASE_URL>/probleme/`. */
+  /** Präfix für `type` der Fehler; Standard `<PUBLIC_BASE_URL>/probleme/`. Nur setzen, wenn die Fehlerseiten anderswo liegen (nie einen Platzhalter). */
   problemTypeBase?: string;
   /** Präfix der API (Standard `/v1`): alles darunter braucht ein Token, ausser `publicPaths`. */
   apiPrefix?: string;

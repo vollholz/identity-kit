@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vollholz/identity-kit/packages/iam/schema/init.schema.json",
+  "title": "iam-org-bootstrap --file",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "organizations"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "organizations": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "alias",
+          "admins"
+        ],
+        "properties": {
+          "alias": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+            "description": "Alias der Organisation in Keycloak und des Mandanten",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "description": "Anzeigename; Standard der Alias",
+            "type": "string"
+          },
+          "admins": {
+            "minItems": 1,
+            "description": "Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2",
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "email"
+              ],
+              "properties": {
+                "email": {
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "first": {
+                  "type": "string"
+                },
+                "last": {
+                  "type": "string"
+                },
+                "platformAdmin": {
+                  "description": "Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE) zusätzlich",
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

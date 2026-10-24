@@ -34,7 +34,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 4 Realm-Modul | identity-kit | `authz-p4-realm` | erledigt (#44) |
 | 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | erledigt (#46) |
 | 1b Kit 1.1: Zuständigkeit über Personen | identity-kit | `authz-p1b-persons` | erledigt (#48), Release 1.1.0 |
-| 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | in Arbeit |
+| 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | erledigt (#50), Release 1.2.0 |
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
 | 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | PR assets#43 (wird zusammen mit P9 gemergt) |
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | in Arbeit (session_01PvfpnohjZyvyNnJQPwQohG), auf Stand von P8 |

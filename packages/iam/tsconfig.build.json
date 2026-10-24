@@ -1,6 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"],
-  "exclude": ["src/catalog.ts", "src/http/acl.ts", "src/http/roles.ts"]
+  "include": ["src"]
 }

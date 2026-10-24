@@ -1,7 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true },
-  "include": ["src", "test"],
-  // Entfallen mit Authz neu (checkModel statt checkCatalog); Löschung offen, siehe PR «Zu löschen»
-  "exclude": ["src/catalog.ts", "test/catalog.test.ts"]
+  "include": ["src", "test"]
 }

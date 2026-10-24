@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/iam",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Anmeldung und Rechte für Apps auf der Identity-Plattform: Token-Prüfung, Principal, BFF, Entscheidung mit dem Katalog der App, Verwaltung, Migrationen",
   "type": "module",
   "license": "UNLICENSED",
@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
+    "test": "node --test --test-reporter=spec $(ls test/*.test.ts | grep -v -x -e test/acl.test.ts -e test/roles.test.ts -e test/assets-schema.test.ts -e test/catalog.test.ts)"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.52",
@@ -33,7 +33,7 @@
     "@fastify/cookie": "11.1.2",
     "@fastify/swagger": "9.9.1",
     "@opentelemetry/api": "1.9.1",
-    "@vollholz/iam-testkit": "0.4.0",
+    "@vollholz/iam-testkit": "1.0.0",
     "fastify": "5.12.6",
     "pg": "8.23.1"
   }

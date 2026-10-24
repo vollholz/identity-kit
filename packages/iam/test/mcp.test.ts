@@ -19,10 +19,10 @@ import { exchangeScopes, headerText, McpAuth, registerMcpAuth, type McpAuthorize
 import { DpopSigner } from '../src/mcp/dpop.ts';
 import { TokenExchanger } from '../src/mcp/exchange.ts';
 import { OidcProvider, TokenVerifier } from '../src/tokens.ts';
-import { notesCatalog } from './support/catalogs.ts';
 import { testConfig } from './support/config.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, member, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 const PUBLIC = 'http://mcp.test/mcp';
@@ -61,13 +61,13 @@ describe('MCP: DPoP und Token Exchange', () => {
 
     const exchanger = async (i: MockIdp, fetchImpl?: typeof fetch) => {
       const cfg = testConfig(i.issuer, { MCP_CLIENT_SECRET: EXCHANGE.clientSecret });
-      return new TokenExchanger(cfg, new OidcProvider(cfg.oidc.issuer), { dpop: await DpopSigner.create(), catalog: notesCatalog, fetch: fetchImpl });
+      return new TokenExchanger(cfg, new OidcProvider(cfg.oidc.issuer), { dpop: await DpopSigner.create(), model: notesModel, fetch: fetchImpl });
     };
-    const subject = (i: MockIdp) => i.token({ ...claims.user({ org: 'acme', groupRoles: ['viewer'] }), scope: 'openid organization notes:read' }, { aud: 'notes-mcp' });
+    const subject = (i: MockIdp) => i.token({ ...claims.user({ org: 'acme' }), scope: 'openid organization notes:read' }, { aud: 'notes-mcp' });
 
     test('ohne Client-Anmeldung kein Exchange (ConfigError)', async () => {
       const cfg = testConfig(idp.issuer);
-      assert.throws(() => new TokenExchanger(cfg, new OidcProvider(cfg.oidc.issuer), { dpop: undefined as never, catalog: notesCatalog }), ConfigError);
+      assert.throws(() => new TokenExchanger(cfg, new OidcProvider(cfg.oidc.issuer), { dpop: undefined as never, model: notesModel }), ConfigError);
     });
 
     test('getauschtes Token an den Schlüssel gebunden; nur Scopes des Katalogs und organization; zwischengespeichert', async () => {
@@ -146,9 +146,9 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
   const seen: { url: string; headers: Record<string, string> }[] = [];
   const spy: typeof fetch = (input, init) => { seen.push({ url: String(input), headers: { ...(init?.headers as Record<string, string>) } }); return fetch(input, init); };
 
-  /** Token des MCP-Hosts: Zielgruppe notes-mcp, Scopes wie vom Host angefordert. */
-  const hostToken = (org: string | string[], roles: string[], scope: string, extra: Record<string, unknown> = {}, o: { jkt?: string } = {}) =>
-    idp.token({ ...claims.user({ org, groupRoles: roles }), azp: 'notes-mcp-cli', scope, ...extra }, { aud: 'notes-mcp', ...o });
+  /** Token des MCP-Hosts: Zielgruppe notes-mcp, Scopes wie vom Host angefordert; Person `mcp-<rolle>` (Tupel an org). */
+  const hostToken = (org: string | string[], role: string, scope: string, extra: Record<string, unknown> = {}, o: { jkt?: string } = {}) =>
+    idp.token({ ...claims.user({ org, sub: `mcp-${role}` }), azp: 'notes-mcp-cli', scope, ...extra }, { aud: 'notes-mcp', ...o });
   const post = (token: string | null, o: { url?: string; headers?: Record<string, string>; method?: string } = {}) => fetch(o.url ?? mcpUrl, {
     method: o.method ?? 'POST',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...o.headers },
@@ -159,12 +159,13 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     t = await db.create();
     idp = await startMockIdp({ realm: 'notes', audience: 'notes-api', exchange: EXCHANGE });
     api = await notesApp({ db: t.runtime, issuer: idp.issuer });
+    for (const org of ['acme', 'globex']) for (const role of ['viewer', 'editor']) await member(t.runtime, org, `mcp-${role}`, role);
     await api.app.listen({ host: '127.0.0.1', port: 0 });
     apiUrl = `http://127.0.0.1:${(api.app.server.address() as AddressInfo).port}`;
     const cfg = testConfig(idp.issuer, { MCP_PUBLIC_URL: PUBLIC, MCP_API_URL: apiUrl, MCP_CLIENT_SECRET: EXCHANGE.clientSecret });
     const provider = new OidcProvider(cfg.oidc.issuer);
-    ex = new TokenExchanger(cfg, provider, { dpop: await DpopSigner.create(), catalog: notesCatalog });
-    auth = new McpAuth({ cfg, catalog: notesCatalog, verifier: new TokenVerifier(provider, cfg), exchanger: ex, fetch: spy });
+    ex = new TokenExchanger(cfg, provider, { dpop: await DpopSigner.create(), model: notesModel });
+    auth = new McpAuth({ cfg, model: notesModel, verifier: new TokenVerifier(provider, cfg), exchanger: ex, fetch: spy });
     // MCP-Dienst der App im Kleinen: Antwort mit den Organisationen und Rechten statt MCP-Server
     mcp = Fastify();
     registerMcpAuth(mcp, auth);
@@ -184,11 +185,11 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     assert.match(wa, /^Bearer resource_metadata="http:\/\/mcp\.test\/\.well-known\/oauth-protected-resource\/mcp", scope="openid organization:\* notes:read"$/, 'ohne error (RFC 6750)');
     assert.deepEqual(await r.json(), { jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Nicht angemeldet: Access Token im Authorization-Header senden.' } });
 
-    const wrong = await post(await idp.token(claims.user({ org: 'acme', groupRoles: ['viewer'] })));
+    const wrong = await post(await idp.token(claims.user({ org: 'acme' })));
     assert.equal(wrong.status, 401, 'API-Token (falsche Zielgruppe)');
     assert.match(wrong.headers.get('www-authenticate') ?? '', /resource_metadata=.*error="invalid_token"/);
 
-    const noScope = await post(await hostToken('acme', ['viewer'], 'openid organization'));
+    const noScope = await post(await hostToken('acme', 'viewer', 'openid organization'));
     assert.equal(noScope.status, 403);
     assert.match(noScope.headers.get('www-authenticate') ?? '', /insufficient_scope/);
 
@@ -200,22 +201,22 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
 
   test('Ursprung, Methode, Host-Client und gebundene Tokens: 403 bzw. 405 ohne Tausch', async () => {
     const n = idp.exchanges;
-    const viewer = await hostToken('acme', ['viewer'], 'openid organization notes:read');
+    const viewer = await hostToken('acme', 'viewer', 'openid organization notes:read');
     assert.equal((await post(viewer, { headers: { origin: 'http://evil.example' } })).status, 403, 'fremder Browser-Ursprung');
     assert.equal((await post(viewer, { headers: { origin: 'http://mcp.test' } })).status, 200, 'eigener Ursprung');
     const get = await post(viewer, { method: 'GET' });
     assert.deepEqual([get.status, get.headers.get('allow'), (await get.json()).error.code], [405, 'POST', -32000]);
-    const foreign = await post(await hostToken('acme', ['viewer'], 'openid organization notes:read', { azp: 'anderer-client' }));
+    const foreign = await post(await hostToken('acme', 'viewer', 'openid organization notes:read', { azp: 'anderer-client' }));
     assert.equal(foreign.status, 403);
     assert.match((await foreign.json()).error.message, /MCP_HOST_CLIENT_IDS/);
-    const sa = await idp.token({ ...claims.client({ clientId: 'notiz-sync', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }) }, { aud: 'notes-mcp' });
+    const sa = await idp.token({ ...claims.client({ clientId: 'notiz-sync', org: 'acme', scopes: ['notes:read'] }) }, { aud: 'notes-mcp' });
     assert.equal((await post(sa)).status, 403, 'Service Account');
     assert.equal(idp.exchanges, n + 1, 'nur die erlaubte Anfrage getauscht');
   });
 
   test('effektive Rechte über die API (Rolle ∩ Scope), API-Token an den Schlüssel gebunden und zwischengespeichert', async () => {
     seen.length = 0;
-    const editor = await hostToken('acme', ['editor'], 'openid organization notes:read');
+    const editor = await hostToken('acme', 'editor', 'openid organization notes:read');
     const r = await (await post(editor)).json();
     assert.deepEqual(r.orgs.map((o: any) => o.alias), ['acme']);
     assert.ok(r.orgs[0].permissions.includes('note:read') && !r.orgs[0].permissions.includes('note:write'), 'ohne notes:write kein Schreibrecht');
@@ -232,7 +233,7 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
   });
 
   test('mehrere Organisationen: alle laden oder über ?org= bzw. X-Tenant festlegen; fremde Organisation 403', async () => {
-    const token = await hostToken(['acme', 'globex'], ['viewer'], 'openid organization:* notes:read');
+    const token = await hostToken(['acme', 'globex'], 'viewer', 'openid organization:* notes:read');
     assert.deepEqual((await (await post(token)).json()).orgs.map((o: any) => o.alias), ['acme', 'globex'], 'Wahl je Werkzeugaufruf');
     assert.deepEqual((await (await post(token, { url: `${mcpUrl}?org=globex` })).json()).orgs.map((o: any) => o.alias), ['globex']);
     assert.deepEqual((await (await post(token, { headers: { 'x-tenant': 'acme' } })).json()).orgs.map((o: any) => o.alias), ['acme']);
@@ -250,9 +251,9 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     const provider = new OidcProvider(cfg.oidc.issuer);
     let answer: Response;
     const fake: typeof fetch = async () => answer;
-    const a = new McpAuth({ cfg, catalog: notesCatalog, verifier: new TokenVerifier(provider, cfg), exchanger: ex, fetch: fake });
+    const a = new McpAuth({ cfg, model: notesModel, verifier: new TokenVerifier(provider, cfg), exchanger: ex, fetch: fake });
     const req = async (token: string) => ({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}` } });
-    const token = await hostToken('acme', ['viewer'], 'openid organization notes:read');
+    const token = await hostToken('acme', 'viewer', 'openid organization notes:read');
     answer = new Response(JSON.stringify({ title: 'Organisation wählen', organizations: ['acme', 'globex'] }), { status: 400 });
     const e = await a.authorize(await req(token)).catch(x => x);
     const r = a.errorResponse(e);
@@ -271,7 +272,7 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
 
   test('gebundenes Token des Hosts (DPoP): 403 statt Anmeldeschleife; als Bearer gesendet 401', async () => {
     const key = await dpopKey();
-    const bound = await hostToken('acme', ['viewer'], 'openid organization notes:read', {}, { jkt: key.jkt });
+    const bound = await hostToken('acme', 'viewer', 'openid organization notes:read', {}, { jkt: key.jkt });
     const n = idp.exchanges;
     const r = await post(bound, { headers: { authorization: `DPoP ${bound}`, dpop: await key.proof('POST', PUBLIC, bound) } });
     assert.equal(r.status, 403);

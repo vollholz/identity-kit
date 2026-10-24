@@ -8,18 +8,17 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { defaultPeoplePermissions } from '../src/http/people.ts';
-import { defineCatalog } from '../src/catalog.ts';
-import { assetsCatalog, notesCatalog, notesInput } from './support/catalogs.ts';
+import { notesModel, simpleModel } from './support/models.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
+import { claims, grantClient, notesApp, notesDb, tenant, withRole, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 type Res = { status: number; body: any };
 interface Person { id: string; kind: string; name: string; email: string | null; clientId: string | null; lastSeenAt: string | null }
 
-test('Standardrecht: Fachrechte des Lese-Scopes und acl:read', () => {
-  assert.deepEqual(defaultPeoplePermissions(notesCatalog), ['note:read', 'acl:read']);
-  assert.ok(defaultPeoplePermissions(assetsCatalog).includes('object:read') && !defaultPeoplePermissions(assetsCatalog).includes('tenant:read'));
+test('Standardrecht: Fachrechte des Lese-Scopes und access:admin', () => {
+  assert.deepEqual(defaultPeoplePermissions(notesModel), ['note:read', 'team:read', 'view:read', 'access:admin']);
+  assert.deepEqual(defaultPeoplePermissions(simpleModel), [], 'ohne Lese-Scope und ohne Typen ausser org');
 });
 
 describe('Personenverzeichnis', { skip }, () => {
@@ -40,15 +39,17 @@ describe('Personenverzeichnis', { skip }, () => {
     idp = await startMockIdp({ realm: 'notes', audience: 'notes-api' });
     n = await notesApp({ db: t.runtime, issuer: idp.issuer });
     const ada = randomUUID();
-    tok.admin = await idp.token(claims.user({ sub: ada, org: 'acme', groupRoles: ['org-admin'], name: 'Ada Admin', email: 'ada@acme.example' }));
-    tok.carla = await idp.token(claims.user({ org: 'acme', groupRoles: ['editor'], name: 'Carla Prüferin', email: 'carla@acme.example' }));
-    tok.dora = await idp.token(claims.user({ org: 'acme', groupRoles: ['viewer'], name: 'dora Duss', email: 'dora@acme.example' }));
-    tok.norole = await idp.token(claims.user({ org: 'acme', groupRoles: [], name: 'Nora Ohnerolle', email: 'nora@acme.example' }));
-    await tenant(t.runtime, 'acme', 'notiz-sync', 'ohne-scope');
-    tok.svc = await idp.token(claims.client({ clientId: 'notiz-sync', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }));
-    tok.svcNoScope = await idp.token(claims.client({ clientId: 'ohne-scope', org: 'acme', roles: ['viewer'], scopes: [] }));
-    tok.mcp = await idp.token({ ...claims.user({ sub: ada, org: 'acme', groupRoles: ['org-admin'], name: 'Ada Admin', email: 'ada@acme.example' }), azp: 'notes-mcp', scope: 'notes:read' });
-    tok.gustav = await idp.token(claims.user({ org: 'globex', groupRoles: ['org-admin'], name: 'Gustav Globex', email: 'gustav@globex.example' }));
+    const pool = t.runtime;
+    tok.admin = await idp.token(await withRole(pool, claims.user({ sub: ada, org: 'acme', name: 'Ada Admin', email: 'ada@acme.example' }), 'org-admin'));
+    tok.carla = await idp.token(await withRole(pool, claims.user({ org: 'acme', name: 'Carla Prüferin', email: 'carla@acme.example' }), 'editor'));
+    tok.dora = await idp.token(await withRole(pool, claims.user({ org: 'acme', name: 'dora Duss', email: 'dora@acme.example' }), 'viewer'));
+    tok.norole = await idp.token(claims.user({ org: 'acme', name: 'Nora Ohnerolle', email: 'nora@acme.example' }));
+    const A = await tenant(pool, 'acme');
+    await grantClient(pool, A, 'notiz-sync', 'viewer'); await grantClient(pool, A, 'ohne-scope', 'viewer');
+    tok.svc = await idp.token(claims.client({ clientId: 'notiz-sync', org: 'acme', scopes: ['notes:read'] }));
+    tok.svcNoScope = await idp.token(claims.client({ clientId: 'ohne-scope', org: 'acme', scopes: [] }));
+    tok.mcp = await idp.token({ ...claims.user({ sub: ada, org: 'acme', name: 'Ada Admin', email: 'ada@acme.example' }), azp: 'notes-mcp', scope: 'notes:read' });
+    tok.gustav = await idp.token(await withRole(pool, claims.user({ org: 'globex', name: 'Gustav Globex', email: 'gustav@globex.example' }), 'org-admin'));
     // Jeder Zugriff legt den Principal an
     for (const who of ['admin', 'carla', 'dora', 'norole', 'svc', 'svcNoScope', 'gustav']) {
       const r = await n.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${tok[who]}` } });
@@ -99,7 +100,7 @@ describe('Personenverzeichnis', { skip }, () => {
     assert.ok(ok(await call('svc', 'GET', '/v1/people')).items.every((p: Person) => p.lastSeenAt === null));
     assert.equal((await call('svcNoScope', 'GET', '/v1/people')).status, 403);
     const r = await call('norole', 'GET', '/v1/people');
-    assert.equal(r.status, 403, 'ohne note:read und acl:read');
+    assert.equal(r.status, 403, 'ohne note:read und access:admin');
     assert.match(r.body.detail, /Notizen lesen/);
     assert.equal((await call('norole', 'GET', `/v1/people/${pid.carla}`)).status, 403);
   });
@@ -153,12 +154,9 @@ describe('Personenverzeichnis', { skip }, () => {
   });
 
   test('Ohne Recht, das das Verzeichnis öffnet: App startet ohne Modul people; ausdrücklich verlangt ein Fehler', async () => {
-    const input = notesInput();
-    const permissions = Object.fromEntries(Object.entries(input.permissions).map(([k, { resources: _, ...v }]) => [k, v]));
-    const catalog = defineCatalog({ ...input, permissions, resources: undefined, capabilities: undefined, scopes: { 'notes:write': input.scopes['notes:write'] } });
-    assert.deepEqual(defaultPeoplePermissions(catalog), []);
-    const x = await notesApp({ db: t.runtime, issuer: idp.issuer, catalog });
+    const o = { db: t.runtime, issuer: idp.issuer, model: simpleModel, resources: null };
+    const x = await notesApp(o);
     try { assert.equal((await call('dora', 'GET', '/v1/people', x)).status, 404); } finally { await x.app.close(); }
-    await assert.rejects(notesApp({ db: t.runtime, issuer: idp.issuer, catalog, plugin: { modules: ['account', 'people'] } }), /kein Recht öffnet/);
+    await assert.rejects(notesApp({ ...o, plugin: { modules: ['account', 'people'] } }), /kein Recht öffnet/);
   });
 });

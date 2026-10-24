@@ -90,11 +90,8 @@ export function IAM_VARS(product: string): VarSpec[] {
 
     { name: 'TENANT_CLAIM', kind: 'string', group: 'Mandanten und Rollen', default: 'organization', description: 'Claim mit den Organisationen (Liste von Aliassen oder Objekt mit Aliassen als Schlüssel).' },
     { name: 'TENANT_AUTO_PROVISION', kind: 'bool', group: 'Mandanten und Rollen', default: 'true', description: 'Unbekannte Organisation beim ersten Zugriff einer Person als Mandant anlegen (Maschinen-Clients nie).' },
-    { name: 'ROLE_SOURCE', kind: 'enum', group: 'Mandanten und Rollen', values: ['client', 'groups', 'both'], default: 'groups', description: 'Rollen von Personen. `groups` (empfohlen): je Organisation über Gruppen `<prefix>/<org>/<rolle>`. `client`/`both`: Client-Rollen gelten nur, wenn das Token genau eine Organisation enthält (Warnung beim Start).' },
-    { name: 'ROLE_CLIENT_ID', kind: 'string', group: 'Mandanten und Rollen', default: `${p}-platform`, description: 'Client, dessen Client-Rollen ausgewertet werden (`resource_access.<client>.roles`; Service Accounts).' },
     { name: 'OIDC_PERSON_CLIENT_IDS', kind: 'list', group: 'Mandanten und Rollen', default: '', description: 'Clients (`azp`), deren Tokens als Person gelten. Leer = `OIDC_BFF_CLIENT_ID` und `MCP_CLIENT_ID`. Tokens aller anderen Clients gelten als Maschinen-Client (Freigabe je Mandant, Scopes).' },
-    { name: 'GROUPS_CLAIM', kind: 'string', group: 'Mandanten und Rollen', default: 'groups', description: 'Claim mit Gruppenpfaden.' },
-    { name: 'GROUP_ROLE_PREFIX', kind: 'string', group: 'Mandanten und Rollen', default: '/orgs', description: 'Präfix der Rollengruppen: `<prefix>/<org-alias>/<rolle>`.' },
+    { name: 'GROUPS_CLAIM', kind: 'string', group: 'Mandanten und Rollen', default: 'groups', description: 'Claim mit den Objekt-IDs der Gruppen aus Microsoft Entra ID (Subjekte `group:<id>`).' },
     { name: 'PLATFORM_ADMIN_ROLE', kind: 'string', group: 'Mandanten und Rollen', default: 'platform-admin', description: 'Realm-Rolle für die Plattform-Administration über alle Mandanten.' },
 
     { name: 'KEYCLOAK_MGMT_CLIENT_ID', kind: 'string', group: 'Verwaltung von Organisationen und Mitgliedern', default: '', description: `Vertraulicher Client mit Service Account (\`${p}-admin\`). Ohne Angabe ist die Verwaltung von Organisationen, Mitgliedern und Rollen abgeschaltet.` },
@@ -142,7 +139,7 @@ export interface IamConfig {
   publicBaseUrl: string;
   db: { url: string; adminUrl: string | null; workerUrl: string; poolMax: number; statementTimeoutMs: number; ssl: 'disable' | 'require' | 'verify-full' };
   oidc: { issuer: string; apiAudience: string; mcpAudience: string; clockToleranceSec: number; bffClientId: string; bffClientSecret: string | null; bffPrivateKey: string | null; scopes: string };
-  tenancy: { claim: string; autoProvision: boolean; roleSource: 'client' | 'groups' | 'both'; roleClientId: string; personClients: string[]; groupsClaim: string; groupRolePrefix: string; platformAdminRole: string };
+  tenancy: { claim: string; autoProvision: boolean; personClients: string[]; groupsClaim: string; platformAdminRole: string };
   m2m: { dpopMode: 'off' | 'optional' | 'required-for-clients' | 'required'; dpopMaxAgeSec: number; mtlsHeader: string | null };
   /** Verwaltung über die Keycloak-Admin-API; `clientId` null = abgeschaltet. */
   mgmt: { clientId: string | null; privateKey: string | null; clientSecret: string | null; adminUrl: string | null; inviteLifespanSec: number; inviteMinMs: number; timeoutMs: number };
@@ -231,7 +228,6 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
   if (raw.RATE_LIMIT_NAMESPACE && !/^[A-Za-z0-9_.-]{1,64}$/.test(raw.RATE_LIMIT_NAMESPACE.trim())) errors.push('RATE_LIMIT_NAMESPACE: Buchstaben, Ziffern, _, - und ., höchstens 64 Zeichen');
-  if (raw.GROUP_ROLE_PREFIX !== undefined && !GROUP_PREFIX_RE.test(raw.GROUP_ROLE_PREFIX)) errors.push('GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs (ohne Leerzeichen und leere Teile)');
   try { const ms = parseDuration(raw.MEMBER_SYNC_INTERVAL ?? '1h'); if (ms > 0 && ms < 60_000) errors.push('MEMBER_SYNC_INTERVAL: mindestens 1m oder 0 (aus)'); } catch { /* bereits gemeldet */ }
   try {
     const life = parseDuration(raw.KEYCLOAK_MGMT_INVITE_LIFESPAN ?? '72h');
@@ -250,10 +246,6 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
  * Präfix der Rollengruppen einheitlich mit führendem und ohne abschliessenden «/» (`orgs`, `/orgs/` → `/orgs`): Token
  * (Gruppenpfade), Verwaltung (Gruppen anlegen) und Status sehen so denselben Pfad.
  */
-/** Gültiger GROUP_ROLE_PREFIX: Gruppenpfad ohne Leerzeichen und leere Teile (führender und abschliessender «/» optional). */
-export const GROUP_PREFIX_RE = /^\/?[^\s/]+(\/[^\s/]+)*\/?$/;
-
-export function normalizeGroupPrefix(v: string): string { return `/${v.replace(/^\/+|\/+$/g, '')}`; }
 
 export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
   const s = (k: string) => raw[k] ?? '';
@@ -266,7 +258,7 @@ export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
     mode, publicBaseUrl: s('PUBLIC_BASE_URL').replace(/\/$/, ''),
     db: { url: s('DATABASE_URL'), adminUrl: opt('DATABASE_ADMIN_URL'), workerUrl: opt('DATABASE_WORKER_URL') ?? s('DATABASE_URL'), poolMax: n('DATABASE_POOL_MAX'), statementTimeoutMs: d('DATABASE_STATEMENT_TIMEOUT'), ssl: s('DATABASE_SSL') as IamConfig['db']['ssl'] },
     oidc: { issuer: s('OIDC_ISSUER_URL').replace(/\/$/, ''), apiAudience: s('OIDC_API_AUDIENCE'), mcpAudience: s('OIDC_MCP_AUDIENCE'), clockToleranceSec: Math.round(d('OIDC_CLOCK_TOLERANCE') / 1000), bffClientId: s('OIDC_BFF_CLIENT_ID'), bffClientSecret: opt('OIDC_BFF_CLIENT_SECRET'), bffPrivateKey: opt('OIDC_BFF_PRIVATE_KEY'), scopes: s('OIDC_SCOPES') },
-    tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), roleSource: s('ROLE_SOURCE') as IamConfig['tenancy']['roleSource'], roleClientId: s('ROLE_CLIENT_ID'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), groupRolePrefix: normalizeGroupPrefix(s('GROUP_ROLE_PREFIX')), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
+    tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
     m2m: { dpopMode: s('DPOP_MODE') as IamConfig['m2m']['dpopMode'], dpopMaxAgeSec: Math.round(d('DPOP_MAX_AGE') / 1000), mtlsHeader: opt('MTLS_HEADER') },
     mgmt: { clientId: opt('KEYCLOAK_MGMT_CLIENT_ID'), privateKey: opt('KEYCLOAK_MGMT_PRIVATE_KEY'), clientSecret: opt('KEYCLOAK_MGMT_CLIENT_SECRET'), adminUrl: opt('KEYCLOAK_MGMT_URL')?.replace(/\/$/, '') ?? null, inviteLifespanSec: Math.round(d('KEYCLOAK_MGMT_INVITE_LIFESPAN') / 1000), inviteMinMs: d('KEYCLOAK_MGMT_INVITE_MIN_TIME'), timeoutMs: d('KEYCLOAK_MGMT_TIMEOUT') },
     entra: { clientId: opt('ENTRA_CLIENT_ID'), clientSecret: opt('ENTRA_CLIENT_SECRET'), slots: n('ENTRA_IDP_SLOTS'), timeoutMs: d('ENTRA_TIMEOUT'), uiPath: s('ENTRA_UI_PATH').replace(/\/+$/, '') },
@@ -298,9 +290,5 @@ export function iamWarnings(cfg: IamConfig, service: Service | null): string[] {
   if (needs('api') && cfg.mgmt.clientId && cfg.mgmt.clientSecret && !cfg.mgmt.privateKey) out.push(secret('KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_MGMT_PRIVATE_KEY'));
   if (needs('worker') && cfg.memberSync.clientId && cfg.memberSync.clientSecret && !cfg.memberSync.privateKey) out.push(secret('KEYCLOAK_SYNC_CLIENT_SECRET', 'KEYCLOAK_SYNC_PRIVATE_KEY'));
   if (needs('mcp') && cfg.mcp.clientSecret && !cfg.mcp.privateKey) out.push(secret('MCP_CLIENT_SECRET', 'MCP_PRIVATE_KEY'));
-  if (cfg.tenancy.roleSource !== 'groups') {
-    out.push(`ROLE_SOURCE=${cfg.tenancy.roleSource}: Client-Rollen (${cfg.tenancy.roleClientId}) von Personen gelten nur, wenn das Token genau eine Organisation enthält; `
-      + 'Personen in mehreren Organisationen erhalten Rollen nur über Gruppen. Empfohlen: ROLE_SOURCE=groups (Rollen je Organisation über Gruppen).');
-  }
   return out;
 }

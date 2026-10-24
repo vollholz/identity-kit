@@ -15,7 +15,7 @@
  */
 import { createHash, createPrivateKey, randomUUID } from 'node:crypto';
 import { importPKCS8, SignJWT, type CryptoKey } from 'jose';
-import type { Catalog } from '../catalog.ts';
+import type { Model } from '../model.ts';
 import { ConfigError, type IamConfig } from '../config.ts';
 import { HttpError } from '../errors.ts';
 import type { OidcProvider } from '../tokens.ts';
@@ -40,7 +40,7 @@ export class TokenExchanger {
   private readonly inflight = new Map<string, Promise<ExchangedToken>>();
   private readonly cfg: IamConfig;
   private readonly provider: OidcProvider;
-  private readonly catalog: Catalog;
+  private readonly model: Model;
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
   private key: Promise<{ key: CryptoKey; alg: string }> | null = null;
@@ -51,17 +51,17 @@ export class TokenExchanger {
   /** Höchstens so viele getauschte Tokens im Zwischenspeicher. */
   static readonly MAX_CACHED = 10_000;
 
-  /** @param o.catalog Katalog der App: nur seine Scopes (und `organization…`) gehen in den Tausch. */
-  constructor(cfg: IamConfig, provider: OidcProvider, o: { dpop: DpopSigner; catalog: Catalog; fetch?: typeof fetch; now?: () => number }) {
+  /** @param o.model Katalog der App: nur seine Scopes (und `organization…`) gehen in den Tausch. */
+  constructor(cfg: IamConfig, provider: OidcProvider, o: { dpop: DpopSigner; model: Model; fetch?: typeof fetch; now?: () => number }) {
     if (!cfg.mcp.clientSecret && !cfg.mcp.privateKey) throw new ConfigError('MCP_CLIENT_SECRET oder MCP_PRIVATE_KEY fehlt – ohne Client-Anmeldung ist kein Token Exchange möglich.');
-    this.cfg = cfg; this.provider = provider; this.catalog = o.catalog; this.dpop = o.dpop; this.fetchImpl = o.fetch ?? fetch; this.now = o.now ?? Date.now;
+    this.cfg = cfg; this.provider = provider; this.model = o.model; this.dpop = o.dpop; this.fetchImpl = o.fetch ?? fetch; this.now = o.now ?? Date.now;
     if (cfg.mcp.privateKey) this.key = signingKey(cfg.mcp.privateKey);
   }
 
   /** API-Token für das eingehende Token; `scopes` begrenzt das Ergebnis (Downscoping) auf die Scopes des MCP-Tokens. */
   async exchange(subjectToken: string, scopes: string[]): Promise<ExchangedToken> {
     // Ohne Scope des Katalogs gäbe es ein API-Token ohne Fachrechte (oder Keycloak nähme die Scopes des Clients): nie tauschen
-    if (!scopes.some(s => this.catalog.scopes.has(s))) throw new HttpError(403, 'Scope fehlt', 'Das Token enthält keinen Scope des Katalogs; ohne ihn wird nicht getauscht.');
+    if (!scopes.some(s => this.model.scopes.has(s))) throw new HttpError(403, 'Scope fehlt', 'Das Token enthält keinen Scope des Katalogs; ohne ihn wird nicht getauscht.');
     const id = createHash('sha256').update(subjectToken).digest('base64url');
     const hit = this.cache.get(id);
     if (hit && hit.expiresAt - TokenExchanger.MARGIN_MS > this.now()) return hit;
@@ -90,7 +90,7 @@ export class TokenExchanger {
     // nur Scopes, die der MCP-Client bei Keycloak anfordern darf (Organisation und Katalog); andere, z. B. der
     // Zielgruppen-Scope des MCP-Tokens, lehnt Keycloak mit invalid_scope ab
     // `organization:<alias>`: im Host gewählte Organisation bleibt im API-Token festgelegt; `organization:*`: alle
-    const wanted = [...new Set(scopes)].filter(s => s === 'organization' || s === 'organization:*' || /^organization:[a-z0-9][a-z0-9_-]{0,62}$/i.test(s) || this.catalog.scopes.has(s));
+    const wanted = [...new Set(scopes)].filter(s => s === 'organization' || s === 'organization:*' || /^organization:[a-z0-9][a-z0-9_-]{0,62}$/i.test(s) || this.model.scopes.has(s));
     if (wanted.length) body.set('scope', wanted.join(' '));
     type Answer = { access_token?: string; token_type?: string; expires_in?: number; error?: string; error_description?: string };
     let res: Response, data: Answer;

@@ -8,23 +8,23 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AccessService, TenantAccess } from '../access.ts';
-import { capabilities } from '../access.ts';
+import { capabilities, noFacts } from '../access.ts';
 import type { AuditEntry, Source } from '../audit.ts';
-import type { RegisteredPermission } from '../catalog.ts';
+import type { Level, RegisteredPermission } from '../model.ts';
 import type { Tx } from '../db.ts';
 import { HttpError } from '../errors.ts';
 import type { Iam } from '../iam.ts';
 import type { Principal } from '../principal.ts';
 import type { ResourceRef } from '../resources.ts';
+import { accessModule } from './access.ts';
 import { accountModule } from './account.ts';
-import { aclModule } from './acl.ts';
+import { breakGlassModule } from './break-glass.ts';
 import { adminModule } from './admin.ts';
 import { bffModule } from './bff.ts';
 import { clientsModule } from './clients.ts';
 import { entraModule } from './entra.ts';
 import { defaultPeoplePermissions, peopleModule } from './people.ts';
 import { registerErrorHandler, registerProblemSchemas } from './problems.ts';
-import { rolesModule } from './roles.ts';
 import type { IamModule, ModuleContext, OpenApiOverrides } from './routes.ts';
 
 /** Sitzung der Oberfläche (Modul `bff`): gültiges Access Token für eine Anfrage mit Sitzungs-Cookie oder null. */
@@ -32,13 +32,13 @@ export interface SessionBridge {
   accessToken(req: FastifyRequest, reply: FastifyReply): Promise<{ token: string; csrfOk: boolean } | null>;
 }
 
-export type IamModuleName = 'account' | 'acl' | 'admin' | 'bff' | 'clients' | 'entra' | 'people' | 'roles';
+export type IamModuleName = 'account' | 'access' | 'admin' | 'bff' | 'break-glass' | 'clients' | 'entra' | 'people';
 
 export interface IamPluginOptions {
   iam: Iam<any, any>;
   /**
-   * Module des Pakets; Standard: alle, die Katalog und Konfiguration erlauben (`acl` mit Zugriffsregeln, `bff` mit
-   * `iam.bff`; `admin` und `entra` immer, ohne Verwaltungs-Client bzw. Entra-App mit 503 nach Kap. 9.1 Nr. 11).
+   * Module des Pakets; Standard: alle, die Modell und Konfiguration erlauben (`bff` mit `iam.bff`; `admin` und `entra`
+   * immer, ohne Verwaltungs-Client bzw. Entra-App mit 503 nach Kap. 9.1 Nr. 13).
    */
   modules?: IamModuleName[];
   /** Fehlerbehandlung und 404 als problem+json (Standard `true`; `false`, wenn die App eigene hat). */
@@ -57,7 +57,7 @@ export interface IamPluginOptions {
   openapi?: OpenApiOverrides;
   /**
    * Modul `people`: Rechte, von denen eines irgendwo (`needSomewhere`) das Personenverzeichnis öffnet; Standard die
-   * Fachrechte des Lese-Scopes `<produkt>:read` und `acl:read` (Assets: `['object:read']`).
+   * Fachrechte des Lese-Scopes `<produkt>:read` und `access:admin` (Assets: `['object:read']`).
    */
   people?: { permissions?: Perm[] };
   /** Span-Attribut mit dem Alias der Organisation (Standard `iam.tenant`). */
@@ -74,16 +74,21 @@ declare module 'fastify' {
     source: Source;
     /** Principal oder 401. */
     requirePrincipal(): Principal;
-    /** Arbeit im Mandantenkontext des Principals (RLS aktiv) mit dem Kontext der App (`resources.dbContext`). */
+    /** Arbeit im Mandantenkontext des Principals (RLS aktiv) mit der Lesesicht der Anfrage (Kap. 7.6). */
     tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
-    /** Recht prüfen ((Rolle ∨ Freigabe) ∧ Scope ∧ Zugriffsregel), sonst 403 mit Label. */
+    /** Recht prüfen (Kap. 7.5: Freigabe ∨ Zuständigkeit ∨ Besitz, ∧ Vertraulichkeit ∧ Scope), sonst 403 mit Label. */
     need(perm: Perm, ref?: ResourceRef, hint?: string | null): Promise<void>;
-    /** Recht auf Mandantenebene oder über eine Freigabe auf einer Ressource, sonst 403 (nur für Listen und Einstiege). */
+    /** Recht an mindestens einem Ort, sonst 403 (nur für Listen und Einstiege). */
     needSomewhere(perm: Perm): Promise<void>;
-    /** Entscheidung ohne Wurf (Zugriffsregeln einmal je Anfrage geladen). */
+    /** Entscheidung ohne Wurf (Tupel einmal je Anfrage geladen). */
     can(perm: Perm, ref?: ResourceRef, hint?: string | null): Promise<boolean>;
-    /** Fähigkeiten nach dem Katalog für viele Ressourcen (Zugriffsregeln einmal geladen). */
-    capabilities(): Promise<(kind: string, id: string, hint?: string | null) => Record<string, boolean>>;
+    /**
+     * Fähigkeiten nach dem Modell für viele Ressourcen (Tupel einmal geladen). `refs`: Ressourcen, deren Fachdaten
+     * (Vertraulichkeit, Zuständigkeit) vorab gelesen werden; ohne zählt die Zuständigkeit nicht.
+     */
+    capabilities(refs?: ResourceRef[]): Promise<(kind: string, id: string, hint?: string | null) => Record<string, boolean>>;
+    /** Freigabestufe mindestens `level`, sonst 403 mit Grund `clearance` (A14). */
+    needClearance(level: Level): Promise<void>;
     /** Audit-Eintrag über den `AuditPort` in derselben Transaktion. */
     audit(tx: Tx, e: AuditEntry): Promise<void>;
   }
@@ -119,17 +124,16 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   // Seite der Entra-Administration (Link ohne Sitzung): Schutz über Token, state und PKCE
   const isPublic = publicMatcher([...(o.publicPaths ?? []), `${prefix}/entra/handover/*`]);
   const spanAttribute = o.spanAttribute ?? 'iam.tenant';
-  const realm = iam.catalog.product;
+  const realm = iam.model.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
   const invalidToken = { 'WWW-Authenticate': 'DPoP error="invalid_token"' };
   // Personenverzeichnis ohne Option nur, wenn ein Recht es öffnen kann (sonst startete die App nicht); ausdrücklich in
   // `modules` verlangt, meldet das Modul den Fehler
-  const people = !o.modules && (!!o.people || defaultPeoplePermissions(iam.catalog).some(x => iam.catalog.isPermission(x)));
+  const people = !o.modules && (!!o.people || defaultPeoplePermissions(iam.model).some(x => iam.model.isPermission(x)));
   if (!o.modules && !people) app.log.warn('Modul «people» nicht geladen: kein Recht öffnet das Verzeichnis (Option people.permissions oder Lese-Scope <produkt>:read)');
-  const names = o.modules ?? (['account', ...(iam.catalog.acl ? ['acl'] : []), 'admin', 'entra', 'roles', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
+  const names = o.modules ?? (['account', 'access', 'admin', 'break-glass', 'entra', ...(iam.bff ? ['bff'] : []), 'clients', ...(people ? ['people'] : [])] as IamModuleName[]);
   // Sitzungscookies nur mit Modul bff oder ausdrücklicher SessionBridge (der MCP-Dienst nimmt keine an)
   const sessions = o.sessions ?? (names.includes('bff') ? iam.bff ?? undefined : undefined);
-  if (names.includes('acl') && !iam.catalog.acl) throw new Error('Modul «acl» braucht Zugriffsregeln (Ressourcen im Katalog)');
 
   await checkCookies(app, cfg.session.secrets);
   // Telemetrie ist optional: ohne @opentelemetry/api kein Span-Attribut
@@ -156,6 +160,14 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   // ---------- Anmeldung pro Anfrage (Bearer/DPoP oder Sitzung der Oberfläche)
   app.decorateRequest('principal', null);
   app.decorateRequest('source', 'api');
+  // Tupel einmal je Anfrage (Fähigkeiten über Listen ohne erneutes Laden)
+  const access = iam.access as AccessService<string, unknown>;
+  const acls = new WeakMap<FastifyRequest, Promise<TenantAccess>>();
+  const aclOf = (req: FastifyRequest) => {
+    let a = acls.get(req);
+    if (!a) { a = access.load(req.requirePrincipal().tenantId); acls.set(req, a); }
+    return a;
+  };
   app.addHook('onRequest', async (req, reply) => {
     if (!needsToken(prefix, isPublic, req.routeOptions.url, req.url)) return;
     const auth = req.headers.authorization;
@@ -189,19 +201,15 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     }
     const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
     if (req.source !== 'ui' && p.clientId && p.clientId === cfg.mcp.clientId) req.source = 'mcp';
+    // Stand der Tupel dieser Anfrage: Freigabestufe am Principal, danach `can` und Fähigkeiten ohne erneutes Laden
+    const acl = iam.access.load(p.tenantId);
+    acls.set(req, acl as Promise<TenantAccess>);
+    p.clearance = iam.access.clearanceOf(p, await acl);
     req.principal = p;
     otel?.trace.getActiveSpan()?.setAttribute(spanAttribute, p.tenantAlias);
   });
 
   // ---------- Dekorationen
-  const access = iam.access as AccessService<string, unknown>;
-  // Zugriffsregeln einmal je Anfrage (Fähigkeiten über Listen ohne erneutes Laden)
-  const acls = new WeakMap<FastifyRequest, Promise<TenantAccess>>();
-  const aclOf = (req: FastifyRequest) => {
-    let a = acls.get(req);
-    if (!a) { a = access.load(req.requirePrincipal().tenantId); acls.set(req, a); }
-    return a;
-  };
   app.decorateRequest('requirePrincipal', function (this: FastifyRequest) {
     if (!this.principal) throw new HttpError(401, 'Nicht angemeldet', undefined, challenge);
     return this.principal;
@@ -216,12 +224,18 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     await access.requireSomewhere(this.requirePrincipal(), perm);
   });
   app.decorateRequest('can', async function (this: FastifyRequest, perm: string, ref?: ResourceRef, hint?: string | null) {
-    return access.decide(this.requirePrincipal(), await aclOf(this), perm, ref, hint);
+    const p = this.requirePrincipal(), acl = await aclOf(this), r = ref ?? { type: 'org' };
+    const h = hint === undefined && r.type !== 'org' ? await access.hint(p.tenantId, r) : hint;
+    return access.decide(p, acl, perm, r, h, await access.facts(p, acl, [r], p.tenantId));
   });
-  app.decorateRequest('capabilities', async function (this: FastifyRequest) {
-    // Derselbe Stand der Zugriffsregeln wie `can` in dieser Anfrage
+  app.decorateRequest('capabilities', async function (this: FastifyRequest, refs?: ResourceRef[]) {
+    // Derselbe Stand der Tupel wie `can` in dieser Anfrage
     const p = this.requirePrincipal(), acl = await aclOf(this);
-    return (kind: string, id: string, hint?: string | null) => capabilities(access, p, acl, kind, id, hint);
+    const facts = refs?.length ? await access.facts(p, acl, refs, p.tenantId) : noFacts();
+    return (kind: string, id: string, hint?: string | null) => capabilities(access, p, acl, kind, id, hint, facts);
+  });
+  app.decorateRequest('needClearance', async function (this: FastifyRequest, level: Level) {
+    await access.requireClearance(this.requirePrincipal(), level);
   });
   app.decorateRequest('audit', async function (this: FastifyRequest, tx: Tx, e: AuditEntry) {
     const p = this.principal;
@@ -230,7 +244,9 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
 
   // ---------- Module
   const ctx: ModuleContext = { iam, prefix, openapi: o.openapi ?? {}, ...(o.people ? { people: o.people } : {}) };
-  const modules: Record<IamModuleName, IamModule> = { account: accountModule, acl: aclModule, admin: adminModule, bff: bffModule, clients: clientsModule, entra: entraModule, people: peopleModule, roles: rolesModule };
+  const modules: Record<IamModuleName, IamModule> = { account: accountModule, access: accessModule, admin: adminModule, bff: bffModule, 'break-glass': breakGlassModule, clients: clientsModule, entra: entraModule, people: peopleModule };
+  const unknown = names.filter(n => !Object.hasOwn(modules, n));
+  if (unknown.length) throw new Error(`Unbekanntes Modul ${unknown.map(n => `«${n}»`).join(', ')} (verfügbar: ${Object.keys(modules).join(', ')})`);
   for (const n of names) await modules[n].register(app, ctx);
 }
 

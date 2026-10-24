@@ -15,7 +15,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`Mitglieder: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
     // viele Dialoge × zwei Breiten mit axe: unter paralleler Last länger als der Standard
     test.slow();
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html');
@@ -186,7 +186,7 @@ test('Freigabestufe per Tastatur: die eigene gesperrt mit Grund, über der eigen
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`Organisationen: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html?p=organizations');
@@ -232,7 +232,7 @@ test('Organisation sperren und entsperren; die eigene Organisation bleibt gesper
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`Anmeldung (Entra ID) und «Person hinzufügen»: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html?p=entra');

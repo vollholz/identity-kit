@@ -16,7 +16,7 @@ import { withTenant, withTx } from '../src/db.ts';
 import { decryptAppSecret, rewrapEntraSecrets } from '../src/entra.ts';
 import { EntraGraph } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, notesApp, notesDb, withRole, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 type Res = { status: number; body: any };
@@ -33,7 +33,7 @@ describe('Eigene App der Organisation', { skip }, () => {
   let demo: FakeOrg, contoso: FakeTenant, muster: FakeTenant, fremd: FakeTenant, own: FakeApp;
 
   const person = (x: FakeUser, org: string, roles: string[], extra: Record<string, unknown> = {}) =>
-    idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
+    withRole(t.runtime, claims.user({ sub: x.id, org, email: x.email, name: `${x.firstName} ${x.lastName}` }), roles[0] ?? null).then(c => idp.token({ ...c, ...extra }));
   async function call(who: string | Promise<string> | null, method: string, url: string, body?: unknown, a = app): Promise<Res> {
     const r = await a.app.inject({ method: method as 'GET', url, headers: who ? { authorization: `Bearer ${await who}` } : {}, ...(body !== undefined ? { payload: body as object } : {}) });
     return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null };
@@ -55,8 +55,7 @@ describe('Eigene App der Organisation', { skip }, () => {
     u.bea = kc.user('bea', { email: 'bea@demo.example', firstName: 'Bea', lastName: 'Beispiel' });
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
     u.paula = kc.user('paula', { email: 'paula@ops.example', firstName: 'Paula', lastName: 'Plattform' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.bea, ['viewer']); kc.member(m, u.mona, ['org-admin']); kc.member(ops, u.paula, ['org-admin']);
-    for (const alias of ['demo', 'muster', 'ops']) for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/${alias}/${r}`);
+    kc.member(demo, u.anna); kc.member(demo, u.bea); kc.member(m, u.mona); kc.member(ops, u.paula);
     contoso = ms.tenant('Demo AG (Entra)', ['demo.example', 'demoag.onmicrosoft.com']);
     annaOid = ms.user(contoso, 'anna@demo.example').id;
     beaOid = ms.user(contoso, 'bea@demo.example').id;
@@ -78,7 +77,7 @@ describe('Eigene App der Organisation', { skip }, () => {
     const s = ok(await call(anna(), 'GET', '/v1/admin/entra'));
     assert.deepEqual([s.enabled, s.methods, s.ownAppReason, s.connection], [false, { platformApp: false, ownApp: true }, null, null]);
     assert.equal(s.ownApp.redirectUri, `${idp.issuer}/broker/entra-app-demo/endpoint`);
-    assert.deepEqual(s.ownApp.permissions.map((p: any) => `${p.type}:${p.name}${p.optional ? '?' : ''}`), ['Delegated:User.Read', 'Application:Organization.Read.All', 'Application:User.Read.All', 'Application:Application.Read.All']);
+    assert.deepEqual(s.ownApp.permissions.map((p: any) => `${p.type}:${p.name}${p.optional ? '?' : ''}`), ['Delegated:User.Read', 'Application:Organization.Read.All', 'Application:User.Read.All', 'Application:Application.Read.All', 'Application:GroupMember.Read.All']);
     assert.ok(s.ownApp.permissions.every((p: any) => p.why));
     const n = ok(await call(anna(), 'GET', '/v1/admin/entra', undefined, noKeys));
     assert.deepEqual([n.methods.ownApp, n.ownApp], [false, null]);
@@ -99,9 +98,9 @@ describe('Eigene App der Organisation', { skip }, () => {
     await fail({ tenant: contoso.id, clientId: other.clientId, clientSecret: other.secret }, 409, 'wrong-tenant', 'App eines anderen Tenants');
     const weak = ms.app(contoso, { roles: ['User.Read.All'] });
     const b = await fail({ tenant: 'demo.example', clientId: weak.clientId, clientSecret: weak.secret }, 409, 'missing-permissions', 'Berechtigung fehlt');
-    assert.deepEqual(b.missing, ['Organization.Read.All', 'Application.Read.All']);
+    assert.deepEqual(b.missing, ['Organization.Read.All', 'Application.Read.All', 'GroupMember.Read.All']);
     const none = ms.app(contoso, { roles: [] });
-    assert.deepEqual((await fail({ tenant: contoso.id, clientId: none.clientId, clientSecret: none.secret }, 409, 'missing-permissions', 'ohne Administratorzustimmung')).missing, ['Organization.Read.All', 'User.Read.All', 'Application.Read.All']);
+    assert.deepEqual((await fail({ tenant: contoso.id, clientId: none.clientId, clientSecret: none.secret }, 409, 'missing-permissions', 'ohne Administratorzustimmung')).missing, ['Organization.Read.All', 'User.Read.All', 'Application.Read.All', 'GroupMember.Read.All']);
     // Mandantenfähige App eines Herstellers, der contoso zugestimmt hat: Token mit allen Rollen, aber keine Registrierung
     const vendor = ms.app(fremd, { consentedIn: [contoso] });
     await fail({ tenant: contoso.id, clientId: vendor.clientId, clientSecret: vendor.secret }, 409, 'app-not-registered-in-tenant', 'App eines Herstellers');
@@ -170,7 +169,7 @@ describe('Eigene App der Organisation', { skip }, () => {
 
   test('Wechsel scheitert nach dem Prüfen (Verknüpfung): Keycloak meldet weiter mit dem bisherigen Geheimnis an, Datenbank unverändert', async () => {
     const cara = kc.user('cara', { email: 'cara@demo.example', firstName: 'Cara', lastName: 'Konflikt' });
-    kc.member(demo, cara, ['viewer']);
+    kc.member(demo, cara);
     const caraOid = ms.user(contoso, 'cara@demo.example').id;
     // Caras Person in Entra ist schon mit einem anderen Konto verknüpft: linkAccount scheitert mit 409
     kc.links.set(u.paula.id, new Map([['entra-app-demo', { userId: caraOid, userName: 'cara@demo.example' }]]));

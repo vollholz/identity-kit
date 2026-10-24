@@ -1,7 +1,9 @@
 /**
- * Ersteinrichtung einer Organisation (aus Assets `scripts/org-bootstrap.ts`): Organisation, Rollengruppen
- * `<prefix>/<alias>/<rolle>` für alle Rollen des Katalogs und eine erste Person mit Rollen – idempotent. Danach verwaltet
- * org-admin die Mitglieder in der Oberfläche; den Mandanten legt die App bei der ersten Anmeldung selbst an.
+ * Ersteinrichtung einer Organisation (Spezifikation Kap. 2 Schritt 7, A20): in Keycloak Organisation, erste Person
+ * (ohne Passwort, Pflichtaktion «Passwort festlegen») und Mitgliedschaft, optional die Realm-Rolle platform-admin; in
+ * der Datenbank der App (Besitzer-Rolle, `DATABASE_ADMIN_URL`) Mandant (gebunden an die ID der Organisation), Principal,
+ * Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned`. Idempotent. Rollen stehen nie in
+ * Keycloak; danach verwaltet org-admin die Mitglieder in der Oberfläche.
  *
  * Die Person erhält die Pflichtaktion «Passwort festlegen» (per E-Mail, sobald SMTP eingerichtet ist). Ohne SMTP setzt
  * `initialPassword` ein zufälliges temporäres Passwort, nur wenn das Konto noch keines hat, und legt es ausschliesslich in
@@ -11,8 +13,9 @@
 import { randomInt } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { ADMIN_ROLE } from './catalog.ts';
-import { GROUP_PREFIX_RE } from './config.ts';
+import pg from 'pg';
+import { schemaName } from './db.ts';
+import { ADMIN_ROLE } from './model.ts';
 import { seg, type KeycloakAdmin } from './keycloak.ts';
 import { ALIAS_PATTERN } from './principal.ts';
 
@@ -24,15 +27,11 @@ export interface OrgBootstrapOptions {
   email: string;
   firstName?: string;
   lastName?: string;
-  /** Rollen der Person, Standard org-admin. */
-  roles?: string[];
   /**
-   * Rollen des Katalogs (`Object.keys(JSON.parse(catalog.platformJson()).roles)`); für jede entsteht eine Gruppe.
-   * `org-admin` kommt aus dem Baukasten und wird immer ergänzt (platform.json führt es ab 0.4.0 nicht mehr).
+   * Datenbank der App: Adresse der Besitzer-Rolle (`DATABASE_ADMIN_URL`) und Schema der Tabellen. Ohne: nur Keycloak
+   * (die Person hätte dann keine Rolle; nur für Tests und Probeläufe).
    */
-  catalogRoles: string[];
-  /** GROUP_ROLE_PREFIX, Standard `/orgs`. */
-  groupRolePrefix?: string;
+  database?: { url: string; schema: string } | null;
   /** Realm-Rolle der Plattform-Administration zusätzlich vergeben (Name aus PLATFORM_ADMIN_ROLE). */
   platformAdminRole?: string | null;
   initialPassword?: { realm: string; secretDir: string } | null;
@@ -41,18 +40,13 @@ export interface OrgBootstrapOptions {
   log?: (message: string) => void;
 }
 
-export interface OrgBootstrapResult { orgId: string | null; userId: string | null; steps: string[]; passwordFile: string | null }
-
-/** Rollen des Katalogs mit der reservierten Rolle org-admin vorne. */
-const withAdmin = (roles: readonly string[]) => [ADMIN_ROLE, ...roles.filter(r => r !== ADMIN_ROLE)];
+export interface OrgBootstrapResult { orgId: string | null; userId: string | null; tenantId: string | null; principalId: string | null; steps: string[]; passwordFile: string | null }
 
 /** Prüft die Eingaben; Fehlertexte für die Kommandozeile. */
-export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email' | 'roles' | 'catalogRoles'>): string[] {
+export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email'>): string[] {
   const out: string[] = [];
   if (!ALIAS_PATTERN.test(o.alias)) out.push('Alias: Kleinbuchstaben, Ziffern, «-» und «_», beginnt mit Buchstabe oder Ziffer (höchstens 63 Zeichen)');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) out.push('E-Mail-Adresse ungültig');
-  const known = withAdmin(o.catalogRoles);
-  for (const r of o.roles ?? []) if (!known.includes(r)) out.push(`Unbekannte Rolle ${r} (erlaubt: ${known.join(', ')})`);
   return out;
 }
 
@@ -83,15 +77,12 @@ function writeSecret(file: string, content: string) {
 
 export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): Promise<OrgBootstrapResult> {
   const alias = o.alias.toLowerCase(), email = o.email.trim().toLowerCase();
-  const roles = o.roles?.length ? o.roles : [ADMIN_ROLE];
-  const errors = orgBootstrapErrors({ alias, email, roles, catalogRoles: o.catalogRoles });
+  const errors = orgBootstrapErrors({ alias, email });
   if (errors.length) throw new Error(errors.join('\n'));
-  const prefix = (o.groupRolePrefix ?? '/orgs').replace(/^\/+|\/+$/g, '');
-  if (!GROUP_PREFIX_RE.test(`/${prefix}`)) throw new Error(`GROUP_ROLE_PREFIX: Gruppenpfad wie /orgs oder /kunden/orgs («${o.groupRolePrefix}»)`);
   const dry = !!o.dryRun;
   const steps: string[] = [];
   const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
-  const res: OrgBootstrapResult = { orgId: null, userId: null, steps, passwordFile: null };
+  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null };
 
   // Organisation
   res.orgId = (await kc.listOrgs()).find(x => x.alias.toLowerCase() === alias)?.id ?? null;
@@ -99,24 +90,6 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
     step(`Organisation «${o.name ?? alias}» (${alias}) anlegen`);
     if (!dry) res.orgId = await kc.createOrg({ name: o.name ?? alias, alias, enabled: true, domains: [{ name: o.domain ?? `${alias}.invalid`, verified: false }] });
   } else step(`Organisation ${alias} vorhanden`);
-
-  // Rollengruppen <prefix>/<alias>/<rolle>, jede Stufe einzeln
-  const groups = new Map<string, string | null>();
-  for (const r of withAdmin(o.catalogRoles)) {
-    let parent: string | null = null, path = '', missing = false;
-    for (const name of [...prefix.split('/'), alias, r]) {
-      path += `/${name}`;
-      const g = missing ? null : await kc.groupByPath(path);
-      if (g) { parent = g.id; continue; }
-      missing = true;
-      // Elterngruppe schon für eine frühere Rolle angelegt (oder im Probelauf gemeldet)
-      if (groups.has(path)) { parent = groups.get(path)!; continue; }
-      step(`Gruppe ${path} anlegen`);
-      parent = dry ? null : await kc.createGroup(parent, name);
-      groups.set(path, parent);
-    }
-    groups.set(`/${prefix}/${alias}/${r}`, parent);
-  }
 
   // Person (ohne Passwort, Pflichtaktion «Passwort festlegen»)
   res.userId = (await kc.findUserByEmail(email))?.id ?? null;
@@ -126,19 +99,12 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   } else step(`Person ${email} vorhanden`);
   if (!res.userId || !res.orgId) {
     if (!dry) throw new Error('Organisation oder Person fehlt nach dem Anlegen');
-    step(`${email} → Organisation ${alias}, Rollen ${roles.join(', ')}`);
+    step(`${email} → Organisation ${alias}, Rolle ${ADMIN_ROLE}, Freigabestufe 2`);
     return res;
   }
   if (!(await kc.member(res.orgId, res.userId))) {
     step(`${email} → Organisation ${alias}`);
     if (!dry) await kc.addMember(res.orgId, res.userId);
-  }
-  const have = new Set((await kc.userGroups(res.userId)).map(g => g.path));
-  for (const r of roles) {
-    const path = `/${prefix}/${alias}/${r}`, id = groups.get(path);
-    if (have.has(path)) continue;
-    step(`${email} → Gruppe ${path}`);
-    if (!dry && id) await kc.joinGroup(res.userId, id);
   }
   if (o.platformAdminRole) {
     const role = o.platformAdminRole;
@@ -169,6 +135,47 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
       step(`${email}: temporäres Passwort gesetzt, abgelegt in ${file}`);
     }
   }
+  if (o.database) {
+    const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
+    res.tenantId = r.tenantId; res.principalId = r.principalId;
+  } else step('Ohne Datenbank: Rolle org-admin und Freigabestufe nicht gesetzt (DATABASE_ADMIN_URL)');
   step('Fertig.');
   return res;
+}
+
+/**
+ * Datenbank der App (A20): als Besitzer-Rolle im Kontext des Mandanten (Policies `owner_tenant`) Mandant, Principal,
+ * Tupel `org-admin` an org und Freigabestufe 2; Audit `tenant.provisioned` beim ersten Mal. Idempotent.
+ */
+async function provisionDb(d: { url: string; schema: string }, o: { alias: string; name: string; orgId: string; userId: string; email: string; displayName: string; dry: boolean; step: (m: string) => void }): Promise<{ tenantId: string | null; principalId: string | null }> {
+  const S = schemaName(d.schema);
+  const c = new pg.Client({ connectionString: d.url, application_name: 'iam-org-bootstrap' });
+  await c.connect();
+  try {
+    await c.query('BEGIN');
+    const before = (await c.query<{ id: string; kc_org_id: string | null }>(`SELECT id, kc_org_id FROM ${S}.tenant WHERE alias = $1`, [o.alias])).rows[0];
+    if (before?.kc_org_id && before.kc_org_id !== o.orgId) throw new Error(`Mandant ${o.alias} gehört zu einer anderen Organisation in Keycloak (kc_org_id); nicht übernommen`);
+    if (!before) o.step(`Mandant ${o.alias} anlegen`);
+    if (o.dry) { await c.query('ROLLBACK'); o.step('Principal, Tupel org-admin an org und Freigabestufe 2 setzen'); return { tenantId: before?.id ?? null, principalId: null }; }
+    const tenantId = (await c.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, true) AS id', [o.alias, o.orgId, o.name])).rows[0]?.id;
+    if (!tenantId) throw new Error(`Mandant ${o.alias} nicht verfügbar (gesperrt oder an eine andere Organisation gebunden)`);
+    await c.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    const principalId = (await c.query<{ id: string }>(
+      `INSERT INTO ${S}.principal AS p (tenant_id, kind, subject, display_name, email, last_seen_at) VALUES ($1, 'user', $2, $3, $4, NULL)
+       ON CONFLICT (tenant_id, kind, subject) DO UPDATE SET removed_at = NULL RETURNING id`, [tenantId, o.userId, o.displayName, o.email])).rows[0]!.id;
+    const subject = `user:${principalId}`;
+    const tuple = await c.query(`INSERT INTO ${S}.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, $2, $3, 'org') ON CONFLICT ON CONSTRAINT authz_tuple_unique DO NOTHING`, [tenantId, subject, ADMIN_ROLE]);
+    if (tuple.rowCount) o.step(`${o.email} → Rolle ${ADMIN_ROLE} an der Organisation`);
+    const lvl = await c.query(`UPDATE ${S}.principal SET clearance = 2 WHERE id = $1 AND clearance <> 2`, [principalId]);
+    if (lvl.rowCount) o.step(`${o.email} → Freigabestufe 2`);
+    if (!before || tuple.rowCount) {
+      await c.query(`INSERT INTO ${S}.audit_log (tenant_id, actor_kind, source, action, resource_type, resource_id, data) VALUES ($1, 'system', 'system', 'tenant.provisioned', 'tenant', $1, $2)`,
+        [tenantId, JSON.stringify({ alias: o.alias, kcOrgId: o.orgId, admin: subject, via: 'iam-org-bootstrap' })]);
+    }
+    await c.query('COMMIT');
+    return { tenantId, principalId };
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw e;
+  } finally { await c.end(); }
 }

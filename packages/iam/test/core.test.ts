@@ -124,8 +124,8 @@ describe('Datenbank: Zustand, Kontext, Audit', { skip }, () => {
     await assert.rejects(withTx(t.runtime, tx => setContext(tx, { tenantId: A, settings: { 'app.tenant_id': 'x' } })), /nicht erlaubt/);
     await assert.rejects(withTx(t.runtime, tx => setContext(tx, { tenantId: A, settings: { 'search_path': 'x' } })), /nicht erlaubt/);
     // Fehler in der Transaktion: zurückgerollt, Verbindung wieder frei
-    await assert.rejects(withTenant(t.runtime, { tenantId: A }, async tx => { await tx.query("INSERT INTO notes.client_grant (tenant_id, client_id) VALUES ($1, 'roll')", [A]); throw new Error('Abbruch'); }), /Abbruch/);
-    assert.equal(await withTenant(t.runtime, { tenantId: A }, async tx => (await tx.query("SELECT count(*)::int AS n FROM notes.client_grant WHERE client_id = 'roll'")).rows[0].n), 0);
+    await assert.rejects(withTenant(t.runtime, { tenantId: A }, async tx => { await tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'org-admin', 'org')", [A]); throw new Error('Abbruch'); }), /Abbruch/);
+    assert.equal(await withTenant(t.runtime, { tenantId: A }, async tx => (await tx.query("SELECT count(*)::int AS n FROM notes.authz_tuple WHERE subject = 'org:members'")).rows[0].n), 0);
   });
 
   test('pgAudit schreibt im Mandanten des Kontexts, mit Akteur, Quelle und Korrelation', async () => {

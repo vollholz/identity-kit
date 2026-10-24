@@ -5,10 +5,12 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { aclChecks, ASSETS_ADOPTION, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { ASSETS_ADOPTION, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
 import { diffSnapshots, schemaSnapshot } from '../src/schema.ts';
 import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
+import { modelChecks } from '../src/migrations.ts';
+import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 
@@ -34,6 +36,7 @@ describe('IAM-Migrationen: Parameter', () => {
   'iam_012_acl_unique.sql': 'c39f849caeeb7fd8bc33188d052bad51d0d764b6fc3d5bb7a175044b117ff442',
   'iam_013_entra_consent_link.sql': 'b61dd7827c1efd3a4cba80b126eac93645ec930abbe9b27eeb8676f8faea3fb9',
   'iam_014_entra_own_app.sql': '4cf838b2aee77a309fe78d6528e2506d7ce1a1e928537478b796ef5ab8f9efe4',
+  'iam_015_authz.sql': '742337a726016c7582ed36b4a9c085065ec291fa1ddff6c5d1784ab73fac8bc2',
     };
     const now = new Map(iamMigrations({ product: 'assets', schema: 'assets' }).migrations.map(m => [m.name, m.checksum]));
     for (const [name, sum] of Object.entries(pinned)) {
@@ -43,37 +46,41 @@ describe('IAM-Migrationen: Parameter', () => {
     assert.deepEqual([...now.keys()].filter(n => !pinned[n]), [], 'neue Migration: Prüfsumme hier ergänzen');
   });
 
-  test('Dateien iam_001 … iam_014 in Reihenfolge, Stand der Übernahme dabei', () => {
+  test('Dateien iam_001 … iam_015 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
-    assert.equal(names.at(-1), 'iam_014_entra_own_app.sql');
+    assert.equal(names.at(-1), 'iam_015_authz.sql');
     for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
   });
 
-  test('Schema und Rollen werden eingesetzt; Prüfsummen hängen nicht an den Ressourcentypen', () => {
-    const a = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }).migrations;
+  test('Schema und Rollen werden eingesetzt; Prüfsummen hängen nicht am Modell', () => {
+    const a = iamMigrations({ product: 'notes', model: notesModel }).migrations;
     const core = a.find(m => m.name === 'iam_001_core.sql')!.sql;
     assert.match(core, /CREATE SCHEMA IF NOT EXISTS notes;/);
     assert.match(core, /TO notes_app, notes_sched;/);
     assert.match(a.find(m => m.name === 'iam_007_audit.sql')!.sql, /FOR ROLE notes_owner/);
     assert.match(a.find(m => m.name === 'iam_008_entra.sql')!.sql, /FOR SELECT TO notes_owner USING/);
-    // Ein neuer Ressourcentyp ist ein normaler Fall: keine Migration ändert sich
-    const b = iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'] }).migrations;
+    assert.match(a.find(m => m.name === 'iam_015_authz.sql')!.sql, /CREATE TABLE notes\.authz_tuple/);
+    // Ein neuer Typ oder eine neue Rolle ist ein normaler Fall: keine Migration ändert sich
+    const b = iamMigrations({ product: 'notes', model: { types: ['org', 'note'], relations: ['org-admin', 'viewer'] } }).migrations;
     assert.deepEqual(a.map(m => m.checksum), b.map(m => m.checksum));
     const c = iamMigrations({ product: 'notes', schema: 'other' }).migrations;
     assert.notEqual(a[0]!.checksum, c[0]!.checksum);
   });
 
-  test('Bedingungen zu Ressourcentypen und Blättern (Form wie PostgreSQL sie ausgibt)', () => {
-    assert.deepEqual(aclChecks({ resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['note'] }), {
-      acl_entry_resource_type_check: { sql: "CHECK (resource_type IN ('tenant', 'folder', 'note'))", def: "CHECK ((resource_type = ANY (ARRAY['tenant'::text, 'folder'::text, 'note'::text])))" },
-      acl_entry_grant_resource_check: { sql: "CHECK (effect <> 'grant' OR resource_type <> 'note')", def: "CHECK (((effect <> 'grant'::text) OR (resource_type <> 'note'::text)))" },
+  test('Bedingungen zu Relationen und Typen von authz_tuple (Form wie PostgreSQL sie ausgibt)', () => {
+    assert.deepEqual(modelChecks({ types: ['org', 'folder', 'note'], relations: ['org-admin', 'editor'] }), {
+      authz_tuple_relation_check: { sql: "CHECK (relation IN ('org-admin', 'editor'))", def: "CHECK ((relation = ANY (ARRAY['org-admin'::text, 'editor'::text])))" },
+      authz_tuple_object_type_check: { sql: "CHECK (object_type IN ('org', 'folder', 'note'))", def: "CHECK ((object_type = ANY (ARRAY['org'::text, 'folder'::text, 'note'::text])))" },
     });
-    assert.match(aclChecks({ resourceTypes: ['tenant', 'a', 'b'], leafTypes: ['a', 'b'] }).acl_entry_grant_resource_check!.sql, /NOT IN \('a', 'b'\)/);
-    assert.equal(aclChecks({}).acl_entry_grant_resource_check, null);
-    assert.deepEqual(aclChecks({}).acl_entry_resource_type_check, { sql: "CHECK (resource_type IN ('tenant'))", def: "CHECK ((resource_type = 'tenant'::text))" });
+    assert.deepEqual(modelChecks(), {
+      authz_tuple_relation_check: { sql: "CHECK (relation IN ('org-admin'))", def: "CHECK ((relation = 'org-admin'::text))" },
+      authz_tuple_object_type_check: { sql: "CHECK (object_type IN ('org'))", def: "CHECK ((object_type = 'org'::text))" },
+    });
+    const all = modelChecks({ types: [...notesModel.types.keys()], relations: notesModel.allRelations() });
+    for (const r of ['org-admin', 'editor', 'viewer', 'member', 'owner']) assert.match(all.authz_tuple_relation_check!.sql, new RegExp(`'${r}'`), r);
   });
 
   test('Produkt mit Bindestrich: Schema und Rollen mit Unterstrich (gleiche Regel wie die Konfiguration)', () => {
@@ -88,12 +95,9 @@ describe('IAM-Migrationen: Parameter', () => {
   test('ungültige Parameter brechen ab (nie roh ins SQL)', () => {
     assert.throws(() => iamMigrations({ product: 'Notes' }), /product/);
     assert.throws(() => iamMigrations({ product: 'notes', schema: 'notes; DROP' }), /schema/);
-    assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['note'] }), /tenant/);
-    assert.throws(() => aclChecks({ resourceTypes: ['tenant', "x')"] }), /ungültig/);
-    assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', "x')"] }), /ungültig/);
-    assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['tenant'] }), /leafTypes/);
-    assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['folder'] }), /leafTypes/);
-    assert.throws(() => iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note', 'note'] }), /doppelt/);
+    assert.throws(() => iamMigrations({ product: 'notes', model: { types: ['note'], relations: ['org-admin'] } }), /org/);
+    assert.throws(() => modelChecks({ types: ['org', "x')"], relations: [] }), /ungültig/);
+    assert.throws(() => iamMigrations({ product: 'notes', model: { types: ['org'], relations: ["x')"] } }), /ungültig/);
     assert.throws(() => render('SELECT {{nope}}', {}), /Unbekannter Platzhalter/);
   });
 
@@ -115,7 +119,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     const note = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.note'::regclass")).rows[0];
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(again, { applied: [], adopted: [], skipped: 15 });
+    assert.deepEqual(again, { applied: [], adopted: [], skipped: 16 });
     const log: string[] = [];
     await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra], m => log.push(m));
     assert.deepEqual(log, [], 'Abgleich ohne Änderung meldet nichts');
@@ -125,34 +129,37 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     await assert.rejects(migrate(t.runtimeUrl, [iamMigrations({ product: 'notes' })]), /laufen als notes_owner, nicht als notes_runtime/);
   });
 
-  test('Ressourcentypen ändern sich mit dem Katalog: Abgleich ohne neue Migration, zweiter Lauf ohne Änderung', async () => {
+  test('Typen und Relationen ändern sich mit dem Modell: Abgleich ohne neue Migration, zweiter Lauf ohne Änderung', async () => {
     const def = async () => Object.fromEntries((await t.inspect.query<{ n: string; d: string }>(
-      "SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = 'notes.acl_entry'::regclass AND conname LIKE 'acl_entry_%_check' AND conname <> 'acl_entry_principal_type_check' AND conname <> 'acl_entry_effect_check'")).rows.map(r => [r.n, r.d]));
-    assert.deepEqual(await def(), { acl_entry_resource_type_check: "CHECK ((resource_type = 'tenant'::text))" });
+      "SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = 'notes.authz_tuple'::regclass AND conname IN ('authz_tuple_relation_check', 'authz_tuple_object_type_check')")).rows.map(r => [r.n, r.d]));
+    assert.deepEqual(await def(), { authz_tuple_relation_check: "CHECK ((relation = 'org-admin'::text))", authz_tuple_object_type_check: "CHECK ((object_type = 'org'::text))" });
     const log: string[] = [];
-    const wider = { product: 'notes', resourceTypes: ['tenant', 'folder', 'note'], leafTypes: ['folder', 'note'] };
+    const wider = { product: 'notes', model: { types: ['org', 'folder'], relations: ['org-admin', 'editor'] } };
     const r = await migrate(t.adminUrl, [iamMigrations(wider), extra], m => log.push(m));
     assert.deepEqual(r.applied, []);
-    assert.deepEqual(log, ['Bedingung acl_entry_resource_type_check an den Katalog angepasst', 'Bedingung acl_entry_grant_resource_check an den Katalog angepasst']);
-    const want = aclChecks(wider);
-    assert.deepEqual(await def(), { acl_entry_resource_type_check: want.acl_entry_resource_type_check!.def, acl_entry_grant_resource_check: want.acl_entry_grant_resource_check!.def });
+    assert.deepEqual(log, ['Bedingung authz_tuple_relation_check an das Modell angepasst', 'Bedingung authz_tuple_object_type_check an das Modell angepasst']);
+    const want = modelChecks(wider.model);
+    assert.deepEqual(await def(), { authz_tuple_relation_check: want.authz_tuple_relation_check!.def, authz_tuple_object_type_check: want.authz_tuple_object_type_check!.def });
     const again: string[] = [];
     await migrate(t.adminUrl, [iamMigrations(wider), extra], m => again.push(m));
     assert.deepEqual(again, []);
-    // Typ entfernen, der noch verwendet wird: Abbruch mit Hinweis, Bedingung bleibt
+    // Relation entfernen, die noch verwendet wird: Abbruch mit Hinweis, Bedingung bleibt (Kap. 8.2)
     const id = (await t.runtime.query<{ id: string }>("SELECT app.resolve_tenant('alpha', null, 'alpha', true) AS id")).rows[0]!.id;
-    await t.inspect.query("INSERT INTO notes.acl_entry (tenant_id, resource_type, resource_id, principal_type, principal_ref, permission, effect) VALUES ($1, 'folder', gen_random_uuid(), 'role', 'r', 'note:read', 'deny')", [id]);
-    await assert.rejects(migrate(t.adminUrl, [iamMigrations({ product: 'notes', resourceTypes: ['tenant', 'note'], leafTypes: ['note'] }), extra]), /acl_entry_resource_type_check lässt sich nicht an den Katalog anpassen/);
-    assert.equal((await def()).acl_entry_resource_type_check, want.acl_entry_resource_type_check!.def);
-    await t.inspect.query("DELETE FROM notes.acl_entry WHERE resource_type = 'folder'");
-    // Ohne Blätter verschwindet die Bedingung zu Freigaben
+    await t.inspect.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type, object_id) VALUES ($1, 'org:members', 'editor', 'folder', gen_random_uuid())", [id]);
+    await assert.rejects(migrate(t.adminUrl, [iamMigrations({ product: 'notes', model: { types: ['org', 'folder'], relations: ['org-admin'] } }), extra]), /authz_tuple_relation_check lässt sich nicht an das Modell anpassen.*Tupel mit entfernten Relationen oder Typen zuerst löschen/);
+    assert.equal((await def()).authz_tuple_relation_check, want.authz_tuple_relation_check!.def);
+    await t.inspect.query("DELETE FROM notes.authz_tuple WHERE object_type = 'folder'");
     await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(await def(), { acl_entry_resource_type_check: "CHECK ((resource_type = 'tenant'::text))" });
+    assert.deepEqual(await def(), { authz_tuple_relation_check: "CHECK ((relation = 'org-admin'::text))", authz_tuple_object_type_check: "CHECK ((object_type = 'org'::text))" });
   });
 
-  test('iam_009: eigene Rollen mit Primärschlüssel (tenant_id, id)', async () => {
-    const pk = (await t.inspect.query("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'tenant_role_pkey'")).rows[0].d;
-    assert.equal(pk, 'PRIMARY KEY (tenant_id, id)');
+  test('iam_015: alte Tabellen (Zugriffsregeln, eigene Rollen, Freigaben) entfernt, authz_tuple mit RLS', async () => {
+    const tables = (await t.inspect.query<{ t: string }>("SELECT tablename AS t FROM pg_tables WHERE schemaname = 'notes' AND tablename IN ('acl_entry', 'tenant_role', 'client_grant', 'authz_tuple')")).rows.map(r => r.t);
+    assert.deepEqual(tables, ['authz_tuple']);
+    const rls = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.authz_tuple'::regclass")).rows[0];
+    assert.deepEqual(rls, { r: true, f: true });
+    const cols = (await t.inspect.query<{ c: string }>("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = 'notes' AND table_name = 'principal' AND column_name IN ('last_roles', 'clearance', 'clearance_boost', 'clearance_until')")).rows.map(r => r.c).sort();
+    assert.deepEqual(cols, ['clearance', 'clearance_boost', 'clearance_until']);
   });
 
   test('geänderte Migration und doppelte Namen brechen ab', async () => {
@@ -189,7 +196,7 @@ describe('Übernahme (adopted)', { skip }, () => {
   test('Objekte vorhanden, Marke angewendet: bis zur Grundlage eingetragen, Späteres ausgeführt', async () => {
     const r = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual(r.adopted, iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name));
-    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql']);
+    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql']);
     const again = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual([again.applied, again.adopted], [[], []]);
   });
@@ -223,13 +230,13 @@ describe('Übernahme (adopted)', { skip }, () => {
   });
 
   test('frische Datenbank: IAM direkt nach der Marke, spätere Migrationen der App dürfen spätere IAM-Migrationen voraussetzen', async () => {
-    const needs = migration('050_needs_iam_009.sql', "SELECT 1 / (SELECT count(*)::int FROM pg_constraint WHERE conname = 'tenant_role_pkey' AND pg_get_constraintdef(oid) = 'PRIMARY KEY (tenant_id, id)');");
+    const needs = migration('050_needs_iam_009.sql', "SELECT 1 / (SELECT count(*)::int FROM pg_constraint WHERE conname = 'authz_tuple_pkey');");
     const app = own('notes');
     const fresh = productDb({ iam: false, sources: [{ ...app, migrations: [...app.migrations, needs] }, iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })] });
     const f = await fresh.create();
     try {
       const order = (await f.inspect.query<{ name: string }>('SELECT name FROM public.schema_migrations ORDER BY applied_at, name')).rows.map(r => r.name);
-      assert.deepEqual(order.slice(-7), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', '050_needs_iam_009.sql']);
+      assert.deepEqual(order.slice(-8), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', '050_needs_iam_009.sql']);
     } finally { await f.drop(); }
   });
 
@@ -270,8 +277,9 @@ describe('iam_012: keine doppelten Zugriffsregeln', { skip }, () => {
       `INSERT INTO notes.acl_entry (tenant_id, resource_type, principal_type, principal_ref, permission, effect) VALUES ($1, 'tenant', 'role', $2, 'note:read', $3) RETURNING id`, [A, ref, effect])).rows[0]!.id;
     const ids: string[] = [];
     for (const [effect, ref] of [['deny', 'viewer'], ['deny', 'viewer'], ['deny', 'viewer'], ['restrict', 'viewer'], ['deny', 'editor']]) ids.push(await withTenant(t.runtime, { tenantId: A }, tx => insert(tx, effect, ref)));
-    const r = await migrate(t.adminUrl, [iam]);
-    assert.deepEqual(r.applied, ['iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql']);
+    // Nur bis iam_012 (iam_015 entfernt acl_entry)
+    const r = await migrate(t.adminUrl, [{ ...iam, migrations: iam.migrations.filter(m => m.name < 'iam_013') }]);
+    assert.deepEqual(r.applied, ['iam_012_acl_unique.sql']);
     const left = (await t.inspect.query<{ id: string }>('SELECT id FROM notes.acl_entry ORDER BY created_at, id')).rows.map(x => x.id);
     assert.deepEqual(left.sort(), [ids[0]!, ids[3]!, ids[4]!].sort(), 'ein Duplikat bleibt (das älteste), andere Wirkung und Rolle bleiben');
     await assert.rejects(withTenant(t.runtime, { tenantId: A }, tx => insert(tx)), (e: { code?: string }) => e.code === '23505');
@@ -307,7 +315,7 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
       // ohne Zuordnung: iam_012 scheitert am bestehenden Index (der Befund, der die Umstellung von Assets blockierte)
       await assert.rejects(migrate(old.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
       const r = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
-      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql']);
+      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql']);
       assert.deepEqual(r.adopted, [...iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name),
         'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
       assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(t.inspect, 'notes')), []);

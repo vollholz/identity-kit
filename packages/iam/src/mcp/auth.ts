@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { Catalog } from '../catalog.ts';
+import type { Model } from '../model.ts';
 import type { IamConfig } from '../config.ts';
 import { HttpError } from '../errors.ts';
 import { ALIAS_PATTERN, orgAlias, orgsFromClaims } from '../principal.ts';
@@ -35,7 +35,7 @@ export interface McpRequest { method: string; url: string; headers: Record<strin
 
 export interface McpAuthOptions {
   cfg: IamConfig;
-  catalog: Catalog;
+  model: Model;
   verifier: TokenVerifier;
   exchanger: TokenExchanger;
   fetch?: typeof fetch;
@@ -90,19 +90,19 @@ export class McpAuth {
     this.metadataPaths = [...new Set(['/.well-known/oauth-protected-resource', `/.well-known/oauth-protected-resource${path}`])];
     this.metadataUrl = `${u.origin}${this.metadataPaths.at(-1)}`;
     this.origins = new Set([u.origin, ...(o.allowedOrigins ?? [])]);
-    this.defaultScopes = ['openid', 'organization:*', ...(o.catalog.scopes.has(`${o.catalog.product}:read`) ? [`${o.catalog.product}:read`] : [])];
+    this.defaultScopes = ['openid', 'organization:*', ...(o.model.scopes.has(`${o.model.product}:read`) ? [`${o.model.product}:read`] : [])];
   }
 
   /** OAuth Protected Resource Metadata (RFC 9728) mit den Scopes des Katalogs. */
   metadata() {
-    const { cfg, catalog } = this.o;
+    const { cfg, model } = this.o;
     return {
       resource: this.resource,
       authorization_servers: [cfg.oidc.issuer],
       // nur organization:* – zusammen mit «organization» weist Keycloak die ganze Anfrage ab (invalid_scope)
-      scopes_supported: ['openid', 'organization:*', ...catalog.scopes.keys()],
+      scopes_supported: ['openid', 'organization:*', ...model.scopes.keys()],
       bearer_methods_supported: ['header'],
-      resource_name: this.o.resourceName ?? `${catalog.product} (MCP)`,
+      resource_name: this.o.resourceName ?? `${model.product} (MCP)`,
       resource_documentation: `${cfg.publicBaseUrl}/v1/docs`,
       dpop_signing_alg_values_supported: ['ES256', 'PS256', 'RS256'],
     };
@@ -132,14 +132,14 @@ export class McpAuth {
 
   /** Schritte 1–4; liefert die Organisationen, in denen die Anfrage handeln darf (mindestens eine). */
   async authorize(req: McpRequest): Promise<McpAuthorized> {
-    const { cfg, catalog, exchanger } = this.o;
+    const { cfg, model, exchanger } = this.o;
     const header = (n: string) => { const v = req.headers[n]; return typeof v === 'string' ? v : undefined; };
     // Schutz gegen DNS-Rebinding (MCP-Spezifikation): fremde Browser-Ursprünge abweisen
     const origin = header('origin');
     if (origin && !this.origins.has(origin)) throw new HttpError(403, 'Ursprung nicht erlaubt', `Origin «${origin}» ist nicht zugelassen.`);
     const v = await this.authenticate(req);
     const scopes = String(v.claims.scope ?? '').split(' ').filter(Boolean);
-    if (!catalog.permissionsForScopes(scopes).size) {
+    if (!model.permissionsForScopes(scopes).size) {
       throw new HttpError(403, 'Scope fehlt', `Das Token enthält keinen Scope für den Katalog. Mindestens «${this.defaultScopes.at(-1)}» anfordern.`, { 'WWW-Authenticate': this.challenge('insufficient_scope') });
     }
     if (req.method !== 'POST') throw new HttpError(405, 'Nur POST', 'Dieser Dienst ist zustandslos: nur POST, kein SSE-Strom und keine Sitzungen.', { allow: 'POST' });

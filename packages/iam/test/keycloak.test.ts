@@ -89,17 +89,14 @@ test('Pfadsegmente: «..», «.», leer und «/» werden abgewiesen, bevor eine 
   const sent: string[] = [];
   const kca = new KeycloakAdmin(cfg, TOKEN, async (i, init) => { sent.push(`${init?.method ?? 'GET'} ${String(i)}`); return fake.fetch(i, init); });
   for (const bad of ['..', '.', '', 'a/b', '../users']) {
-    for (const run of [() => kca.deleteUser(bad), () => kca.removeMember(o.id, bad), () => kca.leaveGroup(bad, 'g'), () => kca.deleteIdp(bad), () => kca.deleteCredential('u', bad), () => kca.getUser(bad)]) {
+    for (const run of [() => kca.deleteUser(bad), () => kca.removeMember(o.id, bad), () => kca.deleteIdp(bad), () => kca.deleteCredential('u', bad), () => kca.getUser(bad)]) {
       await assert.rejects(run(), (e: unknown) => e instanceof HttpError && e.status === 422, `«${bad}»`);
     }
   }
-  await assert.rejects(kca.groupByPath('/orgs/../demo'), (e: unknown) => e instanceof HttpError && e.status === 422);
-  await assert.rejects(kca.groupByPath('/orgs/./demo'), (e: unknown) => e instanceof HttpError && e.status === 422);
   assert.deepEqual(sent, [], 'keine Anfrage, auch kein Token');
   assert.equal(seg('a b%'), 'a%20b%25');
   assert.equal(seg('ok.id'), 'ok.id');
-  fake.groupPath('/orgs/demo/viewer');
-  assert.equal((await kca.groupByPath('/orgs/demo/viewer'))!.path, '/orgs/demo/viewer');
+  await assert.rejects(kca.idpMappers('../x'), (e: unknown) => e instanceof HttpError && e.status === 422);
 });
 
 test('401 der Admin-API: einmal mit neuem Token wiederholt; Meldung von Keycloak nur im Fehler fürs Log, nicht in der Antwort', async () => {

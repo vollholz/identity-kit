@@ -16,7 +16,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`Zugriff: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
     // viele Dialoge × zwei Breiten mit axe: unter paralleler Last länger als der Standard
     test.slow();
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html?p=notes');

@@ -9,9 +9,9 @@
  *   Der Runner läuft nur als Besitzer-Rolle des Produkts (`<ident>_owner`), sonst Abbruch.
  * - Die IAM-Migrationen liegen als SQL mit Platzhaltern im Paket (`migrations/iam_NNN_*.sql`); `iamMigrations` setzt
  *   Schema und Datenbankrollen ein. Die Prüfsumme gilt für den eingesetzten Text.
- * - Ressourcentypen der Zugriffsregeln und Blätter der Kette (CHECK-Bedingungen von `acl_entry`) hängen am Katalog der
- *   App und ändern sich mit ihm. Sie stehen deshalb nicht in einer Migration, sondern werden nach den IAM-Migrationen
- *   abgeglichen (`syncAclChecks`): ein neuer Ressourcentyp braucht keine eigene Migration und bricht keine Prüfsumme.
+ * - Relationen und Typen der Tupel (CHECK-Bedingungen von `authz_tuple`) hängen am Modell der App und ändern sich mit
+ *   ihm. Sie stehen deshalb nicht in einer Migration, sondern werden nach den IAM-Migrationen abgeglichen
+ *   (`syncModelChecks`): ein neuer Typ oder eine neue Rolle braucht keine eigene Migration und bricht keine Prüfsumme.
  * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat (Assets bis 049, mit `adopted.map` bis 053), trägt die
  *   IAM-Migrationen bis IAM_BASELINE als angewendet ein, ohne sie auszuführen – nur wenn ihre Vorbedingungen erfüllt
  *   sind (in derselben Transaktion), sonst bricht der Runner ab und trägt nichts ein. Die IAM-Migrationen laufen dann
@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { productIdent } from './config.ts';
 import { LOCKS } from './locks.ts';
+import { ADMIN_ROLE, ORG, type Model } from './model.ts';
 
 export interface Migration { name: string; sql: string; checksum: string }
 
@@ -80,10 +81,8 @@ export interface IamMigrationOptions {
   product: string;
   /** Schema der Tabellen (Standard: `productIdent(product)`). */
   schema?: string;
-  /** Ressourcentypen der Zugriffsregeln (mit `tenant`, Reihenfolge wie im Katalog); Standard nur `tenant`. */
-  resourceTypes?: readonly string[];
-  /** Blätter der Kette: dort nie `grant` (Kap. 7.1; Assets: `object`). */
-  leafTypes?: readonly string[];
+  /** Modell der App (Typen und Relationen für die CHECKs von `authz_tuple`); Standard nur `org` mit `org-admin`. */
+  model?: ModelChecksInput | Pick<Model, 'types' | 'allRelations'>;
   /**
    * Objekte bestehen schon aus Migrationen der App (Assets: bis `049_tenant_roles.sql`): IAM-Migrationen bis
    * `IAM_BASELINE` nur eintragen, wenn `after` angewendet ist und die Objekte geschützt vorhanden sind.
@@ -123,29 +122,19 @@ export function render(sql: string, vars: Record<string, string>): string {
   });
 }
 
-/** Geprüfte Ressourcentypen und Blätter. */
-function aclTypes(o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): { types: string[]; leaves: string[] } {
-  const types = [...(o.resourceTypes ?? ['tenant'])];
-  const leaves = [...(o.leafTypes ?? [])];
-  if (!types.includes('tenant')) throw new Error('resourceTypes: «tenant» fehlt (Wurzel der Kette)');
-  for (const t of [...types, ...leaves]) if (!TYPE.test(t)) throw new Error(`Ressourcentyp «${t}» ungültig`);
-  for (const t of leaves) if (!types.includes(t) || t === 'tenant') throw new Error(`leafTypes: «${t}» ist kein Ressourcentyp unter dem Mandanten`);
-  if (new Set(types).size !== types.length) throw new Error('resourceTypes: doppelte Einträge');
-  return { types, leaves };
-}
-
 /** Die SQL-Migrationen des IAM mit eingesetzten Parametern, dazu Abgleich der Ressourcentypen und ggf. Übernahme. */
 export function iamMigrations(o: IamMigrationOptions): MigrationSource {
   const ident = productIdent(o.product);
   const schema = o.schema ?? ident;
   if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
-  const acl = aclTypes(o);
+  const checks = o.model && 'allRelations' in o.model ? modelChecksInput(o.model) : o.model;
+  modelChecks(checks);
   const roles = { owner: `${ident}_owner`, app: `${ident}_app`, sched: `${ident}_sched` };
   const files = readdirSync(IAM_MIGRATIONS_DIR).filter(f => /^iam_\d{3}_[\w-]+\.sql$/.test(f)).sort();
   const migrations = files.map(f => migration(f, render(readFileSync(join(IAM_MIGRATIONS_DIR, f), 'utf8'), { schema, ...roles })));
   return {
     name: 'iam', migrations, owner: roles.owner,
-    sync: c => syncAclChecks(c, schema, { resourceTypes: acl.types, leafTypes: acl.leaves }),
+    sync: c => syncModelChecks(c, schema, checks),
     ...(o.adopted ? { adopt: adoption(o.adopted, migrations, schema, roles.app, roles.sched) } : {}),
   };
 }
@@ -161,47 +150,60 @@ function adoption(a: NonNullable<IamMigrationOptions['adopted']>, migrations: Mi
   return { upTo: IAM_BASELINE, after: a.after, also, check: c => adoptionProblems(c, { schema, app, sched, after: a.after, also }) };
 }
 
-const lit = (v: string) => `'${v}'`;
-const arr = (v: string[]) => `ARRAY[${v.map(x => `'${x}'::text`).join(', ')}]`;
+/** Typen und Relationen für die CHECKs von `authz_tuple`: aus dem Modell, sonst nur `org` mit `org-admin`. */
+export interface ModelChecksInput { types: readonly string[]; relations: readonly string[] }
 
-/** Bedingungen von `acl_entry` zu Ressourcentypen und Blättern: SQL zum Anlegen und die Form, die PostgreSQL ausgibt. */
-export function aclChecks(o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): Record<string, { sql: string; def: string } | null> {
-  const { types, leaves } = aclTypes(o);
-  return {
-    // IN mit einem Wert gibt PostgreSQL als Vergleich aus
-    acl_entry_resource_type_check: { sql: `CHECK (resource_type IN (${types.map(lit).join(', ')}))`, def: types.length === 1 ? `CHECK ((resource_type = ${lit(types[0]!)}::text))` : `CHECK ((resource_type = ANY (${arr(types)})))` },
-    // Freigaben nie auf Blättern; mit genau einem Blatt in derselben Form wie Assets 048
-    acl_entry_grant_resource_check: !leaves.length ? null : leaves.length === 1
-      ? { sql: `CHECK (effect <> 'grant' OR resource_type <> ${lit(leaves[0]!)})`, def: `CHECK (((effect <> 'grant'::text) OR (resource_type <> ${lit(leaves[0]!)}::text)))` }
-      : { sql: `CHECK (effect <> 'grant' OR resource_type NOT IN (${leaves.map(lit).join(', ')}))`, def: `CHECK (((effect <> 'grant'::text) OR (resource_type <> ALL (${arr(leaves)}))))` },
-  };
+/** Typen und Relationen eines Modells (Relationen aller Typen und alle Rollen). */
+export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'>): ModelChecksInput {
+  return { types: [...model.types.keys()], relations: model.allRelations() };
+}
+
+function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
+  const types = [...new Set(o?.types ?? [ORG])], relations = [...new Set(o?.relations ?? [ADMIN_ROLE])];
+  if (!types.includes(ORG)) throw new Error('model: Typ «org» fehlt (Wurzel der Kette)');
+  for (const t of [...types, ...relations]) if (!TYPE.test(t)) throw new Error(`model: Schlüssel «${t}» ungültig`);
+  return { types, relations };
+}
+
+const lit = (v: string) => `'${v}'`;
+const arr = (v: readonly string[]) => `ARRAY[${v.map(x => `'${x}'::text`).join(', ')}]`;
+const inCheck = (col: string, v: readonly string[]) => ({
+  sql: `CHECK (${col} IN (${v.map(lit).join(', ')}))`,
+  // IN mit einem Wert gibt PostgreSQL als Vergleich aus
+  def: v.length === 1 ? `CHECK ((${col} = ${lit(v[0]!)}::text))` : `CHECK ((${col} = ANY (${arr(v)})))`,
+});
+
+/** Bedingungen von `authz_tuple` zu Relationen und Typen: SQL zum Anlegen und die Form, die PostgreSQL ausgibt. */
+export function modelChecks(o?: ModelChecksInput): Record<string, { sql: string; def: string }> {
+  const { types, relations } = checkInput(o);
+  return { authz_tuple_relation_check: inCheck('relation', relations), authz_tuple_object_type_check: inCheck('object_type', types) };
 }
 
 /**
- * Gleicht die Bedingungen von `acl_entry` mit Ressourcentypen und Blättern des Katalogs ab (nach den IAM-Migrationen,
- * bei jedem Lauf). Unverändert → nichts. Bestehende Zugriffsregeln, die der neuen Bedingung widersprechen (Typ entfernt,
- * Freigabe auf neuem Blatt), brechen mit Meldung ab; dann zuerst diese Einträge bereinigen.
+ * Gleicht die CHECKs von `authz_tuple` mit dem Modell ab (nach den IAM-Migrationen, bei jedem Lauf; Spezifikation 10.2).
+ * Unverändert → nichts. Tupel mit einer nicht mehr bekannten Relation oder einem entfernten Typ lassen den Abgleich
+ * scheitern (Kap. 8.2: zuerst ihre Tupel löschen).
  */
-export async function syncAclChecks(c: pg.ClientBase, schema: string, o: Pick<IamMigrationOptions, 'resourceTypes' | 'leafTypes'>): Promise<string[]> {
+export async function syncModelChecks(c: pg.ClientBase, schema: string, model?: ModelChecksInput | Pick<Model, 'types' | 'allRelations'>): Promise<string[]> {
   if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
-  const want = aclChecks(o);
-  if (!(await c.query('SELECT to_regclass($1) AS t', [`${schema}.acl_entry`])).rows[0].t) return [];
+  const want = modelChecks(model && 'allRelations' in model ? modelChecksInput(model) : model);
+  if (!(await c.query('SELECT to_regclass($1) AS t', [`${schema}.authz_tuple`])).rows[0].t) return [];
   const have = new Map((await c.query<{ n: string; d: string }>(
-    `SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = '${schema}.acl_entry'::regclass AND conname = ANY ($1)`,
+    `SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = '${schema}.authz_tuple'::regclass AND conname = ANY ($1)`,
     [Object.keys(want)])).rows.map(r => [r.n, r.d]));
   const out: string[] = [];
   for (const [name, w] of Object.entries(want)) {
-    if ((have.get(name) ?? null) === (w?.def ?? null)) continue;
+    if (have.get(name) === w.def) continue;
     try {
-      await c.query('SAVEPOINT acl_check');
-      await c.query(`ALTER TABLE ${schema}.acl_entry DROP CONSTRAINT IF EXISTS ${name}`);
-      if (w) await c.query(`ALTER TABLE ${schema}.acl_entry ADD CONSTRAINT ${name} ${w.sql}`);
-      await c.query('RELEASE SAVEPOINT acl_check');
+      await c.query('SAVEPOINT model_check');
+      await c.query(`ALTER TABLE ${schema}.authz_tuple DROP CONSTRAINT IF EXISTS ${name}`);
+      await c.query(`ALTER TABLE ${schema}.authz_tuple ADD CONSTRAINT ${name} ${w.sql}`);
+      await c.query('RELEASE SAVEPOINT model_check');
     } catch (e) {
-      await c.query('ROLLBACK TO SAVEPOINT acl_check');
-      throw new Error(`Bedingung ${name} lässt sich nicht an den Katalog anpassen (${(e as Error).message}): bestehende Zugriffsregeln mit entfernten Ressourcentypen oder Freigaben auf Blättern zuerst löschen.`);
+      await c.query('ROLLBACK TO SAVEPOINT model_check');
+      throw new Error(`Bedingung ${name} lässt sich nicht an das Modell anpassen (${(e as Error).message}): Tupel mit entfernten Relationen oder Typen zuerst löschen.`);
     }
-    out.push(`Bedingung ${name} ${w ? 'an den Katalog angepasst' : 'entfernt (keine Blätter)'}`);
+    out.push(`Bedingung ${name} an das Modell angepasst`);
   }
   return out;
 }

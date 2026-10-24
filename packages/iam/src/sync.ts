@@ -13,22 +13,21 @@
  * - Maschinen-Clients (kind = client) bleiben unberührt.
  * - Offen eingeladene Personen (`member_invitation`) erscheinen erst nach Annahme, gleich ob für sie ein neues Konto
  *   angelegt wurde oder schon eines bestand. Aus Entra ID hinzugefügte gelten mit dem ersten Zugriff als angenommen.
- * - Mit Gruppenrechten (nur die Verwaltung, `RoleCleanup`): Rollengruppen `<prefix>/<alias>/<rolle>` von Personen, die
- *   weder Mitglied sind noch eine offene Einladung haben, werden entfernt (`member.roles_cleaned`) – sonst gälten bei
- *   einer Wiederaufnahme ausserhalb der App sofort die alten Rollen.
+ * - Tupel bleiben beim Austritt (A17): eine Rückkehr bringt die Rechte zurück. Im selben Lauf des Workers werden
+ *   abgelaufene Tupel gelöscht (`access.expired`) und abgelaufenes Break-Glass zurückgesetzt (`break_glass.ended` mit
+ *   `expired: true`, A8).
  * - Anzeigename: massgeblich ist der Name der Organisation in Keycloak. Weicht `tenant.name` ab (z. B. Alias als
  *   vorläufiger Name aus der Anlage beim ersten Login, Umbenennung in der Konsole), wird er nachgeführt
  *   (`organization.name_synced`, syncTenantName) – nur für den Mandanten mit derselben Keycloak-ID.
  *
- * Aufrufer: der Worker (MemberSync, alle Mandanten nach MEMBER_SYNC_INTERVAL, eigener Lese-Client KEYCLOAK_SYNC_*
- * ohne Rechte auf Benutzer und Gruppen, daher ohne Bereinigung der Rollengruppen) und die Verwaltung (admin.ts, nach
- * dem Entfernen und beim Öffnen der Mitgliederliste, mit Bereinigung).
+ * Aufrufer: der Worker (MemberSync, alle Mandanten nach MEMBER_SYNC_INTERVAL, eigener Lese-Client KEYCLOAK_SYNC_*)
+ * und die Verwaltung (admin.ts, nach dem Entfernen und beim Öffnen der Mitgliederliste).
  */
 import type { Actor, AuditPort } from './audit.ts';
 import { pgAudit } from './audit.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db } from './db.ts';
-import { KeycloakAdmin, type KcGroup, type KcOrg, type KcUser } from './keycloak.ts';
+import { KeycloakAdmin, type KcOrg, type KcUser } from './keycloak.ts';
 import { LOCKS, lockKey } from './locks.ts';
 import { asciiLower } from './principal.ts';
 import { findTenant, listTenants, type TenantRow } from './tenants.ts';
@@ -42,13 +41,7 @@ export const pendingActions = (u: KcUser) => (u.requiredActions ?? []).includes(
 /** Anzeigename aus Keycloak: Vor- und Nachname, sonst Adresse, sonst Benutzername. */
 export const displayName = (u: KcUser) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.username;
 
-export interface SyncResult { alias: string; members: number; added: number; updated: number; removed: number; rolesCleaned?: number; renamed?: boolean; skipped?: string }
-
-/**
- * Bereinigung der Rollengruppen einer Organisation. `members`: bereits gelesene Mitglieder je Rolle (wird angepasst);
- * ohne Angabe liest der Abgleich sie selbst.
- */
-export interface RoleCleanup { kc: KeycloakAdmin; orgId: string; groups: Map<string, KcGroup>; members?: Map<string, Set<string>> }
+export interface SyncResult { alias: string; members: number; added: number; updated: number; removed: number; expired?: number; breakGlassEnded?: number; renamed?: boolean; skipped?: string }
 
 const SYSTEM = (correlationId: string): Actor => ({ principal: null, source: 'system', correlationId });
 
@@ -89,15 +82,11 @@ export async function syncTenantName(ctx: SyncContext, db: Db, kc: Pick<Keycloak
 }
 
 /** Gleicht einen Mandanten mit den Mitgliedern seiner Organisation ab (eine Transaktion, Audit bei Änderungen). */
-export async function syncTenantMembers(ctx: SyncContext, db: Db, tenantId: string, alias: string, members: KcUser[], correlationId = 'sync:members', roles?: RoleCleanup): Promise<SyncResult> {
+export async function syncTenantMembers(ctx: SyncContext, db: Db, tenantId: string, alias: string, members: KcUser[], correlationId = 'sync:members'): Promise<SyncResult> {
   const S = schemaName(ctx.schema);
   return withTenant(db, { tenantId }, async tx => {
     // Gleichzeitige Abgleiche desselben Mandanten (Worker und API) nacheinander
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey.peopleSync(tenantId)]);
-    // Bereinigung der Rollengruppen: auch nach laufenden Änderungen der Verwaltung (gleiche Sperre wie admin.ts) – eine
-    // Einladung setzt die Rollen, bevor die Einladung gespeichert ist
-    if (roles) await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey.admin(alias)]);
-    const all = new Set(members.map(u => u.id));
     // Einladungen: angenommen, sobald Mitglied ohne offenes «Passwort setzen»; aus Entra ID (Konto ohne Passwort und
     // ohne Aktion) erst mit dem ersten Zugriff seit der Einladung. Offene erscheinen nicht im Verzeichnis.
     await tx.query(`UPDATE ${S}.member_invitation SET accepted_at = now() WHERE accepted_at IS NULL AND NOT entra AND user_id = ANY($1::text[])`, [members.filter(u => !pendingActions(u)).map(u => u.id)]);
@@ -119,33 +108,46 @@ export async function syncTenantMembers(ctx: SyncContext, db: Db, tenantId: stri
       [ids, members.map(displayName), members.map(u => u.email ?? null)]);
     const added = up.rows.filter(r => r.inserted).length;
     const removed = (await tx.query(
-      `UPDATE ${S}.principal SET removed_at = now() WHERE kind = 'user' AND removed_at IS NULL AND NOT (subject = ANY($1::text[]) OR subject = ANY($2::text[]))`, [ids, pending])).rowCount ?? 0;
+      `UPDATE ${S}.principal p SET removed_at = now() WHERE kind = 'user' AND removed_at IS NULL AND NOT (subject = ANY($1::text[]) OR subject = ANY($2::text[]))
+         AND NOT EXISTS (SELECT 1 FROM ${S}.member_invitation i WHERE i.user_id = p.subject AND i.accepted_at IS NULL)`, [ids, pending])).rowCount ?? 0;
     if (added || removed) {
       await ctx.audit.write(tx, SYSTEM(correlationId), { action: 'people.synced', resourceType: 'tenant', resourceId: tenantId, data: { alias, members: ids.length, added, removed } });
     }
-    let rolesCleaned: number | undefined;
-    if (roles) {
-      // Weder Mitglied noch offen eingeladen: Rollengruppen dieser Organisation entfernen. Eingeladene bestehende Konten
-      // (Mitglied erst nach Annahme) behalten die Rollen ihrer Einladung.
-      const cleaned = new Set<string>(), byRole: Record<string, number> = {};
-      for (const [role, g] of roles.groups) {
-        const inGroup = roles.members?.get(role) ?? new Set((await roles.kc.groupMembers(g.id)).map(u => u.id));
-        for (const id of [...inGroup]) {
-          if (all.has(id) || open.has(id)) continue;
-          // Liste der Mitglieder stammt von vor der Sperre: erst entfernen, wenn die Person noch immer kein Mitglied ist
-          if (await roles.kc.member(roles.orgId, id)) { all.add(id); continue; }
-          await roles.kc.leaveGroup(id, g.id);
-          inGroup.delete(id);
-          cleaned.add(id);
-          byRole[role] = (byRole[role] ?? 0) + 1;
-        }
-      }
-      rolesCleaned = cleaned.size;
-      // Nur Anzahl und Rollen: die Personen sind keine Mitglieder (mehr), ihre Konten gehören nicht in dieses Protokoll
-      if (cleaned.size) await ctx.audit.write(tx, SYSTEM(correlationId), { action: 'member.roles_cleaned', resourceType: 'tenant', resourceId: tenantId, data: { persons: cleaned.size, roles: byRole } });
-    }
-    return { alias, members: ids.length, added, updated: up.rows.length - added, removed, ...(rolesCleaned !== undefined ? { rolesCleaned } : {}) };
+    return { alias, members: ids.length, added, updated: up.rows.length - added, removed };
   });
+}
+
+/**
+ * Aufräumen eines Mandanten (A8): abgelaufene Tupel löschen (je Tupel `access.expired`), abgelaufenes Break-Glass
+ * zurücksetzen (`break_glass.ended` mit `expired: true`). Eine Transaktion; Tupel erhöhen acl_version (Trigger).
+ */
+export async function expireAccess(ctx: SyncContext, db: Db, tenantId: string, correlationId = 'sync:expire'): Promise<{ expired: number; breakGlassEnded: number }> {
+  const S = schemaName(ctx.schema);
+  return withTenant(db, { tenantId }, async tx => {
+    const actor = SYSTEM(correlationId);
+    const tuples = (await tx.query<{ id: string; subject: string; relation: string; object_type: string; object_id: string | null; expires_at: Date }>(
+      `DELETE FROM ${S}.authz_tuple WHERE expires_at IS NOT NULL AND expires_at <= now() RETURNING id, subject, relation, object_type, object_id, expires_at`)).rows;
+    for (const t of tuples) {
+      await ctx.audit.write(tx, actor, { action: 'access.expired', resourceType: 'tuple', resourceId: t.id, data: { subject: t.subject, relation: t.relation, type: t.object_type, id: t.object_id, expiresAt: t.expires_at.toISOString() } });
+    }
+    const ended = (await tx.query<{ id: string }>(
+      `UPDATE ${S}.principal SET clearance_boost = NULL, clearance_until = NULL WHERE clearance_until IS NOT NULL AND clearance_until <= now() RETURNING id`)).rows;
+    for (const p of ended) await ctx.audit.write(tx, actor, { action: 'break_glass.ended', resourceType: 'principal', resourceId: p.id, data: { expired: true } });
+    return { expired: tuples.length, breakGlassEnded: ended.length };
+  });
+}
+
+/** Aufräumen in allen aktiven Mandanten (Worker, auch ohne Abgleich mit Keycloak). */
+export async function expireAllAccess(ctx: SyncContext, db: Db, log: (m: string, d?: Record<string, unknown>) => void = () => undefined): Promise<{ alias: string; expired: number; breakGlassEnded: number }[]> {
+  const out: { alias: string; expired: number; breakGlassEnded: number }[] = [];
+  for (const t of await listTenants(db)) {
+    if (t.status !== 'active') continue;
+    try {
+      const r = await expireAccess(ctx, db, t.id);
+      if (r.expired || r.breakGlassEnded) out.push({ alias: t.alias, ...r });
+    } catch (e) { log('Aufräumen fehlgeschlagen', { alias: t.alias, error: (e as Error).message }); }
+  }
+  return out;
 }
 
 type Log = (m: string, d?: Record<string, unknown>) => void;
@@ -198,13 +200,19 @@ export class MemberSync {
 
   /** Ein Lauf über alle Mandanten; `null`, wenn gerade eine andere Instanz abgleicht. */
   async runOnce(): Promise<SyncResult[] | null> {
-    if (!this.kc) return [];
     const c = await this.db.connect();
     let locked = false;
     try {
       locked = (await c.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1) AS ok', [LOCKS.memberSync])).rows[0]!.ok;
       if (!locked) return null;
-      return await syncAllMembers(this.ctx, this.db, this.kc, this.log);
+      const synced = this.kc ? await syncAllMembers(this.ctx, this.db, this.kc, this.log) : [];
+      const expired = await expireAllAccess(this.ctx, this.db, this.log);
+      for (const e of expired) {
+        const hit = synced.find(r => r.alias === e.alias);
+        if (hit) Object.assign(hit, { expired: e.expired, breakGlassEnded: e.breakGlassEnded });
+        else synced.push({ alias: e.alias, members: 0, added: 0, updated: 0, removed: 0, expired: e.expired, breakGlassEnded: e.breakGlassEnded, skipped: 'nur aufgeräumt' });
+      }
+      return synced;
     } finally {
       if (locked) await c.query('SELECT pg_advisory_unlock($1)', [LOCKS.memberSync]).catch(() => undefined);
       c.release();
@@ -213,7 +221,7 @@ export class MemberSync {
 
   /** Regelmässig abgleichen: erster Lauf nach `firstDelayMs`, danach alle MEMBER_SYNC_INTERVAL. */
   start(firstDelayMs = 30_000) {
-    if (!this.kc) { this.log('Abgleich der Mitglieder abgeschaltet (KEYCLOAK_SYNC_CLIENT_ID fehlt)'); return; }
+    if (!this.kc) this.log('Abgleich der Mitglieder abgeschaltet (KEYCLOAK_SYNC_CLIENT_ID fehlt); abgelaufene Freigaben werden trotzdem aufgeräumt');
     if (this.cfg.memberSync.intervalMs <= 0) { this.log('Abgleich der Mitglieder abgeschaltet (MEMBER_SYNC_INTERVAL=0)'); return; }
     const loop = async () => {
       if (this.stopped) return;

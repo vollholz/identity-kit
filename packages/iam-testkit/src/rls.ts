@@ -114,3 +114,46 @@ export async function bypassRoleProblems(db: Query, o: { rolePrefix: string }): 
   if (!rows.length) out.push(`keine Rollen mit Präfix ${o.rolePrefix}`);
   return out;
 }
+
+/** Funktionen der Lesesicht (Spezifikation Kap. 7.6, 10.3) mit Signatur. */
+export const READ_VIEW_FUNCTIONS = [
+  'subjects()', 'clearance()', 'read_all()', 'write_all()', 'read_types()', 'write_types()', 'read_units()', 'write_units()',
+  'read_relations()', 'write_relations()', 'read_all_of(p_permission text)', 'relations_of(p_permission text)',
+  'has_tuple(p_object_type text, p_object_id uuid, p_relations text[])',
+];
+
+/**
+ * Tupel und Lesesicht (Kap. 7.6, 10.2, 10.3): `<schema>.authz_tuple` mit FORCE RLS und `tenant_isolation` für
+ * `appRole`, CHECKs aus dem Modell vorhanden; die Funktionen der Lesesicht in `app` bestehen, sind STABLE, SECURITY
+ * INVOKER, haben einen festen `search_path` und sind nur für `appRole` (nie PUBLIC) ausführbar.
+ */
+export async function readViewProblems(db: Query, o: { schema: string; appRole: string }): Promise<string[]> {
+  const out: string[] = [];
+  const t = (await db.query<{ rls: boolean; force: boolean; iso: boolean; checks: string[] }>(`
+    SELECT c.relrowsecurity AS rls, c.relforcerowsecurity AS force,
+           EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = n.nspname AND p.tablename = c.relname AND p.policyname = 'tenant_isolation' AND $2 = ANY (p.roles)) AS iso,
+           ARRAY(SELECT conname::text FROM pg_constraint WHERE conrelid = c.oid AND contype = 'c' ORDER BY 1) AS checks
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = 'authz_tuple'`, [o.schema, o.appRole])).rows[0];
+  if (!t) out.push(`${o.schema}.authz_tuple fehlt`);
+  else {
+    if (!t.rls || !t.force) out.push(`${o.schema}.authz_tuple: RLS mit FORCE fehlt`);
+    if (!t.iso) out.push(`${o.schema}.authz_tuple: Policy tenant_isolation für ${o.appRole} fehlt`);
+    for (const c of ['authz_tuple_subject_check', 'authz_tuple_org_check', 'authz_tuple_client_check', 'authz_tuple_relation_check', 'authz_tuple_object_type_check']) {
+      if (!t.checks.includes(c)) out.push(`${o.schema}.authz_tuple: CHECK ${c} fehlt${c.includes('relation') || c.includes('object_type') ? ' (syncModelChecks)' : ''}`);
+    }
+  }
+  const fns = new Map((await db.query<{ f: string; volatile: string; secdef: boolean; config: string[] | null; pub: boolean; app: boolean }>(`
+    SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS f, p.provolatile::text AS volatile, p.prosecdef AS secdef, p.proconfig AS config,
+           ${PUBLIC_EXEC} AS pub, has_function_privilege($1, p.oid, 'EXECUTE') AS app
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app'`, [o.appRole])).rows.map(r => [r.f, r]));
+  for (const f of READ_VIEW_FUNCTIONS) {
+    const r = fns.get(f);
+    if (!r) { out.push(`app.${f} fehlt`); continue; }
+    if (r.volatile !== 's') out.push(`app.${f}: nicht STABLE`);
+    if (r.secdef) out.push(`app.${f}: SECURITY DEFINER (soll SECURITY INVOKER sein)`);
+    if (!(r.config ?? []).some(c => c.startsWith('search_path='))) out.push(`app.${f}: search_path nicht fest`);
+    if (r.pub) out.push(`app.${f}: PUBLIC darf ausführen`);
+    if (!r.app) out.push(`app.${f}: ${o.appRole} darf nicht ausführen`);
+  }
+  return out;
+}

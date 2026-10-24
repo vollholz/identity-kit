@@ -1,20 +1,22 @@
 /**
- * Principal (Spezifikation Kap. 4, 6.2; aus Assets test/platform/unit.test.ts «Claims» und multi-org.test.ts auf Ebene
- * des Resolvers): Organisation aus dem Token, Wahl, Person oder Maschinen-Client, Rollen und Gruppen nur der gewählten
- * Organisation, Freigabe von Clients, Austritt, Bindung an die ID der Organisation, «Nur Entra».
+ * Principal (Spezifikation Kap. 4, 6.2): Organisation aus dem Token, Wahl, Person oder Maschinen-Client, Subjekte
+ * (Person, Gruppen aus Entra, «Alle Mitglieder»; Client), keine Rollen aus dem Token, Freigabe von Clients über Tupel an
+ * org, Austritt, Bindung an die ID der Organisation, «Nur Entra».
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { claimsFor } from '@vollholz/iam-testkit';
 import { withTenant } from '../src/db.ts';
 import type { HttpError } from '../src/errors.ts';
-import { isClient, isServiceAccount, orgAlias, orgsFromClaims, PrincipalResolver, rolesFromClaims, roleSourceWarning, tenantGroups } from '../src/principal.ts';
+import { AccessService, fullView } from '../src/access.ts';
+import { groupsFromClaims, isClient, isServiceAccount, orgAlias, orgsFromClaims, PrincipalResolver } from '../src/principal.ts';
 import { testConfig } from './support/config.ts';
 import { productDb, skipDb } from './support/db.ts';
+import { notesModel } from './support/models.ts';
 import { fails, verified } from './support/principal.ts';
 
 const skip = await skipDb();
-const t0 = { claim: 'organization', autoProvision: true, roleClientId: 'app', groupsClaim: 'groups', groupRolePrefix: '/orgs', platformAdminRole: 'pa', personClients: [] };
+const G1 = '0B6F2F7E-4C1D-4D2B-9A55-1F0C7C2D9E11', G2 = '1c7a3e8f-5d2e-4e3c-8b66-2a1d8d3e0f22';
 
 describe('Claims', () => {
   test('Organisationen als Liste, Objekt oder Text', () => {
@@ -24,32 +26,16 @@ describe('Claims', () => {
     assert.deepEqual(orgsFromClaims({ organization: 42 }, 'organization'), []);
   });
 
-  test('Rollenquelle client, groups, both', () => {
-    const claims = { resource_access: { app: { roles: ['viewer'] } }, groups: ['/orgs/acme/editor', '/orgs/x/org-admin'] };
-    assert.deepEqual(rolesFromClaims(claims, 'acme', { ...t0, roleSource: 'client' }), ['viewer']);
-    assert.deepEqual(rolesFromClaims(claims, 'acme', { ...t0, roleSource: 'groups' }), ['editor']);
-    assert.deepEqual(rolesFromClaims(claims, 'acme', { ...t0, roleSource: 'both' }).sort(), ['editor', 'viewer']);
-    // Service Accounts: Client-Rollen auch mit ROLE_SOURCE=groups (Freigabe je Mandant, E5)
-    assert.deepEqual(rolesFromClaims(claims, 'acme', { ...t0, roleSource: 'groups' }, true).sort(), ['editor', 'viewer']);
-    // Gruppen für Zugriffsregeln: nur eigene Organisation und Gruppen ohne Organisationspräfix
-    assert.deepEqual(tenantGroups({ groups: ['/orgs/acme/editor', '/orgs/x/org-admin', '/it', '/orgsx'] }, 'acme', { ...t0, roleSource: 'groups' }), ['/orgs/acme/editor', '/it', '/orgsx']);
+  test('Gruppen aus Entra: nur Objekt-IDs (GUID), klein, ohne Doppelte; Pfade von Keycloak-Gruppen zählen nicht', () => {
+    assert.deepEqual(groupsFromClaims({ groups: [G1, G2, G1.toLowerCase(), '/orgs/acme/editor', 'Abteilung', 42] }, 'groups'), [G1.toLowerCase(), G2]);
+    assert.deepEqual(groupsFromClaims({}, 'groups'), []);
   });
 
-  test('Client-Rollen nur für Service Accounts (E5), Warnung bei ROLE_SOURCE ≠ groups (O7)', () => {
-    const t = { ...t0, roleClientId: 'notes-platform', roleSource: 'groups' as const };
-    const person = { azp: 'fremd', preferred_username: 'dora', email: 'd@x.ch', resource_access: { 'notes-platform': { roles: ['org-admin'] } }, groups: ['/orgs/globex/viewer', '/orgs/acme/org-admin'] };
+  test('fremder Client mit Personendaten gilt als Maschinen-Client; Service Account erkannt', () => {
+    const person = { azp: 'fremd', preferred_username: 'dora', email: 'd@x.ch', resource_access: { 'notes-platform': { roles: ['org-admin'] } } };
     assert.equal(isClient(person, ['notes-platform']), true, 'fremder Client: Freigabe und Scope-Grenze wie für Maschinen');
     assert.equal(isServiceAccount(person), false);
-    assert.deepEqual(rolesFromClaims(person, 'globex', t, isServiceAccount(person)), ['viewer']);
-    assert.deepEqual(rolesFromClaims(person, 'globex', { ...t, roleSource: 'both' }, false).sort(), ['org-admin', 'viewer'], 'both: Client-Rollen gelten bei einer Organisation (Warnung beim Start)');
-    assert.deepEqual(rolesFromClaims(person, 'globex', { ...t, roleSource: 'both' }, false, 2), ['viewer'], 'both: mehrere Organisationen im Token → nur Gruppen');
-    assert.deepEqual(rolesFromClaims(person, 'globex', { ...t, roleSource: 'client' }, false, 2), [], 'client: mehrere Organisationen → keine Client-Rollen');
-    const sa = { azp: 'import', preferred_username: 'service-account-import', resource_access: { 'notes-platform': { roles: ['editor'] } } };
-    assert.equal(isServiceAccount(sa), true);
-    assert.deepEqual(rolesFromClaims(sa, 'globex', t, isServiceAccount(sa)), ['editor']);
-    assert.equal(roleSourceWarning(t), null);
-    for (const roleSource of ['both', 'client'] as const) assert.match(roleSourceWarning({ ...t, roleSource })!, /nur, wenn das Token genau eine Organisation enthält/);
-    assert.deepEqual(rolesFromClaims(sa, 'globex', t, true, 3), ['editor'], 'Service Accounts: Client-Rollen unabhängig von der Zahl der Organisationen');
+    assert.equal(isServiceAccount({ azp: 'import', preferred_username: 'service-account-import' }), true);
   });
 
   test('Alias der Organisation: nur ASCII klein geschrieben, sonst ungültig (Kelvin-Zeichen)', () => {
@@ -57,12 +43,6 @@ describe('Claims', () => {
     assert.equal(orgAlias('ACME_1-x'), 'acme_1-x');
     for (const bad of ['Kcme', 'a.b', '-acme', '', 'x'.repeat(64), 'acme ', 'ac/me', 'ı', 42]) assert.equal(orgAlias(bad), null, JSON.stringify(bad));
     assert.equal('Kcme'.toLowerCase(), 'kcme', 'toLowerCase() faltet das Kelvin-Zeichen');
-    const t = { ...t0, roleSource: 'groups' as const };
-    const claims = { groups: ['/orgs/ACME/editor', '/orgs/Kcme/org-admin', '/orgs/kcme-x/viewer'] };
-    assert.deepEqual(rolesFromClaims(claims, 'acme', t), ['editor']);
-    assert.deepEqual(rolesFromClaims(claims, 'kcme', t), [], 'Kelvin-Gruppe gilt nicht für «kcme»');
-    assert.deepEqual(tenantGroups(claims, 'kcme', t), []);
-    assert.deepEqual(tenantGroups(claims, 'acme', t), ['/orgs/ACME/editor']);
   });
 
   test('Person oder Maschinen-Client: Personen nur über die Clients der Plattform (azp)', () => {
@@ -76,28 +56,35 @@ describe('Claims', () => {
 });
 
 describe('Resolver gegen PostgreSQL', { skip }, () => {
-  const db = productDb();
+  const db = productDb({ model: notesModel });
   let t: Awaited<ReturnType<typeof db.create>>;
   let resolver: PrincipalResolver;
   const c = claimsFor({ personClientId: 'notes-platform' });
+  const access = () => new AccessService(t.runtime, { model: notesModel, schema: 'notes' });
+  /** Client freigeben: Principal (subject = Client-ID) und Tupel `client:<id> editor org`. */
   const grant = async (alias: string, clientId: string) => {
     const id = (await t.runtime.query<{ id: string }>('SELECT app.resolve_tenant($1, null, $1, true) AS id', [alias])).rows[0]!.id;
-    await withTenant(t.runtime, { tenantId: id }, tx => tx.query('INSERT INTO notes.client_grant (tenant_id, client_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, clientId]));
+    await withTenant(t.runtime, { tenantId: id, settings: fullView(notesModel) }, async tx => {
+      const pid = (await tx.query<{ id: string }>("INSERT INTO notes.principal AS p (tenant_id, kind, subject, client_id, last_seen_at) VALUES ($1, 'client', $2, $2, NULL) ON CONFLICT (tenant_id, kind, subject) DO UPDATE SET client_id = p.client_id RETURNING id", [id, clientId])).rows[0]!.id;
+      await tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, $2, 'editor', 'org') ON CONFLICT DO NOTHING", [id, `client:${pid}`]);
+    });
     return id;
   };
   const tenantCount = async (alias: string) => (await t.inspect.query('SELECT count(*)::int AS n FROM notes.tenant WHERE alias = $1', [alias])).rows[0].n;
 
   before(async () => {
     t = await db.create();
-    resolver = new PrincipalResolver(t.runtime, testConfig('http://idp.test/realms/notes'), { schema: 'notes' });
+    resolver = new PrincipalResolver(t.runtime, testConfig('http://idp.test/realms/notes'), { schema: 'notes', access: access() });
   });
   after(async () => { await t?.drop(); });
 
-  test('Person: Mandant just in time, Rollen aus Gruppen der Organisation, Principal gespiegelt', async () => {
-    const p = await resolver.resolve(verified({ ...c.user({ org: 'acme', sub: 'u1', groupRoles: ['editor'], name: 'Anna', email: 'anna@acme.ch' }), groups: ['/orgs/acme/editor', '/orgs/globex/org-admin', '/team'], realm_access: { roles: ['pa', 'platform-admin'] } }));
-    assert.deepEqual([p.kind, p.tenantAlias, p.roles, p.groups, p.name, p.email, p.platformAdmin, p.scopeBound, p.clientId], ['user', 'acme', ['editor'], ['/orgs/acme/editor', '/team'], 'Anna', 'anna@acme.ch', true, false, 'notes-platform']);
-    const row = (await t.inspect.query('SELECT kind, subject, display_name, email, client_id, last_roles, last_seen_at IS NOT NULL AS seen FROM notes.principal WHERE id = $1', [p.principalId])).rows[0];
-    assert.deepEqual(row, { kind: 'user', subject: 'u1', display_name: 'Anna', email: 'anna@acme.ch', client_id: 'notes-platform', last_roles: null, seen: true });
+  test('Person: Mandant just in time, keine Rollen aus dem Token, Subjekte mit Gruppen aus Entra, Principal gespiegelt', async () => {
+    const p = await resolver.resolve(verified({ ...c.user({ org: 'acme', sub: 'u1', name: 'Anna', email: 'anna@acme.ch', groups: [G1, '/orgs/acme/editor'] }), resource_access: { 'notes-platform': { roles: ['org-admin'] } }, realm_access: { roles: ['pa', 'platform-admin'] } }));
+    assert.deepEqual([p.kind, p.tenantAlias, p.groups, p.name, p.email, p.platformAdmin, p.scopeBound, p.clientId], ['user', 'acme', [G1.toLowerCase()], 'Anna', 'anna@acme.ch', true, false, 'notes-platform']);
+    assert.deepEqual(p.subjects, [`user:${p.principalId}`, `group:${G1.toLowerCase()}`, 'org:members']);
+    assert.ok(!('roles' in p), 'Rollen stehen nie im Principal');
+    const row = (await t.inspect.query('SELECT kind, subject, display_name, email, client_id, clearance, last_seen_at IS NOT NULL AS seen FROM notes.principal WHERE id = $1', [p.principalId])).rows[0];
+    assert.deepEqual(row, { kind: 'user', subject: 'u1', display_name: 'Anna', email: 'anna@acme.ch', client_id: 'notes-platform', clearance: 0, seen: true });
   });
 
   test('mehrere Organisationen: ohne Wahl 400 mit eigener Liste, Wahl, fremde 403, je Mandant eigener Principal', async () => {
@@ -119,39 +106,37 @@ describe('Resolver gegen PostgreSQL', { skip }, () => {
     await fails(resolver.resolve(verified({ ...c.user({ org: 'acme' }), organization: undefined })), 403, 'Keine Organisation');
   });
 
-  test('Maschinen-Client: nie Anlage eines Mandanten, ohne Freigabe 403, mit Freigabe Client-Rollen, Scopes am Principal', async () => {
-    const claims = c.client({ clientId: 'importer', org: 'neu-org', roles: ['editor'], scopes: ['notes:read'] });
+  test('Maschinen-Client: nie Anlage eines Mandanten oder Principals, ohne Freigabe 403, Scopes am Principal', async () => {
+    const claims = c.client({ clientId: 'importer', org: 'neu-org', scopes: ['notes:read'] });
     await fails(resolver.resolve(verified(claims)), 403, 'Organisation nicht verfügbar');
     assert.equal(await tenantCount('neu-org'), 0, 'Maschinen-Clients legen keinen Mandanten an');
-    const acme = verified(c.client({ clientId: 'importer', org: 'acme', roles: ['editor'], scopes: ['notes:read', 'notes:write'] }));
+    const acme = verified({ ...c.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read', 'notes:write'] }), resource_access: { importer: { roles: ['org-admin'] } } });
     await fails(resolver.resolve(acme), 403, 'Client nicht freigegeben');
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.principal WHERE kind = 'client' AND client_id = 'importer'")).rows[0].n, 0, 'kein Principal ohne Freigabe');
     await grant('acme', 'importer');
-    resolver.forgetClient((await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'acme'")).rows[0].id, 'importer');
     const p = await resolver.resolve(acme);
-    assert.deepEqual([p.kind, p.roles, p.scopes, p.scopeBound, p.clientId], ['client', ['editor'], ['notes:read', 'notes:write'], true, 'importer']);
-    const row = (await t.inspect.query('SELECT client_id, last_roles, last_scopes FROM notes.principal WHERE id = $1', [p.principalId])).rows[0];
-    assert.deepEqual(row, { client_id: 'importer', last_roles: ['editor'], last_scopes: ['notes:read', 'notes:write'] });
-    // Neue Rollen im Token: sofort am Principal (Schlüssel des Zwischenspeichers enthält Rollen und Scopes)
-    await resolver.resolve(verified({ ...c.client({ clientId: 'importer', org: 'acme', roles: ['viewer'], scopes: ['notes:read'] }), sub: acme.claims.sub }));
-    assert.deepEqual((await t.inspect.query('SELECT last_roles FROM notes.principal WHERE id = $1', [p.principalId])).rows[0].last_roles, ['viewer']);
+    assert.deepEqual([p.kind, p.subject, p.subjects, p.scopes, p.scopeBound, p.clientId], ['client', 'importer', [`client:${p.principalId}`], ['notes:read', 'notes:write'], true, 'importer']);
+    const row = (await t.inspect.query('SELECT client_id, last_scopes, last_seen_at IS NOT NULL AS seen FROM notes.principal WHERE id = $1', [p.principalId])).rows[0];
+    assert.deepEqual(row, { client_id: 'importer', last_scopes: ['notes:read', 'notes:write'], seen: true });
+    // Neue Scopes im Token: sofort am Principal
+    await resolver.resolve(verified({ ...c.client({ clientId: 'importer', org: 'acme', scopes: ['notes:read'] }), sub: acme.claims.sub }));
+    assert.deepEqual((await t.inspect.query('SELECT last_scopes FROM notes.principal WHERE id = $1', [p.principalId])).rows[0].last_scopes, ['notes:read']);
   });
 
-  test('Person über einen fremden Client gilt als Maschinen-Client (Freigabe, Scope-Grenze, nur Gruppenrollen)', async () => {
-    const v = verified({ ...c.user({ org: 'acme', groupRoles: ['viewer'] }), azp: 'fremd', resource_access: { 'notes-platform': { roles: ['org-admin'] } } });
+  test('Person über einen fremden Client gilt als Maschinen-Client (Freigabe, Scope-Grenze, keine Gruppen)', async () => {
+    const v = verified({ ...c.user({ org: 'acme', groups: [G2] }), azp: 'fremd', resource_access: { 'notes-platform': { roles: ['org-admin'] } } });
     await fails(resolver.resolve(v), 403, 'Client nicht freigegeben');
     await grant('acme', 'fremd');
-    resolver.forgetClient((await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'acme'")).rows[0].id, 'fremd');
     const p = await resolver.resolve(v);
-    assert.deepEqual([p.kind, p.roles, p.scopeBound], ['client', ['viewer'], true]);
+    assert.deepEqual([p.kind, p.groups, p.subjects.length, p.scopeBound], ['client', [], 1, true]);
   });
 
   test('MCP: Person über den MCP-Dienst ist scope-gebunden; getauschtes Token eines Maschinen-Clients zählt für den ursprünglichen Client', async () => {
-    const person = await resolver.resolve(verified({ ...c.user({ org: 'acme', groupRoles: ['viewer'] }), azp: 'notes-mcp' }));
+    const person = await resolver.resolve(verified({ ...c.user({ org: 'acme' }), azp: 'notes-mcp' }));
     assert.deepEqual([person.kind, person.scopeBound], ['user', true]);
     const exchanged = verified({ sub: 'sa-exp', azp: 'notes-mcp', client_id: 'exporter', preferred_username: 'service-account-exporter', organization: ['acme'], scope: 'notes:read' });
     await fails(resolver.resolve(exchanged), 403, 'Client nicht freigegeben');
     await grant('acme', 'exporter');
-    resolver.forgetClient((await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'acme'")).rows[0].id, 'exporter');
     const p = await resolver.resolve(exchanged);
     assert.deepEqual([p.kind, p.clientId, p.grantId], ['client', 'notes-mcp', 'exporter']);
     assert.equal((await t.inspect.query('SELECT client_id FROM notes.principal WHERE id = $1', [p.principalId])).rows[0].client_id, 'exporter');
@@ -180,7 +165,7 @@ describe('Resolver gegen PostgreSQL', { skip }, () => {
     await t.inspect.query("UPDATE notes.tenant SET status = 'suspended' WHERE id = $1", [p.tenantId]);
     resolver.forgetTenant('stark');
     await fails(resolver.resolve(verified(c.user({ org: 'stark' }))), 403, 'Organisation nicht verfügbar');
-    const strict = new PrincipalResolver(t.runtime, testConfig('http://idp.test/realms/notes', { TENANT_AUTO_PROVISION: 'false' }), { schema: 'notes' });
+    const strict = new PrincipalResolver(t.runtime, testConfig('http://idp.test/realms/notes', { TENANT_AUTO_PROVISION: 'false' }), { schema: 'notes', access: access() });
     await fails(strict.resolve(verified(c.user({ org: 'wayne' }))), 403, 'Organisation nicht verfügbar');
     assert.equal(await tenantCount('wayne'), 0);
   });

@@ -14,7 +14,7 @@ import { EntraFake, KeycloakFake, startMockIdp, type FakeOrg, type FakeTenant, t
 import { brokerRedirectUris, idpRepresentation } from '../src/entra.ts';
 import { CONSENT_ADMIN_ROLES, EntraGraph, notLinkable, type EntraUser } from '../src/graph.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, notesApp, notesDb, withRole, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 
@@ -71,7 +71,7 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
   const oid = {} as Record<string, string>;
 
   const person = (x: FakeUser, org: string, roles: string[], extra: Record<string, unknown> = {}) =>
-    idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
+    withRole(t.runtime, claims.user({ sub: x.id, org, email: x.email, name: `${x.firstName} ${x.lastName}` }), roles[0] ?? null).then(c => idp.token({ ...c, ...extra }));
   async function call(who: string | Promise<string>, method: string, url: string, body?: unknown, o: { app?: NotesApp } = {}): Promise<Res> {
     const r = await (o.app ?? app).app.inject({ method: method as 'GET', url, headers: { authorization: `Bearer ${await who}` }, ...(body !== undefined ? { payload: body as object } : {}) });
     return { status: r.statusCode, body: r.body ? JSON.parse(r.body) : null };
@@ -105,9 +105,8 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
     u.ext = kc.user('ext', { email: 'ext@gmail.example', firstName: 'Externe', lastName: 'Beraterin' });
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
     u.paula = kc.user('paula', { email: 'paula@ops.example', firstName: 'Paula', lastName: 'Plattform' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.carla, ['viewer']); kc.member(demo, u.dana, ['viewer']); kc.member(demo, u.olga, ['viewer']); kc.member(demo, u.ext, ['viewer']);
-    kc.member(muster, u.mona, ['org-admin']); kc.member(ops, u.paula, ['org-admin']);
-    for (const alias of ['demo', 'muster', 'ops']) for (const r of ['org-admin', 'viewer']) kc.groupPath(`/orgs/${alias}/${r}`);
+    kc.member(demo, u.anna); kc.member(demo, u.carla); kc.member(demo, u.dana); kc.member(demo, u.olga); kc.member(demo, u.ext);
+    kc.member(muster, u.mona); kc.member(ops, u.paula);
     u.dana.requiredActions = ['UPDATE_PASSWORD'];
 
     // Tenant der Demo AG: muster.example ist dort auch verifiziert (gehört aber Muster)
@@ -429,7 +428,7 @@ describe('Anmeldung über Microsoft Entra ID je Organisation', { skip }, () => {
 
   test('Mitglied entfernen löst die Verknüpfung (sonst bliebe die Anmeldung über Entra)', async () => {
     const olga = kc.user('olga2', { email: 'olga2@demo.example', firstName: 'Olga', lastName: 'Zwei' });
-    kc.member(demo, olga, ['viewer']);
+    kc.member(demo, olga);
     kc.links.set(olga.id, new Map([['entra-001', { userId: 'x', userName: 'olga2@demo.example' }]]));
     ok(await call(annaEntra(), 'DELETE', `/v1/admin/members/${olga.id}`));
     assert.equal(kc.links.get(olga.id)!.size, 0);

@@ -18,17 +18,17 @@ import { ConfigError } from '../src/config.ts';
 import { Sealer } from '../src/crypto.ts';
 import { IAM_API_TAGS } from '../src/http/routes.ts';
 import { createIam } from '../src/iam.ts';
-import { notesCatalog } from './support/catalogs.ts';
+import { notesModel } from './support/models.ts';
 import { testConfig } from './support/config.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
+import { claims, grant, notesApp, notesDb, notesResources, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 const CLIENT_ID = 'notes-platform', CLIENT_SECRET = 'bff-geheimnis-für-tests';
 const BCL_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
-/** Person wie in Assets `userClaims`: Rollen als Gruppen der ersten Organisation. */
-const userClaims = (o: { org: string | string[]; roles?: string[]; groupRoles?: string[]; email?: string; name?: string; sub?: string }) =>
-  claims.user({ org: o.org, sub: o.sub, name: o.name, email: o.email, groupRoles: [...(o.roles ?? []), ...(o.groupRoles ?? [])] });
+/** Person wie Keycloak sie ausstellt: Organisationen, ohne Rollen (Rollen sind Tupel). */
+const userClaims = (o: { org: string | string[]; email?: string; name?: string; sub?: string }) =>
+  claims.user({ org: o.org, sub: o.sub, name: o.name, email: o.email });
 
 // ---------------------------------------------------------------- Mock-IdP (Keycloak-ähnlich)
 interface Grant { claims: Record<string, unknown>; sid: string; nonce?: string; challenge?: string; redirectUri?: string }
@@ -160,7 +160,7 @@ describe('BFF-Bausteine', () => {
   });
 
   test('createIam: BFF nur mit Clientauthentifizierung; dann SESSION_SECRET Pflicht; abschaltbar', () => {
-    const base = { catalog: notesCatalog, db: null as never, schema: 'notes', audit: pgAudit({ schema: 'notes' }) };
+    const base = { model: notesModel, resources: notesResources, db: null as never, schema: 'notes', audit: pgAudit({ schema: 'notes' }) };
     assert.equal(createIam({ ...base, cfg: testConfig('http://idp.test/realms/notes') }).bff, null, 'ohne Secret kein BFF');
     assert.throws(() => createIam({ ...base, cfg: testConfig('http://idp.test/realms/notes', { OIDC_BFF_CLIENT_SECRET: 'x' }) }), (e: unknown) => e instanceof ConfigError && /SESSION_SECRET fehlt/.test(e.message));
     const cfg = testConfig('http://idp.test/realms/notes', { OIDC_BFF_CLIENT_SECRET: 'x', SESSION_SECRET: 's'.repeat(32) });
@@ -227,7 +227,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     app = n.app;
   });
   after(async () => { await n?.app.close(); await op?.close(); await t?.drop(); });
-  beforeEach(() => { offset = 0; op.accessTtlSec = 300; op.refreshAs = null; op.user = userClaims({ org: 'acme', roles: ['editor'], email: 'anna@example.ch', name: 'Anna Muster' }); });
+  beforeEach(() => { offset = 0; op.accessTtlSec = 300; op.refreshAs = null; op.user = userClaims({ org: 'acme', email: 'anna@example.ch', name: 'Anna Muster' }); });
 
   const sessionId = (cookie: string) => createHash('sha256').update(cookie.split('.')[0]!).digest('hex');
   async function readSession(cookie: string): Promise<SessionData> {
@@ -285,6 +285,8 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     const r = await me(cookie);
     assert.equal(r.statusCode, 200, r.body);
     assert.equal(r.json().tenant.alias, 'acme');
+    // Rollen kommen aus Tupeln, nie aus dem Token
+    await grant(t.runtime, r.json().tenant.id, 'org:members', 'editor').catch(() => undefined);
 
     const m = await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } });
     assert.equal(m.statusCode, 200, m.body);
@@ -294,6 +296,17 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.equal(b.tenant.name, 'acme', 'neuer Mandant heisst wie der Alias');
     assert.deepEqual(b.organizations, ['acme']);
     assert.ok(b.roles.includes('editor') && b.permissions.includes('note:write'));
+    assert.deepEqual([b.somewhere.includes('note:write'), b.clearance, b.breakGlassUntil, b.breakGlassAllowed, b.tenant.entraConnected], [true, 0, null, false, false]);
+    // Banner-Daten für Break-Glass (Kap. 9.7): erlaubt mit direktem Tupel org-admin; aktiv mit Ende und Stufe 2
+    await grant(t.runtime, r.json().tenant.id, `user:${r.json().principal.id}`, 'org-admin');
+    const allowed = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([allowed.breakGlassAllowed, allowed.breakGlassUntil], [true, null]);
+    const bg = await app.inject({ method: 'POST', url: '/v1/break-glass', cookies: { notes_sid: cookie }, headers: { 'x-csrf-token': allowed.csrfToken }, payload: { reason: 'Banner', minutes: 5 } });
+    assert.equal(bg.statusCode, 200, bg.body);
+    const banner = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([banner.clearance, banner.breakGlassUntil], [2, bg.json().until]);
+    await app.inject({ method: 'DELETE', url: '/v1/break-glass', cookies: { notes_sid: cookie }, headers: { 'x-csrf-token': allowed.csrfToken } });
+    assert.ok(!('grantedPermissions' in b));
     assert.ok(typeof b.csrfToken === 'string' && b.csrfToken.length >= 40);
     assert.equal(m.headers['cache-control'], 'no-store');
   });
@@ -450,7 +463,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('Mehrere Organisationen: Auswahl, Wechsel ohne und mit neuer Anmeldung', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login();
     let m = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
     assert.equal(m.tenant, null);
@@ -502,7 +515,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('Aus der gewählten Organisation entfernt: nach der Erneuerung nicht mehr gewählt und nicht mehr angeboten', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login();
     assert.equal((await switchTo(cookie, { org: 'globex' })).statusCode, 200);
     assert.equal((await me(cookie)).json().tenant.alias, 'globex');
@@ -530,7 +543,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   };
 
   test('Anmeldung fordert alle Organisationen an (organization:*); ?org= wählt nur vor (E1, T3)', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const plain = await login();
     assert.equal(plain.authUrl.searchParams.get('scope'), 'openid profile email organization:*');
     let m = await authMe(plain.cookie);
@@ -581,8 +594,9 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   test('/auth/me: Organisation des Tabs per X-Tenant, mit Namen; fremde Organisation → kein Mandant, mit Grund (T1, T2)', async () => {
     const a = `tab-a-${rnd()}`, b = `tab-b-${rnd()}`, unused = `tab-n-${rnd()}`;
     await namedTenant(a, 'Alpha AG');
-    await namedTenant(b, 'Beta GmbH');
-    op.user = userClaims({ org: [a, b, unused], groupRoles: ['viewer'] });
+    const ta = await namedTenant(b, 'Beta GmbH').then(() => t.inspect.query<{ id: string }>('SELECT id FROM notes.tenant WHERE alias = $1', [a])).then(x => x.rows[0]!.id);
+    await grant(t.runtime, ta, 'org:members', 'viewer');
+    op.user = userClaims({ org: [a, b, unused] });
     const { cookie } = await login({ org: a });
 
     // zwei Tabs derselben Sitzung: jeder erhält seine Organisation mit Namen
@@ -617,7 +631,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('Links ohne Header (Downloads, Bilder): ?x-tenant= wählt die Organisation des Tabs, nur bei GET, vor der Schemaprüfung entfernt (T1)', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['editor'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login({ org: 'acme' });
     const get = (url: string) => app.inject({ url, cookies: { notes_sid: cookie } });
     let r = await get('/v1/echo?delimiter=comma&x-tenant=globex');
@@ -634,7 +648,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('/auth/switch setzt nur die Vorgabe der Sitzung: ein anderer Tab liest und schreibt weiter in seiner Organisation (T1)', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['editor'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login({ org: 'acme' });
     // Tab B wechselt nach globex
     const sw = await switchTo(cookie, { org: 'globex', returnTo: '/' });
@@ -654,7 +668,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('Nach jeder Erneuerung folgt die Liste der Organisationen dem Token: Austritt, neue Mitgliedschaft (T6)', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login({ org: 'acme' });
     assert.deepEqual((await authMe(cookie)).organizations, ['acme', 'globex']);
     // aus globex (nicht die Vorgabe) entfernt, in initech aufgenommen
@@ -669,7 +683,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
   });
 
   test('Wechsel schreibt ein inzwischen rotiertes Refresh Token nicht zurück (andere Instanz)', async () => {
-    op.user = userClaims({ org: ['acme', 'globex'], roles: ['viewer'] });
+    op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login();
     const id = sessionId(cookie);
     const stale = { id, csrf: '', data: await readSession(cookie), createdAt: 0, expiresAt: 0, lastSeenAt: 0 } satisfies Session;
@@ -706,7 +720,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
 
   test('Sitzungscookies nur mit Modul bff (z. B. nicht im MCP-Dienst)', async () => {
     const { cookie } = await login();
-    const mcp = await notesApp({ db: t.runtime, issuer: op.issuer, env, plugin: { modules: ['account', 'acl'] } });
+    const mcp = await notesApp({ db: t.runtime, issuer: op.issuer, env, plugin: { modules: ['account', 'access'] } });
     try {
       assert.ok(mcp.iam.bff, 'BFF gebaut, aber Modul nicht aktiv');
       assert.equal((await mcp.app.inject({ url: '/v1/me', cookies: { notes_sid: cookie } })).statusCode, 401);

@@ -670,15 +670,14 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const olga = kc.user('olga', { email: 'olga@demo.example', firstName: 'Olga', lastName: 'Ost' });
     await join(demo, olga, ['editor', 'viewer']); await join(muster, olga, ['viewer']);
     ok(await call('anna', 'GET', '/v1/admin/members'));
+    tok.olga = await idp.token(claims.user({ sub: olga.id, org: 'demo', email: olga.email, name: 'Olga Ost' }));
     kc.orgMembers.get(demo.id)!.delete(olga.id);
     const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
     assert.ok(!list.some((m: any) => m.id === olga.id), 'nicht mehr Mitglied');
     assert.deepEqual(await rolesIn('demo', olga.id), ['editor', 'viewer'], 'der Abgleich löscht keine Tupel (A17)');
     assert.deepEqual(await rolesIn('muster', olga.id), ['viewer'], 'andere Organisation unberührt');
     assert.equal((await auditOf('demo', 'member.roles_cleaned')).length, 0, 'keine Rollengruppen mehr aufzuräumen');
-    // Token aus der Zeit danach: kein Zugriff, obwohl Tupel bestehen
-    const tokOlga = await idp.token(claims.user({ sub: olga.id, org: 'demo', email: olga.email, name: 'Olga Ost' }));
-    tok.olga = tokOlga;
+    // Token von vorher: kein Zugriff mehr, obwohl Tupel bestehen (ein später ausgestelltes Token gälte als Rückkehr, A10)
     assert.equal((await call('olga', 'GET', '/v1/me')).status, 403);
     kc.member(demo, olga);
     const back = ok(await call('anna', 'GET', '/v1/admin/members')).items.find((m: any) => m.id === olga.id);

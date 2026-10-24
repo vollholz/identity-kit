@@ -35,12 +35,29 @@ export interface ResourceModel<S = unknown> {
   ids?(state: S, type: string): Iterable<string>;
   /** Pflicht bei Typen mit scope: Zuständigkeit als SQL der App (volle Sicht, Parameter $1 uuid[]). */
   edges?: {
-    /** Typ der Einheiten; hat `member` in `relations`. */
-    unit: string;
+    /** Typ der Einheiten; hat `member` in `relations`. `unit`, `children`, `belongs` nur gemeinsam; ab 1.1 dürfen alle drei
+     *  fehlen, wenn die App nur `persons` liefert. */
+    unit?: string;
     /** Direkt untergeordnete Einheiten von $1 über Kanten mit inherits_scope; Spalte `id uuid`. */
-    children: string;
+    children?: string;
     /** Zugehörigkeit der Ressourcen $1; Spalten `id uuid`, `unit_id uuid`, `grants text` ('read' | 'edit'), `label text`. */
-    belongs: string;
+    belongs?: string;
+    /**
+     * Zuständige Personen der Ressourcen $1 aus Fachdaten (Kit 1.1; Assets: Attribut «Verantwortlich» der Art user);
+     * Spalten `id uuid` (Ressource), `principal_id uuid` (`principal.id` einer Person; zählt nur, solange sie im
+     * Mandanten aktiv ist, d. h. `kind = 'user'` und nicht entfernt), `grants text`
+     * ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, erscheint in «Warum?»), optional `type text`.
+     * Der Baukasten fragt je Typ mit den IDs dieses Typs; liefert das SQL `type`, zählen nur Zeilen dieses Typs. Dasselbe
+     * SQL dient einer und vielen Ressourcen (`can`, `capabilities(refs)`). Lesesicht: `app.read_person()`,
+     * `app.write_person()` (erster Typ mit scope), `app.person_for(recht)` (jeder Typ mit scope).
+     */
+    persons?: string;
+    /**
+     * Wirkungen der Person $1 (uuid, `principal.id`) über alle Ressourcen; Spalten `grants text` und `type text` (Typ
+     * der Ressource; ohne: gilt für jeden Typ mit scope, Pflicht bei mehreren). Nur für «Recht
+     * irgendwo» (`needSomewhere`, `somewhere` in `/auth/me`); ohne zählt die Zuständigkeit über Personen dort nicht.
+     */
+    personGrants?: string;
   };
 }
 

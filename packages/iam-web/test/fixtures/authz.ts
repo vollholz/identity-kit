@@ -41,6 +41,18 @@ export const ACCESS_SCOPE_FIXTURE = {
   removable: false,
 } satisfies AccessEntry;
 
+/** Zuständig als Person über Fachdaten (ab 1.1). */
+export const ACCESS_DATA_FIXTURE = {
+  id: null,
+  subject: { ref: 'user:p3', kind: 'user' as const, name: 'Rita Verantwortlich' },
+  relation: 'Verantwortlich',
+  place: { type: 'note', id: 'n42' },
+  via: 'data' as const,
+  data: { relation: 'Verantwortlich', grants: 'edit' as const },
+  expiresAt: null, createdAt: null, createdBy: null,
+  removable: false,
+} satisfies AccessEntry;
+
 export const ACCESS_CLIENT_FIXTURE = {
   id: 'tp1',
   subject: { ref: 'client:p2', kind: 'client' as const, name: 'sync-1', scopes: ['notes:read'] },

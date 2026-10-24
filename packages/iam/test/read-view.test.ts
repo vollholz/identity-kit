@@ -1,7 +1,8 @@
 /**
  * Lesesicht = `can` (Spezifikation Kap. 7.6, Pflichttest `read-view` in Kap. 14): Für ein Modell mit allen Wegen liefert
  * eine Liste unter RLS genau die Ressourcen mit `can(read)`, Schreiben unter `USING`/`WITH CHECK` genau die mit
- * `can(write)` – auch für scope-gebundene Zugriffe (Tupel, Zuständigkeit, org ohne passenden Scope ergeben nichts).
+ * `can(write)` – auch für scope-gebundene Zugriffe (Tupel, Zuständigkeit über Einheiten und über Personen aus
+ * Fachdaten, org ohne passenden Scope ergeben nichts).
  * Die Policies der Notiz-App folgen dem Muster aus Kap. 7.6 (test/support/http.ts).
  */
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ import { createIam, type Iam } from '../src/iam.ts';
 import type { Principal } from '../src/principal.ts';
 import { testConfig } from './support/config.ts';
 import { skipDb } from './support/db.ts';
-import { folderWithNote, full, grant, notesDb, notesResources, person, team, tenant, view, type NotesState } from './support/http.ts';
+import { folderWithNote, full, grant, notesDb, notesResources, person, responsible, team, tenant, view, type NotesState } from './support/http.ts';
 import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
@@ -48,7 +49,8 @@ describe('Lesesicht = can', { skip }, () => {
   after(async () => { await t?.drop(); });
 
   /** Szenarien: Tupel eines Subjekts, Freigabestufe, Scopes. */
-  const scenarios: { name: string; tuples: (me: string) => [string, string, string, string | null][]; clearance?: 0 | 1 | 2; groups?: string[]; scopes?: string[]; client?: boolean }[] = [
+  /** `persons`: Notiz (Schlüssel in N) → Wirkung der eigenen Zuständigkeit über Fachdaten (`edges.persons`). */
+  const scenarios: { name: string; tuples: (me: string) => [string, string, string, string | null][]; clearance?: 0 | 1 | 2; groups?: string[]; scopes?: string[]; client?: boolean; persons?: Record<string, 'none' | 'read' | 'edit'> }[] = [
     { name: 'ohne Tupel', tuples: () => [] },
     { name: 'viewer an org', tuples: me => [[me, 'viewer', 'org', null]] },
     { name: 'editor an org, Stufe 2', tuples: me => [[me, 'editor', 'org', null]], clearance: 2 },
@@ -63,6 +65,11 @@ describe('Lesesicht = can', { skip }, () => {
     { name: 'scopeBound: editor an F1 und member T1 ohne Scope', tuples: me => [[me, 'editor', 'folder', F1], [me, 'member', 'team', T1]], scopes: [], clearance: 2 },
     { name: 'scopeBound: member T1 mit notes:write (ohne Lesen)', tuples: me => [[me, 'member', 'team', T1]], scopes: ['notes:write'], clearance: 2 },
     { name: 'Client editor an org mit beiden Scopes', tuples: me => [[me, 'editor', 'org', null]], scopes: ['notes:read', 'notes:write'], client: true },
+    { name: 'Person zuständig: a read, e edit, d edit über der Stufe, c none', tuples: () => [], persons: { a: 'read', e: 'edit', d: 'edit', c: 'none' } },
+    { name: 'Person zuständig mit Stufe 2: d edit', tuples: () => [], persons: { d: 'edit' }, clearance: 2 },
+    { name: 'scopeBound: Person zuständig edit an a, e mit notes:read', tuples: () => [], persons: { a: 'edit', e: 'edit' }, scopes: ['notes:read'] },
+    { name: 'scopeBound: Person zuständig edit an a ohne Scope', tuples: () => [], persons: { a: 'edit' }, scopes: [] },
+    { name: 'Client als zuständige «Person» eingetragen: nichts', tuples: () => [], persons: { a: 'edit' }, scopes: ['notes:read', 'notes:write'], client: true },
   ];
 
   let n = 0;
@@ -78,6 +85,7 @@ describe('Lesesicht = can', { skip }, () => {
       };
       const p: Principal = { ...base, subjects: subjectsOf(base) };
       for (const [subject, relation, type, id] of s.tuples(p.subjects[0]!)) await grant(t.runtime, A, subject, relation, { type, id });
+      for (const [k, g] of Object.entries(s.persons ?? {})) await responsible(t.runtime, A, N[k]!, pid, g);
 
       const readable = new Set(await iam.tx(p, async tx => (await tx.query<{ id: string }>('SELECT id FROM notes.note')).rows.map(r => r.id)));
       const writable = new Set<string>();
@@ -117,6 +125,11 @@ describe('Lesesicht = can', { skip }, () => {
       if (s.name.startsWith('member am Team')) assert.deepEqual([name(readable), name(writable)], [['c', 'd'], ['d']]);
       if (s.name.startsWith('scopeBound: editor an F1')) assert.equal(readable.size, 0);
       if (s.name.startsWith('scopeBound: member T1 mit notes:write')) assert.equal(readable.size, 0);
+      // c lesen alle Personen über «Alle Mitglieder viewer an F3» (Tupel eines früheren Szenarios)
+      if (s.name.startsWith('Person zuständig: a read')) assert.deepEqual([name(readable), name(writable)], [['a', 'c', 'e'], ['e']]);
+      if (s.name.startsWith('Person zuständig mit Stufe 2')) assert.deepEqual([name(readable), name(writable)], [['c', 'd'], ['d']]);
+      if (s.name.startsWith('scopeBound: Person zuständig edit an a, e mit notes:read')) assert.deepEqual([name(readable), name(writable)], [['a', 'c', 'e'], []]);
+      if (s.name.startsWith('scopeBound: Person zuständig edit an a ohne') || s.name.startsWith('Client als')) assert.equal(readable.size, 0);
     });
   }
 

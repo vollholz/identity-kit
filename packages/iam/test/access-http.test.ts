@@ -2,14 +2,15 @@
  * Zugriff über HTTP (Spezifikation Kap. 9.5, Regeln 9.1 Nr. 5–7; Pflichttest `access-http` in Kap. 14): Formen von
  * `AccessList`, `AccessEntry`, `Explain`, `ApiMe`; niemand gibt mehr, als er hat (POST, PATCH, DELETE); `org-admin` nur
  * `platform-admin` und ohne Ablauf; letzter Admin; Duplikat; 422 je Feld; 404 für nicht lesbare Ressourcen; «Warum?» für
- * andere nur mit `access:admin`; Audit `access.*`.
+ * andere nur mit `access:admin`; Zuständigkeit über Personen aus Fachdaten (`via: 'data'`, nicht entfernbar); Audit
+ * `access.*`.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { startMockIdp, type MockIdp } from '@vollholz/iam-testkit';
 import { withTenant } from '../src/db.ts';
 import { skipDb } from './support/db.ts';
-import { claims, folderWithNote, grant, notesApp, notesDb, tenant, view, type NotesApp } from './support/http.ts';
+import { claims, folderWithNote, grant, notesApp, notesDb, responsible, tenant, view, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 const G1 = '0b6f2f7e-4c1d-4d2b-9a55-1f0c7c2d9e11';
@@ -187,6 +188,32 @@ describe('Zugriff über HTTP (/v1/access)', { skip }, () => {
     assert.equal((await call('stranger', 'GET', `/v1/access/explain?type=note&id=${N1}`)).statusCode, 404);
     assert.equal((await call('editor', 'GET', `/v1/access/explain?type=team&id=${F1}`)).statusCode, 404);
     assert.equal((await call('editor', 'GET', `/v1/access/explain?type=note&id=${N1}&permission=x:y`)).statusCode, 422);
+  });
+
+  test('Zuständigkeit über Personen: Wer hat Zugriff? und Warum? mit via data, nicht entfernbar; /v1/me irgendwo', async () => {
+    await login('resp');
+    const { note } = await folderWithNote(t.runtime, A, 'Verantwortet');
+    assert.equal((await call('resp', 'GET', `/v1/access?type=note&id=${note}`)).statusCode, 404, 'vorher nicht lesbar');
+    assert.ok(!(await call('resp', 'GET', '/v1/me')).json().somewhere.includes('note:read'));
+    await responsible(t.runtime, A, note, ids.resp!, 'edit');
+    await responsible(t.runtime, A, note, ids.nobody!, 'none', 'Ehemals');
+    const r = await call('resp', 'GET', `/v1/access?type=note&id=${note}`);
+    assert.equal(r.statusCode, 200, r.body);
+    const data = r.json().items.filter((i: { via: string }) => i.via === 'data');
+    assert.deepEqual(data, [{
+      id: null, subject: { ref: `user:${ids.resp}`, kind: 'user', name: 'resp' }, relation: 'Verantwortlich', place: { type: 'note', id: note }, via: 'data',
+      data: { relation: 'Verantwortlich', grants: 'edit' }, expiresAt: null, createdAt: null, createdBy: null, removable: false,
+    }]);
+    assert.equal(r.json().items.at(-1).via, 'data', 'zuletzt');
+    assert.ok((await call('admin', 'GET', `/v1/access?type=note&id=${note}`)).json().items.some((i: { via: string; removable: boolean }) => i.via === 'data' && !i.removable), 'auch für access:admin nicht entfernbar');
+    const why = (await call('resp', 'GET', `/v1/access/explain?type=note&id=${note}&permission=note:write`)).json();
+    assert.equal(why.allowed, true);
+    assert.deepEqual(why.reasons, [{ via: 'data', relation: 'Verantwortlich', place: { type: 'note', id: note }, tupleId: null, matched: `user:${ids.resp}`, label: 'resp', data: { relation: 'Verantwortlich', grants: 'edit' } }]);
+    const forOther = (await call('admin', 'GET', `/v1/access/explain?type=note&id=${note}&permission=note:write&subject=user:${ids.resp}`)).json();
+    assert.deepEqual([forOther.allowed, forOther.reasons.map((x: { via: string }) => x.via)], [true, ['data']], 'für andere');
+    const none = (await call('admin', 'GET', `/v1/access/explain?type=note&id=${note}&subject=user:${ids.nobody}`)).json();
+    assert.deepEqual([none.allowed, none.reasons], [false, []], 'grants none');
+    assert.ok((await call('resp', 'GET', '/v1/me')).json().somewhere.includes('note:write'), 'irgendwo');
   });
 
   test('Gruppen aus Entra ohne Verbindung: 409 entra-not-connected; ohne access:admin irgendwo 403', async () => {

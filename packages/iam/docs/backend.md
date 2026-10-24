@@ -53,6 +53,9 @@ export const model = defineModel({
 - `model.platformJson()` ergibt `infra/keycloak/platform.json` für das Realm-Modul: nur noch die Scopes (O4).
 - Typen ausser `org` brauchen ein `ResourceModel` der App (Kette, Existenz, Klassifizierung, Zuständigkeit über `edges`,
   Spez. 7.7); ohne weitere Typen genügt `flatResources`.
+- Ab 1.1 Zuständigkeit über Personen aus Fachdaten: `edges.persons` (SQL, `$1 uuid[]` → `id`, `principal_id`, `grants`,
+  `label`), optional `edges.personGrants` (`$1` = `principal.id` → `grants`, für «Recht irgendwo»); in den Policies
+  `… v.principal_id = app.read_person()` bzw. `app.write_person()` mit `grants = 'edit'` (Spez. 7.6).
 - Einen geprüften Katalog sichert der Test `checkModel(GET /v1/authz/catalog)` aus dem Test-Kit.
 
 ## 3. Konfiguration
@@ -85,7 +88,8 @@ await migrate(cfg.db.adminUrl!, [
 
 - `iam_015_authz.sql` legt `authz_tuple` (RLS, `acl_version` je Anweisung) und die Funktionen der Lesesicht an
   (`app.read_all()`, `app.read_types()`, `app.read_units()`, `app.has_tuple(type, id, relations)` … Spez. 7.6) und
-  entfernt `acl_entry`, `tenant_role` und `client_grant`. Bestehende Rollen und Zugriffsregeln werden **nicht**
+  entfernt `acl_entry`, `tenant_role` und `client_grant`. `iam_016_person_scope.sql` (1.1) ergänzt `app.read_person()` und
+  `app.write_person()`. Bestehende Rollen und Zugriffsregeln werden **nicht**
   übernommen (Greenfield): nach dem Wechsel die erste Person je Organisation mit `iam-org-bootstrap` erneut einrichten.
 - Die CHECKs von `authz_tuple` zu Typen und Relationen gleicht der Runner bei jedem Lauf mit dem Modell ab
   (`syncModelChecks`). Eine Relation oder einen Typ entfernen geht erst, wenn keine Tupel mehr darauf zeigen.

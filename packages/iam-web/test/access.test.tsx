@@ -30,6 +30,7 @@ const LIST: AccessList = {
     entry('t4', { subject: { ref: 'org:members', kind: 'members', name: 'Alle Mitglieder' }, relation: 'viewer', place: { type: 'org', id: null }, via: 'inherited', removable: false }),
     entry('t5', { subject: { ref: 'client:p-sync', kind: 'client', name: 'sync-1', scopes: ['notes:read'] }, relation: 'editor', place: { type: 'org', id: null }, via: 'inherited', removable: false }),
     entry(null, { subject: { ref: 'group:0f0e', kind: 'group', name: 'Abteilung X' }, relation: 'member', place: { type: 'folder', id: 'u1' }, via: 'scope', unit: { ref: { type: 'folder', id: 'u1' }, relation: 'gehört zu', grants: 'read' }, removable: false }),
+    entry(null, { subject: { ref: 'user:p-rita', kind: 'user', name: 'Rita Verantwortlich' }, relation: 'Verantwortlich', via: 'data', data: { relation: 'Verantwortlich', grants: 'edit' }, removable: false }),
   ],
 };
 
@@ -59,6 +60,10 @@ describe('AccessSheet', () => {
     expect(cells(3)).toEqual(['Alle Mitglieder', 'Leser:in', 'Organisation', '–']);
     expect(cells(4)).toEqual(['sync-1 (Client)Scope notes:read', 'Bearbeiter:in', 'Organisation', '–']);
     expect(cells(5)).toEqual(['Abteilung X (Gruppe)', 'Mitglied', 'Zuständigkeit: gehört zu Ordner «Abt X»', '–']);
+    // zuständig über Fachdaten: nicht entfernbar, kein Pfeil (Ursprung ist die Ressource selbst)
+    expect(cells(6)).toEqual(['Rita Verantwortlich', 'Verantwortlich', 'zuständig über «Verantwortlich»', '–']);
+    expect(within(rows[6]!).queryByRole('button')).toBeNull();
+    expect(rows[6]).toHaveTextContent('Folgt aus den Daten dieser Ressource – ändern nur dort.');
     // geerbt: kein Menü, Hinweis für Screenreader, Pfeil zum Ursprung
     expect(within(rows[2]!).queryByRole('button', { name: /^Mehr zu/ })).toBeNull();
     expect(rows[2]).toHaveTextContent('Geerbt von Ordner «Projekte» – ändern nur dort.');
@@ -286,6 +291,7 @@ const EXPLAIN_OK: Explain = {
     { via: 'direct', relation: 'editor', place: NOTE, tupleId: 't1', matched: 'group:0f0e', label: 'Abteilung X' },
     { via: 'owner', relation: 'owner', place: NOTE, tupleId: 't7', matched: 'user:p-anna', label: 'Anna Admin' },
     { via: 'scope', relation: 'member', place: { type: 'folder', id: 'u1' }, tupleId: null, matched: 'user:p-anna', label: 'Anna Admin', unit: { ref: { type: 'folder', id: 'u1' }, relation: 'gehört zu', grants: 'read' } },
+    { via: 'data', relation: 'Verantwortlich', place: NOTE, tupleId: null, matched: 'user:p-anna', label: 'Anna Admin', data: { relation: 'Verantwortlich', grants: 'edit' } },
   ],
   blocked: null,
 };
@@ -302,6 +308,7 @@ describe('WhyDialog', () => {
       'über die Rolle «Bearbeiter:in» direkt an «Protokoll» – über die Gruppe «Abteilung X» aus Entra ID',
       'als Besitzer:in von «Protokoll»',
       'über die Zuständigkeit: «Protokoll» gehört zu Ordner «Abt X» (gehört zu)',
+      'zuständig über «Verantwortlich» an «Protokoll»',
     ]);
     const q = new URL(calls.find(c => new URL(c.url).pathname === '/v1/access/explain')!.url).searchParams;
     expect([q.get('type'), q.get('id'), q.get('permission'), q.get('subject')]).toEqual(['note', N1, null, null]);

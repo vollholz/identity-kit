@@ -44,6 +44,7 @@ function WhyBody({ x, resource, label, self }: { x: Explain; resource: ResourceR
   const via = (r: Reason): string => {
     const role = authz.relationLabel(r.relation);
     if (r.via === 'owner') return t('iam.access.why.owner', { label });
+    if (r.via === 'data') return t('iam.access.why.data', { label, relation: r.data?.relation ?? r.relation });
     if (r.via === 'scope') return t('iam.access.why.scope', { label, unit: r.unit ? placeName(r.unit.ref) : '', relation: r.unit?.relation ?? r.relation });
     if (r.via === 'direct') return t('iam.access.why.direct', { role, label });
     return t('iam.access.why.inherited', { role, place: placeName(r.place) });

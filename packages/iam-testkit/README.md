@@ -32,6 +32,7 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **1.3.0:** `checkModel` (M5) lässt an `org` eine Rollenliste zu: `org-admin` enthalten, nur Rollen des Modells, keine Doppelten (vorher: alle Rollen).
 - **1.2.0:** `checkModel` prüft `types[].membersRole` (M13: nur bei Typen mit `owner`, am Typ zulässig, keine Rechte nur von `org-admin`).
 - **1.1.0:** `personCases` (Standardfälle der Zuständigkeit über Personen aus Fachdaten je Typ mit `scope`);
   `runAccessCases` nimmt beliebige Fälle; `READ_VIEW_FUNCTIONS` mit `read_person()`, `write_person()`.

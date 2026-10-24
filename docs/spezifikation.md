@@ -418,7 +418,7 @@ interface ModelInput<P extends string, R extends string, T extends string> {
   /** Rollen = Beziehungsnamen. `'*'` nur bei `org-admin` (darf fehlen, wird ergänzt). */
   roles: Record<R, { label: string; description: string; permissions: readonly P[] | '*' }>;
   scopes?: Record<string, { text: string; permissions: readonly P[] }>;
-  /** Orte. `org` darf fehlen (wird mit `roles: '*'` ergänzt). Ohne `types` gibt es nur Rollen an `org` (Stufe «einfach»). */
+  /** Orte. `org` darf fehlen (wird mit `roles: '*'` ergänzt) oder mit `roles` als Liste die Rollen an der Organisation begrenzen (Kit 1.3). Ohne `types` gibt es nur Rollen an `org` (Stufe «einfach»). */
   types?: Record<T, TypeDef<P, R, T>>;
   /** Labels der Stufen 0, 1, 2; Standard «intern», «vertraulich», «streng vertraulich». */
   classifications?: readonly [string, string, string];
@@ -434,7 +434,7 @@ interface TypeDef<P extends string, R extends string, T extends string> {
   parent?: T | 'org';
   /** Eigener Schlüssel: Vorfahren desselben Typs zählen zur Kette (Assets: `object_type.parent_id`). */
   self?: T;
-  /** Rollen, die hier hängen dürfen; `'*'` nur bei `org`. */
+  /** Rollen, die hier hängen dürfen; `'*'` nur bei `org` (dort Standard; eine Liste begrenzt die Rollen an der Organisation, `org-admin` wird ergänzt, M5). */
   roles: readonly R[] | '*';
   /** Beziehungen ohne Rechte, die hier hängen dürfen (Assets: `['member']` an Objekten = Einheiten). */
   relations?: readonly 'member'[];
@@ -467,7 +467,7 @@ Beispiel (Stufe «mittel», [neue-app.md](neue-app.md#4-modell-und-ressourcen)) 
 | M2 | Jedes Recht: Label, Beschreibung, Gruppe aus `groups`; `resources` enthält `org` und nur Typen des Modells |
 | M3 | Jede Rolle: Label, Beschreibung, mindestens ein Recht, nur Rechte des Modells; Beschreibung nennt jede Rechtegruppe der Rolle (`match`); `'*'` nur bei `org-admin`; `org-admin` steht zuerst |
 | M4 | Jeder Typ ausser `org` hat `parent` aus dem Modell; die Kette ist kreisfrei und endet bei `org`; `self` nur gleich dem eigenen Schlüssel |
-| M5 | `roles` eines Typs nur Rollen des Modells; `'*'` nur bei `org`; `org-admin` nur an `org` |
+| M5 | `roles` eines Typs nur Rollen des Modells; `'*'` nur bei `org`; `org-admin` nur an `org`; `org.roles` ist `'*'` (Standard) oder eine Liste ohne Doppelte (`org-admin` wird ergänzt). Rollen, die nicht an `org` hängen dürfen, lehnen `POST /v1/access`, Mitglieder › Rollen, Einladungen und Clients mit 422 ab; `GET /v1/admin/status` und der Katalog (`types[org].roles`) nennen nur die zulässigen. Tupel mit einer am Typ nicht zulässigen Rolle zählen nicht (Entscheidung, Lesesicht, Auskunft); `syncModelChecks` ergänzt den CHECK `authz_tuple_type_relation_check` (`NOT VALID`: bestehende Tupel bleiben, neue werden abgelehnt) |
 | M6 | `leaf`: kein Typ hat ihn als `parent`; höchstens **ein** Blatt-Typ je Modell (A2) |
 | M7 | Jeder Typ ausser `org` hat `read`; `leaf` und `scope` zusätzlich `write`; `read` und `write` stehen in `resources` ihrer Rechte für diesen Typ |
 | M8 | `relations` (Beziehungen ohne Rechte) sind keine Rollenschlüssel; zulässig sind nur reservierte (`member`); der Typ `edges.unit` hat `member` in `relations` |
@@ -692,7 +692,7 @@ dem Baukasten; die App lässt reservierte Rechte weg und nennt eines nur ohne La
 | Recht | `members:admin` | Mitglieder und Rollen verwalten | MUSS mit Verwaltung | Mitglieder einladen und entfernen, Rollen an der Organisation vergeben, Freigabestufen setzen, Anmeldung einrichten, Maschinen-Clients freigeben; **in keinem Scope** |
 | Recht | `access:admin` | Zugriff verwalten | MUSS mit `types` | Freigaben an einem Ort anlegen, ändern, entfernen, «Warum?» für andere; **in keinem Scope**. «Wer hat Zugriff?» sieht, wer die Ressource lesen darf (A13) |
 | Recht | `audit:read` | Protokoll lesen | MUSS, wenn die App das Protokoll zeigt | Audit-Protokoll durchsuchen und prüfen |
-| Typ | `org` | Organisation | MUSS | Wurzel jeder Kette, `roles: '*'` |
+| Typ | `org` | Organisation | MUSS | Wurzel jeder Kette, `roles: '*'` oder Liste (M5) |
 | Rechtegruppe | `tenant`, `members`, `access`, `audit` | Organisation, Mitglieder und Rollen, Zugriff, Protokoll | MUSS für die genutzten Rechte | Gruppen der reservierten Rechte |
 | Realm-Rolle | `platform-admin` | Plattform-Administration | MUSS | keine Rolle des Modells ([3.5](#35-rollen-und-gruppen)) |
 

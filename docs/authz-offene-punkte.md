@@ -51,13 +51,13 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | O1 | Entra-Gruppen: Überlauf bei mehr als 200 Gruppen (Entra liefert dann keinen `groups`-Claim); ggf. Gruppen-Filter in der App-Registrierung oder Abfrage über Graph | Review #43 | offen, nach P1 |
 | O2 | Attribut `entra_groups` im Realm-User-Profile | P4 | entschieden: im Modul deklariert, nur admin, mehrwertig |
 | O4 | `catalog.platformJson()` ohne `roles`; `machine_clients` im Modul ohne `roles` | P4 | erledigt (#47) |
-| O5 | Eigene Rollen der Organisation (D3): Rückfrage der Person offen; später als Rollen aus Tabelle mit derselben API möglich | Person | offen |
+| O5 | Eigene Rollen der Organisation (D3): später als Rollen aus Tabelle mit derselben API möglich | Person | zurückgestellt: entscheidet die Person später |
 | O6 | Besitz (`owner`) übertragen | P0 A7 | offen, nicht in diesem Vorhaben |
 | O7 | Release-Hinweis 1.0: neue Symbole `arrow`, `lock` in `IamIconName`; OpenAPI-Auszug in iam-web erneuern, sobald P1 eine OpenAPI liefert | P6 | an P7 |
-| O8 | Alte Dateien in packages/iam löschen (Migrationen iam_009…014 bzw. alte Module, Tests, Skripte, Fixtures): Umgebung verweigert `git rm`; Liste im PR von P1 | P1 | wartet auf die Person |
+| O8 | Alte Dateien in packages/iam löschen (alte Module, Tests, Skripte, Fixtures; Liste in #47); bestehende Migrationen bleiben | P1 | erledigt (identity-kit#54) |
 | O9 | «Warum?» für andere Personen kennt deren Entra-Gruppen nicht (nur aus dem eigenen Token); Vorschlag: Gruppen beim Login am Principal speichern | P1 #47 | offen, nach Assets |
 | O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Assets erzeugt `access.changed` übergangsweise über einen Audit-Wrapper | P8 assets#43 | offen, Kit-Folgearbeit |
-| O11 | Alte Dateien in Assets löschen (Liste in assets#43) | P8 | wartet auf die Person (wie O8) |
+| O11 | Alte Dateien in Assets löschen (Liste in assets#43) | P8 | erledigt (assets#47) |
 | O12 | E2E-Tests (Playwright) gegen lokalen Stack für Zugriff/Klassifizierung in Assets nicht ausgeführt (CI-Umgebung ohne Docker) | P9 assets#44 | offen, vor produktivem Einsatz |
 | O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 

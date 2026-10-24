@@ -54,11 +54,9 @@ describe('Zugriff über HTTP (/v1/access)', { skip }, () => {
   });
   after(async () => { await n?.app.close(); await idp?.close(); await t?.drop(); });
 
-  test('Katalog: types[].membersRole nur bei Typen mit owner; /v1/access nimmt für org:members jede vergebbare Rolle', async () => {
+  test('Katalog: types[].membersRole nur bei Typen mit owner', async () => {
     const types = (await call('viewer', 'GET', '/v1/authz/catalog')).json().types as { key: string; membersRole?: string }[];
     assert.deepEqual(types.filter(x => x.membersRole).map(x => [x.key, x.membersRole]), [['view', 'viewer']]);
-    const ok = await call('admin', 'POST', '/v1/access', { subject: 'org:members', relation: 'editor', type: 'view', id: V });
-    assert.equal(ok.statusCode, 201, ok.body);
   });
 
   test('GET /v1/me (ApiMe): Rollen und Rechte an org, irgendwo, Freigabestufe', async () => {

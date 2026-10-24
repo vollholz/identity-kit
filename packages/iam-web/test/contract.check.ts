@@ -113,7 +113,7 @@ ok<SameKeys<C.AuthzCatalog, typeof F.CATALOG_FIXTURE>>();
 ok<SameFields<C.TypeInfo, (typeof F.CATALOG_FIXTURE)['types'][1]>>();
 ok<SameKeys<C.ApiMe, typeof F.API_ME_FIXTURE>>();
 ok<SameKeys<C.AccessList, typeof F.ACCESS_LIST_FIXTURE>>();
-ok<SameFields<C.AccessEntry, typeof F.ACCESS_SCOPE_FIXTURE>>();
+ok<SameFields<C.AccessEntry, typeof F.ACCESS_SCOPE_FIXTURE & Pick<typeof F.ACCESS_DATA_FIXTURE, 'data'>>>();
 ok<SameFields<C.AccessSubject, (typeof F.ACCESS_CLIENT_FIXTURE)['subject']>>();
 ok<SameKeys<C.Explain, typeof F.EXPLAIN_FIXTURE>>();
 ok<SameKeys<C.Member, typeof F.MEMBER_FIXTURE>>();

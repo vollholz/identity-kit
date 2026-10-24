@@ -92,7 +92,8 @@ function AccessContent({ list, resource, label, classification }: { list: Access
     : e.subject.kind === 'client' ? t('iam.access.kind.client', { name: e.subject.name }) : e.subject.name);
   const over = (e: AccessEntry) => (e.via === 'direct' ? t('iam.access.via.direct')
     : e.via === 'scope' ? t('iam.access.via.scope', { unit: e.unit ? placeName(e.unit.ref) : '' })
-      : placeName(e.place));
+      : e.via === 'data' ? t('iam.access.via.data', { relation: e.data?.relation ?? e.relation })
+        : placeName(e.place));
   const origin = (e: AccessEntry): ResourceRef | null => (e.via === 'scope' ? e.unit?.ref ?? null : e.via === 'inherited' ? e.place : null);
   return (
     <>
@@ -127,7 +128,7 @@ function AccessContent({ list, resource, label, classification }: { list: Access
                           </>}
                         </Menu>
                       ) : <>
-                        <span className="iam-sr">{t('iam.access.inherited', { place: to ? placeName(to) : over(e) })}</span>
+                        <span className="iam-sr">{e.via === 'data' ? t('iam.access.dataOrigin') : t('iam.access.inherited', { place: to ? placeName(to) : over(e) })}</span>
                         {to ? <OpenPlace place={to} label={placeName(to)} /> : null}
                       </>}
                     </div></td>

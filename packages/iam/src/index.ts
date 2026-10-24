@@ -22,7 +22,7 @@ export {
 } from './principal.ts';
 export {
   AccessService, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
-  type TenantAccess, type Tuple, type Who, type Facts, type Belong, type Reason, type ClearanceRow,
+  type TenantAccess, type Tuple, type Who, type Facts, type Belong, type PersonEdge, type Reason, type ClearanceRow,
 } from './access.ts';
 export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput } from './tuples.ts';
 export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, type ExplainOut, type GroupNames, type AccessSubjectOut } from './explain.ts';

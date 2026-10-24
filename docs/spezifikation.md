@@ -382,7 +382,7 @@ erlaubt = Beziehung ergibt Recht  ∧  Klassifizierung ≤ Freigabestufe  ∧  S
 | **Rolle** | Name einer Beziehung, die Rechte ergibt | Bearbeiter:in, Leser:in, Schema-Admin |
 | **Ort** | Ressource, an der eine Rolle hängt | Organisation, Schema «IT», Objekt «n42» |
 | **Freigabe** | Ein Eintrag «Wer – Rolle – Ort», optional mit Ablaufdatum (ein Tupel) | «Anna ist Bearbeiterin am Schema IT bis 31.12.» |
-| **Zuständigkeit** | Rechte, die aus Fachdaten folgen: Ressource gehört zu einer Einheit, Person ist Mitglied der Einheit | «Mitglieder der Abteilung X lesen alles, was der Abteilung gehört» |
+| **Zuständigkeit** | Rechte, die aus Fachdaten folgen: Ressource gehört zu einer Einheit, Person ist Mitglied der Einheit; oder die Person steht selbst in den Fachdaten der Ressource (ab 1.1) | «Mitglieder der Abteilung X lesen alles, was der Abteilung gehört»; «Verantwortliche bearbeiten ihre Objekte» |
 | **Vertraulichkeit** | Stufe an der Ressource (`0` intern, `1` vertraulich, `2` streng vertraulich); **Freigabestufe** je Person und Client | «Streng vertraulich sehen nur Personen mit Freigabestufe 2» |
 | **Scope** | Obergrenze im Token für Programme, MCP, Assistent («Freigabe im Token») | `assets:read` |
 | **Recht** | Was eine Aktion verlangt, Schlüssel `<bereich>:<verb>` | `object:write` |
@@ -516,6 +516,10 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
 2. **Zuständigkeit** (nur Typen mit `scope`): `ref` gehört über eine Kante mit `grants ≠ none` zu einer Einheit aus
    `units(p)`. `grants = read` ergibt `read` des Typs, `grants = edit` ergibt `read` und `write`. `units(p)` = Einheiten
    mit Tupel `member` eines Subjekts von `p`, dazu transitiv alle darunter (Kanten mit `inherits_scope`, Tiefe ≤ 16).
+   **Über Personen** (ab 1.1, `ResourceModel.edges.persons`): `p` ist eine Person und steht in den Fachdaten von `ref`
+   mit `grants ≠ none` (Assets: Attribut «Verantwortlich» der Art `user`); `read` und `edit` wirken wie oben. Es zählt
+   nur `principal.id` der Person selbst, nie Gruppen, «Alle Mitglieder» oder Clients; nur an `ref` selbst, nicht an
+   Ressourcen darunter.
 3. **Klassifizierung** (nur Typen mit `classified`): `classification(ref) ≤ clearance(p)`.
 4. **Besitz** (nur Typen mit `owner`): Tupel `owner` eines Subjekts von `p` an `ref`.
 5. **Scope** (nur `scopeBound`): `perm ∈ permissionsForScopes(p.scopes)`; gilt für jeden Weg 1, 2, 4.
@@ -526,7 +530,8 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
   `client:<id>` (A5).
 - `clearance(p)` = `max(principal.clearance, principal.clearance_boost)`, solange `clearance_until > now()`, sonst
   `principal.clearance`.
-- **Recht irgendwo** (`canSomewhere`, `needSomewhere`): 1, 2 oder 4 ergibt `perm` an mindestens einem Ort, ∧ 5. Damit
+- **Recht irgendwo** (`canSomewhere`, `needSomewhere`): 1, 2 oder 4 ergibt `perm` an mindestens einem Ort, ∧ 5;
+  Zuständigkeit über Personen nur, wenn die App `edges.personGrants` liefert. Damit
   prüfen Listen und Einstiege, die danach je Ressource prüfen oder über die Lesesicht filtern. Anlegen ohne Ressource
   prüft an `org`.
 - Rechte an `org` (`permissions` in `/auth/me`) = Rechte der Rollen aus Tupeln an `org` (∧ 5).
@@ -553,6 +558,8 @@ Einstellung: leeres Array, `false` bzw. `0`). `dbContext` der App entfällt.
 | `app.write_all` | `app.write_all()` | `boolean` | wie `read_all` für `write` (A10) |
 | `app.write_types` | `app.write_types()` | `uuid[]` | wie `read_types` für `write` |
 | `app.write_units` | `app.write_units()` | `uuid[]` | `units(p)`; leer, wenn 5 `write` nicht deckt |
+| `app.read_person` | `app.read_person()` | `uuid` | `principal.id` der Person für Regel 2 über Personen (ab 1.1, `iam_016`); `NULL` bei Clients, ohne `edges.persons` oder wenn 5 `read` nicht deckt |
+| `app.write_person` | `app.write_person()` | `uuid` | wie `read_person` für `write` |
 | `app.org_permissions` | `app.read_all_of(permission text)` | `boolean` | Recht gilt an `org` (∩ Scope); für Typen mit Tupeln ausser dem Blatt (A10) |
 | `app.read_relations`, `app.write_relations` | `app.read_relations()`, `app.write_relations()` | `text[]` | Relationen (Rollen, bei `owner`-Typen auch `owner`), die `read` bzw. `write` des Blatts enthalten, **je Anfrage** aus Modell ∩ Scope berechnet: leer, wenn 5 das Recht nicht deckt; nie `member` |
 | `app.permission_relations` | `app.relations_of(permission text)` | `text[]` | wie oben für ein beliebiges Recht (Typen ausser dem Blatt) (A10) |
@@ -566,10 +573,12 @@ Name oder Wert an die Person zurück. Policies der App (RESTRICTIVE, zusätzlich
 -- Blatt (Assets: object)
 USING (classification <= app.clearance() AND (
   app.read_all() OR type_id = ANY (app.read_types()) OR app.has_tuple('object', id, app.read_relations())
-  OR EXISTS (/* Kante mit grants <> 'none' */ … WHERE r.from_id = object.id AND r.to_id = ANY (app.read_units()))))
+  OR EXISTS (/* Kante mit grants <> 'none' */ … WHERE r.from_id = object.id AND r.to_id = ANY (app.read_units()))
+  OR EXISTS (/* Person mit grants <> 'none' (edges.persons) */ … WHERE v.object_id = object.id AND v.principal_id = app.read_person())))
 WITH CHECK (classification <= app.clearance() AND (
   app.write_all() OR type_id = ANY (app.write_types()) OR app.has_tuple('object', id, app.write_relations())
-  OR EXISTS (/* Kante mit grants = 'edit' */ … AND r.to_id = ANY (app.write_units()))))
+  OR EXISTS (/* Kante mit grants = 'edit' */ … AND r.to_id = ANY (app.write_units()))
+  OR EXISTS (/* Person mit grants = 'edit' */ … AND v.principal_id = app.write_person())))
 -- weitere Ressource mit Tupeln (Assets: view, report, dashboard): Rolle an org über das Recht der App, sonst Tupel
 USING (app.read_all_of('view:read') OR app.has_tuple('view', id, app.relations_of('view:read')))
 ```
@@ -605,9 +614,19 @@ interface ResourceModel<S = unknown> {
     children: string;
     /** Zugehörigkeit der Ressourcen $1; Spalten `id uuid`, `unit_id uuid`, `grants text` ('read' | 'edit'), `label text` (Name der Kante). */
     belongs: string;
+    /** Ab 1.1: zuständige Personen der Ressourcen $1; Spalten `id uuid` (Ressource), `principal_id uuid` (`principal.id`
+     *  einer Person), `grants text` ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, z. B. «Verantwortlich»). */
+    persons?: string;
+    /** Ab 1.1: Wirkungen der Person $1 (uuid) über alle Ressourcen; Spalte `grants text`. Nur für «Recht irgendwo». */
+    personGrants?: string;
   };
 }
 ```
+
+`edges.persons` gilt für Typen mit `scope` (wie `belongs`); dasselbe SQL dient einer und vielen Ressourcen
+(`req.can`, `req.need`, `req.capabilities(refs)`, `capabilitiesFor(access, p, refs)`). Fehlt `edges.persons`, gibt es
+den Weg nicht. Beispiel Assets: `SELECT v.object_id AS id, v.principal_id, d.grants, d.name AS label FROM
+attribute_value v JOIN attribute_def d ON … WHERE v.object_id = ANY($1) AND d.kind = 'user'`.
 
 `version` muss sich mit jeder Änderung der Daten ändern, aus denen `load` die Kette baut (Anlegen, Verschieben; z. B.
 `count(*)` und `max(updated_at)` oder ein Zähler per Trigger); ohne `load` und `version` berechnet der Baukasten die
@@ -934,23 +953,24 @@ interface AuthzCatalog {
 interface AccessList {
   resource: ResourceRef;
   classification: Level | null;  // null: Typ ohne classified
-  items: AccessEntry[];          // direkt zuerst, dann geerbt von unten nach oben, dann Zuständigkeit
+  items: AccessEntry[];          // direkt zuerst, dann geerbt von unten nach oben, dann Zuständigkeit (Einheiten, dann Personen)
   grantable: string[];           // Relationen, die ich hier vergeben darf (7.5); leer ohne access:admin
 }
 interface AccessEntry {
-  id: string | null;             // Tupel-ID; null bei Zuständigkeit
+  id: string | null;             // Tupel-ID; null bei Zuständigkeit ('scope', 'data')
   subject: {
     ref: string;                 // 'user:<id>' | 'client:<id>' | 'group:<entra-object-id>' | 'org:members'
     kind: 'user' | 'client' | 'group' | 'members';
     name: string;                // Name der Person bzw. des Clients, Anzeigename der Gruppe (Graph, sonst Objekt-ID), «Alle Mitglieder»
     scopes?: string[] | null;    // nur Clients: Scopes im letzten Token
   };
-  relation: string;              // Rolle, 'member' oder 'owner'
-  place: ResourceRef;            // Ort des Tupels
-  via: 'direct' | 'inherited' | 'scope';
+  relation: string;              // Rolle, 'member' oder 'owner'; bei 'data' der Name der Fachbeziehung
+  place: ResourceRef;            // Ort des Tupels; bei 'data' die Ressource selbst
+  via: 'direct' | 'inherited' | 'scope' | 'data';  // 'data' ab 1.1: zuständig als Person über Fachdaten (edges.persons)
   unit?: { ref: ResourceRef; relation: string; grants: 'read' | 'edit' };  // nur bei 'scope': Einheit, zu der die Ressource gehört
+  data?: { relation: string; grants: 'read' | 'edit' };                  // nur bei 'data': «zuständig über <relation>»
   expiresAt: string | null; createdAt: string | null; createdBy: string | null;  // createdBy: Name
-  removable: boolean;            // ich darf entfernen und den Ablauf ändern (nur 'direct')
+  removable: boolean;            // ich darf entfernen und den Ablauf ändern (nur 'direct'; 'data' ändert nur die App in ihren Daten)
 }
 ```
 
@@ -978,11 +998,12 @@ interface Explain {
   permission: string;
   subject: { ref: string; name: string };
   reasons: {                     // alle Wege, die das Recht ergeben (Regeln 1, 2, 4); leer, wenn keiner
-    via: 'direct' | 'inherited' | 'scope' | 'owner';
+    via: 'direct' | 'inherited' | 'scope' | 'owner' | 'data';
     relation: string; place: ResourceRef; tupleId: string | null;
     matched: string;             // welches Subjekt passt, z. B. 'group:<entra-object-id>' oder 'org:members'
     label: string;               // Anzeigename von matched: Gruppe aus dem Graph-Zwischenspeicher (sonst Objekt-ID), Person, Client, «Alle Mitglieder»
     unit?: { ref: ResourceRef; relation: string; grants: 'read' | 'edit' };
+    data?: { relation: string; grants: 'read' | 'edit' };  // nur bei 'data'; matched = 'user:<principal-id>'
   }[];
   blocked:                       // was trotz Weg verhindert; null, wenn allowed oder kein Weg
     | { reason: 'clearance'; classification: Level; clearance: Level }
@@ -1416,11 +1437,11 @@ Pflichttests (Kit: `packages/*/test`, Konformität über `@vollholz/iam-testkit`
 |---|---|
 | `tenant-isolation` | **jede** `/v1`-Route (aus der Routenliste, `onRoute`) mit IDs von A als B, auch `/v1/access…` (Tupel-IDs, Orte, Subjekte von A), `/v1/admin/clients`, `/v1/break-glass`: Antwort wie für eine unbekannte ID, ohne Merkmale von A; Listen, Suche, Zähler; keine Route ohne Eintrag (kein leeres Grün) |
 | `multi-org` | Person in A und B: Rollen (Tupel) nur der gewählten Organisation, Gruppen, Freigaben, Freigabestufe, Break-Glass nur in A, Wahl, Austritt, Client-Freigabe, Alias neu vergeben |
-| `rls` | jede Tabelle mit `tenant_id` hat FORCE RLS und `tenant_isolation` (auch `authz_tuple`); kein PUBLIC-EXECUTE (auch Funktionen der Lesesicht); fremder Mandant sieht nichts |
+| `rls` | jede Tabelle mit `tenant_id` hat FORCE RLS und `tenant_isolation` (auch `authz_tuple`); kein PUBLIC-EXECUTE (auch Funktionen der Lesesicht, mit `read_person`, `write_person`); fremder Mandant sieht nichts |
 | `model` | `checkModel`: Regeln M1–M12 ([7.3](#73-modell-der-app-definemodel)), reservierte Namen ([8.1](#81-reservierte-namen)), `platform.json` = `model.platformJson()` |
-| `access` | Entscheidung nach [7.5](#75-entscheidung): Rolle an `org`, am Ort, Vererbung über `parent` und `self`, Blatt-Tupel (nur Rollen mit `read`, nie `member`); Gruppen-Subjekte aus `entra_groups`; Zuständigkeit (`grants` read/edit, `inherits_scope`, Tiefe 16, Kreis); Besitz; Klassifizierung (auch `org-admin` scheitert); Break-Glass (Stufe, Ende, Ablauf); Ablauf von Tupeln (zählt nicht, Aufräumen, `access.expired`); Scope-Grenze für jeden Weg; Client ohne Tupel an `org` → 403; `canSomewhere`; Zwischenspeicher nach `acl_version` |
-| `read-view` | Lesesicht = `can`: für ein Modell mit allen Wegen liefert eine Liste unter RLS genau die Ressourcen mit `can(read)`, Schreiben unter `WITH CHECK` genau die mit `can(write)` – auch für `scopeBound` (Tupel, Zuständigkeit, `org` ohne passenden Scope ergeben nichts) |
-| `access-http` | Formen aus [9.5](#95-zugriff-v1access); Regeln [9.1](#91-regeln) Nr. 5–7: niemand gibt mehr, als er hat (POST, PATCH, DELETE, Mitglieder, Clients, Freigabestufe nie für sich selbst), `org-admin` nur `platform-admin`, letzter Admin, Duplikat, 422 je Feld; 404 für nicht lesbare Ressourcen; `explain` gibt für andere nur mit `access:read` Auskunft |
+| `access` | Entscheidung nach [7.5](#75-entscheidung): Rolle an `org`, am Ort, Vererbung über `parent` und `self`, Blatt-Tupel (nur Rollen mit `read`, nie `member`); Gruppen-Subjekte aus `entra_groups`; Zuständigkeit (`grants` read/edit, `inherits_scope`, Tiefe 16, Kreis); Zuständigkeit über Personen (`edges.persons`: read/edit, none, andere Person, Client, nur an der Ressource, `personGrants` für irgendwo; Test-Kit `personCases`); Besitz; Klassifizierung (auch `org-admin` scheitert); Break-Glass (Stufe, Ende, Ablauf); Ablauf von Tupeln (zählt nicht, Aufräumen, `access.expired`); Scope-Grenze für jeden Weg; Client ohne Tupel an `org` → 403; `canSomewhere`; Zwischenspeicher nach `acl_version` |
+| `read-view` | Lesesicht = `can`: für ein Modell mit allen Wegen liefert eine Liste unter RLS genau die Ressourcen mit `can(read)`, Schreiben unter `WITH CHECK` genau die mit `can(write)` – auch für `scopeBound` (Tupel, Zuständigkeit über Einheiten und über Personen, `org` ohne passenden Scope ergeben nichts) |
+| `access-http` | Formen aus [9.5](#95-zugriff-v1access); Regeln [9.1](#91-regeln) Nr. 5–7: niemand gibt mehr, als er hat (POST, PATCH, DELETE, Mitglieder, Clients, Freigabestufe nie für sich selbst), `org-admin` nur `platform-admin`, letzter Admin, Duplikat, 422 je Feld; 404 für nicht lesbare Ressourcen; `explain` gibt für andere nur mit `access:read` Auskunft; Zuständigkeit über Personen als `via: 'data'` (nicht entfernbar) in «Wer hat Zugriff?» und «Warum?» |
 | `admin` | Regeln aus [9.1](#91-regeln) inkl. gleicher Antwort beim Einladen, Clients in der Liste, Tupel beim Entfernen gelöscht, Audit `…_failed` |
 | `break-glass` | nur Personen mit `org-admin`, 1–240 min, Neubeginn, Ende, Banner-Daten in `/auth/me`, Audit |
 | `auth` / `unit` | Token-Prüfung (Typ, Bindung, DPoP, mTLS), Person/Client, Alias ASCII, Subjekte aus dem Token |

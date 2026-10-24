@@ -47,7 +47,32 @@ export const notesMigration = migration('001_notes.sql', `
       OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))));
   CREATE POLICY view_read ON notes.view AS RESTRICTIVE FOR SELECT TO notes_app USING (app.read_all_of('view:read') OR app.has_tuple('view', id, app.relations_of('view:read')));`);
 
-export const notesDb = () => productDb({ model: notesModel, sources: [{ name: 'app', migrations: [notesMigration] }] });
+/**
+ * Zuständige Personen je Notiz (Fachdaten, `edges.persons`; wie in Assets das Attribut «Verantwortlich») und die
+ * Policies der Notizen mit dem Weg über `app.read_person()`/`app.write_person()` (Muster Kap. 7.6).
+ */
+export const notesPersonsMigration = migration('002_notes_persons.sql', `
+  CREATE TABLE notes.note_person (tenant_id uuid NOT NULL REFERENCES notes.tenant(id), note_id uuid NOT NULL, principal_id uuid NOT NULL,
+    grants text NOT NULL CHECK (grants IN ('none', 'read', 'edit')), label text NOT NULL,
+    PRIMARY KEY (tenant_id, note_id, principal_id, label), FOREIGN KEY (tenant_id, note_id) REFERENCES notes.note (tenant_id, id));
+  SELECT app.secure_tenant_tables();
+  DROP POLICY note_read ON notes.note; DROP POLICY note_insert ON notes.note; DROP POLICY note_update ON notes.note;
+  CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT TO notes_app USING (classification <= app.clearance() AND (
+    app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id, app.read_relations())
+    OR (team_grants <> 'none' AND team_id = ANY (app.read_units()))
+    OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.read_person() AND r.grants IN ('read', 'edit'))));
+  CREATE POLICY note_insert ON notes.note AS RESTRICTIVE FOR INSERT TO notes_app WITH CHECK (classification <= app.clearance() AND (
+    app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations())
+    OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))));
+  CREATE POLICY note_update ON notes.note AS RESTRICTIVE FOR UPDATE TO notes_app
+    USING (classification <= app.clearance() AND (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations())
+      OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))
+      OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.write_person() AND r.grants = 'edit')))
+    WITH CHECK (classification <= app.clearance() AND (app.write_all() OR folder_id = ANY (app.write_types()) OR app.has_tuple('note', id, app.write_relations())
+      OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))
+      OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.write_person() AND r.grants = 'edit')));`);
+
+export const notesDb = () => productDb({ model: notesModel, sources: [{ name: 'app', migrations: [notesMigration, notesPersonsMigration] }] });
 
 /** Zustand der Kette: Eltern je Ordner, Ordner je Notiz. */
 export interface NotesState { folderParent: Map<string, string | null>; noteFolder: Map<string, string> }
@@ -83,6 +108,8 @@ export const notesResources: ResourceModel<NotesState> = {
     unit: 'team',
     children: 'SELECT id FROM notes.team WHERE parent_id = ANY($1::uuid[]) AND inherits',
     belongs: "SELECT id, team_id AS unit_id, team_grants AS grants, 'gehört zu' AS label FROM notes.note WHERE id = ANY($1::uuid[]) AND team_id IS NOT NULL",
+    persons: 'SELECT note_id AS id, principal_id, grants, label FROM notes.note_person WHERE note_id = ANY($1::uuid[])',
+    personGrants: 'SELECT DISTINCT grants FROM notes.note_person WHERE principal_id = $1::uuid',
   },
 };
 
@@ -196,6 +223,11 @@ export async function folderWithNote(db: Db, tenantId: string, name = 'Ordner', 
 /** Team (Einheit) im Mandanten. */
 export async function team(db: Db, tenantId: string, name: string, parent: string | null = null, inherits = true): Promise<string> {
   return full(db, tenantId, async tx => (await tx.query<{ id: string }>('INSERT INTO notes.team (tenant_id, name, parent_id, inherits) VALUES ($1, $2, $3, $4) RETURNING id', [tenantId, name, parent, inherits])).rows[0]!.id);
+}
+
+/** Zuständige Person an einer Notiz (Fachdaten, `edges.persons`). */
+export async function responsible(db: Db, tenantId: string, note: string, principalId: string, grants: 'none' | 'read' | 'edit', label = 'Verantwortlich'): Promise<void> {
+  await full(db, tenantId, tx => tx.query('INSERT INTO notes.note_person (tenant_id, note_id, principal_id, grants, label) VALUES ($1, $2, $3, $4, $5)', [tenantId, note, principalId, grants, label]));
 }
 
 /** Ansicht im Mandanten. */

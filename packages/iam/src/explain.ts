@@ -3,7 +3,8 @@
  * Entscheidung (access.ts). Dazu, wer an einem Ort Rollen vergeben darf («niemand gibt mehr, als er hat», 7.5).
  *
  * - `whoHasAccess`: direkte Tupel am Ort, dann geerbte (Rollen mit dem Leserecht des Typs) von unten nach oben, dann
- *   Zuständigkeit (Mitglieder der Einheiten, zu denen die Ressource gehört, auch über übergeordnete Einheiten).
+ *   Zuständigkeit (Mitglieder der Einheiten, zu denen die Ressource gehört, auch über übergeordnete Einheiten), dann
+ *   zuständige Personen aus Fachdaten (`edges.persons`, Quelle `data`, nicht entfernbar).
  * - `explain`: alle Wege (Regeln 1, 2, 4) und was trotz Weg verhindert (Klassifizierung, Scope).
  * Namen von Orten liefert die Antwort nicht; die Oberfläche löst sie selbst auf.
  */
@@ -21,8 +22,10 @@ export interface AccessEntry {
   subject: AccessSubjectOut;
   relation: string;
   place: { type: string; id: string | null };
-  via: 'direct' | 'inherited' | 'scope';
+  via: 'direct' | 'inherited' | 'scope' | 'data';
   unit?: { ref: { type: string; id: string | null }; relation: string; grants: 'read' | 'edit' };
+  /** Nur bei `data`: Fachbeziehung an der Ressource selbst (z. B. «Verantwortlich») und ihre Wirkung. */
+  data?: { relation: string; grants: 'read' | 'edit' };
   expiresAt: string | null; createdAt: string | null; createdBy: string | null;
   removable: boolean;
 }
@@ -41,6 +44,7 @@ export type GroupNames = (tenantId: string, ids: string[]) => Promise<Map<string
 export const MEMBERS_NAME = 'Alle Mitglieder';
 const placeOut = (r: ResourceRef) => ({ type: r.type, id: r.type === ORG ? null : r.id ?? null });
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+type Item = { t: Tuple; via: AccessEntry['via']; removable: boolean; unit?: AccessEntry['unit']; data?: AccessEntry['data'] };
 const kindOf = (subject: string): AccessSubjectOut['kind'] => (subject === 'org:members' ? 'members' : subject.slice(0, subject.indexOf(':')) as 'user' | 'client' | 'group');
 
 /** Ressource prüfen: Typ bekannt, `id` leer genau bei `org`, Ressource besteht (volle Sicht); sonst 404 bzw. 422. */
@@ -109,11 +113,11 @@ export class AccessInfo {
   }
 
   /** Einträge aus Tupeln mit Namen. */
-  private async entries(tenantId: string, list: { t: Tuple; via: AccessEntry['via']; removable: boolean; unit?: AccessEntry['unit'] }[]): Promise<AccessEntry[]> {
+  private async entries(tenantId: string, list: Item[]): Promise<AccessEntry[]> {
     const n = await this.names(tenantId, list.map(x => x.t.subject), list.map(x => x.t.created_by));
-    return list.map(({ t, via, removable, unit }) => ({
-      id: via === 'scope' ? null : t.id, subject: n.subject.get(t.subject)!, relation: t.relation, place: { type: t.object_type, id: t.object_id }, via,
-      ...(unit ? { unit } : {}), expiresAt: iso(t.expires_at), createdAt: iso(t.created_at), createdBy: t.created_by ? n.principal.get(t.created_by) ?? null : null, removable,
+    return list.map(({ t, via, removable, unit, data }) => ({
+      id: via === 'scope' || via === 'data' ? null : t.id, subject: n.subject.get(t.subject)!, relation: t.relation, place: { type: t.object_type, id: t.object_id }, via,
+      ...(unit ? { unit } : {}), ...(data ? { data } : {}), expiresAt: iso(t.expires_at), createdAt: iso(t.created_at), createdBy: t.created_by ? n.principal.get(t.created_by) ?? null : null, removable,
     }));
   }
 
@@ -130,7 +134,7 @@ export class AccessInfo {
     const facts = await a.facts(p, acl, [ref], p.tenantId);
     if (!type.read || !a.decide(p, acl, type.read, ref, hint, facts)) throw notFound('Ressource');
     const now = Date.now();
-    const list: { t: Tuple; via: AccessEntry['via']; removable: boolean; unit?: AccessEntry['unit'] }[] = [];
+    const list: Item[] = [];
     const chain = a.chain(acl, ref, hint);
     for (let i = chain.length - 1; i >= 0; i--) {
       const step = chain[i]!, here = i === chain.length - 1;
@@ -141,6 +145,12 @@ export class AccessInfo {
       }
     }
     for (const s of await this.scopeEntries(p.tenantId, acl, ref)) list.push(s);
+    for (const x of a.resources?.edges?.persons && type.scope ? facts.persons.get(refKey(ref)) ?? [] : []) {
+      if (x.grants === 'none') continue;
+      // Kein Tupel: Herkunft sind Fachdaten der App, im Panel nicht entfernbar
+      const t: Tuple = { id: '', subject: `user:${x.principal_id}`, relation: x.label, object_type: ref.type, object_id: ref.id!, expires_at: null, created_at: null as never, created_by: null };
+      list.push({ t, via: 'data', removable: false, data: { relation: x.label, grants: x.grants } });
+    }
     const r = a.resources;
     const classification = type.classified && r?.classification ? (await a.fullTx(p.tenantId, tx => r.classification!(tx, [ref]))).get(refKey(ref)) ?? 0 : null;
     return { resource: placeOut(ref), classification, items: await this.entries(p.tenantId, list), grantable: this.grantable(p, acl, ref, facts, hint) };
@@ -233,7 +243,7 @@ export class AccessInfo {
     if (!self && !(this.person(p) && a.decide(p, acl, 'access:admin', ref, hint, mine))) throw a.missingPermission('access:admin', ref.type === ORG ? '' : ' an diesem Ort');
     const who: Who = self ? p : await this.who(p.tenantId, o.subject!);
     const facts = self ? mine : await a.facts(who, acl, [ref], p.tenantId);
-    const reasons = [...a.tupleReasons(who, acl, perm, ref, hint), ...a.scopeReasons(acl, perm, ref, facts)];
+    const reasons = [...a.tupleReasons(who, acl, perm, ref, hint), ...a.scopeReasons(acl, perm, ref, facts), ...a.personReasons(who, perm, ref, facts)];
     // Zuständigkeit: passendes Subjekt = eines mit Tupel member an einer Einheit von units(who)
     const memberOf = acl.tuples.find(t => t.relation === MEMBER && who.subjects.includes(t.subject) && t.object_id && facts.units?.has(t.object_id) && live(t));
     for (const r of reasons) if (r.via === 'scope') r.matched = memberOf?.subject ?? who.subjects[0]!;

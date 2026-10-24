@@ -1,13 +1,14 @@
 /**
  * Entscheidung nach Spezifikation Kap. 7.5 (Pflichttest `access`, Kap. 14): Rolle an org, am Ort, Vererbung über `parent`
  * und `self`, Blatt-Tupel (nur Rollen mit `read`, nie `member`), Gruppen-Subjekte, «Alle Mitglieder», Zuständigkeit
- * (`grants` read/edit, Vererbung über untergeordnete Einheiten, Tiefe 16, Kreis), Besitz, Klassifizierung (auch
+ * (`grants` read/edit, Vererbung über untergeordnete Einheiten, Tiefe 16, Kreis), Zuständigkeit über Personen aus
+ * Fachdaten (`edges.persons`: read/edit, nur die Person selbst, ∧ Klassifizierung ∧ Scope, irgendwo), Besitz, Klassifizierung (auch
  * org-admin scheitert), Break-Glass, Ablauf von Tupeln (zählt nicht, Aufräumen, `access.expired`), Scope-Grenze für
  * jeden Weg, Client ohne Tupel → 403, `canSomewhere`, Zwischenspeicher nach `acl_version`.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import { accessCases, runAccessCases } from '@vollholz/iam-testkit';
+import { accessCases, personCases, runAccessCases } from '@vollholz/iam-testkit';
 import { AccessService, capabilities, noFacts, subjectsOf, type Facts, type TenantAccess, type Tuple } from '../src/access.ts';
 import { pgAudit } from '../src/audit.ts';
 import { resourceProblems } from '../src/iam.ts';
@@ -18,7 +19,7 @@ import type { Principal } from '../src/principal.ts';
 import { refKey } from '../src/resources.ts';
 import { expireAccess } from '../src/sync.ts';
 import { skipDb } from './support/db.ts';
-import { folderWithNote, full, grant, notesDb, notesResources, person, team, tenant, type NotesState } from './support/http.ts';
+import { folderWithNote, full, grant, notesDb, notesResources, person, responsible, team, tenant, type NotesState } from './support/http.ts';
 import { notesInput, notesModel } from './support/models.ts';
 
 const skip = await skipDb();
@@ -127,6 +128,29 @@ describe('Entscheidung (ohne Datenbank)', () => {
     assert.equal(acc.decide(p(), a, 'note:read', N1, null, none), false, 'grants none');
   });
 
+  test('Zuständigkeit über Personen: read ergibt read, edit auch write; nur die Person selbst, nie Clients', () => {
+    const a = acl([]);
+    const of = (grants: 'read' | 'edit' | 'none', pid = U(1)) => facts({ persons: new Map([[refKey(N1), [{ id: U(21), principal_id: pid, grants, label: 'Verantwortlich' }]]]) });
+    assert.equal(acc.decide(p(), a, 'note:read', N1, null, of('read')), true);
+    assert.equal(acc.decide(p(), a, 'note:write', N1, null, of('read')), false);
+    assert.equal(acc.decide(p(), a, 'note:write', N1, null, of('edit')), true);
+    assert.equal(acc.decide(p(), a, 'note:share', N1, null, of('edit')), false, 'nur read und write des Typs');
+    assert.equal(acc.decide(p(), a, 'note:read', N1, null, of('none')), false, 'grants none');
+    assert.equal(acc.decide(p(), a, 'note:read', N1, null, of('edit', U(2))), false, 'andere Person');
+    assert.equal(acc.decide(p(), a, 'note:read', N2, null, of('edit')), false, 'andere Ressource');
+    assert.equal(acc.decide(p({ kind: 'client' }), a, 'note:read', N1, null, of('edit')), false, 'Client');
+    assert.equal(acc.decide(p(), a, 'note:read', N1, null, facts({ ...of('edit'), classification: new Map([[refKey(N1), 1]]) })), false, 'Klassifizierung');
+    const r = acc.personReasons(p(), 'note:write', N1, of('edit'));
+    assert.deepEqual(r, [{ via: 'data', relation: 'Verantwortlich', place: N1, tupleId: null, matched: me, data: { relation: 'Verantwortlich', grants: 'edit' } }]);
+    assert.deepEqual(capabilities(acc, p(), a, 'note', U(21), null, of('edit')), { write: true, share: false });
+    // Recht irgendwo nur mit den Wirkungen aus personGrants
+    assert.equal(acc.somewhere(p(), a, 'note:read'), false);
+    assert.equal(acc.somewhere(p(), a, 'note:read', new Set(['read'])), true);
+    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['read'])), false);
+    assert.equal(acc.somewhere(p(), a, 'note:write', new Set(['edit'])), true);
+    assert.equal(acc.somewhere(p({ scopeBound: true, scopes: ['notes:read'] }), a, 'note:write', new Set(['edit'])), false, 'Scope');
+  });
+
   test('Klassifizierung: Stufe ≤ Freigabestufe, auch org-admin scheitert; Break-Glass hebt, Ablauf beendet', () => {
     const f = facts({ classification: new Map([[refKey(N1), 2]]) });
     const admin = acl([tuple(me, 'org-admin')]);
@@ -152,6 +176,10 @@ describe('Entscheidung (ohne Datenbank)', () => {
     const edit = facts({ units: new Set([U(31)]), belongs: new Map([[refKey(N1), [{ id: U(21), unit_id: U(31), grants: 'edit', label: 'x' }]]]) });
     assert.equal(acc.decide(mcp, acl([]), 'note:write', N1, null, edit), false, 'Zuständigkeit');
     assert.equal(acc.decide(mcp, acl([]), 'note:read', N1, null, edit), true);
+    const person = facts({ persons: new Map([[refKey(N1), [{ id: U(21), principal_id: U(1), grants: 'edit', label: 'x' }]]]) });
+    assert.equal(acc.decide(mcp, acl([]), 'note:write', N1, null, person), false, 'Zuständigkeit über Personen');
+    assert.equal(acc.decide(mcp, acl([]), 'note:read', N1, null, person), true);
+    assert.equal(acc.decide(p({ scopeBound: true, scopes: [] }), acl([]), 'note:read', N1, null, person), false);
     assert.equal(acc.decide(p({ scopeBound: true, scopes: ['notes:read', 'notes:write'] }), acl([tuple(me, 'org-admin')]), 'access:admin'), false, 'access:admin in keinem Scope');
   });
 
@@ -187,6 +215,18 @@ describe('Entscheidung (ohne Datenbank)', () => {
       return acc.decide(who, acl(c.tuples.map(t => tuple(subj(t.subject), t.relation, 'org', null, t.expired ? new Date(Date.now() - 1000) : null))), c.permission);
     };
     assert.deepEqual(await runAccessCases(accessCases(notesModel.toJSON()), decide), []);
+  });
+
+  test('Standardfälle des Test-Kits: Zuständigkeit über Personen', async () => {
+    const cases = personCases(notesModel.toJSON());
+    assert.ok(cases.length >= 8);
+    const decide = async (c: (typeof cases)[number]) => {
+      const who = p({ kind: c.who.kind, scopes: c.who.scopes ?? [], scopeBound: c.who.scopes !== undefined });
+      const ref = { type: c.type, id: U(21) };
+      const f = facts({ persons: new Map([[refKey(ref), [{ id: U(21), principal_id: c.holder === 'me' ? U(1) : U(2), grants: c.grants, label: 'Verantwortlich' }]]]), classification: new Map([[refKey(ref), c.classification ?? 0]]) });
+      return acc.decide(who, acl([]), c.permission, ref, null, f);
+    };
+    assert.deepEqual(await runAccessCases(cases, decide), []);
   });
 });
 
@@ -240,6 +280,29 @@ describe('Entscheidung mit PostgreSQL', { skip }, () => {
     const { note: n2 } = await folderWithNote(t.runtime, A, 'Lesen', { team: chain[2], grants: 'read' });
     assert.equal(await acc.can(who, 'note:read', { type: 'note', id: n2 }), true);
     assert.equal(await acc.can(who, 'note:write', { type: 'note', id: n2 }), false);
+  });
+
+  test('Zuständigkeit über Personen aus der Datenbank: can, capabilities(refs), canSomewhere', async () => {
+    const pid = await person(t.runtime, A, 'responsible');
+    const other = await person(t.runtime, A, 'responsible-other');
+    const { note: n1 } = await folderWithNote(t.runtime, A, 'Verantwortlich');
+    const { note: n2 } = await folderWithNote(t.runtime, A, 'Mitlesen');
+    const who = p({ tenantId: A, principalId: pid });
+    assert.equal(await acc.canSomewhere(who, 'note:read'), false);
+    await responsible(t.runtime, A, n1, pid, 'edit');
+    await responsible(t.runtime, A, n2, pid, 'read', 'Stellvertretung');
+    await responsible(t.runtime, A, n2, other, 'edit');
+    assert.equal(await acc.can(who, 'note:write', { type: 'note', id: n1 }), true);
+    assert.equal(await acc.can(who, 'note:read', { type: 'note', id: n2 }), true);
+    assert.equal(await acc.can(who, 'note:write', { type: 'note', id: n2 }), false, 'nur read');
+    assert.equal(await acc.can(who, 'note:read', { type: 'folder', id: (await acc.load(A)).state.noteFolder.get(n1)! }), false, 'nur an der Ressource selbst');
+    assert.equal(await acc.canSomewhere(who, 'note:write'), true, 'irgendwo über personGrants');
+    assert.ok((await acc.granted(who)).includes('note:write' as never));
+    const acl1 = await acc.load(A);
+    const f = await acc.facts(who, acl1, [{ type: 'note', id: n1 }, { type: 'note', id: n2 }], A);
+    assert.deepEqual(capabilities(acc, who, acl1, 'note', n1, null, f), { write: true, share: false });
+    assert.deepEqual(capabilities(acc, who, acl1, 'note', n2, null, f), { write: false, share: false });
+    assert.equal(await acc.can(p({ tenantId: A, principalId: other }), 'note:read', { type: 'note', id: n1 }), false, 'andere Person');
   });
 
   test('Klassifizierung aus der Datenbank; 403 mit Grund clearance', async () => {

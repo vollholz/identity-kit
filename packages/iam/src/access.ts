@@ -6,6 +6,8 @@
  * 2. Zuständigkeit (Typen mit `scope`): ref gehört über eine Kante mit grants ≠ none zu einer Einheit aus units(p);
  *    `read` ergibt das Leserecht des Typs, `edit` Lese- und Schreibrecht. units(p) = Einheiten mit Tupel `member`
  *    eines Subjekts von p und transitiv alle darunter (Tiefe ≤ 16).
+ *    Dazu Zuständigkeit über Personen aus Fachdaten (`edges.persons`, Kit 1.1): Die Person p steht mit grants ≠ none
+ *    an ref (Assets: Attribut «Verantwortlich»); `read` bzw. `edit` wie oben. Nur Personen, nie Gruppen oder Clients.
  * 3. Klassifizierung (Typen mit `classified`): classification(ref) ≤ clearance(p).
  * 4. Besitz (Typen mit `owner`): Tupel `owner` eines Subjekts von p an ref.
  * 5. Scope (nur scopeBound): perm ∈ permissionsForScopes(p.scopes), für jeden Weg.
@@ -51,20 +53,27 @@ export type Who = Pick<Principal, 'kind' | 'principalId' | 'subjects' | 'scopes'
 /** Zugehörigkeit einer Ressource zu einer Einheit (`edges.belongs`). */
 export interface Belong { id: string; unit_id: string; grants: 'read' | 'edit' | 'none'; label: string }
 
-/** Fachdaten je Anfrage: Klassifizierung und Zugehörigkeit je Ressource, units(p). */
+/** Zuständige Person einer Ressource aus Fachdaten (`edges.persons`). */
+export interface PersonEdge { id: string; principal_id: string; grants: 'read' | 'edit' | 'none'; label: string }
+
+/** Fachdaten je Anfrage: Klassifizierung, Zugehörigkeit und zuständige Personen je Ressource, units(p). */
 export interface Facts {
   classification: Map<string, Level>;
   belongs: Map<string, Belong[]>;
+  /** Zuständige Personen je Ressource (`<type>:<id>`). */
+  persons: Map<string, PersonEdge[]>;
   /** units(p); null, wenn nicht gelesen. */
   units: Set<string> | null;
 }
-export const noFacts = (): Facts => ({ classification: new Map(), belongs: new Map(), units: null });
+export const noFacts = (): Facts => ({ classification: new Map(), belongs: new Map(), persons: new Map(), units: null });
 
-/** Ein Weg, der ein Recht ergibt (Regeln 1, 2, 4). */
+/** Ein Weg, der ein Recht ergibt (Regeln 1, 2, 4); `data`: zuständig als Person über Fachdaten (Regel 2). */
 export interface Reason {
-  via: 'direct' | 'inherited' | 'scope' | 'owner';
+  via: 'direct' | 'inherited' | 'scope' | 'owner' | 'data';
   relation: string; place: ResourceRef; tupleId: string | null; matched: string;
   unit?: { ref: ResourceRef; relation: string; grants: 'read' | 'edit' };
+  /** Nur bei `data`: Name der Fachbeziehung (z. B. «Verantwortlich») und ihre Wirkung. */
+  data?: { relation: string; grants: 'read' | 'edit' };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -229,6 +238,20 @@ export class AccessService<P extends string = string, S = unknown> {
     return out;
   }
 
+  /** Regel 2 über Personen aus Fachdaten (`edges.persons`): p selbst steht mit passender Wirkung an ref. */
+  personReasons(who: Pick<Who, 'kind' | 'principalId'>, perm: string, ref: ResourceRef, facts: Facts): Reason[] {
+    const t = this.model.types.get(ref.type);
+    if (!t?.scope || !this.resources?.edges?.persons || !ref.id || who.kind !== 'user' || !who.principalId) return [];
+    if (perm !== t.read && perm !== t.write) return [];
+    const wantsEdit = perm === t.write && perm !== t.read;
+    const out: Reason[] = [];
+    for (const x of facts.persons.get(refKey(ref)) ?? []) {
+      if (x.principal_id !== who.principalId || x.grants === 'none' || (wantsEdit && x.grants !== 'edit')) continue;
+      out.push({ via: 'data', relation: x.label, place: { type: ref.type, id: ref.id }, tupleId: null, matched: `user:${x.principal_id}`, data: { relation: x.label, grants: x.grants } });
+    }
+    return out;
+  }
+
   /**
    * Entscheidung mit gelesenen Fachdaten. Ohne Fakten zur Klassifizierung gilt Regel 3 als erfüllt (Ressourcen aus der
    * Lesesicht der Datenbank sind es), ohne units(p) ergibt Regel 2 nichts.
@@ -241,7 +264,8 @@ export class AccessService<P extends string = string, S = unknown> {
       const c = facts.classification.get(refKey(ref));
       if (c !== undefined && c > this.clearanceOf(who, acl)) return false;
     }
-    return this.tupleReasons(who, acl, perm, ref, hint).length > 0 || this.scopeReasons(acl, perm, ref, facts).length > 0;
+    return this.tupleReasons(who, acl, perm, ref, hint).length > 0 || this.scopeReasons(acl, perm, ref, facts).length > 0
+      || this.personReasons(who, perm, ref, facts).length > 0;
   }
 
   /** units(p): Einheiten mit Tupel `member` eines Subjekts, transitiv alle darunter (Tiefe ≤ 16, Kreise erlaubt). */
@@ -260,7 +284,7 @@ export class AccessService<P extends string = string, S = unknown> {
     return out;
   }
 
-  /** Fachdaten für Ressourcen (volle Sicht): Klassifizierung, Zugehörigkeit und units(p), soweit die Typen sie brauchen. */
+  /** Fachdaten für Ressourcen (volle Sicht): Klassifizierung, Zugehörigkeit, zuständige Personen und units(p), soweit die Typen sie brauchen. */
   async facts(who: Who, acl: TenantAccess<S>, refs: ResourceRef[], tenantId: string, o: { units?: Set<string> } = {}): Promise<Facts> {
     const out = noFacts();
     const r = this.resources;
@@ -282,8 +306,28 @@ export class AccessService<P extends string = string, S = unknown> {
           }
         }
       }
+      if (scoped.length && r.edges?.persons) {
+        const ids = scoped.map(x => x.id!);
+        for (const x of (await tx.query<PersonEdge>(r.edges.persons, [ids])).rows) {
+          for (const s of scoped.filter(y => y.id === x.id)) {
+            const k = refKey(s), list = out.persons.get(k);
+            if (list) list.push(x); else out.persons.set(k, [x]);
+          }
+        }
+      }
     });
     return out;
+  }
+
+  /**
+   * Wirkungen, mit denen p als Person über Fachdaten irgendwo zuständig ist (`edges.personGrants`, volle Sicht), für
+   * «Recht irgendwo». Ohne `personGrants` zählt dieser Weg dort nicht.
+   */
+  async personGrants(who: Pick<Who, 'kind' | 'principalId'>, tenantId: string): Promise<Set<'read' | 'edit'>> {
+    const sql = this.resources?.edges?.personGrants;
+    if (!sql || !this.resources?.edges?.persons || who.kind !== 'user' || !who.principalId || !this.scopeTypes.length) return new Set();
+    const rows = await this.fullTx(tenantId, async tx => (await tx.query<{ grants: string }>(sql, [who.principalId])).rows);
+    return new Set(rows.map(r => r.grants).filter((g): g is 'read' | 'edit' => g === 'read' || g === 'edit'));
   }
 
   /** Hinweis zur Kette (Assets: Typ eines Objekts), falls die App ihn nicht mitgibt. */
@@ -323,9 +367,13 @@ export class AccessService<P extends string = string, S = unknown> {
     if (c < level) throw this.clearanceExceeded(level, c);
   }
 
-  /** Recht irgendwo (Regeln 1, 2 oder 4 an mindestens einem Ort) ∧ Scope. */
-  somewhere(who: Who, acl: TenantAccess<S>, perm: string): boolean {
+  /**
+   * Recht irgendwo (Regeln 1, 2 oder 4 an mindestens einem Ort) ∧ Scope. `persons`: Wirkungen der Zuständigkeit über
+   * Personen aus Fachdaten (`personGrants`), sonst zählt dieser Weg nicht.
+   */
+  somewhere(who: Who, acl: TenantAccess<S>, perm: string, persons: ReadonlySet<'read' | 'edit'> = new Set()): boolean {
     if (!this.model.isPermission(perm) || !this.scopeAllows(who, perm)) return false;
+    if (persons.size && this.scopeTypes.some(st => perm === st.read || (perm === st.write && persons.has('edit')))) return true;
     const subjects = new Set(who.subjects), now = Date.now();
     for (const t of acl.tuples) {
       if (!subjects.has(t.subject) || !live(t, now)) continue;
@@ -338,7 +386,8 @@ export class AccessService<P extends string = string, S = unknown> {
   }
 
   async canSomewhere(p: Principal, perm: P): Promise<boolean> {
-    return this.somewhere(p, await this.load(p.tenantId), perm);
+    const acl = await this.load(p.tenantId);
+    return this.somewhere(p, acl, perm) || this.somewhere(p, acl, perm, await this.personGrants(p, p.tenantId));
   }
 
   async requireSomewhere(p: Principal, perm: P): Promise<void> {
@@ -357,13 +406,13 @@ export class AccessService<P extends string = string, S = unknown> {
     return this.model.permissions.filter(x => this.decide(who, acl, x));
   }
 
-  /** Rechte, die an mindestens einem Ort gelten (Obermenge der Rechte an org). */
-  somewherePermissions(who: Who, acl: TenantAccess<S>): P[] {
-    return this.model.permissions.filter(x => this.decide(who, acl, x) || this.somewhere(who, acl, x));
+  /** Rechte, die an mindestens einem Ort gelten (Obermenge der Rechte an org); `persons` wie bei `somewhere`. */
+  somewherePermissions(who: Who, acl: TenantAccess<S>, persons?: ReadonlySet<'read' | 'edit'>): P[] {
+    return this.model.permissions.filter(x => this.decide(who, acl, x) || this.somewhere(who, acl, x, persons));
   }
 
   async effective(p: Principal): Promise<P[]> { return this.orgPermissions(p, await this.load(p.tenantId)); }
-  async granted(p: Principal): Promise<P[]> { return this.somewherePermissions(p, await this.load(p.tenantId)); }
+  async granted(p: Principal): Promise<P[]> { return this.somewherePermissions(p, await this.load(p.tenantId), await this.personGrants(p, p.tenantId)); }
 
   /** Regel 6: Client mit mindestens einem nicht abgelaufenen Tupel `client:<id> <rolle> org`. */
   clientGranted(acl: TenantAccess<S>, principalId: string): boolean {
@@ -422,6 +471,12 @@ export class AccessService<P extends string = string, S = unknown> {
       const units = allowed(st.read) || allowed(st.write) ? [...await this.fullTx(tenantId, tx => this.units(tx, who, acl))] : [];
       out['app.read_units'] = pgArray(allowed(st.read) ? units : []);
       out['app.write_units'] = pgArray(allowed(st.write) ? units : []);
+    }
+    if (st && this.resources?.edges?.persons) {
+      // Zuständigkeit über Personen aus Fachdaten: nur die Person selbst, leer (NULL) bei Clients oder ohne Scope
+      const me = who.kind === 'user' && who.principalId ? who.principalId : '';
+      out['app.read_person'] = allowed(st.read) ? me : '';
+      out['app.write_person'] = allowed(st.write) ? me : '';
     }
     return out;
   }

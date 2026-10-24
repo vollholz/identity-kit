@@ -29,20 +29,22 @@ import { DateTime, Nullable, personOf, routeSchema, Uuid, type IamModule, type M
 const TAG = 'Zugriff';
 const LevelT = Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(2)]);
 const RefOut = Type.Object({ type: Type.String(), id: Nullable(Type.String()) });
+const Data = Type.Object({ relation: Type.String({ description: 'Name der Fachbeziehung an der Ressource, z. B. «Verantwortlich»' }), grants: Type.Union([Type.Literal('read'), Type.Literal('edit')]) });
 const Unit = Type.Object({ ref: RefOut, relation: Type.String({ description: 'Name der Kante (Zuständigkeit)' }), grants: Type.Union([Type.Literal('read'), Type.Literal('edit')]) });
 
 export const AccessEntrySchema = Type.Object({
-  id: Nullable(Type.String({ description: 'Tupel-ID; null bei Zuständigkeit' })),
+  id: Nullable(Type.String({ description: 'Tupel-ID; null bei Zuständigkeit (`scope`, `data`)' })),
   subject: Type.Object({
     ref: Type.String({ description: '`user:<id>`, `client:<id>`, `group:<entra-object-id>` oder `org:members`' }),
     kind: Type.Union([Type.Literal('user'), Type.Literal('client'), Type.Literal('group'), Type.Literal('members')]),
     name: Type.String({ description: 'Name der Person bzw. des Clients, Anzeigename der Gruppe (sonst Objekt-ID), «Alle Mitglieder»' }),
     scopes: Type.Optional(Nullable(Type.Array(Type.String(), { description: 'Nur Clients: Scopes im letzten Token' }))),
   }),
-  relation: Type.String({ description: 'Rolle, `member` oder `owner`' }),
+  relation: Type.String({ description: 'Rolle, `member` oder `owner`; bei `data` der Name der Fachbeziehung' }),
   place: RefOut,
-  via: Type.Union([Type.Literal('direct'), Type.Literal('inherited'), Type.Literal('scope')]),
+  via: Type.Union([Type.Literal('direct'), Type.Literal('inherited'), Type.Literal('scope'), Type.Literal('data')], { description: '`data`: zuständig als Person über Fachdaten der App (nicht entfernbar)' }),
   unit: Type.Optional(Unit),
+  data: Type.Optional(Data),
   expiresAt: Nullable(DateTime), createdAt: Nullable(DateTime), createdBy: Nullable(Type.String({ description: 'Name' })),
   removable: Type.Boolean({ description: 'Ich darf entfernen und den Ablauf ändern (nur `direct`)' }),
 }, { $id: 'AccessEntry', title: 'AccessEntry' });
@@ -61,11 +63,12 @@ const Explain = Type.Object({
   permission: Type.String(),
   subject: Type.Object({ ref: Type.String(), name: Type.String() }),
   reasons: Type.Array(Type.Object({
-    via: Type.Union([Type.Literal('direct'), Type.Literal('inherited'), Type.Literal('scope'), Type.Literal('owner')]),
+    via: Type.Union([Type.Literal('direct'), Type.Literal('inherited'), Type.Literal('scope'), Type.Literal('owner'), Type.Literal('data')]),
     relation: Type.String(), place: RefOut, tupleId: Nullable(Type.String()),
     matched: Type.String({ description: 'Welches Subjekt passt, z. B. `group:<entra-object-id>` oder `org:members`' }),
     label: Type.String({ description: 'Anzeigename von `matched`' }),
     unit: Type.Optional(Unit),
+    data: Type.Optional(Data),
   })),
   blocked: Type.Union([
     Type.Object({ reason: Type.Literal('clearance'), classification: LevelT, clearance: LevelT }),

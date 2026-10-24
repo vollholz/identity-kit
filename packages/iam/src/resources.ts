@@ -41,6 +41,18 @@ export interface ResourceModel<S = unknown> {
     children: string;
     /** Zugehörigkeit der Ressourcen $1; Spalten `id uuid`, `unit_id uuid`, `grants text` ('read' | 'edit'), `label text`. */
     belongs: string;
+    /**
+     * Zuständige Personen der Ressourcen $1 aus Fachdaten (Kit 1.1; Assets: Attribut «Verantwortlich» der Art user);
+     * Spalten `id uuid` (Ressource), `principal_id uuid` (`principal.id` einer Person), `grants text`
+     * ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, erscheint in «Warum?»). Dasselbe SQL dient einer
+     * und vielen Ressourcen (`can`, `capabilities(refs)`). Lesesicht: `app.read_person()`, `app.write_person()`.
+     */
+    persons?: string;
+    /**
+     * Wirkungen der Person $1 (uuid, `principal.id`) über alle Ressourcen; Spalte `grants text`. Nur für «Recht
+     * irgendwo» (`needSomewhere`, `somewhere` in `/auth/me`); ohne zählt die Zuständigkeit über Personen dort nicht.
+     */
+    personGrants?: string;
   };
 }
 

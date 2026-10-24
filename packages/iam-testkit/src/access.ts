@@ -3,7 +3,8 @@
  * (`GET /v1/authz/catalog`): Rollen an der Organisation, Ablauf, Subjekte (Person, Gruppe aus Entra, «Alle Mitglieder»,
  * Client), Scope-Grenze. Die App führt sie mit ihrer Entscheidung aus (`runAccessCases`): Tupel anlegen, Principal
  * bauen, `can` fragen. Fälle an Orten unter der Organisation (Kette, Blatt, Zuständigkeit) hängen an den Ressourcen der
- * App und gehören in ihre eigenen Tests.
+ * App und gehören in ihre eigenen Tests; für die Zuständigkeit über Personen aus Fachdaten (`edges.persons`, Kit 1.1)
+ * liefert `personCases` Standardfälle, die die App an einer eigenen Ressource ausführt.
  */
 import type { AuthzModel } from './model.ts';
 
@@ -51,8 +52,53 @@ export function accessCases(m: Pick<AuthzModel, 'roles' | 'permissions' | 'scope
   return out;
 }
 
+/** Fall der Zuständigkeit über Personen aus Fachdaten (`ResourceModel.edges.persons`) an einer Ressource vom Typ `type`. */
+export interface PersonCase {
+  name: string;
+  /** Typ mit Zuständigkeit (`scope`). */
+  type: string;
+  /** Wer fragt: Person ohne Tupel, Freigabestufe 0, oder Client; `scopes` macht die Anfrage scope-gebunden. */
+  who: { kind: 'user' | 'client'; scopes?: string[] };
+  /** Wer an der Ressource zuständig eingetragen ist: der Fragende (`me`) oder eine andere Person. */
+  holder: 'me' | 'other';
+  grants: 'read' | 'edit' | 'none';
+  /** Vertraulichkeit der Ressource (nur Typen mit `classified`); Standard 0. */
+  classification?: 0 | 1 | 2;
+  permission: string;
+  expect: boolean;
+}
+
+/**
+ * Fälle je Typ mit `scope` (Spezifikation Kap. 7.5 Regel 2): read ⇒ Leserecht, edit ⇒ Lese- und Schreibrecht, none
+ * und andere Personen nichts, Clients nie, ∧ Klassifizierung ∧ Scope. Die App legt je Fall eine Ressource mit dem
+ * Eintrag an und fragt `can` (ohne Tupel des Fragenden).
+ */
+export function personCases(m: Pick<AuthzModel, 'types' | 'scopes'>): PersonCase[] {
+  const out: PersonCase[] = [];
+  for (const t of m.types) {
+    if (!t.scope || !t.read || !t.write) continue;
+    const { read, write } = t;
+    const c = (name: string, x: Omit<PersonCase, 'name' | 'type'>) => out.push({ name: `${t.key}: ${name}`, type: t.key, ...x });
+    c(`zuständig read gibt ${read}`, { who: { kind: 'user' }, holder: 'me', grants: 'read', permission: read, expect: true });
+    c(`zuständig read gibt ${write} nicht`, { who: { kind: 'user' }, holder: 'me', grants: 'read', permission: write, expect: false });
+    c(`zuständig edit gibt ${read}`, { who: { kind: 'user' }, holder: 'me', grants: 'edit', permission: read, expect: true });
+    c(`zuständig edit gibt ${write}`, { who: { kind: 'user' }, holder: 'me', grants: 'edit', permission: write, expect: true });
+    c('grants none gibt nichts', { who: { kind: 'user' }, holder: 'me', grants: 'none', permission: read, expect: false });
+    c('andere Person zuständig: nichts', { who: { kind: 'user' }, holder: 'other', grants: 'edit', permission: read, expect: false });
+    c('Client nie über Personen', { who: { kind: 'client', scopes: m.scopes.map(s => s.key) }, holder: 'me', grants: 'edit', permission: read, expect: false });
+    if (t.classified) c('Klassifizierung über der Freigabestufe verhindert', { who: { kind: 'user' }, holder: 'me', grants: 'edit', classification: 1, permission: read, expect: false });
+    c('scope-gebunden ohne Scope: nichts', { who: { kind: 'user', scopes: [] }, holder: 'me', grants: 'edit', permission: read, expect: false });
+    const readOnly = m.scopes.find(s => s.permissions.includes(read) && !s.permissions.includes(write));
+    if (readOnly) {
+      c(`scope-gebunden mit ${readOnly.key}: ${read}`, { who: { kind: 'user', scopes: [readOnly.key] }, holder: 'me', grants: 'edit', permission: read, expect: true });
+      c(`scope-gebunden mit ${readOnly.key}: ${write} nicht`, { who: { kind: 'user', scopes: [readOnly.key] }, holder: 'me', grants: 'edit', permission: write, expect: false });
+    }
+  }
+  return out;
+}
+
 /** Führt die Fälle aus; liefert die Befunde (leer = alles wie erwartet). */
-export async function runAccessCases(cases: AccessCase[], decide: (c: AccessCase) => Promise<boolean>): Promise<string[]> {
+export async function runAccessCases<C extends { name: string; expect: boolean } = AccessCase>(cases: C[], decide: (c: C) => Promise<boolean>): Promise<string[]> {
   const out: string[] = [];
   for (const c of cases) {
     const got = await decide(c);

@@ -118,7 +118,7 @@ export async function bypassRoleProblems(db: Query, o: { rolePrefix: string }): 
 /** Funktionen der Lesesicht (Spezifikation Kap. 7.6, 10.3) mit Signatur. */
 export const READ_VIEW_FUNCTIONS = [
   'subjects()', 'clearance()', 'read_all()', 'write_all()', 'read_types()', 'write_types()', 'read_units()', 'write_units()',
-  'read_relations()', 'write_relations()', 'read_all_of(p_permission text)', 'relations_of(p_permission text)',
+  'read_relations()', 'write_relations()', 'read_all_of(p_permission text)', 'relations_of(p_permission text)', 'read_person()', 'write_person()',
   'has_tuple(p_object_type text, p_object_id uuid, p_relations text[])',
 ];
 

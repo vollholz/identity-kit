@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { accessCases, checkModel, runAccessCases, type AuthzModel } from '../src/index.ts';
+import { accessCases, checkModel, personCases, runAccessCases, type AuthzModel } from '../src/index.ts';
 
 /** Kleinstes gültiges Modell nach Spezifikation Kap. 7.3, 8 (Notiz-App: Ordner → Notiz). */
 function model(): AuthzModel {
@@ -80,5 +80,24 @@ describe('accessCases', () => {
     assert.deepEqual(await runAccessCases(cases, decide), []);
     const wrong = await runAccessCases(cases, async c => c.tuples.length > 0);
     assert.ok(wrong.length > 0);
+  });
+});
+
+describe('personCases', () => {
+  test('Fälle je Typ mit scope; eine Referenz nach Kap. 7.5 Regel 2 besteht alle, eine falsche nicht', async () => {
+    const m = model();
+    m.types = [...m.types.filter(t => t.key !== 'note'), { key: 'note', label: 'Notiz', parent: 'org', roles: [], relations: [], leaf: true, classified: true, scope: { relation: 'gehört zu' }, read: 'note:read', write: 'note:write' } as never];
+    m.scopes = [{ key: 'x:read', text: 'Lesen', permissions: ['note:read'] }, { key: 'x:write', text: 'Ändern', permissions: ['note:write'] }];
+    const cases = personCases(m);
+    assert.ok(cases.length >= 10);
+    const decide = async (c: (typeof cases)[number]) => {
+      const t = m.types.find(x => x.key === c.type)!;
+      const way = c.who.kind === 'user' && c.holder === 'me' && (c.grants === 'edit' || (c.grants === 'read' && c.permission === t.read));
+      const scoped = c.who.scopes !== undefined || c.who.kind === 'client';
+      const scopeOk = !scoped || m.scopes.filter(s => c.who.scopes?.includes(s.key)).some(s => s.permissions.includes(c.permission));
+      return way && scopeOk && (c.classification ?? 0) === 0;
+    };
+    assert.deepEqual(await runAccessCases(cases, decide), []);
+    assert.ok((await runAccessCases(cases, async c => c.grants !== 'none')).length > 0);
   });
 });

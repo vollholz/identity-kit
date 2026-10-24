@@ -1,38 +1,46 @@
 /**
- * Modul `admin`: Verwaltung von Organisationen, Mitgliedern und Rollen ohne Keycloak-Konsole (Spezifikation Kap. 9;
- * aus Assets `modules/admin/index.ts`). Die Regeln setzt `AdminService` (admin.ts) durch.
+ * Modul `admin`: Verwaltung von Organisationen, Mitgliedern, Rollen an der Organisation und Freigabestufen ohne
+ * Keycloak-Konsole (Spezifikation Kap. 9.1, 9.2, 9.6). Die Regeln setzen `AdminService` (admin.ts) und rules.ts durch.
  *
  * - /v1/admin/status   für jede angemeldete Person: eingerichtet, was darf ich, Rollen mit Erklärung
  * - /v1/admin/…        Mitglieder und Rollen der eigenen Organisation (Recht `members:admin`, nur Personen)
  * - /v1/platform/…     Organisationen anlegen, ändern, sperren und deren Mitglieder verwalten (Realm-Rolle platform-admin)
  *
  * Ohne KEYCLOAK_MGMT_CLIENT_ID ist die Verwaltung abgeschaltet: GET /v1/admin/status sagt das, alle übrigen Endpunkte
- * antworten mit 503 und einem Hinweis (Kap. 9.1 Nr. 11). Nur Personen: Maschinen-Clients und Zugriffe über den
- * MCP-Dienst erhalten das Recht nie (kein Scope deckt es ab).
- * Setzt `iam.memberAccess` (echte Rollen und Gruppen für `GET /v1/acl/effective`), wenn Rollen aus Gruppen kommen.
+ * antworten mit 503 und einem Hinweis (Kap. 9.1 Nr. 13). Nur Personen: Maschinen-Clients und Zugriffe über den
+ * MCP-Dienst erhalten das Recht nie (kein Scope deckt es ab). Clients (`/v1/admin/clients`) brauchen keinen
+ * Verwaltungs-Client (Modul `clients`).
  */
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { AdminService, roleCatalog, type CustomRole, type Scope } from '../admin.ts';
-import type { Catalog } from '../catalog.ts';
+import type { AdminService, Scope } from '../admin.ts';
 import { forbidden, HttpError } from '../errors.ts';
+import type { Level, Model } from '../model.ts';
 import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG_MEMBERS = 'Verwaltung: Mitglieder und Rollen';
 const TAG_ORGS = 'Plattform: Organisationen';
+const LevelT = Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(2)]);
 
 const Member = Type.Object({
-  id: Type.String({ description: 'ID der Person in Keycloak; bei offener Einladung die ID der Einladung (neu bei jeder Einladung, nie die ID des Kontos)' }),
-  principalId: Nullable(Type.String({ description: 'ID im Personenverzeichnis' })),
+  id: Type.String({ description: 'Person: ID in Keycloak bzw. bei offener Einladung die ID der Einladung (nie die ID des Kontos); Client: Client-ID' }),
+  kind: Type.Union([Type.Literal('user'), Type.Literal('client')]),
+  principalId: Type.String({ description: 'Subjekt `user:<id>` bzw. `client:<id>`' }),
   username: Type.String(),
   name: Type.String(),
   email: Nullable(Type.String()),
   status: Type.Unsafe<'active' | 'invited' | 'disabled'>({ type: 'string', enum: ['active', 'invited', 'disabled'], description: '`invited`: Passwort noch nicht gesetzt, noch nie angemeldet (aus Entra ID: noch nie zugegriffen); `disabled`: Konto in Keycloak gesperrt' }),
-  roles: Type.Array(Type.String(), { description: 'Rollen in dieser Organisation (Gruppen `<prefix>/<alias>/<rolle>`)' }),
+  roles: Type.Array(Type.String(), { description: 'Rollen an der Organisation (Tupel)' }),
+  clearance: LevelT,
+  breakGlassUntil: Nullable(DateTime),
+  places: Type.Integer({ description: 'Freigaben an anderen Orten als der Organisation («+3 Orte»)' }),
   lastSeenAt: Nullable(DateTime),
   createdAt: Nullable(DateTime),
-  loginPath: Nullable(Type.String({ description: 'Nur offene Einladung aus Microsoft Entra ID: Pfad der Anmeldung über Microsoft (`/auth/entra/{anbieter}?org=…`), zum Weitergeben als Link' })),
-}, { $id: 'Member', title: 'Member', description: '`lastSeenAt`: letzter Zugriff auf die App (nicht die Anmeldung bei Keycloak).' });
+  loginPath: Nullable(Type.String({ description: 'Nur offene Einladung aus Microsoft Entra ID: Pfad der Anmeldung über Microsoft, zum Weitergeben als Link' })),
+  clientId: Nullable(Type.String()),
+  scopes: Nullable(Type.Array(Type.String(), { description: 'Nur Clients: Scopes im letzten Token' })),
+  description: Nullable(Type.String({ description: 'Nur Clients: Beschreibung der Freigabe' })),
+}, { $id: 'Member', title: 'Member', description: '`lastSeenAt`: letzter Zugriff auf die App (nicht die Anmeldung bei Keycloak). `clearance`: gespeicherte Freigabestufe ohne Break-Glass.' });
 
 const Organization = Type.Object({
   id: Type.String({ description: 'ID der Organisation in Keycloak' }),
@@ -41,27 +49,9 @@ const Organization = Type.Object({
   tenant: Nullable(Type.Object({ id: Type.String(), status: Type.String({ description: '`active` oder `suspended`' }), createdAt: DateTime }, { description: 'Mandant der App; `null`, solange die Organisation nie benutzt wurde' })),
 }, { $id: 'Organization', title: 'Organization' });
 
-/** Recht aus dem Katalog der App, als enum im OpenAPI (Typen für die Apps). */
+/** Recht aus dem Modell der App, als enum im OpenAPI (Typen für die Apps). */
 const permission = (perms: readonly string[]) => Type.Unsafe<string>({ type: 'string', enum: [...perms] });
-const statusRole = (catalog: Catalog) => Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(permission(catalog.permissions)), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }), custom: Type.Optional(Type.Boolean({ description: 'Eigene Rolle der Organisation' })) });
-/** Rolle als Ressource (`GET /v1/roles`, Modul `roles`; Plattform: `…/organizations/{alias}/roles`), aus Assets `roles.ts`. */
-export const roleSchema = (catalog: Catalog) => Type.Object({
-  key: Type.String({ description: 'Technischer Name; bei eigenen Rollen `c-…`. Rolle in Keycloak-Gruppen (`<prefix>/<alias>/<key>`) und ACL-Einträgen' }),
-  label: Type.String(), description: Type.String(),
-  permissions: Type.Array(permission(catalog.permissions)),
-  custom: Type.Boolean({ description: 'Eigene Rolle der Organisation (änderbar); false: vordefinierte Rolle' }),
-  adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }),
-  id: Nullable(Type.String({ description: 'Nur eigene Rollen: ID (Audit-Protokoll)' })),
-  version: Nullable(Type.Integer({ description: 'Nur eigene Rollen: gleich dem ETag W/"<version>"' })),
-  memberCount: Nullable(Type.Integer({ description: 'Personen mit der Rolle (auch eingeladene); null ohne Recht `members:admin` oder ohne Verwaltung in Keycloak' })),
-  createdAt: Nullable(DateTime), updatedAt: Nullable(DateTime),
-}, { $id: 'Role', title: 'Role' });
-/** Antwort von `GET /v1/roles` und `…/organizations/{alias}/roles`. */
-export const roleListSchema = (catalog: Catalog) => Type.Object({
-  items: Type.Array(Type.Ref('Role')),
-  maxCustom: Type.Integer({ description: 'Höchstzahl eigener Rollen' }),
-  customPermissions: Type.Array(permission(catalog.customRolePermissions), { description: 'Rechte, die eine eigene Rolle enthalten darf' }),
-});
+const statusRole = (model: Model) => Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(permission(model.permissions)), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }) });
 const Roles = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true });
 const ALIAS = Type.String({ minLength: 1, maxLength: 63, pattern: '^[a-z0-9][a-z0-9_-]{0,62}$' });
 const UserParams = Type.Object({ id: Type.String({ format: 'uuid' }) });
@@ -87,14 +77,9 @@ export const adminModule: IamModule = {
   name: 'admin',
   register(app: FastifyInstance, ctx: ModuleContext) {
     const { iam, prefix } = ctx;
-    const S = iam.schema;
     const svc = iam.admin;
     app.addSchema(Member);
     app.addSchema(Organization);
-    if (!app.getSchema('Role')) app.addSchema(roleSchema(iam.catalog));
-    // Echte Rollen und Gruppen anderer Personen für GET /v1/acl/effective; nur mit Rollen aus Gruppen (eine von der App
-    // gesetzte Funktion bleibt)
-    if (svc && iam.cfg.tenancy.roleSource === 'groups') iam.memberAccess ??= (alias, subject) => svc.accessOf(alias, subject);
 
     const on = (): AdminService => {
       if (!svc) throw new HttpError(503, 'Verwaltung nicht eingerichtet', OFF_DETAIL);
@@ -119,12 +104,10 @@ export const adminModule: IamModule = {
     app.get(statusUrl, {
       schema: routeSchema(ctx, 'GET', statusUrl, {
         tags: [TAG_MEMBERS], summary: 'Ist die Verwaltung eingerichtet, was darf ich?',
-        description: 'Für jede angemeldete Person. `enabled`: Verwaltungs-Client konfiguriert. `canManageMembers`: Recht `members:admin` in dieser Organisation. Enthält die Rollen mit Erklärungen: vordefinierte und eigene der Organisation (`custom`).',
+        description: 'Für jede angemeldete Person. `enabled`: Verwaltungs-Client konfiguriert. `canManageMembers`: Recht `members:admin` in dieser Organisation. `roles`: Rollen des Modells mit Erklärungen.',
         response: { 200: Type.Object({
           enabled: Type.Boolean(), reason: Nullable(Type.String()), organization: Type.String(), platformAdmin: Type.Boolean(), canManageMembers: Type.Boolean(),
-          rolesManageable: Type.Boolean({ description: 'false bei ROLE_SOURCE=client: Rollen kommen aus Client-Rollen und lassen sich hier nicht setzen' }),
-          groupRolePrefix: Type.String({ description: 'Präfix der Rollengruppen in Keycloak (GROUP_ROLE_PREFIX, z. B. `/orgs`): Rollen sind die Gruppen `<prefix>/<alias>/<rolle>`' }),
-          roles: Type.Array(statusRole(iam.catalog)),
+          roles: Type.Array(statusRole(iam.model)),
         }) },
       }),
     }, async req => {
@@ -132,9 +115,8 @@ export const adminModule: IamModule = {
       const isPerson = p.kind === 'user' && !p.scopeBound;
       return {
         enabled: !!svc, reason: svc ? null : OFF_DETAIL, organization: p.tenantAlias, platformAdmin: isPerson && p.platformAdmin,
-        canManageMembers: !!svc && isPerson && (await req.can('members:admin')), rolesManageable: iam.cfg.tenancy.roleSource !== 'client',
-        groupRolePrefix: iam.cfg.tenancy.groupRolePrefix,
-        roles: roleCatalog(iam.catalog, await req.tx(async tx => (await tx.query<CustomRole>(`SELECT key, label, description, permissions FROM ${S}.tenant_role WHERE deleted_at IS NULL ORDER BY lower(label)`)).rows)),
+        canManageMembers: !!svc && isPerson && (await req.can('members:admin')),
+        roles: iam.model.toJSON().roles,
       };
     });
 
@@ -143,13 +125,13 @@ export const adminModule: IamModule = {
       const p1 = withAlias ? { params: AliasParams } : {};
       const p2 = withAlias ? AliasUserParams : UserParams;
       app.get(base, {
-        schema: routeSchema(ctx, 'GET', base, { tags, summary: 'Mitglieder mit Rollen, Status und letztem Zugriff', ...p1, response: { 200: Type.Object({ items: Type.Array(Type.Ref('Member')) }) } }),
+        schema: routeSchema(ctx, 'GET', base, { tags, summary: 'Mitglieder (Personen und freigegebene Clients) mit Rollen, Freigabestufe, Status und letztem Zugriff', ...p1, response: { 200: Type.Object({ items: Type.Array(Type.Ref('Member')) }) } }),
       }, async req => { const sc = await scope(req); return { items: await on().listMembers(sc) }; });
 
       app.post(base, {
         schema: routeSchema(ctx, 'POST', base, {
           tags, summary: 'Person einladen', ...p1, body: Invite,
-          description: 'Antwortet immer gleich (202, mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME`), damit niemand erfährt, ob für die Adresse schon ein Konto besteht – etwa in einer anderen Organisation. Ohne Konto legt Keycloak eines ohne Passwort an und sendet «Passwort setzen»; sonst sendet Keycloak eine Einladung. Die Person erscheint als «eingeladen», Rollen gelten ab der Annahme. Die App sieht und setzt keine Passwörter. Rolle org-admin nur für die Plattform-Administration.',
+          description: 'Antwortet immer gleich (202, mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME`), damit niemand erfährt, ob für die Adresse schon ein Konto besteht – etwa in einer anderen Organisation. Ohne Konto legt Keycloak eines ohne Passwort an und sendet «Passwort setzen»; sonst sendet Keycloak eine Einladung. Die Person erscheint als «eingeladen»; die Einladung legt den Principal an und setzt die Rollen als Tupel. Die App sieht und setzt keine Passwörter. Rolle org-admin nur für die Plattform-Administration.',
           response: { 202: InviteResult },
         }),
       }, async (req, reply) => {
@@ -161,15 +143,23 @@ export const adminModule: IamModule = {
       app.put(`${base}/:id/roles`, {
         schema: routeSchema(ctx, 'PUT', `${base}/:id/roles`, {
           tags, summary: 'Rollen setzen', params: p2, body: Type.Object({ roles: Roles }, { additionalProperties: false }),
-          description: 'Setzt die Rollen der Person in dieser Organisation auf genau diese Liste. org-admin vergeben oder entziehen nur die Plattform-Administration; die letzte aktive Person mit org-admin bleibt (409 `last-admin`).',
+          description: 'Setzt die Rollen der Person an der Organisation auf genau diese Liste (Tupel). org-admin vergeben oder entziehen nur die Plattform-Administration (403 `platform-admin-only`); niemand gibt mehr, als er hat (403 `exceeds-own`); die letzte aktive Person mit org-admin bleibt (409 `last-admin`).',
           response: { 200: Type.Ref('Member') },
         }),
       }, async req => { const sc = await scope(req); return on().setRoles(sc, id(req), (req.body as { roles: string[] }).roles); });
 
+      app.put(`${base}/:id/clearance`, {
+        schema: routeSchema(ctx, 'PUT', `${base}/:id/clearance`, {
+          tags, summary: 'Freigabestufe setzen', params: p2, body: Type.Object({ clearance: LevelT }, { additionalProperties: false }),
+          description: 'Nie für sich selbst (403 `self`), nie über die eigene Freigabestufe (403 `exceeds-own`); für die Plattform-Administration gilt die Obergrenze nicht.',
+          response: { 200: Type.Ref('Member') },
+        }),
+      }, async req => { const sc = await scope(req); return on().setClearance(sc, id(req), (req.body as { clearance: Level }).clearance); });
+
       app.delete(`${base}/:id`, {
         schema: routeSchema(ctx, 'DELETE', `${base}/:id`, {
           tags, summary: 'Mitglied entfernen', params: p2,
-          description: 'Entfernt Rollen und Mitgliedschaft bzw. zieht die Einladung zurück (`id`: Mitglied oder Einladung, wie in der Liste). Hat die Einladung das Konto angelegt, wurde sie nie angenommen und gehört die Person keiner anderen Organisation an, wird das unbenutzte Konto gelöscht. Zurückziehen dauert mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen).',
+          description: 'Entfernt die Mitgliedschaft und alle Freigaben der Person bzw. zieht die Einladung zurück (`id`: Mitglied oder Einladung, wie in der Liste). Hat die Einladung das Konto angelegt, wurde sie nie angenommen und gehört die Person keiner anderen Organisation an, wird das unbenutzte Konto gelöscht. Zurückziehen dauert mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen).',
           response: { 200: Type.Object({ accountDeleted: Type.Boolean({ description: 'Unbenutztes Konto gelöscht. Nur für die Plattform-Administration aussagekräftig, für org-admin immer false (sonst verriete es andere Organisationen)' }) }) },
         }),
       }, async req => { const sc = await scope(req); return on().removeMember(sc, id(req)); });
@@ -189,7 +179,7 @@ export const adminModule: IamModule = {
 
     app.post(orgs, {
       schema: routeSchema(ctx, 'POST', orgs, {
-        tags: [TAG_ORGS], summary: 'Organisation anlegen', description: 'Legt die Organisation in Keycloak, ihre Rollengruppen und den Mandanten an. Alias wie beim Mandanten: Kleinbuchstaben, Ziffern, - und _, nicht änderbar.',
+        tags: [TAG_ORGS], summary: 'Organisation anlegen', description: 'Legt die Organisation in Keycloak und den Mandanten an. Alias wie beim Mandanten: Kleinbuchstaben, Ziffern, - und _, nicht änderbar.',
         body: Type.Object({ alias: Type.String({ minLength: 1, maxLength: 63 }), name: Type.String({ minLength: 1, maxLength: 200 }), description: Type.Optional(Type.String({ maxLength: 1000 })), domains: Type.Optional(DomainList) }, { additionalProperties: false }),
         response: { 201: Type.Ref('Organization') },
       }),
@@ -198,14 +188,6 @@ export const adminModule: IamModule = {
       const b = req.body as { alias: string; name: string; description?: string; domains?: string[] };
       return reply.status(201).send(await on().createOrganization(sc, { ...b, domains: b.domains ?? [] }));
     });
-
-    app.get(`${orgs}/:alias/roles`, {
-      schema: routeSchema(ctx, 'GET', `${orgs}/:alias/roles`, {
-        tags: [TAG_ORGS], summary: 'Rollen einer Organisation', params: AliasParams,
-        description: 'Nur lesend, im Format von `GET /v1/roles`: vordefinierte und eigene Rollen der Organisation mit Anzahl Personen, damit die Plattform-Administration auch eigene Rollen zuweisen kann. Organisation noch nie benutzt: nur die vordefinierten Rollen.',
-        response: { 200: roleListSchema(iam.catalog) },
-      }),
-    }, async req => { platform(req); return on().rolesOfOrganization(alias(req)); });
 
     app.get(`${orgs}/:alias`, {
       schema: routeSchema(ctx, 'GET', `${orgs}/:alias`, { tags: [TAG_ORGS], summary: 'Organisation lesen', params: AliasParams, response: { 200: Type.Ref('Organization') } }),

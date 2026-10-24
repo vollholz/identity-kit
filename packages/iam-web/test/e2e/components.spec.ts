@@ -17,7 +17,7 @@ const noHorizontalScroll = (page: Page) => page.evaluate(() => document.document
 for (const scheme of ['light', 'dark'] as const) {
   for (const [label, viewport] of [['breit', { width: 1280, height: 900 }], ['390 px', { width: 390, height: 844 }]] as const) {
     test(`axe ohne serious/critical: ${scheme}, ${label}`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: scheme });
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await page.setViewportSize(viewport);
       for (const dlg of ['', 'form', 'confirm', 'sheet']) {
         await page.goto(dlg ? `/?dlg=${dlg}` : '/');
@@ -83,7 +83,7 @@ test('Auswahl per Tastatur übernimmt mehrere Rollen', async ({ page }) => {
 
 test('Variablen der App gehen den Vorgaben vor, auch im dunklen Thema des Systems', async ({ page }) => {
   for (const scheme of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     await page.goto('/?app=1');
     const primary = page.getByRole('button', { name: 'Person einladen' });
     await expect(primary).toHaveCSS('background-color', 'rgb(1, 2, 3)');

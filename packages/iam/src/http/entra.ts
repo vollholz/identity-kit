@@ -152,7 +152,7 @@ export const entraModule: IamModule = {
     const byAlias = (req: FastifyRequest) => platform(req, (req.params as { alias: string }).alias);
     /** Personensuche in Entra ID: je Person 30 Anfragen pro Minute (jede Suche ruft Microsoft Graph und Keycloak). */
     // Schlüssel der Rate-Limits: `<RATE_LIMIT_NAMESPACE>:<produkt>:…` (Vorsatz nur, wenn gesetzt)
-    const rlPrefix = `${iam.cfg.ops.rateLimitNamespace ? `${iam.cfg.ops.rateLimitNamespace}:` : ''}${iam.catalog.product}:`;
+    const rlPrefix = `${iam.cfg.ops.rateLimitNamespace ? `${iam.cfg.ops.rateLimitNamespace}:` : ''}${iam.model.product}:`;
     const searchLimit = { max: 30, timeWindow: 60_000, keyGenerator: (req: FastifyRequest) => `${rlPrefix}entra-search:${req.principal?.tenantId ?? ''}:${req.principal?.subject ?? req.ip}` };
 
     // ---------------------------------------------------------------- Personen aus Entra ID

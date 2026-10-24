@@ -6,18 +6,19 @@
  * darauf). Mandantentrennung über RLS. Vertrag der Oberflächen-Bausteine (`@vollholz/iam-web`).
  *
  * Recht: irgendwo (`needSomewhere`) eines der Rechte aus der Option `people.permissions` – Standard die Fachrechte des
- * Lese-Scopes `<produkt>:read` und `acl:read` (Assets: `object:read`). Wer Daten der App liest, muss die Namen dazu
+ * Lese-Scopes `<produkt>:read` und `access:admin` (Assets: `object:read`). Wer Daten der App liest, muss die Namen dazu
  * auflösen und für eigene Änderungen Personen auswählen können; `tenant:read` allein öffnet das Verzeichnis nicht.
  *
  * Datenschutz (Datenminimierung): Name und ID sehen alle mit dem Recht. Die E-Mail-Adresse sehen angemeldete Personen
  * (zum Unterscheiden gleicher Namen) und Verwaltende, nicht aber Maschinen-Clients und Zugriffe über den MCP-Dienst. Die
  * Suche nutzt die E-Mail nur, wenn sie sichtbar ist, sonst liesse sie sich erraten. Der letzte Zugriff (`lastSeenAt`)
- * ist Verhaltensdaten und nur für Verwaltende (`acl:read` oder `tenant:admin`) sichtbar.
+ * ist Verhaltensdaten und nur für Verwaltende (`members:admin` oder `tenant:admin`) sichtbar. Offen eingeladene
+ * Personen erscheinen erst nach Annahme (Kap. 9.1 Nr. 10).
  */
 import { createHash } from 'node:crypto';
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { RESERVED_PERMISSIONS, type Catalog } from '../catalog.ts';
+import { RESERVED_PERMISSIONS, type Model } from '../model.ts';
 import { forbidden, invalid, notFound } from '../errors.ts';
 import { Cursor, DateTime, decodeCursor, encodeCursor, IdParams, likePattern, Limit, NextCursor, Nullable, Params, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
@@ -46,18 +47,18 @@ const COLS = `id, kind, display_name, email, client_id, last_seen_at, ${SORT} AS
 
 /**
  * Rechte, die das Verzeichnis öffnen (Standard): Fachrechte des Lese-Scopes `<produkt>:read` (ohne reservierte wie
- * `tenant:read`), dazu `acl:read`, wenn der Katalog Zugriffsregeln hat.
+ * `tenant:read`), dazu `access:admin`, wenn das Modell Orte hat (Freigeben braucht Personen zur Auswahl).
  */
-export function defaultPeoplePermissions(catalog: Catalog): string[] {
-  const read = catalog.scopes.get(`${catalog.product}:read`)?.permissions ?? [];
-  return [...read.filter(p => !Object.hasOwn(RESERVED_PERMISSIONS, p)), ...(catalog.acl ? ['acl:read'] : [])];
+export function defaultPeoplePermissions(model: Model): string[] {
+  const read = model.scopes.get(`${model.product}:read`)?.permissions ?? [];
+  return [...read.filter(p => !Object.hasOwn(RESERVED_PERMISSIONS, p)), ...(model.isPermission('access:admin') ? ['access:admin'] : [])];
 }
 
 export const peopleModule: IamModule = {
   name: 'people',
   register(app: FastifyInstance, ctx: ModuleContext) {
     const { iam, prefix } = ctx;
-    const { catalog } = iam;
+    const catalog = iam.model;
     const S = iam.schema;
     const own = ctx.people?.permissions;
     // Eigene Liste: Tippfehler beim Start melden statt still ein Recht weniger; vorbehaltene Rechte (z. B. tenant:read)
@@ -78,7 +79,7 @@ export const peopleModule: IamModule = {
     /** Was der Aufrufer über andere sehen darf. */
     const visibility = async (req: FastifyRequest) => {
       const p = req.requirePrincipal();
-      const admin = (catalog.isPermission('acl:read') && (await req.can('acl:read'))) || (catalog.isPermission('tenant:admin') && (await req.can('tenant:admin')));
+      const admin = (catalog.isPermission('members:admin') && (await req.can('members:admin'))) || (catalog.isPermission('tenant:admin') && (await req.can('tenant:admin')));
       return { email: admin || (p.kind === 'user' && !p.scopeBound), lastSeen: admin };
     };
     const out = (r: Row, v: { email: boolean; lastSeen: boolean }) => ({
@@ -107,7 +108,7 @@ export const peopleModule: IamModule = {
       }
       const fingerprint = `${kind}:${vis.email ? 'e' : ''}${q.q ? `:${createHash('sha256').update(q.q).digest('base64url').slice(0, 12)}` : ''}`;
       const cur = decodeCursor<{ f: string; v: string; id: string }>(q.cursor, c => c.f === fingerprint && typeof c.v === 'string' && typeof c.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.id));
-      const P = new Params(), where = [`kind = ${P.add(kind)}`, 'removed_at IS NULL'];
+      const P = new Params(), where = [`kind = ${P.add(kind)}`, 'removed_at IS NULL', `NOT EXISTS (SELECT 1 FROM ${S}.member_invitation i WHERE i.user_id = principal.subject AND i.accepted_at IS NULL)`];
       if (q.q) {
         const like = P.add(likePattern(q.q));
         where.push(`(display_name ILIKE ${like}${vis.email ? ` OR email ILIKE ${like}` : ''}${kind === 'client' ? ` OR client_id ILIKE ${like}` : ''})`);

@@ -3,6 +3,12 @@
 Stand 2026-10-22 · Status: **freigegeben mit Auflagen** (Hauptsession, 2026-10-22; Festlegungen in [Kapitel 13](#13-festlegungen-nach-der-freigabe)) · Vertrag: `docs/spezifikation.md` (Kap. 1.1, 4–10, 12–15) ·
 Referenz: vollholz/assets `main` (`3a148ae`)
 
+> **Ab 1.0.0 («Authz neu») überholt:** Katalog (`defineCatalog`), Zugriffsregeln (`acl_entry`, `/v1/acl`), eigene
+> Rollen (`/v1/roles`), Rollen aus dem Token (`ROLE_SOURCE`, Rollengruppen) und `client_grant`. Massgeblich sind dafür
+> die Spezifikation Kap. 7–9 und [`docs/authz-konzept.md`](../../../docs/authz-konzept.md); der Leitfaden
+> [`backend.md`](backend.md) beschreibt den Stand. Die übrigen Festlegungen (Token-Prüfung, BFF, Migrationen,
+> Verwaltung, Entra, MCP) gelten weiter.
+
 Dieser Entwurf legt fest, wie das Backend-Paket aussieht, bevor Code entsteht: öffentliche API, Katalog, Schnittstellen
 zur App, Migrationen, Module, was in der App bleibt, Reihenfolge der Teil-PRs und wie Assets in Phase 2 umstellt.
 

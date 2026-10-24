@@ -19,7 +19,7 @@ const fakeMicrosoft = (page: Page) => page.route('https://login.microsoftonline.
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`Link an die Entra-Administration: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/admin.html?p=entra');

@@ -16,7 +16,7 @@ export class HttpError extends Error {
 }
 
 export const notFound = (what: string) => new HttpError(404, `${what} nicht gefunden`);
-export const forbidden = (detail?: string) => new HttpError(403, 'Keine Berechtigung', detail);
+export const forbidden = (detail?: string, extra: Record<string, unknown> = {}) => new HttpError(403, 'Keine Berechtigung', detail, {}, extra);
 export const conflict = (detail: string, extra: Record<string, unknown> = {}) => new HttpError(409, 'Konflikt', detail, {}, extra);
 export const invalid = (detail: string, errors?: { path: string; message: string }[]) => new HttpError(422, 'Ungültige Eingabe', detail, {}, errors ? { errors } : {});
 

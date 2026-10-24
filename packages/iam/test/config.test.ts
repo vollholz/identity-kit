@@ -23,10 +23,9 @@ test('Standardwerte mit dem Namen des Produkts', () => {
   assert.equal(c.oidc.apiAudience, 'notes-api');
   assert.equal(c.oidc.mcpAudience, 'notes-mcp');
   assert.equal(c.oidc.bffClientId, 'notes-platform');
-  assert.equal(c.tenancy.roleClientId, 'notes-platform');
   assert.deepEqual(c.mcp.hostClients, ['notes-mcp-cli']);
   assert.equal(c.mcp.clientId, 'notes-mcp');
-  assert.deepEqual([c.tenancy.claim, c.tenancy.roleSource, c.tenancy.groupRolePrefix, c.tenancy.platformAdminRole, c.tenancy.autoProvision], ['organization', 'groups', '/orgs', 'platform-admin', true]);
+  assert.deepEqual([c.tenancy.claim, c.tenancy.groupsClaim, c.tenancy.platformAdminRole, c.tenancy.autoProvision], ['organization', 'groups', 'platform-admin', true]);
   assert.deepEqual([c.m2m.dpopMode, c.m2m.dpopMaxAgeSec, c.m2m.mtlsHeader], ['required-for-clients', 300, null]);
   assert.deepEqual([c.session.ttlMs, c.session.idleMs], [8 * 3_600_000, 3_600_000]);
   assert.deepEqual([c.mgmt.clientId, c.mgmt.inviteLifespanSec, c.mgmt.inviteMinMs, c.memberSync.intervalMs], [null, 72 * 3600, 2000, 3_600_000]);
@@ -53,10 +52,6 @@ test('Form und Bereiche', () => {
   const e = errorsOf({ ...base, DPOP_MODE: 'immer', SESSION_TTL: '8 Stunden', DATABASE_POOL_MAX: 'viele', ENTRA_IDP_SLOTS: '300', MEMBER_SYNC_INTERVAL: '30s', KEYCLOAK_MGMT_INVITE_LIFESPAN: '31d', SESSION_SECRET: 'kurz', ENCRYPTION_KEYS: 'k1:abc' }).join('\n');
   for (const m of [/DPOP_MODE: erlaubt/, /SESSION_TTL: ungültige Dauer/, /DATABASE_POOL_MAX: ganze Zahl/, /ENTRA_IDP_SLOTS: 1 bis 250/, /MEMBER_SYNC_INTERVAL: mindestens 1m/, /INVITE_LIFESPAN: 1h bis 30d/, /SESSION_SECRET: jeder Schlüssel/, /ENCRYPTION_KEYS: Schlüssel k1 muss 32 Bytes/]) assert.match(e, m);
   assert.deepEqual(errorsOf({ ...base, MEMBER_SYNC_INTERVAL: '0' }), []);
-  // GROUP_ROLE_PREFIX einheitlich mit führendem und ohne abschliessenden «/» (Token, Verwaltung und Status gleich)
-  for (const v of ['orgs', '/orgs/', 'orgs/']) assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: v }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/orgs', v);
-  assert.equal(loadIamConfig({ ...base, GROUP_ROLE_PREFIX: 'kunden/orgs' }, { product: 'notes', service: 'api' }).tenancy.groupRolePrefix, '/kunden/orgs');
-  for (const v of ['/', 'a//b', '//orgs', '/mit leer']) assert.match(errorsOf({ ...base, GROUP_ROLE_PREFIX: v }).join('\n'), /GROUP_ROLE_PREFIX: Gruppenpfad/, v);
   // RATE_LIMIT_NAMESPACE: Vorsatz der Rate-Limit-Schlüssel (leer: keiner)
   assert.equal(loadIamConfig(base, { product: 'notes', service: 'api' }).ops.rateLimitNamespace, '');
   assert.equal(loadIamConfig({ ...base, RATE_LIMIT_NAMESPACE: 'e2e' }, { product: 'notes', service: 'api' }).ops.rateLimitNamespace, 'e2e');
@@ -101,11 +96,12 @@ test('Geheimnisse aus Dateien (_FILE)', () => {
   assert.equal(readVars({ OIDC_SCOPES_FILE: join(dir, 'secret') }, IAM_VARS('notes'), null).raw.OIDC_SCOPES, 'openid profile email organization');
 });
 
-test('Warnungen: Client-Geheimnis statt privatem Schlüssel, Client-Rollen als Rollenquelle', () => {
-  const c = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 's', KEYCLOAK_SYNC_CLIENT_ID: 'notes-sync', KEYCLOAK_SYNC_CLIENT_SECRET: 's', MCP_CLIENT_SECRET: 's', ROLE_SOURCE: 'both' }, { product: 'notes', service: null });
+test('Warnungen: Client-Geheimnis statt privatem Schlüssel; Rollen kommen nie aus Keycloak (ROLE_SOURCE entfällt)', () => {
+  const c = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 's', KEYCLOAK_SYNC_CLIENT_ID: 'notes-sync', KEYCLOAK_SYNC_CLIENT_SECRET: 's', MCP_CLIENT_SECRET: 's' }, { product: 'notes', service: null });
   const all = iamWarnings(c, null).join('\n');
-  for (const v of ['OIDC_BFF_CLIENT_SECRET', 'KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_SYNC_CLIENT_SECRET', 'MCP_CLIENT_SECRET', 'ROLE_SOURCE=both']) assert.ok(all.includes(v), v);
-  assert.deepEqual(iamWarnings(c, 'worker').map(w => w.split(':')[0]), ['KEYCLOAK_SYNC_CLIENT_SECRET', 'ROLE_SOURCE=both']);
+  for (const v of ['OIDC_BFF_CLIENT_SECRET', 'KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_SYNC_CLIENT_SECRET', 'MCP_CLIENT_SECRET']) assert.ok(all.includes(v), v);
+  assert.deepEqual(iamWarnings(c, 'worker').map(w => w.split(':')[0]), ['KEYCLOAK_SYNC_CLIENT_SECRET']);
+  assert.ok(!all.includes('ROLE_SOURCE'));
   const withKey = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', OIDC_BFF_PRIVATE_KEY: 'pem' }, { product: 'notes', service: 'api' });
   assert.deepEqual(iamWarnings(withKey, 'api'), []);
 });

@@ -1,41 +1,37 @@
 /**
- * Abhängigkeiten des IAM einmal gebaut (Entwurf 3.1, 3.2; in Assets `Deps` aus `http/app.ts`): Verifier, Resolver,
- * Entscheidung, Replay-Schutz und Audit. Das Plugin registriert damit Hooks, Dekorationen und Routen; dieselbe Instanz
- * dient auch ausserhalb von Fastify (Tests, MCP-Dienst, Skripte).
+ * Abhängigkeiten des IAM einmal gebaut (Spezifikation Kap. 15.2): Verifier, Resolver, Entscheidung, Tupel, Auskunft,
+ * Replay-Schutz und Audit. Das Plugin registriert damit Hooks, Dekorationen und Routen; dieselbe Instanz dient auch
+ * ausserhalb von Fastify (Worker, MCP-Dienst, Tests, Skripte).
  */
-import { AccessService } from './access.ts';
+import { AccessService, fullView } from './access.ts';
 import { AdminService } from './admin.ts';
-import { EntraService } from './entra.ts';
-import { EntraGraph } from './graph.ts';
 import { Bff, type BffOptions } from './bff.ts';
 import type { AuditPort } from './audit.ts';
-import type { Catalog } from './catalog.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db, type Tx } from './db.ts';
+import { EntraService } from './entra.ts';
+import { AccessInfo } from './explain.ts';
+import { EntraGraph } from './graph.ts';
+import { KeycloakAdmin } from './keycloak.ts';
+import { ModelError, type Model } from './model.ts';
 import type { Principal } from './principal.ts';
 import { PrincipalResolver } from './principal.ts';
 import type { ResourceModel } from './resources.ts';
-import { KeycloakAdmin } from './keycloak.ts';
 import { MemoryReplayStore, PgReplayStore, type ReplayStore } from './state.ts';
 import { OidcProvider, TokenVerifier } from './tokens.ts';
+import { TupleStore } from './tuples.ts';
 
-/** Ereignis zu einer IAM-Änderung in derselben Transaktion (Assets: Outbox `acl.changed`). */
+/** Ereignis zu einer IAM-Änderung in derselben Transaktion (Assets: Outbox `access.changed`). */
 export type IamEvents = (tx: Tx, type: string, subject: string | null, data: Record<string, unknown>) => Promise<void>;
-
-/**
- * Rollen und Gruppen einer Person in der Organisation wie im Token (für `GET /v1/acl/effective`); `null`: kein Mitglied
- * oder nicht bestimmbar. Setzt das Modul `admin` (Keycloak); ohne bleibt es bei der Simulation.
- */
-export type MemberAccess = (tenantAlias: string, subject: string) => Promise<{ roles: string[]; groups: string[] } | null>;
 
 export interface IamOptions<P extends string = string, S = unknown> {
   cfg: IamConfig;
-  catalog: Catalog<P>;
+  model: Model<P>;
   /** Pool der Laufzeit-Rolle (`<produkt>_runtime`). */
   db: Db;
   /** Schema der Tabellen (`<produkt>`). */
   schema: string;
-  /** Ressourcen der Zugriffsregeln; ohne: Ressourcen direkt unter dem Mandanten. */
+  /** Ressourcen der App (Kette, Existenz, Klassifizierung, Zuständigkeit); ohne: Typen direkt unter der Organisation. */
   resources?: ResourceModel<S> | null;
   audit: AuditPort;
   events?: IamEvents;
@@ -58,7 +54,7 @@ export interface IamOptions<P extends string = string, S = unknown> {
 
 export interface Iam<P extends string = string, S = unknown> {
   readonly cfg: IamConfig;
-  readonly catalog: Catalog<P>;
+  readonly model: Model<P>;
   readonly db: Db;
   readonly schema: string;
   readonly resources: ResourceModel<S> | null;
@@ -68,50 +64,69 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly verifier: TokenVerifier;
   readonly resolver: PrincipalResolver;
   readonly access: AccessService<P, S>;
+  /** Tupel lesen und schreiben (z. B. `owner` beim Anlegen einer Ressource). */
+  readonly tuples: TupleStore;
+  /** «Wer hat Zugriff?», «Warum?», wer vergeben darf. */
+  readonly info: AccessInfo;
   /** Anmeldung der Oberfläche (`SessionBridge` des Plugins, Modul `bff`) oder null. */
   readonly bff: Bff | null;
-  /** Verwaltung von Organisationen und Mitgliedern (Modul `admin`); null ohne `KEYCLOAK_MGMT_CLIENT_ID`. */
+  /** Verwaltung von Organisationen und Mitgliedern (Keycloak); null ohne `KEYCLOAK_MGMT_CLIENT_ID`. */
   readonly admin: AdminService | null;
-  /** Anmeldung über Microsoft Entra ID je Organisation (Modul `entra`); null ohne Verwaltung. `entra.graph` null ohne `ENTRA_CLIENT_ID`. */
+  /** Anmeldung über Microsoft Entra ID je Organisation (Modul `entra`); null ohne Verwaltung. */
   readonly entra: EntraService | null;
-  /** Echte Rollen und Gruppen anderer Personen (setzt das Modul `admin`). */
-  memberAccess: MemberAccess | null;
-  /** Transaktion im Mandantenkontext des Principals mit dem Kontext der App (`resources.dbContext`). */
+  /** Transaktion im Mandantenkontext des Principals mit der Lesesicht der Anfrage (Kap. 7.6). */
   tx<T>(p: Principal, fn: (tx: Tx) => Promise<T>): Promise<T>;
-  /** Wie `tx`, aber mit voller Lesesicht der App (`resources.fullContext`, Entwurf 13.3). */
-  fullTx<T>(p: Principal, fn: (tx: Tx) => Promise<T>): Promise<T>;
+  /** Wie `tx`, aber mit voller Sicht (interne Prüfungen; Inhalte gehen nie an die Person zurück). */
+  fullTx<T>(p: Pick<Principal, 'tenantId' | 'principalId'>, fn: (tx: Tx) => Promise<T>): Promise<T>;
+}
+
+/** Passt das ResourceModel zum Modell? (M8 `edges.unit`, Pflichtteile je Schalter) */
+export function resourceProblems(model: Model, r: ResourceModel<any> | null): string[] {
+  const out: string[] = [];
+  const types = [...model.types.values()];
+  // Ohne version bliebe der geladene Zustand der Kette bis zur nächsten Änderung eines Tupels im Zwischenspeicher
+  if (r?.load && !r.version) out.push('ResourceModel.version fehlt (Pflicht mit load: ändert sich mit jeder Änderung der Kette)');
+  if (types.some(t => t.classified) && !r?.classification) out.push('ResourceModel.classification fehlt (Typen mit classified)');
+  if (types.some(t => t.scope)) {
+    if (!r?.edges) out.push('ResourceModel.edges fehlt (Typen mit scope)');
+    else if (!model.types.get(r.edges.unit as never)?.member) out.push(`ResourceModel.edges.unit «${r.edges.unit}» hat «member» nicht in relations (M8)`);
+  }
+  return out;
 }
 
 export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): Iam<P, S> {
   const schema = schemaName(o.schema);
-  const replay = o.replay ?? (o.cfg.ops.sharedState === 'postgres' ? new PgReplayStore(o.db, schema) : new MemoryReplayStore());
   const resources = o.resources ?? null;
-  const access = new AccessService<P, S>(o.db, { catalog: o.catalog, schema, resources });
+  const problems = resourceProblems(o.model, resources);
+  const access = new AccessService<P, S>(o.db, { model: o.model, schema, resources });
+  const ids = access.readTypesProblem();
+  if (ids) problems.push(ids);
+  if (problems.length) throw new ModelError(problems);
+  const replay = o.replay ?? (o.cfg.ops.sharedState === 'postgres' ? new PgReplayStore(o.db, schema) : new MemoryReplayStore());
   const provider = new OidcProvider(o.cfg.oidc.issuer, o.fetch);
   const wantsBff = o.bff !== false && !!(o.cfg.oidc.bffClientSecret || o.cfg.oidc.bffPrivateKey);
-  const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.catalog.product }) : null;
-  const resolver = new PrincipalResolver(o.db, o.cfg, { schema });
+  const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.model.product }) : null;
+  const resolver = new PrincipalResolver(o.db, o.cfg, { schema, access: access as AccessService });
+  const tuples = new TupleStore({ schema, model: o.model, audit: o.audit });
+  const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit: o.audit, resolver, access: access as AccessService, tuples };
   const admin = o.cfg.mgmt.clientId
-    ? new AdminService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
+    ? new AdminService(deps, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
     : null;
   const e = o.cfg.entra;
   const graph = e.clientId && e.clientSecret ? new EntraGraph({ clientId: e.clientId, clientSecret: e.clientSecret, timeoutMs: e.timeoutMs }, o.entraFetch) : null;
-  const entra = admin ? new EntraService({ cfg: o.cfg, catalog: o.catalog, db: o.db, schema, audit: o.audit, resolver }, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
+  const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
+  const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
-    cfg: o.cfg, catalog: o.catalog, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
+    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
-    resolver,
-    access,
-    bff,
-    admin,
-    entra,
-    memberAccess: null,
+    resolver, access, tuples, info, bff, admin, entra,
     async tx(p, fn) {
-      const settings = resources?.dbContext ? await resources.dbContext(p, access as AccessService) : undefined;
+      const acl = await access.load(p.tenantId);
+      const settings = await access.readView(p.tenantId, p, acl);
       return withTenant(o.db, { tenantId: p.tenantId, principalId: p.principalId, settings }, fn);
     },
     fullTx(p, fn) {
-      return withTenant(o.db, { tenantId: p.tenantId, principalId: p.principalId, settings: resources?.fullContext }, fn);
+      return withTenant(o.db, { tenantId: p.tenantId, principalId: p.principalId, settings: fullView(o.model) }, fn);
     },
   };
 }

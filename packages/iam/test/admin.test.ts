@@ -14,10 +14,10 @@ import { pgAudit } from '../src/audit.ts';
 import { KeycloakAdmin } from '../src/keycloak.ts';
 import { setTenantStatus } from '../src/tenants.ts';
 import { MemberSync, syncAllMembers, syncTenantName } from '../src/sync.ts';
-import { notesCatalog } from './support/catalogs.ts';
 import { testConfig } from './support/config.ts';
+import { notesModel } from './support/models.ts';
 import { skipDb } from './support/db.ts';
-import { claims, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
+import { claims, grantClient, member, notesApp, notesDb, tenant, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 type Res = { status: number; body: any };
@@ -39,10 +39,23 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
   const ok = (r: Res, status = 200) => { assert.equal(r.status, status, JSON.stringify(r.body)); return r.body; };
   const auditOf = async (alias: string, action: string) => (await t.inspect.query<{ actor_name: string; resource_id: string; data: any; source: string }>(
     'SELECT a.actor_name, a.resource_id::text, a.data, a.source FROM notes.audit_log a JOIN notes.tenant t ON t.id = a.tenant_id WHERE t.alias = $1 AND a.action = $2 ORDER BY a.seq', [alias, action])).rows;
-  /** Personenverzeichnis (in Assets GET /v1/people): Mitglieder ohne removed_at. */
+  /** Personenverzeichnis (wie GET /v1/people): Mitglieder ohne removed_at und ohne offene Einladung. */
   const people = async (alias: string) => (await t.inspect.query<{ id: string; subject: string; display_name: string; email: string | null; last_seen_at: Date | null }>(
-    "SELECT p.id, p.subject, p.display_name, p.email, p.last_seen_at FROM notes.principal p JOIN notes.tenant t ON t.id = p.tenant_id WHERE t.alias = $1 AND p.kind = 'user' AND p.removed_at IS NULL ORDER BY p.display_name", [alias])).rows;
+    `SELECT p.id, p.subject, p.display_name, p.email, p.last_seen_at FROM notes.principal p JOIN notes.tenant t ON t.id = p.tenant_id WHERE t.alias = $1 AND p.kind = 'user' AND p.removed_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM notes.member_invitation i WHERE i.tenant_id = p.tenant_id AND i.user_id = p.subject AND i.accepted_at IS NULL) ORDER BY p.display_name`, [alias])).rows;
   const app = (env: Record<string, string> = MGMT) => notesApp({ db: t.runtime, issuer: idp.issuer, env, keycloakFetch: kc.fetch });
+  /** Mitglied in Keycloak und Rollen als Tupel an org (Rollen stehen nie in Keycloak). */
+  const join = async (o: FakeOrg, x: { id: string }, roles: string[] = []) => {
+    kc.member(o, x as FakeUser);
+    for (const r of roles) await member(t.runtime, o.alias, x.id, r);
+  };
+  /** Rollen an org aus den Tupeln, in Reihenfolge des Modells. */
+  const rolesIn = async (alias: string, sub: string) => {
+    const have = (await t.inspect.query<{ r: string }>(
+      `SELECT a.relation AS r FROM notes.authz_tuple a JOIN notes.principal p ON a.subject = 'user:' || p.id JOIN notes.tenant x ON x.id = p.tenant_id
+        WHERE x.alias = $1 AND p.subject = $2 AND a.object_type = 'org'`, [alias, sub])).rows.map(r => r.r);
+    return ['org-admin', 'editor', 'viewer'].filter(r => have.includes(r));
+  };
 
   before(async () => {
     t = await db.create();
@@ -54,23 +67,22 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     u.ben = kc.user('ben', { email: 'ben@muster.example', firstName: 'Ben', lastName: 'Leser' });
     u.mona = kc.user('mona', { email: 'mona@muster.example', firstName: 'Mona', lastName: 'Muster' });
     u.paula = kc.user('paula', { email: 'paula@ops.example', firstName: 'Paula', lastName: 'Plattform' });
-    kc.member(demo, u.anna, ['org-admin']); kc.member(demo, u.carla, ['viewer', 'editor']); kc.member(demo, u.dana, ['viewer']);
-    kc.member(muster, u.ben, ['viewer']); kc.member(muster, u.mona, ['org-admin']);
-    kc.member(ops, u.paula, ['org-admin']);
-    for (const alias of ['demo', 'muster', 'ops']) for (const r of ['org-admin', 'editor', 'viewer']) kc.groupPath(`/orgs/${alias}/${r}`);
+    await join(demo, u.anna, ['org-admin']); await join(demo, u.carla, ['viewer', 'editor']); await join(demo, u.dana, ['viewer']);
+    await join(muster, u.ben, ['viewer']); await join(muster, u.mona, ['org-admin']);
+    await join(ops, u.paula, ['org-admin']);
 
     n = await app();
     off = await app({ DPOP_MODE: 'optional' });
 
-    const person = (x: FakeUser, org: string, roles: string[], extra: Record<string, unknown> = {}) => idp.token({ ...claims.user({ sub: x.id, org, groupRoles: roles, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
+    const person = (x: FakeUser, org: string, _roles: string[], extra: Record<string, unknown> = {}) => idp.token({ ...claims.user({ sub: x.id, org, email: x.email, name: `${x.firstName} ${x.lastName}` }), ...extra });
     tok.anna = await person(u.anna, 'demo', ['org-admin']);
     tok.carla = await person(u.carla, 'demo', ['viewer', 'editor']);
     tok.mona = await person(u.mona, 'muster', ['org-admin']);
     tok.ben = await person(u.ben, 'muster', ['viewer']);
     tok.paula = await person(u.paula, 'ops', ['org-admin'], { realm_access: { roles: ['platform-admin'] } });
-    await tenant(t.runtime, 'demo', 'demo-m2m');
-    tok.svc = await idp.token(claims.client({ clientId: 'demo-m2m', org: 'demo', roles: ['org-admin'], scopes: ['notes:read', 'notes:write'] }));
-    tok.mcp = await idp.token({ ...claims.user({ sub: u.anna.id, org: 'demo', groupRoles: ['org-admin'] }), azp: 'notes-mcp', scope: 'notes:read notes:write' });
+    await grantClient(t.runtime, await tenant(t.runtime, 'demo'), 'demo-m2m', 'org-admin');
+    tok.svc = await idp.token(claims.client({ clientId: 'demo-m2m', org: 'demo', scopes: ['notes:read', 'notes:write'] }));
+    tok.mcp = await idp.token({ ...claims.user({ sub: u.anna.id, org: 'demo' }), azp: 'notes-mcp', scope: 'notes:read notes:write' });
     // anna, ben … waren schon in der App (Personenverzeichnis), dana noch nie
     for (const who of ['anna', 'ben', 'mona', 'paula']) ok(await call(who, 'GET', '/v1/me'));
   });
@@ -78,7 +90,6 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
 
   test('abgeschaltet ohne KEYCLOAK_MGMT_CLIENT_ID: Status mit Hinweis, Endpunkte 503, ohne Recht 403', async () => {
     assert.equal(off.iam.admin, null);
-    assert.equal(off.iam.memberAccess, null, 'ohne Verwaltung simuliert GET /v1/acl/effective');
     const s = ok(await call('anna', 'GET', '/v1/admin/status', undefined, { app: off }));
     assert.equal(s.enabled, false);
     assert.match(s.reason, /KEYCLOAK_MGMT_CLIENT_ID/);
@@ -94,23 +105,15 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await auditOf('demo', 'organization.name_synced')).length, 0);
   });
 
-  test('Status: Rollenkatalog mit Erklärung, Präfix der Rollengruppen, wer was darf', async () => {
+  test('Status: Rollen des Modells mit Erklärung, wer was darf', async () => {
     const a = ok(await call('anna', 'GET', '/v1/admin/status'));
-    assert.deepEqual([a.enabled, a.canManageMembers, a.platformAdmin, a.organization, a.rolesManageable, a.groupRolePrefix], [true, true, false, 'demo', true, '/orgs']);
+    assert.deepEqual([a.enabled, a.canManageMembers, a.platformAdmin, a.organization], [true, true, false, 'demo']);
+    assert.ok(!('rolesManageable' in a) && !('groupRolePrefix' in a), 'keine eigenen Rollen, keine Rollengruppen');
     const viewer = a.roles.find((r: any) => r.key === 'viewer');
-    assert.ok(viewer.description.length > 10 && viewer.label === 'Leser:in' && viewer.permissions.includes('note:read') && viewer.custom === false);
+    assert.ok(viewer.description.length > 10 && viewer.label === 'Leser:in' && viewer.permissions.includes('note:read'));
     assert.equal(a.roles.find((r: any) => r.key === 'org-admin').adminOnly, true);
     assert.equal(ok(await call('carla', 'GET', '/v1/admin/status')).canManageMembers, false);
     assert.equal(ok(await call('paula', 'GET', '/v1/admin/status')).platformAdmin, true);
-    // anderes Präfix (GROUP_ROLE_PREFIX) erscheint so, wie die Gruppen heissen
-    const other = await notesApp({ db: t.runtime, issuer: idp.issuer, env: { ...MGMT, GROUP_ROLE_PREFIX: '/kunden/' }, keycloakFetch: kc.fetch });
-    try { assert.equal(ok(await call('anna', 'GET', '/v1/admin/status', undefined, { app: other })).groupRolePrefix, '/kunden'); } finally { await other.app.close(); }
-    // eigene Rolle der Organisation im Katalog (custom)
-    const demoId = (await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'demo'")).rows[0].id;
-    await t.inspect.query("INSERT INTO notes.tenant_role (tenant_id, key, label, description, permissions) VALUES ($1, 'c-pruefung', 'Prüfung', 'Liest alles', '{note:read,members:admin}')", [demoId]);
-    const c = ok(await call('anna', 'GET', '/v1/admin/status')).roles.find((r: any) => r.key === 'c-pruefung');
-    assert.deepEqual([c.custom, c.adminOnly, c.permissions], [true, false, ['note:read']], 'Rechte nur von org-admin entfallen');
-    await t.inspect.query("DELETE FROM notes.tenant_role WHERE key = 'c-pruefung'");
   });
 
   test('Rechte: nur org-admin; Maschinen-Clients und MCP nie, auch mit Rolle org-admin', async () => {
@@ -125,8 +128,10 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
   });
 
   test('Liste: Mitglieder der eigenen Organisation mit Rollen, Status, letztem Zugriff; synchronisiert das Personenverzeichnis', async () => {
-    const items = ok(await call('anna', 'GET', '/v1/admin/members')).items;
+    const all = ok(await call('anna', 'GET', '/v1/admin/members')).items, items = all.filter((m: any) => m.kind === 'user');
     assert.deepEqual(items.map((m: any) => m.username), ['anna', 'carla', 'dana'], 'nur demo, nach Name');
+    const svc = all.find((m: any) => m.kind === 'client');
+    assert.deepEqual([svc.clientId, svc.roles, svc.status], ['demo-m2m', ['org-admin'], 'active'], 'Clients in derselben Liste (9.6)');
     const anna = items.find((m: any) => m.username === 'anna'), carla = items.find((m: any) => m.username === 'carla'), dana = items.find((m: any) => m.username === 'dana');
     assert.deepEqual(anna.roles, ['org-admin']);
     assert.deepEqual(carla.roles.sort(), ['editor', 'viewer']);
@@ -140,21 +145,13 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(dana.principalId, p!.id);
     assert.ok(!(await people('demo')).some(x => x.email === 'ben@muster.example'), 'keine Personen anderer Mandanten');
     // meldet sich dana später an, ist es derselbe Eintrag
-    const d = await idp.token(claims.user({ sub: u.dana.id, org: 'demo', groupRoles: ['viewer'], email: u.dana.email, name: 'Dana Duss' }));
+    const d = await idp.token(claims.user({ sub: u.dana.id, org: 'demo', email: u.dana.email, name: 'Dana Duss' }));
     const me = await n.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${d}` } });
     assert.equal(JSON.parse(me.body).principal.id, p!.id);
   });
 
-  test('echte Rollen für GET /v1/acl/effective (memberAccess, nur Rollen dieser Organisation)', async () => {
-    assert.ok(n.iam.memberAccess);
-    const carla = await n.iam.memberAccess!('demo', u.carla.id);
-    assert.deepEqual(carla!.roles.sort(), ['editor', 'viewer']);
-    assert.ok(carla!.groups.every(g => g.startsWith('/orgs/demo/')), 'keine Gruppen anderer Organisationen');
-    assert.equal(await n.iam.memberAccess!('demo', u.ben.id), null, 'kein Mitglied von demo');
-  });
-
   test('Mandantengrenze: org-admin von demo kann muster nicht verwalten, auch nicht mit manipulierten IDs', async () => {
-    const before = kc.rolesOf(muster, u.ben);
+    const before = await rolesIn('muster', u.ben.id);
     assert.equal((await call('anna', 'PUT', `/v1/admin/members/${u.ben.id}/roles`, { roles: ['org-admin'] })).status, 404, 'fremde Person: wie nicht vorhanden');
     assert.equal((await call('anna', 'PUT', `/v1/admin/members/${u.ben.id}/roles`, { roles: ['editor'] })).status, 404);
     assert.equal((await call('anna', 'DELETE', `/v1/admin/members/${u.ben.id}`)).status, 404);
@@ -169,7 +166,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await call('anna', 'DELETE', '/v1/admin/members/..%2F..%2Fusers')).status, 422);
     assert.equal((await call('paula', 'GET', '/v1/platform/organizations/DEMO/members')).status, 422, 'Alias nur klein (Schema)');
     assert.equal(kc.calls.length, calls);
-    assert.deepEqual(kc.rolesOf(muster, u.ben), before, 'ben unverändert');
+    assert.deepEqual(await rolesIn('muster', u.ben.id), before, 'ben unverändert');
     assert.ok(kc.orgMembers.get(muster.id)!.has(u.ben.id));
     assert.ok(!kc.calls.some(c => c.includes(`/organizations/${muster.id}/members/`) && !c.startsWith('GET')), 'nie schreibend auf muster');
   });
@@ -190,7 +187,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(ku.password, false, 'kein Passwort über die App');
     assert.deepEqual(ku.requiredActions, ['UPDATE_PASSWORD']);
     assert.ok(kc.orgMembers.get(demo.id)!.has(ku.id));
-    assert.deepEqual(kc.rolesOf(demo, ku), ['viewer']);
+    assert.deepEqual(await rolesIn('demo', ku.id), ['viewer']);
     const a = await auditOf('demo', 'member.invited');
     assert.equal(a.at(-1)!.resource_id, invitee);
     assert.equal(a.at(-1)!.actor_name, 'Anna Admin');
@@ -221,9 +218,10 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     kc.smtp = true;
     const r = ok(await call('anna', 'POST', '/v1/admin/members', { email: 'ben@muster.example', firstName: 'B.', lastName: 'Gast', roles: ['viewer'] }), 202);
     kc.smtp = false;
-    assert.deepEqual([r.result, r.emailSent, r.member.status, r.member.name, r.member.email, r.member.principalId], ['invitation-sent', true, 'invited', 'B. Gast', 'ben@muster.example', null], 'Angaben aus der Einladung, nicht aus dem Konto');
+    assert.deepEqual([r.result, r.emailSent, r.member.status, r.member.name, r.member.email], ['invitation-sent', true, 'invited', 'B. Gast', 'ben@muster.example'], 'Angaben aus der Einladung, nicht aus dem Konto');
+    assert.ok(r.member.principalId, 'Principal schon beim Einladen (A16)');
     assert.ok(!kc.orgMembers.get(demo.id)!.has(u.ben.id), 'ben ist (noch) nicht Mitglied von demo');
-    assert.deepEqual(kc.rolesOf(demo, u.ben), ['viewer'], 'Rolle gesetzt, wirkt erst mit der Mitgliedschaft');
+    assert.deepEqual(await rolesIn('demo', u.ben.id), ['viewer'], 'Tupel gesetzt, wirkt erst mit der Mitgliedschaft');
     assert.equal(kc.mails.at(-1)!.kind, 'invite-existing');
     assert.equal((await call('anna', 'POST', '/v1/admin/members', { email: 'ben@muster.example' })).status, 409, 'bereits eingeladen (eigene Organisation)');
     // Offene Einladung nur über ihre ID, nicht über die Keycloak-ID des Kontos
@@ -234,14 +232,14 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const w = ok(await call('anna', 'DELETE', `/v1/admin/members/${r.member.id}`));
     assert.equal(w.accountDeleted, false);
     assert.ok(kc.users.has(u.ben.id) && kc.orgMembers.get(muster.id)!.has(u.ben.id), 'Konto und Mitgliedschaft in muster unberührt');
-    assert.deepEqual(kc.rolesOf(demo, u.ben), []);
-    assert.deepEqual(kc.rolesOf(muster, u.ben), ['viewer']);
+    assert.deepEqual(await rolesIn('demo', u.ben.id), []);
+    assert.deepEqual(await rolesIn('muster', u.ben.id), ['viewer']);
   });
 
   test('Rollen setzen: zuweisen und entziehen mit Audit; org-admin nur Plattform; unbekannte Rolle 422', async () => {
     const m = ok(await call('anna', 'PUT', `/v1/admin/members/${invitee}/roles`, { roles: ['editor'] }));
     assert.deepEqual(m.roles, ['editor']);
-    assert.deepEqual(kc.rolesOf(demo, { id: inviteeUser }), ['editor']);
+    assert.deepEqual(await rolesIn('demo', inviteeUser), ['editor']);
     const a = (await auditOf('demo', 'member.roles_changed')).at(-1)!;
     assert.deepEqual([a.data.added, a.data.removed], [['editor'], ['viewer']]);
     assert.equal(a.source, 'api');
@@ -259,7 +257,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(last.status, 409);
     assert.equal(last.body.reason, 'last-admin');
     assert.equal((await call('paula', 'DELETE', `/v1/platform/organizations/demo/members/${u.anna.id}`)).status, 409);
-    assert.deepEqual(kc.rolesOf(demo, u.anna), ['org-admin']);
+    assert.deepEqual(await rolesIn('demo', u.anna.id), ['org-admin']);
     // gesperrtes Konto zählt nicht als Admin
     ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.carla.id}/roles`, { roles: ['org-admin', 'viewer'] }));
     u.carla.enabled = false;
@@ -273,7 +271,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(a.data.actorTenant, 'ops');
     // Plattform-Administration entfernt sich auch über die Plattform-Route nicht selbst (zweite aktive Admin-Person da)
     const otto = kc.user('otto', { email: 'otto@ops.example', firstName: 'Otto', lastName: 'Ops' });
-    kc.member([...kc.orgs.values()].find(o => o.alias === 'ops')!, otto, ['org-admin']);
+    await join([...kc.orgs.values()].find(o => o.alias === 'ops')!, otto, ['org-admin']);
     const self = await call('paula', 'DELETE', `/v1/platform/organizations/ops/members/${u.paula.id}`);
     assert.deepEqual([self.status, self.body.detail], [409, 'Du kannst dich nicht selbst aus der Organisation entfernen.']);
     assert.ok(kc.orgMembers.get([...kc.orgs.values()].find(o => o.alias === 'ops')!.id)!.has(u.paula.id));
@@ -286,11 +284,11 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     // Plattform lädt eine neue Adresse mit org-admin ein: Konto entsteht, ist sofort Mitglied mit offenem «Passwort setzen»
     const inv = ok(await call('paula', 'POST', '/v1/platform/organizations/demo/members', { email: 'chefin-neu@demo.example', roles: ['org-admin'] }), 202);
     const ku = kc.byEmail('chefin-neu@demo.example')!;
-    assert.ok(kc.orgMembers.get(demo.id)!.has(ku.id) && kc.rolesOf(demo, ku).includes('org-admin'), 'Gruppenmitglied org-admin und Mitglied (wie Assets)');
+    assert.ok(kc.orgMembers.get(demo.id)!.has(ku.id) && (await rolesIn('demo', ku.id)).includes('org-admin'), 'Tupel org-admin und Mitglied');
     const last = await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.anna.id}/roles`, { roles: ['viewer'] });
     assert.deepEqual([last.status, last.body.reason], [409, 'last-admin'], 'die eingeladene Person kann sich noch nicht anmelden');
     assert.equal((await call('paula', 'DELETE', `/v1/platform/organizations/demo/members/${u.anna.id}`)).status, 409);
-    assert.deepEqual(kc.rolesOf(demo, u.anna), ['org-admin']);
+    assert.deepEqual(await rolesIn('demo', u.anna.id), ['org-admin']);
     // angenommen (Passwort gesetzt, Abgleich schliesst die Einladung ab): jetzt aktiv
     ku.requiredActions = []; ku.password = true;
     ok(await call('anna', 'GET', '/v1/admin/members'));
@@ -309,7 +307,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.carla.id}/roles`, { roles: ['viewer'] }),
     ]);
     assert.deepEqual([a.status, b.status].sort(), [200, 409]);
-    assert.equal([u.anna, u.carla].filter(x => kc.rolesOf(demo, x).includes('org-admin')).length, 1);
+    assert.equal([...await rolesIn('demo', u.anna.id), ...await rolesIn('demo', u.carla.id)].filter(r => r === 'org-admin').length, 1);
     // Ausgangslage: anna Admin, carla viewer/editor
     ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.anna.id}/roles`, { roles: ['org-admin'] }));
     ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.carla.id}/roles`, { roles: ['viewer', 'editor'] }));
@@ -322,13 +320,13 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const a = (await auditOf('demo', 'member.invitation_withdrawn')).at(-1)!;
     assert.deepEqual([a.resource_id, a.data.accountDeleted, a.data.roles], [invitee, undefined, ['editor']]);
     // Person mit Passwort: Konto bleibt, im Verzeichnis als entfernt markiert
-    const x = kc.user('xaver', { email: 'xaver@demo.example' }); kc.member(demo, x, ['viewer']);
+    const x = kc.user('xaver', { email: 'xaver@demo.example' }); await join(demo, x, ['viewer']);
     ok(await call('anna', 'GET', '/v1/admin/members'));
     assert.ok((await people('demo')).some(p => p.subject === x.id));
     assert.equal(ok(await call('anna', 'DELETE', `/v1/admin/members/${x.id}`)).accountDeleted, false);
     assert.equal((await auditOf('demo', 'member.removed')).at(-1)!.resource_id, x.id);
     assert.ok(kc.users.has(x.id));
-    assert.deepEqual(kc.rolesOf(demo, x), []);
+    assert.deepEqual(await rolesIn('demo', x.id), []);
     assert.ok(!kc.orgMembers.get(demo.id)!.has(x.id));
     assert.ok(!(await people('demo')).some(p => p.subject === x.id), 'nicht mehr auswählbar');
   });
@@ -340,7 +338,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       // bestehendes Konto (mona: org-admin von muster), neue Adresse, Benutzername schon vergeben (anderes Konto)
       kc.user('kollision', { username: 'kollision@demo.example', email: 'jemand-anders@muster.example' });
       const cases = [await invite('mona@muster.example'), await invite('niemand@demo.example'), await invite('kollision@demo.example')];
-      const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
+      const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', principalId: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
       for (const c of cases) {
         assert.equal(c.status, 202, JSON.stringify(c.body));
         assert.ok(c.ms >= 390, `Mindestdauer (${c.ms} ms)`);
@@ -349,7 +347,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       }
       const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
       const rows = ['mona@muster.example', 'niemand@demo.example', 'kollision@demo.example'].map(e => list.find((m: any) => m.email === e));
-      for (const r of rows) assert.deepEqual([r.status, r.principalId, r.lastSeenAt, r.roles], ['invited', null, null, ['viewer']]);
+      for (const r of rows) assert.deepEqual([r.status, typeof r.principalId, r.lastSeenAt, r.roles], ['invited', 'string', null, ['viewer']]);
       assert.equal(rows[0].name, 'mona@muster.example', 'nicht «Mona Muster» aus dem Konto');
       assert.ok(!JSON.stringify(list).includes('Mona') && !JSON.stringify(list).includes('jemand-anders'));
       assert.ok(!(await people('demo')).some(p => /muster\.example/.test(p.email ?? '')), 'Personenverzeichnis erst nach Annahme');
@@ -360,32 +358,62 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       for (const r of rows) removed.push(await call('anna', 'DELETE', `/v1/admin/members/${r.id}`));
       assert.deepEqual(removed.map(r => [r.status, r.body]), removed.map(() => [200, { accountDeleted: false }]));
       assert.ok(kc.users.has(u.mona.id) && kc.orgMembers.get(muster.id)!.has(u.mona.id), 'mona bleibt in muster');
-      assert.deepEqual(kc.rolesOf(muster, u.mona), ['org-admin']);
+      assert.deepEqual(await rolesIn('muster', u.mona.id), ['org-admin']);
       assert.equal(kc.byEmail('niemand@demo.example'), null, 'unbenutztes neues Konto gelöscht');
     } finally { await slow.app.close(); }
   });
 
   test('Person in zwei Organisationen: die Verwaltung zeigt nur Rollen und Angaben dieser Organisation', async () => {
     const d = kc.user('doppel', { email: 'doppel@example.ch', firstName: 'Dora', lastName: 'Doppel' });
-    kc.member(demo, d, ['editor']); kc.member(muster, d, ['org-admin', 'viewer']);
+    await join(demo, d, ['editor']); await join(muster, d, ['org-admin', 'viewer']);
     const m = ok(await call('anna', 'GET', '/v1/admin/members')).items.find((x: any) => x.id === d.id);
     assert.deepEqual(m.roles, ['editor']);
     assert.ok(!JSON.stringify(m).includes('muster') && !JSON.stringify(m).includes('org-admin'));
     assert.equal(m.createdAt, null, 'kein Kontoalter aus Keycloak (verriete ein früheres Konto)');
     assert.deepEqual(ok(await call('anna', 'DELETE', `/v1/admin/members/${d.id}`)), { accountDeleted: false });
-    assert.deepEqual(kc.rolesOf(muster, d), ['org-admin', 'viewer']);
+    assert.deepEqual(await rolesIn('muster', d.id), ['org-admin', 'viewer']);
     assert.ok(kc.orgMembers.get(muster.id)!.has(d.id));
   });
 
-  test('Keycloak verweigert (fehlendes Recht des Service Accounts) → 502 mit Hinweis, nichts protokolliert', async () => {
-    kc.deny = [/^PUT \/users\/.*\/groups\//];
-    const count = (await auditOf('demo', 'member.roles_changed')).length;
-    const r = await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer', 'editor'] });
+  test('Keycloak verweigert (fehlendes Recht des Service Accounts) → 502 mit Hinweis, nichts protokolliert, Tupel bleiben', async () => {
+    kc.deny = [/^DELETE \/organizations\/[^/]+\/members\//];
+    const count = (await auditOf('demo', 'member.removed')).length;
+    const r = await call('anna', 'DELETE', `/v1/admin/members/${u.dana.id}`);
     kc.deny = [];
     assert.equal(r.status, 502);
     assert.match(r.body.detail, /Realm-Modul/);
-    assert.equal((await auditOf('demo', 'member.roles_changed')).length, count);
-    assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
+    assert.equal((await auditOf('demo', 'member.removed')).length, count);
+    assert.deepEqual(await rolesIn('demo', u.dana.id), ['viewer'], 'Transaktion zurückgerollt');
+    assert.ok(kc.orgMembers.get(demo.id)!.has(u.dana.id));
+  });
+
+  test('Freigabestufe: nie für sich selbst, nie über die eigene (auch nicht herabsetzen von höher), Plattform darf; Audit', async () => {
+    const set = (who: string, id: string, clearance: number, url = `/v1/admin/members/${id}/clearance`) => call(who, 'PUT', url, { clearance });
+    const self = await set('anna', u.anna.id, 1);
+    assert.deepEqual([self.status, self.body.reason], [403, 'self']);
+    const over = await set('anna', u.dana.id, 1);
+    assert.deepEqual([over.status, over.body.reason, over.body.clearance], [403, 'exceeds-own', 0], 'anna hat Stufe 0');
+    assert.equal((await set('carla', u.dana.id, 0)).status, 403, 'ohne members:admin');
+    assert.equal((await set('anna', u.ben.id, 0)).status, 404, 'fremde Organisation');
+    // Plattform setzt beliebig (auch für die erste Person einer Organisation)
+    const a = ok(await set('paula', u.anna.id, 2, `/v1/platform/organizations/demo/members/${u.anna.id}/clearance`));
+    assert.equal(a.clearance, 2);
+    const pa = (await auditOf('demo', 'member.clearance_changed')).at(-1)!;
+    assert.deepEqual([pa.data.from, pa.data.to, pa.data.platformAdmin], [0, 2, true]);
+    assert.equal(ok(await set('anna', u.dana.id, 1)).clearance, 1);
+    assert.deepEqual((await auditOf('demo', 'member.clearance_changed')).at(-1)!.data, { from: 0, to: 1 });
+    const count = (await auditOf('demo', 'member.clearance_changed')).length;
+    ok(await set('anna', u.dana.id, 1));
+    assert.equal((await auditOf('demo', 'member.clearance_changed')).length, count, 'ohne Änderung kein Eintrag');
+    // Wirkt sofort auf /v1/me der Person
+    const dana = await idp.token(claims.user({ sub: u.dana.id, org: 'demo', email: u.dana.email, name: 'Dana Duss' }));
+    tok.dana = dana;
+    assert.equal(ok(await call('dana', 'GET', '/v1/me')).clearance, 1);
+    // Wer Stufe 1 hat, setzt eine Person mit Stufe 2 nicht herab
+    ok(await set('paula', u.anna.id, 1, `/v1/platform/organizations/demo/members/${u.anna.id}/clearance`));
+    ok(await set('paula', u.carla.id, 2, `/v1/platform/organizations/demo/members/${u.carla.id}/clearance`));
+    assert.deepEqual([(await set('anna', u.carla.id, 0)).body.reason], ['exceeds-own']);
+    for (const [x, l] of [[u.anna.id, 0], [u.carla.id, 0], [u.dana.id, 0]] as const) ok(await set('paula', x, l, `/v1/platform/organizations/demo/members/${x}/clearance`));
   });
 
   test('Plattform: nur platform-admin; Organisationen auflisten mit Mandantenstatus', async () => {
@@ -396,35 +424,6 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(list.find((o: any) => o.alias === 'ops').tenant.status, 'active');
     assert.equal(list.find((o: any) => o.alias === 'demo').tenant.status, 'active');
     assert.deepEqual(list.find((o: any) => o.alias === 'demo').domains, ['demo.example']);
-  });
-
-  test('Plattform: Rollen einer anderen Organisation lesen (Format von /v1/roles, mit eigenen Rollen) und eigene Rolle zuweisen', async () => {
-    const demoId = (await t.inspect.query("SELECT id FROM notes.tenant WHERE alias = 'demo'")).rows[0].id;
-    await t.inspect.query("INSERT INTO notes.tenant_role (tenant_id, key, label, description, permissions) VALUES ($1, 'c-pruefung', 'Prüfung', 'Liest Notizen', '{note:read,tenant:read}')", [demoId]);
-    try {
-      assert.equal((await call('anna', 'GET', '/v1/platform/organizations/demo/roles')).status, 403, 'nur platform-admin');
-      assert.equal((await call('mcp', 'GET', '/v1/platform/organizations/demo/roles')).status, 403);
-      assert.equal((await call('paula', 'GET', '/v1/platform/organizations/unbekannt/roles')).status, 404);
-      assert.equal((await call('paula', 'GET', '/v1/platform/organizations/demo/roles', undefined, { app: off })).status, 503);
-      const r = ok(await call('paula', 'GET', '/v1/platform/organizations/demo/roles'));
-      assert.deepEqual(r.items.map((x: any) => [x.key, x.custom, x.adminOnly]), [['org-admin', false, true], ['editor', false, false], ['viewer', false, false], ['c-pruefung', true, false]]);
-      const c = r.items.at(-1);
-      assert.deepEqual([c.label, c.permissions, c.version, typeof c.id, c.memberCount], ['Prüfung', ['tenant:read', 'note:read'], 1, 'string', 0]);
-      assert.equal(r.items[0].memberCount, 1, 'org-admin: anna');
-      assert.deepEqual([r.maxCustom, r.customPermissions.includes('members:admin'), r.customPermissions.includes('note:read')], [50, false, true]);
-      // eigene Rolle über die Plattform zuweisen (legt die Gruppe an) und wieder entziehen
-      n.iam.admin!.forgetRoles('demo');
-      assert.deepEqual(ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: ['viewer', 'c-pruefung'] })).roles.sort(), ['c-pruefung', 'viewer']);
-      assert.equal(ok(await call('paula', 'GET', '/v1/platform/organizations/demo/roles')).items.at(-1).memberCount, 1);
-      ok(await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: ['viewer'] }));
-      // Organisation in Keycloak, noch nie benutzt: nur vordefinierte Rollen, kein Mandant angelegt
-      kc.org('leer', 'Leer');
-      assert.deepEqual(ok(await call('paula', 'GET', '/v1/platform/organizations/leer/roles')).items.map((x: any) => x.key), ['org-admin', 'editor', 'viewer']);
-      assert.equal((await t.inspect.query("SELECT 1 FROM notes.tenant WHERE alias = 'leer'")).rowCount, 0);
-    } finally {
-      await t.inspect.query("DELETE FROM notes.tenant_role WHERE key = 'c-pruefung'");
-      n.iam.admin!.forgetRoles('demo');
-    }
   });
 
   test('Plattform: Name aus Keycloak ist massgeblich – Liste und Detail führen den Namen des Mandanten nach (protokolliert)', async () => {
@@ -460,20 +459,25 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await call('paula', 'POST', '/v1/platform/organizations', { alias: 'demo', name: 'Doppelt' })).status, 409);
     const o = ok(await call('paula', 'POST', '/v1/platform/organizations', { alias: 'neu', name: 'Neu AG', domains: ['neu.example'] }), 201);
     assert.deepEqual([o.alias, o.name, o.enabled, o.domains, o.tenant.status], ['neu', 'Neu AG', true, ['neu.example'], 'active']);
-    assert.ok([...kc.groups.values()].some(g => g.path === '/orgs/neu/org-admin'));
+    assert.equal(kc.groups.size, 0, 'keine Rollengruppen (A21)');
     assert.equal((await auditOf('neu', 'tenant.provisioned')).at(-1)!.actor_name, 'Paula Plattform');
     assert.deepEqual((await auditOf('neu', 'tenant.provisioned')).at(-1)!.data.domains, ['neu.example']);
     const r = ok(await call('paula', 'PATCH', '/v1/platform/organizations/neu', { name: 'Neu Holding AG', domains: ['neu.example', 'neu-holding.example'] }));
     assert.deepEqual([r.name, r.domains], ['Neu Holding AG', ['neu.example', 'neu-holding.example']]);
     assert.equal((await t.inspect.query("SELECT name FROM notes.tenant WHERE alias = 'neu'")).rows[0].name, 'Neu Holding AG');
     assert.deepEqual((await auditOf('neu', 'organization.updated')).at(-1)!.data.domains.added, ['neu-holding.example']);
-    // Mandant scheitert nach der Organisation in Keycloak: Organisation wieder gelöscht
-    await t.inspect.query("SELECT app.resolve_tenant('nur-db', null, 'Nur DB', true)");
-    const before = kc.orgs.size;
-    kc.fail = [{ re: /^GET \/group-by-path\/orgs\/kaputt/, status: 500 }];
-    assert.equal((await call('paula', 'POST', '/v1/platform/organizations', { alias: 'kaputt', name: 'Kaputt' })).status, 502);
-    kc.fail = [];
-    assert.equal(kc.orgs.size, before, 'Organisation in Keycloak zurückgenommen');
+    // Mandant scheitert nach der Organisation in Keycloak (gleichzeitig an eine andere Organisation gebunden): Organisation wieder gelöscht
+    const racing = await notesApp({ db: t.runtime, issuer: idp.issuer, env: MGMT, keycloakFetch: async (i, init) => {
+      const r = await kc.fetch(i, init);
+      if (init?.method === 'POST' && String(i).endsWith('/organizations')) await t.inspect.query("SELECT app.resolve_tenant('kaputt', 'andere-org-id', 'Kaputt', true)");
+      return r;
+    } });
+    try {
+      const before = kc.orgs.size;
+      const k = await call('paula', 'POST', '/v1/platform/organizations', { alias: 'kaputt', name: 'Kaputt' }, { app: racing });
+      assert.ok(k.status >= 400, JSON.stringify(k.body));
+      assert.equal(kc.orgs.size, before, 'Organisation in Keycloak zurückgenommen');
+    } finally { await racing.app.close(); }
     // erster Admin der neuen Organisation
     const inv = ok(await call('paula', 'POST', '/v1/platform/organizations/neu/members', { email: 'chefin@neu.example', roles: ['org-admin'] }), 202);
     assert.deepEqual(inv.member.roles, ['org-admin']);
@@ -495,7 +499,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const e = (await auditOf('muster', 'tenant.suspended')).at(-1)!;
     assert.deepEqual([e.data.reason, e.data.platformAdmin, e.actor_name], ['Vertrag beendet', true, 'Paula Plattform']);
     assert.equal((await call('anna', 'POST', '/v1/platform/organizations/muster/resume')).status, 403);
-    const fresh = await idp.token(claims.user({ org: 'muster', groupRoles: ['viewer'] }));
+    const fresh = await idp.token(claims.user({ org: 'muster' }));
     const r = await n.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${fresh}` } });
     assert.equal(r.statusCode, 403, 'gesperrter Mandant, sofort (Resolver dieser Instanz)');
     // ohne Body (auch ohne Content-Type) wie {}
@@ -553,22 +557,6 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     } finally { kc.orgs.delete(a.id); kc.orgs.delete(b.id); }
   });
 
-  test('Anlegen mit Alias einer früher gelöschten Organisation: Rollengruppen mit Personen → 409, leere werden übernommen (E2)', async () => {
-    const alt = kc.org('altorg', 'Alt AG');
-    const vera = kc.user('vera', { email: 'vera@alt.example' });
-    kc.member(alt, vera, ['viewer']);
-    kc.orgs.delete(alt.id); // Organisation in Keycloak gelöscht, Gruppen /orgs/altorg/… bleiben
-    const orgs = kc.orgs.size;
-    const r = await call('paula', 'POST', '/v1/platform/organizations', { alias: 'altorg', name: 'Neue Alt AG' });
-    assert.deepEqual([r.status, r.body.reason], [409, 'leftover-role-groups'], JSON.stringify(r.body));
-    assert.match(r.body.detail, /1 Person/);
-    assert.equal(kc.orgs.size, orgs, 'keine Organisation angelegt');
-    kc.userGroups.get(vera.id)!.clear(); // in Keycloak geleert
-    const o = ok(await call('paula', 'POST', '/v1/platform/organizations', { alias: 'altorg', name: 'Neue Alt AG' }), 201);
-    assert.equal(o.alias, 'altorg');
-    assert.deepEqual(kc.rolesOf([...kc.orgs.values()].find(x => x.alias === 'altorg')!, vera), []);
-  });
-
   test('Anmeldung des Verwaltungs-Clients: Client Credentials, Token wird wiederverwendet', async () => {
     const own = kc.tokenRequests.filter(r => r.get('grant_type') === 'client_credentials');
     assert.ok(own.length >= 1 && own.length <= 8, `Token-Anfragen: ${own.length} (je App-Instanz eines)`);
@@ -579,15 +567,16 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     try {
       // gesperrtes Konto einer anderen Organisation: Keycloak lehnt invite-existing-user mit 400 ab, bevor es eine E-Mail versucht
       const gesperrt = kc.user('gesperrt', { email: 'gesperrt@muster.example', enabled: false });
-      kc.member(muster, gesperrt, ['viewer']);
+      await join(muster, gesperrt, ['viewer']);
       const timed = async (method: string, url: string, body?: unknown) => { const t0 = Date.now(); const r = await call('anna', method, url, body, { app: slow }); return { ...r, ms: Date.now() - t0 }; };
-      const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
+      const neutral = (b: any) => ({ ...b, member: { ...b.member, id: '-', principalId: '-', email: '-', name: '-', username: '-', createdAt: '-' } });
       for (const smtp of [true, false]) {
         kc.smtp = smtp;
         const rounds: { id: string; form: unknown }[] = [];
         for (const email of [`neu-${smtp}@demo.example`, 'mona@muster.example', 'gesperrt@muster.example']) {
           for (let i = 0; i < 2; i++) {
             const inv = await timed('POST', '/v1/admin/members', { email, roles: ['viewer'] });
+            assert.equal(inv.status, 202, `${email} #${i}: ${JSON.stringify(inv.body)}`);
             const resend = await timed('POST', `/v1/admin/members/${inv.body.member.id}/invitation`);
             const del = await timed('DELETE', `/v1/admin/members/${inv.body.member.id}`);
             for (const x of [inv, resend, del]) assert.ok(x.ms >= 95, `Mindestdauer ${email} (${x.ms} ms)`);
@@ -595,13 +584,13 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
           }
         }
         for (const r of rounds) assert.deepEqual(r.form, rounds[0]!.form, `gleiche Antworten (SMTP ${smtp})`);
-        assert.deepEqual(rounds[0]!.form, { inv: [202, neutral({ result: 'invitation-sent', emailSent: smtp, member: { status: 'invited', roles: ['viewer'], principalId: null, lastSeenAt: null, loginPath: null } })], resend: smtp ? [200, true] : [502, 'Einladung nicht versendet'], del: [200, { accountDeleted: false }] });
+        assert.deepEqual(rounds[0]!.form, { inv: [202, neutral({ result: 'invitation-sent', emailSent: smtp, member: { kind: 'user', status: 'invited', roles: ['viewer'], principalId: '-', clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, loginPath: null, clientId: null, scopes: null, description: null } })], resend: smtp ? [200, true] : [502, 'Einladung nicht versendet'], del: [200, { accountDeleted: false }] });
         assert.equal(new Set(rounds.map(r => r.id)).size, rounds.length, 'jede Einladung eine neue ID');
         assert.ok(rounds.every(r => !kc.users.has(r.id) && ![u.mona.id, gesperrt.id].includes(r.id)), 'nie die ID des Kontos');
       }
       assert.ok((await auditOf('demo', 'member.invited')).slice(-6).every(a => !kc.users.has(a.resource_id)), 'Protokoll: Einladungs-ID');
       assert.ok(kc.users.has(u.mona.id) && kc.users.has(gesperrt.id) && kc.orgMembers.get(muster.id)!.has(u.mona.id), 'bestehende Konten bleiben');
-      assert.deepEqual([kc.rolesOf(demo, u.mona), kc.rolesOf(demo, gesperrt)], [[], []]);
+      assert.deepEqual([await rolesIn('demo', u.mona.id), await rolesIn('demo', gesperrt.id)], [[], []]);
     } finally { kc.smtp = false; await slow.app.close(); }
   });
 
@@ -614,7 +603,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.deepEqual([await created(a.member.id), await created(b.member.id)], [false, true]);
     assert.deepEqual(ok(await call('paula', 'DELETE', `/v1/platform/organizations/demo/members/${a.member.id}`)), { accountDeleted: false });
     assert.ok(kc.users.has(fremd.id), 'fremdes Konto bleibt');
-    assert.deepEqual(kc.rolesOf(demo, fremd), []);
+    assert.deepEqual(await rolesIn('demo', fremd.id), []);
     assert.deepEqual(ok(await call('paula', 'DELETE', `/v1/platform/organizations/demo/members/${b.member.id}`)), { accountDeleted: true });
     assert.ok(!kc.users.has(selbst.id), 'mit der Einladung angelegtes Konto gelöscht');
     assert.equal((await auditOf('demo', 'member.invitation_withdrawn')).at(-1)!.data.accountDeleted, true);
@@ -630,9 +619,9 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       assert.equal((await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: [r] })).status, 422);
     }
     assert.equal(kc.calls.length, calls, 'kein Aufruf bei Keycloak');
-    assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
+    assert.deepEqual(await rolesIn('demo', u.dana.id), ['viewer']);
     assert.equal(kc.byEmail('proto@demo.example'), null);
-    assert.equal(notesCatalog.permissionsForRoles(['constructor', '__proto__', 'toString']).size, 0);
+    assert.ok(!['constructor', '__proto__', 'toString'].some(r => notesModel.isRole(r)));
   });
 
   test('V4: scheitert ein Schritt, nachdem Keycloak geändert wurde → eigener Eintrag «…_failed» mit den erfolgten Schritten', async () => {
@@ -644,32 +633,19 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(w.status, 502);
     const f = (await auditOf('demo', 'member.invitation_withdraw_failed')).at(-1)!;
     assert.deepEqual([f.resource_id, f.actor_name, f.data.status], [r.member.id, 'Anna Admin', 502]);
-    assert.deepEqual(f.data.steps, [{ step: 'role_removed', role: 'viewer' }, { step: 'membership_removed' }]);
+    assert.deepEqual(f.data.steps, [{ step: 'membership_removed' }], 'Rollen sind Tupel: zurückgerollt, kein Schritt in Keycloak');
+    assert.deepEqual(await rolesIn('demo', ku.id), ['viewer'], 'Tupel bleiben bis zum Erfolg');
     assert.ok(!JSON.stringify(f.data).includes(ku.id), 'keine Keycloak-ID');
     assert.ok(!(await auditOf('demo', 'member.invitation_withdrawn')).some(a => a.resource_id === r.member.id), 'kein Erfolgseintrag');
     ok(await call('anna', 'DELETE', `/v1/admin/members/${r.member.id}`));
     assert.ok(!kc.users.has(ku.id), 'erneut zurückziehen holt den Rest nach');
-    kc.fail = [{ re: /^DELETE \/users\/.*\/groups\//, status: 500 }];
-    const s2 = await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['editor'] });
-    kc.fail = [];
-    assert.equal(s2.status, 502);
-    const g = (await auditOf('demo', 'member.roles_change_failed')).at(-1)!;
-    assert.deepEqual([g.resource_id, g.data.steps], [u.dana.id, [{ step: 'role_added', role: 'editor' }]]);
+    // Rollen setzen ändert Keycloak nicht mehr (Tupel in der Datenbank): kein Fehler aus Keycloak, kein «…_failed»
+    kc.fail = [{ re: /^(PUT|POST|DELETE) /, status: 500 }];
+    try { ok(await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer', 'editor'] })); } finally { kc.fail = []; }
     ok(await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer'] }));
-    // scheitert schon der erste Schritt: Keycloak unverändert, kein Eintrag
-    const count = (await auditOf('demo', 'member.roles_change_failed')).length;
-    kc.fail = [{ re: /^PUT \/users\/.*\/groups\//, status: 500 }];
-    assert.equal((await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer', 'editor'] })).status, 502);
-    kc.fail = [];
-    assert.equal((await auditOf('demo', 'member.roles_change_failed')).length, count, 'erster Schritt gescheitert: kein Eintrag');
-    // Plattform-Administration: mit Kennzeichen
-    kc.fail = [{ re: /^DELETE \/users\/.*\/groups\//, status: 500 }];
-    assert.equal((await call('paula', 'PUT', `/v1/platform/organizations/demo/members/${u.dana.id}/roles`, { roles: ['editor'] })).status, 502);
-    kc.fail = [];
-    const p = (await auditOf('demo', 'member.roles_change_failed')).at(-1)!;
-    assert.deepEqual([p.actor_name, p.data.platformAdmin, p.data.actorTenant, p.data.steps], ['Paula Plattform', true, 'ops', [{ step: 'role_added', role: 'editor' }]]);
+    assert.equal((await auditOf('demo', 'member.roles_change_failed')).length, 0);
     ok(await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer'] }));
-    assert.deepEqual(kc.rolesOf(demo, u.dana), ['viewer']);
+    assert.deepEqual(await rolesIn('demo', u.dana.id), ['viewer']);
   });
 
   test('V5: «Erneut senden» prüft das Passwort auch bei einem Mitglied mit offener Einladung', async () => {
@@ -690,26 +666,25 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.ok(kc.users.has(ku.id), 'Konto mit Passwort bleibt, auch wenn die Einladung es angelegt hat');
   });
 
-  test('V6: Abgleich entfernt Rollengruppen von Personen ohne Mitgliedschaft und ohne offene Einladung (protokolliert)', async () => {
-    ok(await call('anna', 'GET', '/v1/admin/members'));
+  test('V6: Mitgliedschaft endet ausserhalb der App: nicht mehr in der Liste, Tupel bleiben (A17), Rückkehr bringt die Rechte zurück', async () => {
     const olga = kc.user('olga', { email: 'olga@demo.example', firstName: 'Olga', lastName: 'Ost' });
-    kc.member(demo, olga, ['editor', 'viewer']); kc.member(muster, olga, ['viewer']);
-    kc.orgMembers.get(demo.id)!.delete(olga.id); // Mitgliedschaft endet ausserhalb der App, Gruppen bleiben
-    const inv = ok(await call('anna', 'POST', '/v1/admin/members', { email: 'ben@muster.example', roles: ['viewer'] }), 202);
-    const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
-    assert.deepEqual(kc.rolesOf(demo, olga), [], 'Rollen in demo entfernt');
-    assert.deepEqual(kc.rolesOf(muster, olga), ['viewer'], 'andere Organisation unberührt');
-    assert.deepEqual(kc.rolesOf(demo, u.ben), ['viewer'], 'offen eingeladen: bleibt');
-    assert.deepEqual(list.find((m: any) => m.id === inv.member.id).roles, ['viewer']);
-    const a = (await auditOf('demo', 'member.roles_cleaned')).at(-1)!;
-    assert.deepEqual([a.source, a.data], ['system', { persons: 1, roles: { editor: 1, viewer: 1 } }]);
-    assert.ok(!JSON.stringify(a).includes(olga.id) && !/olga/i.test(JSON.stringify(a)), 'keine Angaben zur Person');
-    const count = (await auditOf('demo', 'member.roles_cleaned')).length;
+    await join(demo, olga, ['editor', 'viewer']); await join(muster, olga, ['viewer']);
     ok(await call('anna', 'GET', '/v1/admin/members'));
-    assert.equal((await auditOf('demo', 'member.roles_cleaned')).length, count, 'nichts mehr zu tun: kein Eintrag');
-    ok(await call('anna', 'DELETE', `/v1/admin/members/${inv.member.id}`));
+    tok.olga = await idp.token(claims.user({ sub: olga.id, org: 'demo', email: olga.email, name: 'Olga Ost' }));
+    kc.orgMembers.get(demo.id)!.delete(olga.id);
+    const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
+    assert.ok(!list.some((m: any) => m.id === olga.id), 'nicht mehr Mitglied');
+    assert.deepEqual(await rolesIn('demo', olga.id), ['editor', 'viewer'], 'der Abgleich löscht keine Tupel (A17)');
+    assert.deepEqual(await rolesIn('muster', olga.id), ['viewer'], 'andere Organisation unberührt');
+    assert.equal((await auditOf('demo', 'member.roles_cleaned')).length, 0, 'keine Rollengruppen mehr aufzuräumen');
+    // Token von vorher: kein Zugriff mehr, obwohl Tupel bestehen (ein später ausgestelltes Token gälte als Rückkehr, A10)
+    assert.equal((await call('olga', 'GET', '/v1/me')).status, 403);
+    kc.member(demo, olga);
+    const back = ok(await call('anna', 'GET', '/v1/admin/members')).items.find((m: any) => m.id === olga.id);
+    assert.deepEqual(back.roles, ['editor', 'viewer'], 'Rückkehr: Rechte wieder da');
+    ok(await call('anna', 'DELETE', `/v1/admin/members/${olga.id}`));
+    assert.deepEqual(await rolesIn('demo', olga.id), [], 'Entfernen über die App löscht die Tupel');
   });
-
   test('V8: Verwaltung bindet eine leere Organisations-ID; andere ID → 409 für org-admin und Plattform', async () => {
     const kcId = async (alias: string) => (await t.inspect.query('SELECT kc_org_id FROM notes.tenant WHERE alias = $1', [alias])).rows[0]?.kc_org_id ?? null;
     assert.equal(await kcId('demo'), demo.id);
@@ -732,8 +707,8 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
 
   test('A10: Austritt gilt ab dem Entfernen in Keycloak; ein Token aus der Zwischenzeit hebt ihn nicht auf', async () => {
     const pia = kc.user('pia', { email: 'pia@demo.example', firstName: 'Pia', lastName: 'Pause' });
-    kc.member(demo, pia, ['viewer']);
-    const mint = () => idp.token(claims.user({ sub: pia.id, org: 'demo', groupRoles: ['viewer'], email: pia.email, name: 'Pia Pause' }));
+    await join(demo, pia, ['viewer']);
+    const mint = () => idp.token(claims.user({ sub: pia.id, org: 'demo', email: pia.email, name: 'Pia Pause' }));
     const me = async (token: string) => n.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${token}` } });
     assert.equal((await me(await mint())).statusCode, 200);
     let removedAt = 0, windowToken = '';
@@ -793,15 +768,15 @@ describe('Abgleich der Organisationsmitglieder ins Personenverzeichnis (Worker)'
     kc.org('ohne-mandant', 'Noch nie benutzt');
     const anna = kc.user('anna', { email: 'anna@demo.example', firstName: 'Anna', lastName: 'Admin' });
     const ben = kc.user('ben', { email: 'ben@muster.example', firstName: 'Ben', lastName: 'Leser' });
-    kc.member(demo, anna, ['org-admin']); kc.member(muster, ben, ['viewer']);
-    kc.member(demo, kc.user('erna', { email: 'erna@demo.example', firstName: 'Erna', lastName: 'Neu' }), ['viewer']);
-    kc.member(demo, kc.user('fritz', { email: 'fritz@demo.example', firstName: 'Fritz', lastName: 'Neu' }), ['viewer']);
+    kc.member(demo, anna); kc.member(muster, ben);
+    kc.member(demo, kc.user('erna', { email: 'erna@demo.example', firstName: 'Erna', lastName: 'Neu' }));
+    kc.member(demo, kc.user('fritz', { email: 'fritz@demo.example', firstName: 'Fritz', lastName: 'Neu' }));
     kc.member(muster, kc.user('mia', { email: 'mia@muster.example', firstName: 'Mia', lastName: 'Muster' }));
     n = await notesApp({ db: t.runtime, issuer: idp.issuer, env: SYNC });
-    tok.anna = await idp.token(claims.user({ sub: anna.id, org: 'demo', groupRoles: ['org-admin'], email: anna.email, name: 'Anna Admin' }));
-    tok.ben = await idp.token(claims.user({ sub: ben.id, org: 'muster', groupRoles: ['viewer'], email: ben.email, name: 'Ben Leser' }));
+    tok.anna = await idp.token(claims.user({ sub: anna.id, org: 'demo', email: anna.email, name: 'Anna Admin' }));
+    tok.ben = await idp.token(claims.user({ sub: ben.id, org: 'muster', email: ben.email, name: 'Ben Leser' }));
     await tenant(t.runtime, 'demo', 'inventar');
-    tok.svc = await idp.token(claims.client({ clientId: 'inventar', org: 'demo', roles: ['viewer'], scopes: ['notes:read'] }));
+    tok.svc = await idp.token(claims.client({ clientId: 'inventar', org: 'demo', scopes: ['notes:read'] }));
     for (const who of ['anna', 'ben', 'svc']) assert.equal((await n.app.inject({ url: '/v1/me', headers: { authorization: `Bearer ${tok[who]}` } })).statusCode, 200);
   });
   after(async () => { await n?.app.close(); await idp?.close(); await t?.drop(); });

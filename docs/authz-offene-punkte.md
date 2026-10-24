@@ -24,6 +24,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | D8 | 2026-10-24 | Assets: geteilte Inhalte (Ansicht, Report, Dashboard) mit eigenen Rollen `share-viewer`/`share-editor` und Rechten `content:read`/`content:write`, damit private Inhalte nicht über org-weite Rollen lesbar sind |
 | D10 | 2026-10-24 | «Für alle Mitglieder» setzt die Rolle aus `types[].membersRole` des Modells (Standard `viewer`), damit Apps mit eigenen Teilen-Rollen (D8) den Schalter behalten; Kit 1.2 |
 | D11 | 2026-10-24 | org-admin sieht auch private Inhalte anderer (konsequent zu D2); Teilen-Rollen nie an org vergebbar (Kit 1.3: `types.org.roles` als Liste) |
+| D12 | 2026-10-24 | Zurücksetzen und frisch Aufsetzen automatisiert: alles (App-Datenbank, Organisationen und Personen in Keycloak); Init aus Datei oder Workflow-Eingaben, optional mit Demo-Inhalten; GitHub-Workflow ohne Bestätigung und ohne Backup (Entscheid der Person); generisch im Kit (`iam-reset`, `iam-org-bootstrap --file`), Aufruf in Assets |
 | D9 | 2026-10-24 | Zuständigkeit über Personen aus Fachdaten generisch im Baukasten (Kit 1.1, P1b), nicht als Sonderlösung in Assets |
 
 ## Pakete und Stand
@@ -42,6 +43,9 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 → #43) |
 | 10 Doku Assets | assets | `authz-p10-docs` | erledigt (assets#45) |
 | 8b Nachtrag: Diskussions-Webhooks maskieren (Codex auf #45) | assets | `authz-p8b-discussion-webhooks` | erledigt (assets#46) |
+| 12 Kit: `iam-reset`, Init aus Datei (1.4.0) | identity-kit | `authz-p12-reset` | erledigt (#55), Release 1.4.0 |
+| 13 Assets: Reset-Workflow | assets | `authz-p13-reset` | erledigt (assets#48, vereinfacht in #49: ohne Backup, ohne Bestätigung, ohne Handgriffe auf den VMs; Demo-Inhalte über system:seed) |
+| 14 Einladungsmail beim Bootstrap, BFF-Fehlerseite statt JSON (Kit 1.5.0) | identity-kit, assets | – | erledigt (identity-kit#56, assets#50), ausgerollt |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
 ## Offene Punkte
@@ -59,6 +63,11 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Assets erzeugt `access.changed` übergangsweise über einen Audit-Wrapper | P8 assets#43 | offen, Kit-Folgearbeit |
 | O11 | Alte Dateien in Assets löschen (Liste in assets#43) | P8 | erledigt (assets#47) |
 | O12 | E2E-Tests (Playwright) gegen lokalen Stack für Zugriff/Klassifizierung in Assets nicht ausgeführt (CI-Umgebung ohne Docker) | P9 assets#44 | offen, vor produktivem Einsatz |
+| O13 | `iam-reset --keycloak` entfernt keine Entra-Anbieter, die nach einem abgebrochenen Lauf an keiner Organisation mehr hängen | P12 #55 | offen, klein |
+| O14 | `platform.reset` nur im Workflow-Protokoll (stdout), nicht in der Datenbank; bei Bedarf Plattform-Audit ohne Mandant (eigene Tabelle) | P12 #55 | offen, nur bei Bedarf |
+| O15 | Versionstabelle in docs/neue-app.md veraltet | P12 #55 | offen, klein |
+| O16 | Environment «production» ohne Pflicht-Reviewer: jeder Workflow-Start (auch reset) läuft sofort | Master | Hinweis an die Person |
+| O17 | ops.backup_info (DB-VM) und Prüfung in deploy/hetzner/test/run.sh nach #49 ungenutzt | P13b assets#49 | offen, klein |
 | O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 
 ## Verworfen

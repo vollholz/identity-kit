@@ -142,17 +142,22 @@ export interface AccessSubject {
 }
 /** Einheit, zu der eine Ressource gehört (Zuständigkeit, 7.5 Regel 2). */
 export interface AccessUnit { ref: ResourceRef; relation: string; grants: 'read' | 'edit' }
+/** Zuständigkeit als Person über Fachdaten der App an der Ressource selbst (z. B. «Verantwortlich»; ab 1.1). */
+export interface AccessData { relation: string; grants: 'read' | 'edit' }
 export interface AccessEntry {
-  /** Tupel-ID; `null` bei Zuständigkeit. */
+  /** Tupel-ID; `null` bei Zuständigkeit (`scope`, `data`). */
   id: string | null;
   subject: AccessSubject;
-  /** Rolle, `member` oder `owner`. */
+  /** Rolle, `member` oder `owner`; bei `data` der Name der Fachbeziehung. */
   relation: string;
   /** Ort des Tupels. */
   place: ResourceRef;
-  via: 'direct' | 'inherited' | 'scope';
+  /** `data`: zuständig als Person über Fachdaten (nicht entfernbar, ab 1.1). */
+  via: 'direct' | 'inherited' | 'scope' | 'data';
   /** Nur bei `scope`. */
   unit?: AccessUnit;
+  /** Nur bei `data`. */
+  data?: AccessData;
   expiresAt: string | null;
   createdAt: string | null;
   /** Name. */
@@ -186,7 +191,7 @@ export interface Explain {
   subject: { ref: string; name: string };
   /** Alle Wege, die das Recht ergeben; leer, wenn keiner. */
   reasons: {
-    via: 'direct' | 'inherited' | 'scope' | 'owner';
+    via: 'direct' | 'inherited' | 'scope' | 'owner' | 'data';
     relation: string;
     place: ResourceRef;
     tupleId: string | null;
@@ -195,6 +200,7 @@ export interface Explain {
     /** Anzeigename von `matched` (Gruppe aus Entra, Person, Client, «Alle Mitglieder»). */
     label: string;
     unit?: AccessUnit;
+    data?: AccessData;
   }[];
   /** Was trotz Weg verhindert; `null`, wenn erlaubt oder kein Weg. */
   blocked:

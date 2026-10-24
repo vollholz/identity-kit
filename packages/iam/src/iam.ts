@@ -88,8 +88,12 @@ export function resourceProblems(model: Model, r: ResourceModel<any> | null): st
   if (r?.load && !r.version) out.push('ResourceModel.version fehlt (Pflicht mit load: ändert sich mit jeder Änderung der Kette)');
   if (types.some(t => t.classified) && !r?.classification) out.push('ResourceModel.classification fehlt (Typen mit classified)');
   if (types.some(t => t.scope)) {
-    if (!r?.edges) out.push('ResourceModel.edges fehlt (Typen mit scope)');
-    else if (!model.types.get(r.edges.unit as never)?.member) out.push(`ResourceModel.edges.unit «${r.edges.unit}» hat «member» nicht in relations (M8)`);
+    const e = r?.edges;
+    const unitParts = [e?.unit, e?.children, e?.belongs].filter(Boolean).length;
+    if (!e || (!unitParts && !e.persons)) out.push('ResourceModel.edges fehlt (Typen mit scope: unit, children und belongs oder persons)');
+    else if (unitParts && unitParts < 3) out.push('ResourceModel.edges: unit, children und belongs nur gemeinsam');
+    else if (unitParts && !model.types.get(e.unit as never)?.member) out.push(`ResourceModel.edges.unit «${e.unit}» hat «member» nicht in relations (M8)`);
+    if (e?.personGrants && !e.persons) out.push('ResourceModel.edges.personGrants ohne persons');
   }
   return out;
 }

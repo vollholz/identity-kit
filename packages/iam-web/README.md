@@ -14,7 +14,7 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@1.0.0
+npm i -E @vollholz/iam-web@1.1.0
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
@@ -202,6 +202,8 @@ render(<StaticIam me={{ roles: ['viewer'], permissions: ['tenant:read', 'note:re
 Der Weg steht in [docs/entwurf.md](docs/entwurf.md) Kap. 8 (eigener PR in vollholz/assets, Paket gepinnt, Abnahme
 per Screenshot-Vergleich). Seit dem Entwurf dazugekommen:
 
+- 1.1.0: `AccessEntry.via` und `Explain.reasons[].via` mit `data` (zuständig als Person über Fachdaten, Feld `data`);
+  «Zugriff» zeigt «zuständig über «…»» ohne Menü, «Warum?» den Weg. Server `@vollholz/iam` 1.1.
 - 1.0.0 (Authz neu): Seiten «Rollen», «Zugriff» und «Maschinen-Clients», `AclHint`, `acl/*`, eigene Rollen
   (`useRoles`, `withCustomRoles`, `isCustomRole`), `roleIcons`, `groupRolePrefix`, `paths.roles|clients|access` und
   `features.acl` entfallen. `resources` ist jetzt `{ useResolver(): { name(ref) }, open?(ref) }`; `Me.grantedPermissions`

@@ -111,7 +111,7 @@ export const bffModule: IamModule = {
           const p = await iam.resolver.resolve(verified, requested);
           const acl = await iam.access.load(p.tenantId);
           tenant = { id: p.tenantId, alias: p.tenantAlias, name: await bff.tenantName(p.tenantId) ?? p.tenantAlias, entraConnected: !!(await iam.entra?.connected(p.tenantId)) };
-          roles = iam.access.rolesAtOrg(p, acl); permissions = iam.access.orgPermissions(p, acl); somewhere = iam.access.somewherePermissions(p, acl);
+          roles = iam.access.rolesAtOrg(p, acl); permissions = iam.access.orgPermissions(p, acl); somewhere = iam.access.somewherePermissions(p, acl, await iam.access.personGrants(p, p.tenantId));
           clearance = iam.access.clearanceOf(p, acl); breakGlassUntil = iam.access.breakGlassUntil(acl, p.principalId)?.toISOString() ?? null;
           allowed = breakGlassAllowed(iam.access, acl, p);
         } catch (e) {

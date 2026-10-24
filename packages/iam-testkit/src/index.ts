@@ -8,7 +8,7 @@ export {
   checkModel, ADMIN_ROLE, RESERVED_PERMISSIONS, RESERVED_GROUPS, PLATFORM_ADMIN_ROLE,
   type AuthzModel, type ModelCheck, type ModelPermission, type ModelGroup, type ModelRole, type ModelScope, type ModelType, type Level,
 } from './model.ts';
-export { accessCases, runAccessCases, type AccessCase, type CaseTuple } from './access.ts';
+export { accessCases, personCases, runAccessCases, type AccessCase, type CaseTuple, type PersonCase } from './access.ts';
 export {
   openApiPath, routeCollector, installProbes, unreached, leaks, idSource, unknownKey, normalize, coverageProblems, routesOf,
   ROUTE_HEADER, HANDLER_HEADER, type ProbeResponse,

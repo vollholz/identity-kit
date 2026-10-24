@@ -14,6 +14,13 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **1.1.0:** Zuständigkeit über Personen aus Fachdaten (Spez. 7.5 Regel 2, 7.7): `ResourceModel.edges.persons` (SQL mit
+  `$1 uuid[]`, Spalten `id`, `principal_id`, `grants`, `label`) und optional `edges.personGrants` (für «Recht
+  irgendwo»); `can`, `need`, `capabilities(refs)` berücksichtigen sie (∧ Klassifizierung ∧ Scope). Migration
+  `iam_016_person_scope`: `app.read_person()`, `app.write_person()` für die Lesesicht. «Wer hat Zugriff?» und «Warum?»
+  mit `via: 'data'` und `data: { relation, grants }` (nicht entfernbar). Es zählen nur aktive Personen (`kind = 'user'`,
+  nicht entfernt). `edges.unit`, `children`, `belongs` dürfen gemeinsam fehlen, wenn die App nur `persons` liefert.
+  `iam_016` erhöht `acl_version` auch, wenn ein Principal mit Freigabestufe oder Break-Glass angelegt wird.
 - **1.0.0 (brechend, «Authz neu»):** ReBAC in PostgreSQL statt Rollen im Token und Zugriffsregeln.
   - `defineModel` ersetzt `defineCatalog` (Typen, Kette, Blätter, Klassifizierung, Besitz, Zuständigkeit; Prüfungen
     M1–M12); `platformJson()` nur noch mit Scopes (O4); reservierte Rechte `access:admin`, `audit:read` statt `acl:*`.

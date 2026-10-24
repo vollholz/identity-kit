@@ -32,6 +32,8 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **1.1.0:** `personCases` (Standardfälle der Zuständigkeit über Personen aus Fachdaten je Typ mit `scope`);
+  `runAccessCases` nimmt beliebige Fälle; `READ_VIEW_FUNCTIONS` mit `read_person()`, `write_person()`.
 - **1.0.0 (brechend, «Authz neu»):** `checkModel` ersetzt `checkCatalog`; neu `accessCases`/`runAccessCases` und
   `readViewProblems`. `claimsFor` ohne Rollen (`roles`, `groupRoles`, `roleClientId`, `groupPrefix` entfallen; Gruppen
   sind Objekt-IDs aus Entra). `KeycloakFake.member(org, user)` ohne Rollen, `rolesOf` und das Gruppenpräfix entfallen,

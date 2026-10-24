@@ -73,7 +73,7 @@ export const accountModule: IamModule = {
       const acl = await iam.access.load(p.tenantId);
       return {
         tenant: { id: p.tenantId, alias: p.tenantAlias }, principal: { id: p.principalId, kind: p.kind, name: p.name, email: p.email, clientId: p.clientId },
-        roles: iam.access.rolesAtOrg(p, acl), scopes: p.scopes, permissions: iam.access.orgPermissions(p, acl), somewhere: iam.access.somewherePermissions(p, acl),
+        roles: iam.access.rolesAtOrg(p, acl), scopes: p.scopes, permissions: iam.access.orgPermissions(p, acl), somewhere: iam.access.somewherePermissions(p, acl, await iam.access.personGrants(p, p.tenantId)),
         clearance: iam.access.clearanceOf(p, acl), breakGlassUntil: iam.access.breakGlassUntil(acl, p.principalId)?.toISOString() ?? null,
         tokenBinding: p.binding,
       };

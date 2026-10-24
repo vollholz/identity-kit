@@ -15,7 +15,7 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AdminService, Scope } from '../admin.ts';
 import { forbidden, HttpError } from '../errors.ts';
-import type { Level, Model } from '../model.ts';
+import { ORG, type Level, type Model } from '../model.ts';
 import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG_MEMBERS = 'Verwaltung: Mitglieder und Rollen';
@@ -116,7 +116,7 @@ export const adminModule: IamModule = {
       return {
         enabled: !!svc, reason: svc ? null : OFF_DETAIL, organization: p.tenantAlias, platformAdmin: isPerson && p.platformAdmin,
         canManageMembers: !!svc && isPerson && (await req.can('members:admin')),
-        roles: iam.model.toJSON().roles,
+        roles: iam.model.toJSON().roles.filter(r => iam.model.relationsAt(ORG).includes(r.key)),
       };
     });
 

@@ -126,8 +126,9 @@ export function checkModel(c: AuthzModel, o: { product?: string; members?: boole
   else {
     if (org.label !== 'Organisation') errors.push(`M1 Typ «org»: Label «${org.label}» statt «Organisation»`);
     if (org.parent !== null) errors.push('M4 Typ «org» hat keinen parent');
-    const missing = c.roles.map(r => r.key).filter(r => !org.roles.includes(r));
-    if (missing.length) errors.push(`M5 Typ «org»: alle Rollen dürfen dort hängen (fehlen: ${missing.join(', ')})`);
+    if (!org.roles.includes(ADMIN_ROLE.key)) errors.push(`M5 Typ «org»: ${ADMIN_ROLE.key} muss dort hängen dürfen`);
+    for (const r of org.roles) if (!roles.has(r)) errors.push(`M5 Typ «org»: Rolle «${r}» nicht im Modell`);
+    if (org.roles.length !== new Set(org.roles).size) errors.push('M5 Typ «org»: Rollen doppelt');
     if (org.owner || org.classified) errors.push('M9 Typ «org»: owner und classified nicht erlaubt');
     if (org.membersRole !== undefined) errors.push('M13 Typ «org»: membersRole nicht erlaubt');
   }

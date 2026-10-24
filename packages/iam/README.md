@@ -14,6 +14,7 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
 
 ## Änderungen
 
+- **1.3.0:** `types.org.roles` darf eine Liste sein (Spez. 7.3, M5): Rollen, die nur an bestimmten Typen vorgesehen sind, hängen nicht an `org` (`org-admin` wird ergänzt, Standard `'*'`). `POST /v1/access`, Mitglieder › Rollen, Einladungen und Clients lehnen sie an `org` ab (422); `GET /v1/admin/status` liefert nur Rollen, die an `org` zulässig sind. Abwärtsverträglich.
 - **1.2.0:** `TypeDef.membersRole` (D10, Spez. 7.3, M13): Rolle des Schalters «Für alle Mitglieder» (Standard `viewer` bei Typen mit
   `owner`, falls am Typ zulässig); Ausgabe in `GET /v1/authz/catalog` (`types[].membersRole`). Abwärtsverträglich.
 - **1.1.0:** Zuständigkeit über Personen aus Fachdaten (Spez. 7.5 Regel 2, 7.7): `ResourceModel.edges.persons` (SQL mit

@@ -72,7 +72,7 @@ export const notesPersonsMigration = migration('002_notes_persons.sql', `
       OR (team_grants = 'edit' AND team_id = ANY (app.write_units()))
       OR EXISTS (SELECT 1 FROM notes.note_person r WHERE r.note_id = note.id AND r.principal_id = app.write_person() AND r.grants = 'edit')));`);
 
-export const notesDb = () => productDb({ model: notesModel, sources: [{ name: 'app', migrations: [notesMigration, notesPersonsMigration] }] });
+export const notesDb = (model: Model<string> = notesModel) => productDb({ model, sources: [{ name: 'app', migrations: [notesMigration, notesPersonsMigration] }] });
 
 /** Zustand der Kette: Eltern je Ordner, Ordner je Notiz. */
 export interface NotesState { folderParent: Map<string, string | null>; noteFolder: Map<string, string> }

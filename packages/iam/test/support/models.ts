@@ -50,3 +50,17 @@ export const simpleModel = defineModel({
     guest: { label: 'Gast', description: 'Liest Karten.', permissions: ['card:read'] },
   },
 });
+
+/** Notiz-App mit einer Rolle, die nur an Ordnern und Ansichten hängt (`types.org.roles` ohne `sharer`, Kit 1.3). */
+export const orgLimitedModel = defineModel((() => {
+  const i = notesInput();
+  return {
+    ...i,
+    roles: { ...i.roles, sharer: { label: 'Teiler:in', description: 'Liest Notizen, nur an Ordnern und Ansichten.', permissions: ['note:read'] } },
+    types: {
+      org: { label: 'Organisation', roles: ['editor', 'viewer'] },
+      ...i.types,
+      folder: { ...i.types.folder, roles: ['editor', 'viewer', 'sharer'] },
+    },
+  };
+})() as never);

@@ -21,6 +21,8 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | D5 | 2026-10-23 | Organisationseinheiten, Verantwortliche, Attributgruppen, Klassifizierung in Assets; im Baukasten nur das Generische |
 | D6 | 2026-10-23 | Rollen nur noch in der App-Datenbank; Keycloak ohne Rollengruppen und Client-Rollen |
 | D7 | 2026-10-23 | PRs werden nach grüner CI automatisch gemergt (Squash) |
+| D8 | 2026-10-24 | Assets: geteilte Inhalte (Ansicht, Report, Dashboard) mit eigenen Rollen `share-viewer`/`share-editor` und Rechten `content:read`/`content:write`, damit private Inhalte nicht über org-weite Rollen lesbar sind |
+| D9 | 2026-10-24 | Zuständigkeit über Personen aus Fachdaten generisch im Baukasten (Kit 1.1, P1b), nicht als Sonderlösung in Assets |
 
 ## Pakete und Stand
 
@@ -30,6 +32,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 1–3, 5 Backend + Testkit | identity-kit | `authz-p1-backend` | erledigt (#47) |
 | 4 Realm-Modul | identity-kit | `authz-p4-realm` | erledigt (#44) |
 | 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | erledigt (#46) |
+| 1b Kit 1.1: Zuständigkeit über Personen | identity-kit | `authz-p1b-persons` | in Arbeit (session_01TD4Qzb34RSM2RJ8jxs4ca3) |
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
 | 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | in Arbeit (session_01UWR9VNXN5ahNpJHagFH6T2) |
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | wartet auf 8 |

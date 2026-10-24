@@ -371,7 +371,7 @@ erlaubt = Beziehung ergibt Recht  ∧  Klassifizierung ≤ Freigabestufe  ∧  S
 
 | Frage | Backend | Endpunkt |
 |---|---|---|
-| Darf X das Recht Y auf Z? | `req.need`, `req.can`, `req.needSomewhere`, `req.capabilities`, `iam.access.can` (Signaturen unverändert) | – |
+| Darf X das Recht Y auf Z? | `req.need`, `req.can`, `req.needSomewhere`, `req.capabilities(refs?)`, `iam.access.can` (Signaturen unverändert; `refs` optional: Klassifizierung und Zuständigkeit der Ressourcen einer Liste auf einmal laden) | – |
 | Was darf X lesen? | Lesesicht je Anfrage ([7.6](#76-lesesicht-je-anfrage)), RLS der App | – |
 | Wer hat Zugriff, warum? | `iam.access.whoHasAccess`, `iam.access.explain` | `GET /v1/access`, `GET /v1/access/explain` ([9.5](#95-zugriff-v1access)) |
 
@@ -594,6 +594,9 @@ interface ResourceModel<S = unknown> {
   hints?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, string>>;
   /** Pflicht bei classified-Typen: Stufe je Ressource, Schlüssel `<type>:<id>` (volle Sicht). */
   classification?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, 0 | 1 | 2>>;
+  /** IDs eines Typs im Zustand (Lesesicht: `app.read_types()` für Typen mit `self` bzw. mehrstufiger Kette unter
+   *  einem Blatt). Pflicht, sobald ein Tupel an einem Vorfahren eines Blatt-Elternteils hängen kann. */
+  ids?(state: S, type: string): Iterable<string>;
   /** Pflicht bei Typen mit scope: Zuständigkeit als SQL der App (volle Sicht, Parameter $1 uuid[]). */
   edges?: {
     /** Typ der Einheiten; hat `member` in `relations`. */
@@ -712,11 +715,14 @@ Freigaben und Break-Glass gilt allein dieses Kapitel.
 5. `org-admin` vergeben und entziehen (über jeden Endpunkt), Organisationen anlegen, ändern, sperren: nur
    `platform-admin`. Tupel `org-admin` haben kein Ablaufdatum (422) (A15).
 6. Die letzte aktive Person mit Tupel `org-admin` an `org` lässt sich weder herabstufen noch entfernen (409
-   `last-admin`), auch nicht durch die Plattform-Administration; niemand entfernt sich selbst.
+   `last-admin`), auch nicht durch die Plattform-Administration; niemand entfernt sich selbst. Aktiv heisst: nicht
+   entfernt, keine offene Einladung, Konto in Keycloak nicht gesperrt (geprüft, wenn der Verwaltungs-Client
+   eingerichtet ist).
 7. **Niemand gibt mehr, als er hat** ([7.5](#75-entscheidung)): Rolle vergeben, entziehen oder ihren Ablauf ändern nur,
    wenn jedes Recht der Rolle für die handelnde Person am Ort gilt; sonst 403 `exceeds-own` mit `missing` (Rechte).
-   Freigabestufe: nie für sich selbst (403 `self`), nie über die eigene ohne Break-Glass (403 `exceeds-own`); für die
-   Plattform-Administration gilt die Obergrenze nicht.
+   Freigabestufe: nie für sich selbst (403 `self`), nie über die eigene ohne Break-Glass (403 `exceeds-own`): die
+   eigene gespeicherte Stufe muss mindestens so hoch sein wie die neue **und** die bisherige (wer Stufe 1 hat, senkt
+   keine Stufe 2); für die Plattform-Administration gilt die Obergrenze nicht.
 8. Änderungen derselben Organisation laufen nacheinander (Advisory-Lock in PostgreSQL).
 9. Jede Änderung im Audit des betroffenen Mandanten in derselben Transaktion ([9.8](#98-audit-aktionen)). Scheitert
    Keycloak nach erfolgten Schritten: eigener Eintrag `…_failed` mit den Schritten; neu angelegte Konten werden wieder
@@ -962,6 +968,9 @@ höchstens eine Entra-Verbindung, Objekt-IDs sind eindeutig. Überlauf bei mehr 
 
 `GET /v1/access/explain?type=&id=&permission=&subject=` – `subject` fehlt: ich selbst (Ressource muss für mich lesbar
 sein, sonst 404); für andere `access:admin` am Ort (A13). `permission` fehlt: `read` des Typs (fehlt das: 422).
+Gruppen aus Entra ID kennt das Backend nur aus dem Token: Für andere Personen zählen ihre direkten Tupel und
+`org:members`, nicht ihre Gruppen. Die Plattform-Administration braucht auf `/v1/access…` kein `access:admin` und ist
+von `exceeds-own` ausgenommen (A9), sieht aber nur Orte, die für sie lesbar sind (sonst 404).
 
 ```ts
 interface Explain {
@@ -1138,7 +1147,9 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
   Typen, Typen) bei jeder Migration und beim Start im Test; Tupel mit nicht mehr bekannter Relation oder Typ lassen die
   Migration scheitern ([8.2](#82-regeln-für-das-modell)).
 - Welche Relation an welchem Typ zulässig ist, prüft die API (422), nicht die Datenbank.
-- Migrationen: greenfield, Baseline neu (`iam_001…`), ohne die Dateien für ACL und eigene Rollen.
+- Migrationen: bestehende IAM-Migrationen bleiben unverändert; `iam_015_authz.sql` legt `authz_tuple`, die Spalten
+  der Freigabestufe und die Funktionen der Lesesicht an und entfernt `acl_entry`, `tenant_role`, `client_grant`
+  (greenfield: deren Daten werden nicht übernommen; erste Person je Organisation danach mit `iam-org-bootstrap`).
 
 ### 10.3 Mechanik
 
@@ -1609,7 +1620,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | A15 | `org-admin` mit Ablauf | **entschieden 2026-10-23:** nicht erlaubt (422) |
 | A16 | Rollen beim Einladen | **entschieden 2026-10-23:** Principal beim Einladen anlegen und zurückgeben; `principalId` nie null |
 | A17 | Tupel beim Entfernen | **entschieden 2026-10-23:** Entfernen löscht alle Tupel; der Abgleich nicht |
-| A18 | Principal eines Clients | **entschieden 2026-10-23:** `PUT /v1/admin/clients/{clientId}` legt ihn an; UNIQUE `(tenant_id, client_id)` für Clients |
+| A18 | Principal eines Clients | **entschieden 2026-10-23:** `PUT /v1/admin/clients/{clientId}` legt ihn an (`kind = 'client'`, `subject = client_id = clientId`); UNIQUE `(tenant_id, client_id)` für Clients |
 | A19 | Break-Glass starten | **entschieden 2026-10-23:** im `WhyDialog` bei `blocked.reason = 'clearance'` |
 | A20 | Erstes `org-admin` | **entschieden 2026-10-23:** `iam-org-bootstrap` schreibt zusätzlich Principal, Tupel `org-admin` an `org` und Freigabestufe 2 in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle), Audit `tenant.provisioned` |
 | A21 | Rechte von `<produkt>-admin` | **entschieden 2026-10-23:** ohne FGAP *Groups* und `manage-group-membership` (bestätigt in #44) |

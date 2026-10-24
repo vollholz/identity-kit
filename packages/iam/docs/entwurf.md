@@ -96,7 +96,7 @@ dieselbe Instanz auch ausserhalb von Fastify nutzen (Tests, MCP-Dienst, Skripte)
 
 Optionen des Plugins: `iam`, `modules` (Liste, Standard alle, die die Konfiguration erlaubt), `errorHandler`
 (Standard `true`: Fehlerbehandlung und 404 als `application/problem+json`; `false`, wenn die App eigene hat),
-`problemTypeBase` (URI-Präfix für `type`, Assets: `https://assets.example.ch/probleme/`), `apiPrefix` (`/v1`).
+`problemTypeBase` (URI-Präfix für `type`, Standard `<PUBLIC_BASE_URL>/probleme/`), `apiPrefix` (`/v1`).
 
 ### 3.3 Anfrage
 

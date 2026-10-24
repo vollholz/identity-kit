@@ -21,7 +21,7 @@ export const conflict = (detail: string, extra: Record<string, unknown> = {}) =>
 export const invalid = (detail: string, errors?: { path: string; message: string }[]) => new HttpError(422, 'Ungültige Eingabe', detail, {}, errors ? { errors } : {});
 
 /**
- * Körper der Antwort nach RFC 9457: `type` = `typeBase` + Status (Assets: `https://assets.example.ch/probleme/`),
+ * Körper der Antwort nach RFC 9457: `type` = `typeBase` + Status (Standard `<PUBLIC_BASE_URL>/probleme/`),
  * `instance` = Pfad der Anfrage, dazu die Zusatzfelder des Fehlers.
  */
 export function problemBody(err: HttpError, typeBase: string, instance?: string): Record<string, unknown> {

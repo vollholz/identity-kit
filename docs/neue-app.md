@@ -411,7 +411,10 @@ DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
   --email anna@example.ch --first Anna --last Admin --platform-admin
 ```
 
-In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); in der
+In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); ab
+`@vollholz/iam` 1.5 erhält die neue Person von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
+nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» und läuft weiter – dann SMTP einrichten und mit `--resend`
+wiederholen oder `--initial-password`). `--no-email` schaltet die Einladung ab. In der
 Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal, das Tupel `org-admin` an der
 Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). Rollen stehen nicht mehr in Keycloak (Spezifikation
 [9.1](spezifikation.md#91-regeln)).
@@ -452,7 +455,10 @@ npx iam-org-bootstrap --file init.json
 - `--confirm` muss dem Realm entsprechen. Die Zeile `audit {"action":"platform.reset", …}` der Ausgabe ist der
   Nachweis (das Audit-Protokoll der App ist danach leer).
 - `init.json` (Format `node_modules/@vollholz/iam/schema/init.schema.json`), je Organisation alle Admins wie Schritt 10
-  (Konto, Mitgliedschaft, `org-admin`, Freigabestufe 2), idempotent, mit `--dry-run` als Probelauf:
+  (Konto, Mitgliedschaft, `org-admin`, Freigabestufe 2, Einladung per E-Mail an neue Konten), idempotent, mit
+  `--dry-run` als Probelauf. Nach dem Zurücksetzen sind alle Konten neu: ohne Einladung (bis 1.4) konnte sich niemand
+  anmelden. Die Zeilen `Einladung gesendet an: …` / `Einladung NICHT gesendet an: …` gehören in die Zusammenfassung des
+  Workflows:
 
 ```json
 {

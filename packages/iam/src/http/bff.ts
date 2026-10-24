@@ -5,7 +5,7 @@
  */
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { isOrgAlias, safeReturnTo, type Bff } from '../bff.ts';
+import { isOrgAlias, LoginExpired, safeReturnTo, type Bff } from '../bff.ts';
 import { HttpError } from '../errors.ts';
 import { orgAlias } from '../principal.ts';
 import { HIDDEN, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
@@ -22,6 +22,28 @@ const Query = Type.Object({
 
 function wantsJson(accept: unknown) { return typeof accept === 'string' && accept.includes('application/json'); }
 
+/**
+ * Schlichte Fehlerseite für Browser-Routen der Anmeldung (nie rohes JSON): Du-Form, Knopf «Erneut anmelden», keine
+ * technischen Details (die stehen im Log). Ohne Skripte, eigene CSP.
+ */
+export function loginErrorPage(status: number): string {
+  const [title, text] = status === 503 || status >= 500
+    ? ['Anmeldung gerade nicht möglich', 'Der Anmeldedienst ist im Moment nicht erreichbar. Versuche es in ein paar Minuten nochmals.']
+    : ['Anmeldung hat nicht geklappt', 'Die Anmeldung ist abgelaufen oder wurde abgebrochen. Melde dich bitte erneut an.'];
+  return `<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>${title}</title>
+<style>
+body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#f6f7f9;color:#1d2330;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}
+main{max-width:28rem;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1.5rem;color:#4a5263}
+a{display:inline-block;background:#1f5fbf;color:#fff;text-decoration:none;padding:.6rem 1.2rem;border-radius:8px;font-weight:600}
+@media (prefers-color-scheme:dark){body{background:#14171c;color:#e6e8ec}main{background:#1d2128;box-shadow:none}p{color:#aab1bd}a{background:#4c8dff}}
+</style></head>
+<body><main><h1>${title}</h1><p>${text}</p><a href="/auth/login">Erneut anmelden</a></main></body></html>
+`;
+}
+
 export const bffModule: IamModule = {
   name: 'bff',
   async register(app: FastifyInstance, ctx: ModuleContext) {
@@ -32,6 +54,19 @@ export const bffModule: IamModule = {
     bff.startCleanup();
     app.addHook('onClose', async () => bff.stopCleanup());
     const csrfMissing = () => new HttpError(403, 'CSRF-Token fehlt oder ist ungültig', 'Header «X-CSRF-Token» oder Feld «csrf» aus /auth/me mitsenden.');
+    // Browser-Routen: Fehler als Seite statt Problem-JSON; Details nur ins Log. Mit Accept: application/json (Aufruf aus
+    // der Oberfläche) weiter an die Fehlerbehandlung der App.
+    const page = async (err: Error & { statusCode?: number; validation?: unknown }, req: FastifyRequest, reply: FastifyReply) => {
+      if (wantsJson(req.headers.accept)) throw err;
+      const status = err instanceof HttpError ? err.status : err.validation ? 422 : err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
+      if (err instanceof HttpError) reply.headers(err.headers);
+      if (status >= 500) req.log.error({ err }, 'Anmeldung: Fehlerseite');
+      else req.log.warn({ status, reason: err.message }, 'Anmeldung: Fehlerseite');
+      bff.clearRetry(reply);
+      return reply.status(status).type('text/html; charset=utf-8')
+        .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+        .send(loginErrorPage(status));
+    };
 
     // Gekapselt: Formular-Parser und Cache-Control nur für /auth/*
     await app.register(async scope => {
@@ -41,7 +76,7 @@ export const bffModule: IamModule = {
       scope.addHook('onSend', async (_req, reply, payload) => { reply.header('cache-control', 'no-store'); return payload; });
       const schema = <T extends Record<string, unknown>>(method: string, url: string, s: T) => routeSchema(ctx, method, url, s);
 
-      scope.get('/auth/login', { schema: schema('GET', '/auth/login', { tags: [TAG_UI], summary: 'Anmeldung starten (Weiterleitung zu Keycloak)', querystring: Query, security: [] }) }, async (req: FastifyRequest, reply: FastifyReply) => {
+      scope.get('/auth/login', { errorHandler: page, schema: schema('GET', '/auth/login', { tags: [TAG_UI], summary: 'Anmeldung starten (Weiterleitung zu Keycloak)', querystring: Query, security: [] }) }, async (req: FastifyRequest, reply: FastifyReply) => {
         const q = req.query as { returnTo?: string; org?: string; idp?: string };
         const org = q.org ?? null;
         if (org !== null && !isOrgAlias(org)) throw new HttpError(400, 'Organisation ungültig');
@@ -52,6 +87,7 @@ export const bffModule: IamModule = {
       // Clients) und Link zum Weitergeben. Startet nur die Anmeldung über diesen Anbieter; Parameter der Weiterleitung
       // (etwa ein Code) werden nicht weitergegeben.
       scope.get('/auth/entra/:idp', {
+        errorHandler: page,
         schema: schema('GET', '/auth/entra/:idp', {
           tags: [TAG_UI], summary: 'Anmeldung über Microsoft Entra ID (Link der Einladung)', security: [],
           params: Type.Object({ idp: Type.String({ pattern: ENTRA_IDP_PATTERN }) }),
@@ -62,14 +98,28 @@ export const bffModule: IamModule = {
         return reply.redirect(await bff.beginLogin(reply, '/', org !== null && isOrgAlias(org) ? org : null, (req.params as { idp: string }).idp), 302);
       });
 
-      scope.get('/auth/callback', { schema: HIDDEN }, async (req, reply) => reply.redirect(await bff.completeLogin(req, reply), 302));
+      // Abgelaufener oder unbekannter Anmeldezustand (z. B. Link «Passwort vergessen» in einem anderen Tab): mit gültiger
+      // Sitzung in die App, sonst einmal automatisch neu anmelden (bei bestehender Keycloak-Sitzung ohne Rückfrage); erst
+      // danach die Fehlerseite. Fehler von Keycloak (error=access_denied …) und alles andere: Fehlerseite.
+      scope.get('/auth/callback', { schema: HIDDEN, errorHandler: page }, async (req, reply) => {
+        try {
+          return reply.redirect(await bff.completeLogin(req, reply), 302);
+        } catch (e) {
+          if (!(e instanceof LoginExpired)) throw e;
+          if (await bff.current(req, reply).catch(() => null)) { req.log.info({}, 'Anmeldung: Anmeldezustand abgelaufen, Sitzung gültig'); return reply.redirect('/', 302); }
+          if ((req.query as { error?: unknown }).error !== undefined || !bff.retryLogin(req, reply)) throw e;
+          req.log.info({}, 'Anmeldung: Anmeldezustand abgelaufen, neue Anmeldung');
+          return reply.redirect(await bff.beginLogin(reply, '/', null), 302);
+        }
+      });
 
       // Wechsel ändert die Sitzung: nur per POST mit CSRF-Token. GET (alte Links) ändert nichts.
-      scope.get('/auth/switch', { schema: HIDDEN }, async () => {
+      scope.get('/auth/switch', { schema: HIDDEN, errorHandler: page }, async () => {
         throw new HttpError(405, 'Methode nicht erlaubt', 'Organisation per POST /auth/switch mit X-CSRF-Token wechseln.', { allow: 'POST' });
       });
 
       scope.post('/auth/switch', {
+        errorHandler: page,
         schema: schema('POST', '/auth/switch', {
           tags: [TAG_UI], summary: 'Organisation wechseln (Vorgabe der Sitzung)', security: [],
           description: 'JSON oder Formular. CSRF-Token im Header `X-CSRF-Token` oder Feld `csrf`. Setzt nur die Vorgabe der Sitzung für Anfragen ohne `X-Tenant` '
@@ -126,7 +176,7 @@ export const bffModule: IamModule = {
         };
       });
 
-      scope.post('/auth/logout', { schema: schema('POST', '/auth/logout', { tags: [TAG_UI], summary: 'Abmelden (Sitzung löschen, Abmeldung bei Keycloak)', security: [] }) }, async (req: FastifyRequest, reply: FastifyReply) => {
+      scope.post('/auth/logout', { errorHandler: page, schema: schema('POST', '/auth/logout', { tags: [TAG_UI], summary: 'Abmelden (Sitzung löschen, Abmeldung bei Keycloak)', security: [] }) }, async (req: FastifyRequest, reply: FastifyReply) => {
         const s = await bff.load(req, reply, { touch: false });
         let target = '/';
         if (s) {

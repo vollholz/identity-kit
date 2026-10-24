@@ -321,14 +321,60 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.ok(!doc.paths['/auth/callback'] && !doc.paths['/auth/backchannel-logout']);
   });
 
-  test('Callback ohne passenden Anmeldezustand oder mit falschem state → 400', async () => {
+  test('Callback ohne passenden Anmeldezustand: einmal neue Anmeldung, dann Seite statt JSON; mit Sitzung in die App; falscher state → Seite', async () => {
     const start = await app.inject({ url: '/auth/login' });
     const atIdp = await fetch(start.headers.location as string, { redirect: 'manual' });
     const cb = new URL(atIdp.headers.get('location')!);
-    assert.equal((await app.inject({ url: `${cb.pathname}${cb.search}` })).statusCode, 400);
+    const url = `${cb.pathname}${cb.search}`;
+    // ohne Anmeldezustand (anderer Tab, abgelaufen): einmal automatisch neu anmelden
+    const retry = await app.inject({ url });
+    assert.equal(retry.statusCode, 302, retry.body);
+    assert.ok((retry.headers.location as string).startsWith(`${op.issuer}/protocol/openid-connect/auth?`), retry.headers.location as string);
+    const retryCookie = retry.cookies.find(c => c.name === 'notes_login_retry')!;
+    assert.ok(retryCookie.value && retry.cookies.some(c => c.name === 'notes_login' && c.value));
+    // schon einmal versucht: Fehlerseite (HTML, Du-Form, ohne technische Details), Vermerk entfernt
+    const page = await app.inject({ url, cookies: { notes_login_retry: retryCookie.value }, headers: { accept: 'text/html' } });
+    assert.equal(page.statusCode, 400);
+    assert.match(page.headers['content-type'] as string, /^text\/html/);
+    assert.match(page.body, /Anmeldung hat nicht geklappt[\s\S]*Melde dich bitte erneut an[\s\S]*href="\/auth\/login">Erneut anmelden/);
+    assert.ok(!/Anmeldevorgang|state|problem|\{/.test(page.body.replace(/<style>[\s\S]*<\/style>/, '')), 'keine technischen Details');
+    assert.match(page.headers['content-security-policy'] as string, /default-src 'none'/);
+    assert.ok(page.cookies.some(c => c.name === 'notes_login_retry' && c.value === ''));
+    // Fehler von Keycloak (abgebrochen) ohne Anmeldezustand: gleich die Seite, keine neue Anmeldung
+    const denied = await app.inject({ url: '/auth/callback?error=access_denied&state=x' });
+    assert.equal(denied.statusCode, 400);
+    assert.match(denied.body, /Erneut anmelden/);
+    // falscher state bei gültigem Anmeldezustand: Seite
     cb.searchParams.set('state', 'manipuliert');
     const lc = start.cookies.find(c => c.name === 'notes_login')!.value;
-    assert.equal((await app.inject({ url: `${cb.pathname}${cb.search}`, cookies: { notes_login: lc } })).statusCode, 400);
+    const wrong = await app.inject({ url: `${cb.pathname}${cb.search}`, cookies: { notes_login: lc } });
+    assert.equal(wrong.statusCode, 400);
+    assert.match(wrong.body, /Erneut anmelden/);
+    // gültige Sitzung: abgelaufener Anmeldezustand führt in die App
+    const { cookie } = await login();
+    const inApp = await app.inject({ url, cookies: { notes_sid: cookie } });
+    assert.deepEqual([inApp.statusCode, inApp.headers.location], [302, '/']);
+    // erfolgreiche Anmeldung entfernt den Vermerk
+    const ok = await login();
+    assert.ok(ok.done.cookies.some(c => c.name === 'notes_login_retry' && c.value === ''));
+  });
+
+  test('Browser-Routen zeigen Fehler als Seite, Aufrufe mit Accept: application/json und API weiter als Problem-JSON', async () => {
+    const badOrg = await app.inject({ url: '/auth/login?org=B%C3%B6se' });
+    assert.equal(badOrg.statusCode, 400);
+    assert.match(badOrg.headers['content-type'] as string, /^text\/html/);
+    const badIdp = await app.inject({ url: '/auth/login?idp=fremd' });
+    assert.deepEqual([badIdp.statusCode, /Erneut anmelden/.test(badIdp.body)], [422, true]);
+    const oldLink = await app.inject({ url: '/auth/switch' });
+    assert.deepEqual([oldLink.statusCode, /^text\/html/.test(oldLink.headers['content-type'] as string)], [405, true]);
+    const form = await app.inject({ method: 'POST', url: '/auth/switch', headers: { 'content-type': 'application/x-www-form-urlencoded' }, payload: 'org=acme' });
+    assert.deepEqual([form.statusCode, /^text\/html/.test(form.headers['content-type'] as string)], [401, true]);
+    const json = await app.inject({ method: 'POST', url: '/auth/switch', headers: { accept: 'application/json' }, payload: { org: 'acme' } });
+    assert.equal(json.statusCode, 401);
+    assert.match(json.headers['content-type'] as string, /^application\/problem\+json/);
+    assert.equal(json.json().title, 'Nicht angemeldet');
+    const meJson = await app.inject({ url: '/auth/me' });
+    assert.deepEqual([meJson.statusCode, meJson.json().title], [401, 'Nicht angemeldet']);
   });
 
   test('Session-Fixation: Anmeldung ersetzt eine bestehende Sitzung, gefälschte Cookies zählen nicht', async () => {

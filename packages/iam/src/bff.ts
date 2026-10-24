@@ -25,6 +25,11 @@ import type { OidcProvider } from './tokens.ts';
 /** So lange vor Ablauf wird das Access Token erneuert. */
 const REFRESH_SKEW_MS = 30_000;
 const LOGIN_TTL_MS = 10 * 60_000;
+
+/** Callback ohne gültigen Anmeldezustand (unbekannt, abgelaufen, anderer Browser oder Tab). */
+export class LoginExpired extends HttpError {
+  constructor() { super(400, 'Anmeldung abgelaufen', 'Der Anmeldevorgang ist unbekannt oder abgelaufen. Bitte erneut anmelden.'); }
+}
 const BCL_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
 const ALGS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA'];
 
@@ -211,7 +216,7 @@ export class Bff implements SessionBridge {
     reply.clearCookie(this.loginCookieName, this.cookieOpts(0));
     let st: LoginState | null = null;
     try { st = raw ? JSON.parse(this.sealer.openString(raw, 'login')) as LoginState : null; } catch { st = null; }
-    if (!st || st.v !== 1 || st.exp < this.now()) throw new HttpError(400, 'Anmeldung abgelaufen', 'Der Anmeldevorgang ist unbekannt oder abgelaufen. Bitte erneut anmelden.');
+    if (!st || st.v !== 1 || st.exp < this.now()) throw new LoginExpired();
     const c = await this.oidc();
     let tokens: Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
     try {
@@ -239,7 +244,23 @@ export class Bff implements SessionBridge {
       refreshToken: tokens.refresh_token ?? null, org, orgs,
     };
     await this.create(reply, data);
+    reply.clearCookie(this.retryCookieName, this.cookieOpts(0));
     return st.returnTo;
+  }
+
+  /**
+   * Abgelaufener oder unbekannter Anmeldezustand im Callback (z. B. «Passwort vergessen» in einem anderen Tab): eine
+   * automatische neue Anmeldung ist erlaubt, wenn in den letzten 10 Minuten keine stattfand (Cookie, Schutz gegen
+   * Schleifen). true: erlaubt und vermerkt.
+   */
+  retryLogin(req: FastifyRequest, reply: FastifyReply): boolean {
+    if (req.cookies[this.retryCookieName]) return false;
+    reply.setCookie(this.retryCookieName, '1', this.cookieOpts(LOGIN_TTL_MS / 1000));
+    return true;
+  }
+  /** Vermerk der automatischen neuen Anmeldung entfernen (Fehlerseite: «Erneut anmelden» startet frisch). */
+  clearRetry(reply: FastifyReply) { reply.clearCookie(this.retryCookieName, this.cookieOpts(0)); }
+  private get retryCookieName() { return `${this.loginCookieName}_retry`;
   }
 
   private async create(reply: FastifyReply, data: SessionData): Promise<void> {

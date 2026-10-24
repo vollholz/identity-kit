@@ -35,7 +35,8 @@ export { IAM_API_TAGS, routeSchema, personOf, optionalBodies, encodeCursor, deco
 export { authzCatalogSchema } from './http/account.ts';
 export { breakGlassAllowed } from './http/break-glass.ts';
 export { listClients, type ClientOut } from './http/clients.ts';
-export { Bff, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';
+export { Bff, LoginExpired, safeReturnTo, scopesFor, isOrgAlias, safeEqual, decodeClaims, type BffOptions, type Session, type SessionData } from './bff.ts';
+export { loginErrorPage } from './http/bff.ts';
 export { KeycloakAdmin, KeycloakError, keyInfo, seg as keycloakSegment, type KcOrg, type KcUser, type KcOrgDomain, type KcIdp, type KcIdpMapper, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
 export { listTenants, findTenant, createTenant, setTenantStatus, relinkTenant, type TenantRow, type TenantActor, type TenantsContext } from './tenants.ts';
 export { AdminService, entraAddress, type EntraLink, entraLoginPath, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type Organization, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';

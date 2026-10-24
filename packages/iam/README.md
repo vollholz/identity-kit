@@ -22,6 +22,10 @@ Herkunft: vollholz/assets `src/platform/{auth,authz}`, `src/platform/modules/{au
   `Einladung gesendet an: …` / `Einladung NICHT gesendet an: …`. Ergebnis neu mit `email` und `invitation`
   (`sent`/`failed`/null); `inviteErrors`, `INVITE_LIFESPAN_SEC`. Mit `--initial-password` keine Einladung. Abwärtsverträglich
   bis auf die nun standardmässig gesendete E-Mail.
+  BFF: Browser-Routen unter `/auth/*` zeigen Fehler als schlichte Seite statt Problem-JSON («Erneut anmelden», Details
+  nur im Log; `loginErrorPage`). Callback mit unbekanntem oder abgelaufenem Anmeldezustand (z. B. «Passwort vergessen»
+  in einem anderen Tab): mit gültiger Sitzung in die App, sonst einmal automatisch neue Anmeldung, dann die Seite
+  (`LoginExpired`, Cookie `<produkt>_login_retry`). `/auth/me`, `Accept: application/json` und `/v1/…` unverändert.
 - **1.4.0:** Zurücksetzen und neu aufsetzen. Neue Kommandozeile `iam-reset` (`resetKeycloak`, `resetDatabase`):
   `--keycloak` löscht im Realm alle Organisationen samt ihrer Identitätsanbieter und alle Personen (Service Accounts
   bleiben), `--database` leert als Migrationsrolle alle Tabellen im Schema der App (`TRUNCATE … RESTART IDENTITY

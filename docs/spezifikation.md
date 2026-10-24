@@ -307,12 +307,18 @@ Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Mi
 |---|---|
 | `GET /auth/login?returnTo=&org=&idp=` | Startet den Code-Flow (PKCE S256, `state`, `nonce`), Scopes aus `OIDC_SCOPES` mit `organization` → `organization:*`. Anmeldezustand verschlüsselt im kurzlebigen Cookie (10 min). `org` wählt nur vor. `idp` (nur `^entra-(\d{3}|app-<alias>)$`, sonst ignoriert) wird zu `kc_idp_hint` mit `prompt=login`, damit eine bestehende Keycloak-Sitzung nicht weiter gilt (Testanmeldung, [9.4](#94-anmeldung-über-den-idp-der-organisation-kann)). |
 | `GET /auth/entra/{idp}?org=` | Anmeldung über den Entra-Anbieter `idp` (`^entra-(\d{3}|app-<alias>)$`) der Organisation `org`: Ziel des Links in der Einladung aus Entra ID (Redirect-URI `…/auth/entra/*` des Clients) und Link zum Weitergeben (`Mitglied.loginPath`). Rücksprung immer nach `/`; Parameter der Weiterleitung werden nicht weitergegeben. |
-| `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo` |
+| `GET /auth/callback` | Code tauschen, ID-Token prüfen (Signatur, `iss`, `aud`, `nonce`), bestehende Sitzung **beenden und ersetzen** (Session-Fixation), neue Sitzung anlegen, Rücksprung nach `returnTo`. Anmeldezustand unbekannt oder abgelaufen (z. B. «Passwort vergessen» in einem anderen Tab): mit gültiger Sitzung Rücksprung nach `/`, sonst einmal automatisch neue Anmeldung (Cookie `<produkt>_login_retry`, 10 min, Schutz gegen Schleifen; nicht bei `error=` von Keycloak), danach die Fehlerseite (ab 1.5) |
 | `GET /auth/me` | Person, Mandant (`id`, `alias`, `name`), `organizations`, `organizationNames`, `selectedOrganization`, `tenantError`, `roles` (an `org`), `permissions` (an `org`), `somewhere`, `clearance`, `breakGlassUntil`, `csrfToken`, `session.expiresAt`, `session.idleTimeoutSeconds` (Typ `Me`, [9.5](#95-zugriff-v1access)). Mandant aus `X-Tenant`, sonst Vorgabe der Sitzung; die Prüfung macht allein der Resolver ([6.2](#62-principal)). 401 ohne Sitzung. |
 | `POST /auth/switch` | CSRF; setzt die Vorgabe der Sitzung, wenn das Token die Organisation enthält, sonst neue Anmeldung als Rückfall |
 | `POST /auth/logout` | CSRF; Sitzung löschen, RP-initiated Logout mit `id_token_hint` und `post_logout_redirect_uri = <url>/abgemeldet` |
 | `POST /auth/backchannel-logout` | OIDC Back-Channel Logout 1.0: Logout-Token prüfen (`iss`, `aud` = BFF-Client, `iat`, `jti`, höchstens 10 min alt, Ereignis `backchannel-logout`, kein `nonce`, `sid` oder `sub`), `jti` gegen Wiederholung, betroffene Sitzungen löschen |
 | `/abgemeldet` | öffentliche Seite «Du bist abgemeldet», fragt `/auth/me` nicht ab, meldet nicht automatisch an |
+
+Fehler der Browser-Routen (`GET /auth/login`, `/auth/entra/{idp}`, `/auth/callback`, `/auth/switch`; `POST
+/auth/switch` und `/auth/logout` ohne `Accept: application/json`) zeigen nie Problem-JSON, sondern eine schlichte
+HTML-Seite in Du-Form mit Knopf «Erneut anmelden» (`/auth/login`), Status wie der Fehler, eigene CSP, ohne technische
+Details (die stehen im Log). `/auth/me`, Aufrufe mit `Accept: application/json` und die API (`/v1/…`) bleiben bei
+Problem-JSON.
 
 ### 5.2 Sitzung
 

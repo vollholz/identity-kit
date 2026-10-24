@@ -191,7 +191,10 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   if (!res.userId || !res.orgId) {
     if (!dry) throw new Error('Organisation oder Person fehlt nach dem Anlegen');
     step(`${email} → Organisation ${alias}, Rolle ${ADMIN_ROLE}, Freigabestufe 2`);
-    if (o.sendEmail !== false && !o.initialPassword) step(`${email}: Einladung «Passwort festlegen» würde gesendet`);
+    if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) {
+      if (res.userId) await invite(kc, res.userId, email, o, dry, step);
+      else step(`${email}: Einladung «Passwort festlegen» würde gesendet`);
+    }
     return res;
   }
   if (!(await kc.member(res.orgId, res.userId))) {

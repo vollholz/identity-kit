@@ -196,6 +196,11 @@ describe('Ersteinrichtung einer Organisation', () => {
       assert.ok(dry.steps.includes('dora@demo.example: Einladung «Passwort festlegen» würde gesendet'), dry.steps.join('\n'));
       const dryResend = await orgBootstrap(admin(fake), { alias: 'demo', email: 'ben@demo.example', dryRun: true, resend: true });
       assert.ok(dryResend.steps.includes('ben@demo.example: Einladung «Passwort festlegen» würde gesendet (gültig 7 Tage)'), dryResend.steps.join('\n'));
+      // neue Organisation, bestehende Person: wie im echten Lauf nur mit resend und nur ohne Passwort
+      const dryNewOrg = await orgBootstrap(admin(fake), { alias: 'neu', email: 'ben@demo.example', dryRun: true });
+      assert.ok(!dryNewOrg.steps.some(x => /Einladung/.test(x)), dryNewOrg.steps.join('\n'));
+      const dryNewOrgResend = await orgBootstrap(admin(fake), { alias: 'neu', email: 'cleo@demo.example', dryRun: true, resend: true });
+      assert.ok(dryNewOrgResend.steps.includes('cleo@demo.example hat schon ein Passwort – keine Einladung'), dryNewOrgResend.steps.join('\n'));
       assert.equal(mails(fake).length, 0, 'Probelauf sendet nicht');
     });
 

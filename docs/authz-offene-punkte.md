@@ -23,6 +23,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | D7 | 2026-10-23 | PRs werden nach grüner CI automatisch gemergt (Squash) |
 | D8 | 2026-10-24 | Assets: geteilte Inhalte (Ansicht, Report, Dashboard) mit eigenen Rollen `share-viewer`/`share-editor` und Rechten `content:read`/`content:write`, damit private Inhalte nicht über org-weite Rollen lesbar sind |
 | D10 | 2026-10-24 | «Für alle Mitglieder» setzt die Rolle aus `types[].membersRole` des Modells (Standard `viewer`), damit Apps mit eigenen Teilen-Rollen (D8) den Schalter behalten; Kit 1.2 |
+| D11 | 2026-10-24 | org-admin sieht auch private Inhalte anderer (konsequent zu D2); Teilen-Rollen nie an org vergebbar (Kit 1.3: `types.org.roles` als Liste) |
 | D9 | 2026-10-24 | Zuständigkeit über Personen aus Fachdaten generisch im Baukasten (Kit 1.1, P1b), nicht als Sonderlösung in Assets |
 
 ## Pakete und Stand
@@ -35,6 +36,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | erledigt (#46) |
 | 1b Kit 1.1: Zuständigkeit über Personen | identity-kit | `authz-p1b-persons` | erledigt (#48), Release 1.1.0 |
 | 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | erledigt (#50), Release 1.2.0 |
+| 1d Kit 1.3: Rollen an org begrenzen | identity-kit | `authz-p1d-org-roles` | in Arbeit (session_01KbNDz28kfEaj8y5PQmvNNE) |
 | 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
 | 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | PR assets#43 (wird zusammen mit P9 gemergt) |
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | in Arbeit (session_01PvfpnohjZyvyNnJQPwQohG), auf Stand von P8 |

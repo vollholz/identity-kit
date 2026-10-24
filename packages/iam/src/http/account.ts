@@ -35,7 +35,7 @@ export function authzCatalogSchema(model: Model) {
       key: TypeT, label: Type.String(), parent: Nullable(TypeT), self: Type.Optional(Type.Literal(true)),
       roles: Type.Array(Type.String(), { description: 'Rollen, die hier hängen dürfen (org: alle)' }),
       relations: Type.Array(Type.String(), { description: 'roles plus Beziehungen ohne Rechte (member) und owner, wo zulässig' }),
-      leaf: Type.Optional(Type.Literal(true)), classified: Type.Optional(Type.Literal(true)), owner: Type.Optional(Type.Literal(true)),
+      leaf: Type.Optional(Type.Literal(true)), classified: Type.Optional(Type.Literal(true)), owner: Type.Optional(Type.Literal(true)), membersRole: Type.Optional(Type.String()),
       scope: Type.Optional(Type.Object({ relation: Type.String() })),
       read: Type.Optional(PermissionT), write: Type.Optional(PermissionT),
     }), { description: 'Orte des Modells, org zuerst' }),

@@ -15,7 +15,7 @@ export interface ModelRole { key: string; label: string; description: string; pe
 export interface ModelScope { key: string; text: string; permissions: string[] }
 export interface ModelType {
   key: string; label: string; parent: string | null; self?: boolean; roles: string[]; relations: string[];
-  leaf?: boolean; classified?: boolean; owner?: boolean; scope?: { relation: string }; read?: string; write?: string;
+  leaf?: boolean; classified?: boolean; owner?: boolean; membersRole?: string; scope?: { relation: string }; read?: string; write?: string;
 }
 /** Antwort von `GET /v1/authz/catalog` (Kap. 9.5). */
 export interface AuthzModel {
@@ -129,6 +129,7 @@ export function checkModel(c: AuthzModel, o: { product?: string; members?: boole
     const missing = c.roles.map(r => r.key).filter(r => !org.roles.includes(r));
     if (missing.length) errors.push(`M5 Typ «org»: alle Rollen dürfen dort hängen (fehlen: ${missing.join(', ')})`);
     if (org.owner || org.classified) errors.push('M9 Typ «org»: owner und classified nicht erlaubt');
+    if (org.membersRole !== undefined) errors.push('M13 Typ «org»: membersRole nicht erlaubt');
   }
   const leaves = c.types.filter(t => t.leaf);
   if (leaves.length > 1) errors.push(`M6 höchstens ein Blatt-Typ (${leaves.map(t => t.key).join(', ')})`);
@@ -153,6 +154,13 @@ export function checkModel(c: AuthzModel, o: { product?: string; members?: boole
     const extra = t.relations.filter(r => !t.roles.includes(r));
     for (const r of extra) if (r !== 'member' && !(r === 'owner' && t.owner)) errors.push(`M8 Typ «${t.key}»: Beziehung «${r}» nicht zulässig`);
     if (t.owner && !t.relations.includes('owner')) errors.push(`M8 Typ «${t.key}»: owner fehlt in relations`);
+    if (t.membersRole !== undefined) {
+      const role = c.roles.find(r => r.key === t.membersRole);
+      const others = c.roles.filter(r => r.key !== ADMIN_ROLE.key).flatMap(r => r.permissions);
+      if (!t.owner) errors.push(`M13 Typ «${t.key}»: membersRole nur bei Typen mit owner`);
+      else if (!role || !t.roles.includes(role.key)) errors.push(`M13 Typ «${t.key}»: membersRole «${t.membersRole}» ist am Typ nicht zulässig`);
+      else if (role.key === ADMIN_ROLE.key || role.permissions.some(p => !others.includes(p))) errors.push(`M13 Typ «${t.key}»: membersRole «${t.membersRole}» enthält Rechte nur von ${ADMIN_ROLE.key}`);
+    }
   }
   if (c.types.some(t => t.scope) && !c.types.some(t => t.relations.includes('member'))) errors.push('M8 Zuständigkeit (scope) ohne Typ mit «member» (Einheit)');
 

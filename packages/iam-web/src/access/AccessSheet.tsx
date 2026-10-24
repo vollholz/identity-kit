@@ -83,9 +83,10 @@ function AccessContent({ list, resource, label, classification }: { list: Access
   const [revoking, setRevoking] = useState<AccessEntry | null>(null);
   const [expiring, setExpiring] = useState<AccessEntry | null>(null);
   const type = authz.type(resource.type);
-  // «Für alle Mitglieder»: nur bei Typen mit Besitz und Rolle viewer am Typ (A7)
-  const membersSwitch = !!type?.owner && type.roles.includes(VIEWER_ROLE);
-  const isMembersViewer = (e: AccessEntry) => e.via === 'direct' && e.subject.ref === ALL_MEMBERS && e.relation === VIEWER_ROLE;
+  // «Für alle Mitglieder»: nur bei Typen mit Besitz und `membersRole` (A7; Kit < 1.2: viewer, falls zulässig)
+  const membersRole = type?.owner ? type.membersRole ?? (type.roles.includes(VIEWER_ROLE) ? VIEWER_ROLE : undefined) : undefined;
+  const membersSwitch = !!membersRole;
+  const isMembersViewer = (e: AccessEntry) => e.via === 'direct' && e.subject.ref === ALL_MEMBERS && e.relation === membersRole;
   const rows = membersSwitch ? list.items.filter(e => !isMembersViewer(e)) : list.items;
   const notRemovable = t('iam.access.notRemovable', { perm: authz.permLabel('access:admin') });
   const who = (e: AccessEntry) => (e.subject.kind === 'group' ? t('iam.access.kind.group', { name: e.subject.name })
@@ -98,7 +99,7 @@ function AccessContent({ list, resource, label, classification }: { list: Access
   return (
     <>
       {classification && list.classification !== null ? <ClassificationField level={classification.level} onChange={classification.onChange} disabledReason={classification.disabledReason} /> : null}
-      {membersSwitch ? <MembersSwitch list={list} resource={resource} label={label} entry={list.items.find(isMembersViewer) ?? null} /> : null}
+      {membersSwitch ? <MembersSwitch list={list} resource={resource} label={label} entry={list.items.find(isMembersViewer) ?? null} role={membersRole!} /> : null}
       {rows.length ? (
         <div className="iam-tblwrap">
           <Table stack className="iam-access-tbl">
@@ -145,8 +146,8 @@ function AccessContent({ list, resource, label, classification }: { list: Access
   );
 }
 
-/** Schalter «Für alle Mitglieder» = Freigabe `org:members viewer` an diesem Ort. */
-function MembersSwitch({ list, resource, label, entry }: { list: AccessList; resource: ResourceRef; label: string; entry: AccessEntry | null }) {
+/** Schalter «Für alle Mitglieder» = Freigabe `org:members` mit `membersRole` des Typs an diesem Ort. */
+function MembersSwitch({ list, resource, label, entry, role }: { list: AccessList; resource: ResourceRef; label: string; entry: AccessEntry | null; role: string }) {
   const { toast } = useIamUi();
   const { orgName } = useIam();
   const authz = useAuthz();
@@ -155,12 +156,12 @@ function MembersSwitch({ list, resource, label, entry }: { list: AccessList; res
   const revoke = useRevoke();
   const on = !!entry;
   const locked = on ? (entry.removable ? null : t('iam.access.notRemovable', { perm: authz.permLabel('access:admin') }))
-    : list.grantable.includes(VIEWER_ROLE) ? null : t('iam.access.allMembers.locked', { role: authz.roleLabel(VIEWER_ROLE) });
+    : list.grantable.includes(role) ? null : t('iam.access.allMembers.locked', { role: authz.roleLabel(role) });
   const busy = grant.isPending || revoke.isPending;
   const toggle = () => {
     if (locked || busy) return;
     if (on) revoke.mutate(entry.id!, { onSuccess: () => toast.show(t('iam.access.allMembers.off', { org: orgName })) });
-    else grant.mutate({ subject: ALL_MEMBERS, relation: VIEWER_ROLE, type: resource.type, id: resource.id }, { onSuccess: () => toast.show(t('iam.access.allMembers.on', { org: orgName })) });
+    else grant.mutate({ subject: ALL_MEMBERS, relation: role, type: resource.type, id: resource.id }, { onSuccess: () => toast.show(t('iam.access.allMembers.on', { org: orgName })) });
   };
   const error = grant.error ?? revoke.error;
   return (
@@ -169,7 +170,7 @@ function MembersSwitch({ list, resource, label, entry }: { list: AccessList; res
         aria-labelledby={`${fid}-l`} aria-describedby={`${fid}-d`} onClick={toggle}><span aria-hidden="true" /></button>
       <div>
         <div id={`${fid}-l`} className="iam-b">{t('iam.access.allMembers')}</div>
-        <div id={`${fid}-d`} className="iam-muted iam-small">{locked ?? t('iam.access.allMembers.hint', { org: orgName, label, role: authz.roleLabel(VIEWER_ROLE) })}</div>
+        <div id={`${fid}-d`} className="iam-muted iam-small">{locked ?? t('iam.access.allMembers.hint', { org: orgName, label, role: authz.roleLabel(role) })}</div>
         {error ? <AccessError error={error} compact /> : null}
       </div>
     </div>

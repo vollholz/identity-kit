@@ -16,7 +16,7 @@ export const CATALOG_FIXTURE = {
     { key: 'org', label: 'Organisation', parent: null, roles: ['viewer'], relations: ['viewer'] },
     {
       key: 'note', label: 'Notiz', parent: 'org', self: true as const, roles: ['viewer'], relations: ['viewer', 'member', 'owner'], leaf: true as const,
-      classified: true as const, owner: true as const, scope: { relation: 'Gehört zu' }, read: 'note:read', write: 'note:write',
+      classified: true as const, owner: true as const, membersRole: 'viewer', scope: { relation: 'Gehört zu' }, read: 'note:read', write: 'note:write',
     },
   ],
   classifications: [{ level: 0 as const, label: 'intern' }],

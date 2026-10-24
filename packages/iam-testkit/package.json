@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/iam-testkit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Tests für Apps mit dem IAM-Baukasten: Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, RLS-, Katalog- und Isolationsprüfungen",
   "type": "module",
   "license": "UNLICENSED",

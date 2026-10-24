@@ -8,8 +8,9 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  AccessSheet, BreakGlassBanner, ClassificationBadge, GrantDialog, useAccessList, useBreakGlass, WhyDialog, type AccessEntry, type AccessList, type Explain, type IamConfig, type Me,
+  AccessSheet, BreakGlassBanner, ClassificationBadge, GrantDialog, useAccessList, useBreakGlass, WhyDialog, type AccessEntry, type AccessList, type AuthzCatalog, type Explain, type IamConfig, type Me,
 } from '../src/index.ts';
+import { CATALOG } from '../src/testing/catalog.ts';
 import { json, mockIamApi, StaticIam, staticResources, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
@@ -34,8 +35,8 @@ const LIST: AccessList = {
   ],
 };
 
-function setup(ui: ReactElement, routes: Record<string, MockHandler> = {}, o: { me?: Partial<Me>; config?: Partial<IamConfig> } = {}) {
-  const api = mockIamApi(routes);
+function setup(ui: ReactElement, routes: Record<string, MockHandler> = {}, o: { me?: Partial<Me>; config?: Partial<IamConfig>; catalog?: AuthzCatalog } = {}) {
+  const api = mockIamApi(routes, o.catalog ? { catalog: o.catalog } : {});
   vi.stubGlobal('fetch', api.fetch);
   const r = render(<StaticIam me={o.me} config={o.config}>{ui}</StaticIam>);
   return { ...api, ...r };
@@ -163,6 +164,24 @@ describe('AccessSheet', () => {
     await userEvent.click(sw);
     expect(await screen.findByText('Freigabe für alle Mitglieder in «Demo AG» entfernt')).toBeInTheDocument();
     await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'false'));
+  });
+
+  it('«Für alle Mitglieder» mit `membersRole` des Typs (D10): eigene Rolle statt viewer; ohne Rolle am Typ kein Schalter', async () => {
+    const roles = [...CATALOG.roles, { key: 'share-viewer', label: 'Teilen (lesen)', description: 'Notizen lesen.', permissions: ['note:read'], adminOnly: false }];
+    const withNote = (n: Partial<AuthzCatalog['types'][number]>): AuthzCatalog => ({ ...CATALOG, roles, types: CATALOG.types.map(t => (t.key === 'note' ? { ...t, ...n } : t)) });
+    const list = { ...LIST, items: [LIST.items[0]!], grantable: ['editor', 'share-viewer'] };
+    const { calls, unmount } = setup(sheet(), { 'GET /v1/access': () => json(list), 'POST /v1/access': () => json(entry('t9', { relation: 'share-viewer' }), 201) },
+      { catalog: withNote({ roles: ['editor', 'viewer', 'share-viewer'], membersRole: 'share-viewer' }) });
+    const sw = await screen.findByRole('switch', { name: 'Für alle Mitglieder' });
+    expect(sw).toHaveAccessibleDescription('Alle Personen in «Demo AG» erhalten an «Protokoll» die Rolle «Teilen (lesen)».');
+    await userEvent.click(sw);
+    await waitFor(() => expect(calls.some(c => c.method === 'POST')).toBe(true));
+    expect(await calls.find(c => c.method === 'POST')!.clone().json()).toEqual({ subject: 'org:members', relation: 'share-viewer', type: 'note', id: N1 });
+    unmount();
+    // ohne membersRole und ohne Rolle viewer am Typ: kein Schalter
+    setup(sheet(), { 'GET /v1/access': () => json(list) }, { catalog: withNote({ roles: ['editor', 'share-viewer'], relations: ['editor', 'share-viewer', 'owner'] }) });
+    await screen.findByRole('table');
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 
   it('kein Schalter ohne Besitz am Typ; gesperrt mit Grund, wenn viewer nicht vergebbar', async () => {

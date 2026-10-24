@@ -93,6 +93,8 @@ export interface TypeDef<P extends string = string, R extends string = string, T
   classified?: true;
   /** Ressource hat Besitzer:in (Relation `owner`). */
   owner?: true;
+  /** Rolle, die der Schalter «Für alle Mitglieder» vergibt (`org:members`); Nur bei Typen mit `owner`; Standard `viewer`, falls am Typ zulässig, sonst kein Schalter. Muss am Typ zulässig sein und darf keine Rechte nur von `org-admin` enthalten (M13). */
+  membersRole?: R;
   /** Zuständigkeit über Fachbeziehungen (`ResourceModel.edges`); `relation` benennt sie in «Warum?». */
   scope?: { via: 'reference'; relation: string };
   /** Lese- und Schreibrecht des Typs; `read` Pflicht ausser bei `org`, `write` Pflicht bei `leaf` und `scope`. */
@@ -135,6 +137,8 @@ export interface TypeInfo<P extends string = string> {
   roles: readonly string[]; relations: readonly string[];
   leaf: boolean; classified: boolean; owner: boolean; member: boolean;
   scope: { relation: string } | null;
+  /** Rolle des Schalters «Für alle Mitglieder» (null: kein Schalter). */
+  membersRole: string | null;
   /** Leserecht (an `org`: `tenant:read`), Schreibrecht (null, wo nicht deklariert). */
   read: P | null; write: P | null;
 }
@@ -147,7 +151,7 @@ export interface AuthzCatalogJson {
   scopes: { key: string; text: string; permissions: string[] }[];
   types: {
     key: string; label: string; parent: string | null; self?: true; roles: string[]; relations: string[];
-    leaf?: true; classified?: true; owner?: true; scope?: { relation: string }; read?: string; write?: string;
+    leaf?: true; classified?: true; owner?: true; membersRole?: string; scope?: { relation: string }; read?: string; write?: string;
   }[];
   classifications: { level: Level; label: string }[];
   mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
@@ -231,6 +235,7 @@ export function defineModel<const P extends string, const R extends string, cons
     }
     if (orgIn.owner) errors.push('Typ «org»: owner nicht erlaubt (M9)');
     if (orgIn.classified) errors.push('Typ «org»: classified nicht erlaubt (M9)');
+    if (orgIn.membersRole !== undefined) errors.push('Typ «org»: membersRole nicht erlaubt (M13)');
     if (orgIn.read && orgIn.read !== 'tenant:read') errors.push('Typ «org»: read ist immer «tenant:read»');
   }
   const typeDefs: [string, TypeDef][] = [[ORG, { label: 'Organisation', roles: '*' }], ...typesIn.filter(([k]) => k !== ORG)];
@@ -378,9 +383,17 @@ export function defineModel<const P extends string, const R extends string, cons
       }
     }
     if (t.scope && (!t.scope.relation?.trim() || t.scope.via !== 'reference')) errors.push(`Typ «${key}»: scope braucht via «reference» und eine relation`);
+    let membersRole: string | null = t.owner && !isOrg && roleList.includes('viewer') && roles.has('viewer') ? 'viewer' : null;
+    if (t.membersRole !== undefined) {
+      const mr = roles.get(t.membersRole);
+      if (!t.owner) errors.push(`Typ «${key}»: membersRole nur bei Typen mit owner (M13)`);
+      else if (!mr || !roleList.includes(t.membersRole)) errors.push(`Typ «${key}»: membersRole «${t.membersRole}» ist am Typ nicht zulässig (M13)`);
+      else if (t.membersRole === ADMIN_ROLE || [...mr.permissions].some(p => adminOnly.has(p))) errors.push(`Typ «${key}»: membersRole «${t.membersRole}» enthält Rechte nur von ${ADMIN_ROLE} (M13)`);
+      else membersRole = t.membersRole;
+    }
     types.set(key, {
       key, label: t.label, parent: isOrg ? null : t.parent ?? null, self: !isOrg && t.self === key,
-      roles: roleList.filter(r => roles.has(r)), relations, leaf: !!t.leaf, classified: !!t.classified && !isOrg, owner: !!t.owner && !isOrg, member,
+      roles: roleList.filter(r => roles.has(r)), relations, leaf: !!t.leaf, classified: !!t.classified && !isOrg, owner: !!t.owner && !isOrg, member, membersRole,
       scope: t.scope ? { relation: t.scope.relation } : null, read, write: (t.write ?? null) as Q | null,
     });
   }
@@ -481,7 +494,7 @@ export function defineModel<const P extends string, const R extends string, cons
       scopes: [...scopes].map(([key, s]) => ({ key, text: s.text, permissions: [...s.permissions] })),
       types: [...types.values()].map(t => ({
         key: t.key, label: t.label, parent: t.parent, ...(t.self ? { self: true as const } : {}), roles: [...t.roles], relations: [...t.relations],
-        ...(t.leaf ? { leaf: true as const } : {}), ...(t.classified ? { classified: true as const } : {}), ...(t.owner ? { owner: true as const } : {}),
+        ...(t.leaf ? { leaf: true as const } : {}), ...(t.classified ? { classified: true as const } : {}), ...(t.owner ? { owner: true as const } : {}), ...(t.membersRole ? { membersRole: t.membersRole } : {}),
         ...(t.scope ? { scope: { relation: t.scope.relation } } : {}), ...(t.read ? { read: t.read } : {}), ...(t.write ? { write: t.write } : {}),
       })),
       classifications: classifications.map((label, level) => ({ level: level as Level, label })),

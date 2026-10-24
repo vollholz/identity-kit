@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/iam",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Anmeldung und Rechte für Apps auf der Identity-Plattform: Token-Prüfung, Principal, BFF, Entscheidung mit dem Katalog der App, Verwaltung, Migrationen",
   "type": "module",
   "license": "UNLICENSED",
@@ -33,7 +33,7 @@
     "@fastify/cookie": "11.1.2",
     "@fastify/swagger": "9.9.1",
     "@opentelemetry/api": "1.9.1",
-    "@vollholz/iam-testkit": "1.1.0",
+    "@vollholz/iam-testkit": "1.2.0",
     "fastify": "5.12.6",
     "pg": "8.23.1"
   }

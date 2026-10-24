@@ -73,8 +73,14 @@ test('Freigeben per Tastatur: Person wählen, Rolle, Ablaufdatum; danach in der 
   await expect(dlg.getByRole('button', { name: 'Person suchen …' })).toBeFocused();
   await page.keyboard.press('Enter');
   const picker = page.getByRole('dialog', { name: 'Person wählen' });
+  // Fokus ins Suchfeld setzt der Picker verzögert: erst tippen, wenn es ihn hat, sonst gehen Tasten verloren
+  const search = picker.getByRole('combobox', { name: 'Name oder E-Mail' });
+  await expect(search).toBeFocused();
   await page.keyboard.type('Nora');
-  await expect(picker.getByRole('option', { name: /Nora Neu/ })).toBeVisible();
+  await expect(search).toHaveValue('Nora');
+  const nora = picker.getByRole('option', { name: /Nora Neu/ });
+  await expect(nora).toBeVisible();
+  await expect(search).toHaveAttribute('aria-activedescendant', (await nora.getAttribute('id'))!);
   await page.keyboard.press('Enter');
   await expect(picker).toHaveCount(0);
   await expect(dlg.getByRole('button', { name: 'Nora Neu' })).toBeFocused();

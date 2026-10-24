@@ -14,7 +14,7 @@ import type { AccessService } from './access.ts';
 import { live } from './access.ts';
 import type { Tx } from './db.ts';
 import { conflict, HttpError, invalid } from './errors.ts';
-import { ADMIN_ROLE, type Level } from './model.ts';
+import { ADMIN_ROLE, ORG, type Level } from './model.ts';
 import type { Principal } from './principal.ts';
 import type { TupleStore } from './tuples.ts';
 
@@ -25,6 +25,9 @@ export interface Acting { actor: Principal; platform: boolean }
 export function checkRoles(access: AccessService, roles: string[], path = '/roles'): string[] {
   const unknown = roles.filter(r => !access.model.isRole(r));
   if (unknown.length) throw invalid(`Unbekannte Rolle: ${unknown.join(', ')}`, unknown.map(r => ({ path, message: `«${r}» ist keine Rolle des Modells` })));
+  const here = access.model.relationsAt(ORG);
+  const bad = roles.filter(r => !here.includes(r));
+  if (bad.length) throw invalid(`Rolle an der Organisation nicht zulässig: ${bad.join(', ')}`, bad.map(r => ({ path, message: `«${r}» darf an der Organisation nicht hängen` })));
   return [...new Set(roles)];
 }
 

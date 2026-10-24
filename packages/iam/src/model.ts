@@ -83,7 +83,7 @@ export interface TypeDef<P extends string = string, R extends string = string, T
   parent?: T | 'org';
   /** Eigener Schlüssel: Vorfahren desselben Typs zählen zur Kette. */
   self?: T;
-  /** Rollen, die hier hängen dürfen; `'*'` nur bei `org`. */
+  /** Rollen, die hier hängen dürfen; `'*'` nur bei `org` (dort Standard; eine Liste begrenzt die Rollen an der Organisation, `org-admin` wird ergänzt, M5). */
   roles: readonly R[] | '*';
   /** Beziehungen ohne Rechte, die hier hängen dürfen (nur `member`). */
   relations?: readonly 'member'[];
@@ -114,7 +114,7 @@ export interface ModelInput<P extends string = string, R extends string = string
   /** Rollen = Beziehungsnamen. `'*'` nur bei `org-admin` (darf fehlen, wird ergänzt). */
   roles: Record<R, RoleDef<NoInfer<P> | ReservedPermission>>;
   scopes?: Record<string, { text: string; permissions: readonly (NoInfer<P> | ReservedPermission)[] }>;
-  /** Orte. `org` darf fehlen (wird mit `roles: '*'` ergänzt). Ohne `types` gibt es nur Rollen an `org`. */
+  /** Orte. `org` darf fehlen (wird mit `roles: '*'` ergänzt) oder mit `roles` als Liste die Rollen an der Organisation begrenzen. Ohne `types` gibt es nur Rollen an `org`. */
   types?: Record<T, TypeDef<NoInfer<P> | ReservedPermission, NoInfer<R> | typeof ADMIN_ROLE, NoInfer<T>>>;
   /** Labels der Stufen 0, 1, 2; Standard «intern», «vertraulich», «streng vertraulich». */
   classifications?: readonly [string, string, string];
@@ -229,7 +229,8 @@ export function defineModel<const P extends string, const R extends string, cons
   if (orgIn) {
     if (orgIn.label !== 'Organisation') errors.push(`Typ «org»: Label «${orgIn.label}» statt «Organisation» (reserviert)`);
     if (orgIn.parent) errors.push('Typ «org» ist die Wurzel und hat keinen parent (M4)');
-    if (orgIn.roles !== '*') errors.push('Typ «org»: roles muss «*» sein (jede Rolle darf an der Organisation hängen)');
+    if (orgIn.roles !== '*' && !Array.isArray(orgIn.roles)) errors.push('Typ «org»: roles ist «*» oder eine Liste von Rollen (M5)');
+    else if (Array.isArray(orgIn.roles) && orgIn.roles.length !== new Set(orgIn.roles).size) errors.push('Typ «org»: roles mit doppelten Rollen (M5)');
     for (const [k, v] of [['leaf', orgIn.leaf], ['self', orgIn.self], ['scope', orgIn.scope], ['relations', orgIn.relations?.length]] as const) {
       if (v) errors.push(`Typ «org»: ${k} nicht erlaubt`);
     }
@@ -238,7 +239,9 @@ export function defineModel<const P extends string, const R extends string, cons
     if (orgIn.membersRole !== undefined) errors.push('Typ «org»: membersRole nicht erlaubt (M13)');
     if (orgIn.read && orgIn.read !== 'tenant:read') errors.push('Typ «org»: read ist immer «tenant:read»');
   }
-  const typeDefs: [string, TypeDef][] = [[ORG, { label: 'Organisation', roles: '*' }], ...typesIn.filter(([k]) => k !== ORG)];
+  // org-admin steht immer an org (wird ergänzt); die übrigen Rollen der Liste stehen in der Reihenfolge der Eingabe
+  const orgRoles = orgIn && Array.isArray(orgIn.roles) ? [ADMIN_ROLE, ...orgIn.roles.filter(r => r !== ADMIN_ROLE)] : '*';
+  const typeDefs: [string, TypeDef][] = [[ORG, { label: 'Organisation', roles: orgRoles }], ...typesIn.filter(([k]) => k !== ORG)];
   const typeKeys = new Set(typeDefs.map(([k]) => k));
   for (const [k, t] of typeDefs) {
     if (!NAME_KEY.test(k)) errors.push(`Typ «${k}»: Schlüssel nicht ${NAME_KEY} (M1)`);

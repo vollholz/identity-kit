@@ -10,7 +10,7 @@ import { iamMigrations, migrate, modelChecks } from '../src/migrations.ts';
 import { defineModel, ModelError, type ModelInput } from '../src/model.ts';
 import { productDb, skipDb } from './support/db.ts';
 import { full, grant, tenant } from './support/http.ts';
-import { notesInput, notesModel, simpleModel } from './support/models.ts';
+import { notesInput, notesModel, orgLimitedModel, simpleModel } from './support/models.ts';
 
 const skip = await skipDb();
 
@@ -100,6 +100,21 @@ describe('defineModel', () => {
     assert.deepEqual(checkModel(m.toJSON()).errors, []);
   });
 
+  test('types.org.roles (Kit 1.3): Liste begrenzt die Rollen an org, org-admin wird ergänzt; ohne Angabe «*»', () => {
+    const orgOf = (m: ReturnType<typeof defineModel>) => m.toJSON().types[0]!;
+    assert.deepEqual(orgOf(orgLimitedModel).roles, ['org-admin', 'editor', 'viewer']);
+    assert.deepEqual(orgOf(orgLimitedModel).relations, ['org-admin', 'editor', 'viewer']);
+    assert.deepEqual(orgLimitedModel.relationsAt('org'), ['org-admin', 'editor', 'viewer']);
+    assert.ok(orgLimitedModel.relationsAt('folder').includes('sharer'));
+    assert.deepEqual(orgOf(notesModel).roles, ['org-admin', 'editor', 'viewer'], 'Standard: alle Rollen');
+    assert.deepEqual(checkModel(orgLimitedModel.toJSON()).errors, []);
+    const input = structuredClone(notesInput()) as any;
+    input.types.org = { label: 'Organisation', roles: ['org-admin', 'viewer'] };
+    assert.deepEqual(orgOf(defineModel(input)).roles, ['org-admin', 'viewer']);
+    input.types.org = { label: 'Organisation', roles: '*' };
+    assert.deepEqual(orgOf(defineModel(input)).roles, ['org-admin', 'editor', 'viewer']);
+  });
+
   test('platform.json nur Scopes (O4)', () => {
     assert.equal(notesModel.platformJson(), `${JSON.stringify({ scopes: ['notes:read', 'notes:write'] }, null, 2)}\n`);
   });
@@ -120,6 +135,9 @@ describe('defineModel', () => {
     ['M4 Kreis', m => { m.types.folder.parent = 'view'; m.types.view.parent = 'folder'; }, /Kreis/],
     ['M4 self fremd', m => { m.types.folder.self = 'note'; }, /self nur gleich/],
     ['M5 org-admin am Ort', m => { m.types.folder.roles = ['org-admin']; }, /org-admin nur an org/],
+    ['M5 org: unbekannte Rolle', m => { m.types.org = { label: 'Organisation', roles: ['viewer', 'nix'] }; }, /Typ «org»: Rolle «nix» nicht im Modell \(M5\)/],
+    ['M5 org: Rolle doppelt', m => { m.types.org = { label: 'Organisation', roles: ['viewer', 'viewer'] }; }, /Typ «org»: roles mit doppelten Rollen \(M5\)/],
+    ['M5 org: weder «*» noch Liste', m => { m.types.org = { label: 'Organisation', roles: 'viewer' }; }, /Typ «org»: roles ist «\*» oder eine Liste/],
     ['M5 «*» am Ort', m => { m.types.folder.roles = '*'; }, /roles «\*» nur bei org/],
     ['M6 zwei Blätter', m => { m.types.view.leaf = true; m.types.view.write = 'view:write'; }, /Höchstens ein Blatt-Typ/],
     ['M6 Blatt als parent', m => { m.types.sub = { label: 'Sub', parent: 'note', roles: [], read: 'note:read' }; m.permissions['note:read'].resources.push('sub'); }, /Blatt, aber Typ «sub»/],

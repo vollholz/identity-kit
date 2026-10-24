@@ -151,18 +151,24 @@ function adoption(a: NonNullable<IamMigrationOptions['adopted']>, migrations: Mi
 }
 
 /** Typen und Relationen für die CHECKs von `authz_tuple`: aus dem Modell, sonst nur `org` mit `org-admin`. */
-export interface ModelChecksInput { types: readonly string[]; relations: readonly string[] }
+export interface ModelChecksInput {
+  types: readonly string[]; relations: readonly string[];
+  /** Relationen je Typ (`relationsAt`): neue Tupel mit anderer Relation am Typ lehnt die Datenbank ab; bestehende bleiben (NOT VALID). */
+  places?: Readonly<Record<string, readonly string[]>>;
+}
 
 /** Typen und Relationen eines Modells (Relationen aller Typen und alle Rollen). */
 export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'>): ModelChecksInput {
-  return { types: [...model.types.keys()], relations: model.allRelations() };
+  return { types: [...model.types.keys()], relations: model.allRelations(), places: Object.fromEntries([...model.types].map(([k, t]) => [k, t.relations])) };
 }
 
 function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
   const types = [...new Set(o?.types ?? [ORG])], relations = [...new Set(o?.relations ?? [ADMIN_ROLE])];
   if (!types.includes(ORG)) throw new Error('model: Typ «org» fehlt (Wurzel der Kette)');
   for (const t of [...types, ...relations]) if (!TYPE.test(t)) throw new Error(`model: Schlüssel «${t}» ungültig`);
-  return { types, relations };
+  const places = o?.places;
+  if (places) for (const [t, rels] of Object.entries(places)) for (const x of [t, ...rels]) if (!TYPE.test(x)) throw new Error(`model: Schlüssel «${x}» ungültig`);
+  return { types, relations, ...(places ? { places } : {}) };
 }
 
 const lit = (v: string) => `'${v}'`;
@@ -174,9 +180,16 @@ const inCheck = (col: string, v: readonly string[]) => ({
 });
 
 /** Bedingungen von `authz_tuple` zu Relationen und Typen: SQL zum Anlegen und die Form, die PostgreSQL ausgibt. */
-export function modelChecks(o?: ModelChecksInput): Record<string, { sql: string; def: string }> {
-  const { types, relations } = checkInput(o);
-  return { authz_tuple_relation_check: inCheck('relation', relations), authz_tuple_object_type_check: inCheck('object_type', types) };
+export function modelChecks(o?: ModelChecksInput): Record<string, { sql: string; def: string; tag?: string }> {
+  const { types, relations, places } = checkInput(o);
+  const out: Record<string, { sql: string; def: string; tag?: string }> = { authz_tuple_relation_check: inCheck('relation', relations), authz_tuple_object_type_check: inCheck('object_type', types) };
+  if (places) {
+    // Je Typ nur seine Relationen; NOT VALID: bestehende Tupel (z. B. Rolle nach dem Begrenzen von `types.org.roles`) bleiben,
+    // sie zählen in der Entscheidung nicht mehr, neue und geänderte werden abgelehnt.
+    const sql = `CHECK (${types.map(t => `(object_type = ${lit(t)} AND relation IN (${(places[t] ?? []).map(lit).join(', ') || "''"}))`).join(' OR ')}) NOT VALID`;
+    out.authz_tuple_type_relation_check = { sql, def: '', tag: `model:${createHash('sha256').update(sql).digest('hex').slice(0, 16)}` };
+  }
+  return out;
 }
 
 /**
@@ -191,13 +204,18 @@ export async function syncModelChecks(c: pg.ClientBase, schema: string, model?: 
   const have = new Map((await c.query<{ n: string; d: string }>(
     `SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = '${schema}.authz_tuple'::regclass AND conname = ANY ($1)`,
     [Object.keys(want)])).rows.map(r => [r.n, r.d]));
+  // Bedingungen mit Marke im Kommentar (Form der Definition ist hier nicht vorhersehbar)
+  const tags = new Map((await c.query<{ n: string; d: string | null }>(
+    `SELECT conname AS n, obj_description(oid, 'pg_constraint') AS d FROM pg_constraint WHERE conrelid = '${schema}.authz_tuple'::regclass AND conname = ANY ($1)`,
+    [Object.keys(want)])).rows.map(r => [r.n, r.d]));
   const out: string[] = [];
   for (const [name, w] of Object.entries(want)) {
-    if (have.get(name) === w.def) continue;
+    if (w.tag ? tags.get(name) === w.tag : have.get(name) === w.def) continue;
     try {
       await c.query('SAVEPOINT model_check');
       await c.query(`ALTER TABLE ${schema}.authz_tuple DROP CONSTRAINT IF EXISTS ${name}`);
       await c.query(`ALTER TABLE ${schema}.authz_tuple ADD CONSTRAINT ${name} ${w.sql}`);
+      if (w.tag) await c.query(`COMMENT ON CONSTRAINT ${name} ON ${schema}.authz_tuple IS '${w.tag}'`);
       await c.query('RELEASE SAVEPOINT model_check');
     } catch (e) {
       await c.query('ROLLBACK TO SAVEPOINT model_check');

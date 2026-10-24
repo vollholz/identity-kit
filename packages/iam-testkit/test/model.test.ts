@@ -46,6 +46,8 @@ describe('checkModel', () => {
     ['Beschreibung ohne Gruppe', c => { c.roles[2]!.description = 'Liest.'; }, /M3 Rolle «viewer»: Beschreibung nennt die Rechtegruppe «notes» nicht/],
     ['parent fehlt', c => { c.types[1]!.parent = 'nix'; }, /M4 Typ «folder»: parent fehlt/],
     ['Kreis', c => { c.types[1]!.parent = 'note'; c.types[2]!.leaf = undefined; }, /M4 Typ «folder»: Kette hat einen Kreis/],
+    ['org: Rolle fehlt in der Liste, org-admin fehlt', c => { c.types[0]!.roles = ['viewer']; }, /M5 Typ «org»: org-admin muss dort hängen dürfen/],
+    ['org: unbekannte Rolle', c => { c.types[0]!.roles.push('nix'); }, /M5 Typ «org»: Rolle «nix» nicht im Modell/],
     ['org-admin am Ort', c => { c.types[1]!.roles.push('org-admin'); }, /M5 Typ «folder»: org-admin nur an org/],
     ['zwei Blätter', c => { c.types[1]!.leaf = true; }, /M6 höchstens ein Blatt-Typ/],
     ['Blatt ohne write', c => { c.types[2]!.write = undefined; }, /M7 Typ «note»: write fehlt/],

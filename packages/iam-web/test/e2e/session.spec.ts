@@ -16,7 +16,7 @@ const VIEWS: [string, string][] = [
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`Zustände der Sitzung: axe ohne serious/critical, 390 px ohne waagrechtes Scrollen (${scheme})`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 });
       for (const [view, heading] of VIEWS) {

@@ -84,6 +84,8 @@ export interface Iam<P extends string = string, S = unknown> {
 export function resourceProblems(model: Model, r: ResourceModel<any> | null): string[] {
   const out: string[] = [];
   const types = [...model.types.values()];
+  // Ohne version bliebe der geladene Zustand der Kette bis zur nächsten Änderung eines Tupels im Zwischenspeicher
+  if (r?.load && !r.version) out.push('ResourceModel.version fehlt (Pflicht mit load: ändert sich mit jeder Änderung der Kette)');
   if (types.some(t => t.classified) && !r?.classification) out.push('ResourceModel.classification fehlt (Typen mit classified)');
   if (types.some(t => t.scope)) {
     if (!r?.edges) out.push('ResourceModel.edges fehlt (Typen mit scope)');

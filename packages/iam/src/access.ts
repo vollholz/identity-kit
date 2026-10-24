@@ -98,10 +98,13 @@ export class AccessService<P extends string = string, S = unknown> {
   readonly resources: ResourceModel<S> | null;
   /** Typ der Zuständigkeit (mit `scope`), sonst null. */
   readonly scopeType: TypeInfo<P> | null;
+  /** Alle Typen mit Zuständigkeit (`scope`). */
+  readonly scopeTypes: TypeInfo<P>[];
 
   constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null }) {
     this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null;
-    this.scopeType = [...o.model.types.values()].find(t => t.scope) ?? null;
+    this.scopeTypes = [...o.model.types.values()].filter(t => t.scope);
+    this.scopeType = this.scopeTypes[0] ?? null;
   }
 
   /** Transaktion mit voller Sicht im Mandanten. */
@@ -327,8 +330,8 @@ export class AccessService<P extends string = string, S = unknown> {
     for (const t of acl.tuples) {
       if (!subjects.has(t.subject) || !live(t, now)) continue;
       if (t.relation === MEMBER) {
-        const st = this.scopeType;
-        if (st && this.resources?.edges?.unit === t.object_type && (perm === st.read || perm === st.write)) return true;
+        // Zuständigkeit: irgendein Typ mit scope, dessen Lese- oder Schreibrecht perm ist
+        if (this.resources?.edges?.unit === t.object_type && this.scopeTypes.some(st => perm === st.read || perm === st.write)) return true;
       } else if (this.grants(t.relation, t.object_type, perm)) return true;
     }
     return false;
@@ -370,12 +373,15 @@ export class AccessService<P extends string = string, S = unknown> {
 
   /**
    * Kurzer Fingerabdruck des Zugriffsstands für ETags von Antworten mit `can` (Kap. 7.9): ändert sich ein Tupel, eine
-   * Freigabestufe, der Zustand der Kette oder das Token, gilt eine zwischengespeicherte Antwort nicht mehr.
+   * Freigabestufe, der Zustand der Kette oder das Token, gilt eine zwischengespeicherte Antwort nicht mehr. Tupel mit
+   * Ablauf ändern das Ergebnis ohne neue Version: die noch gültigen Tupel der eigenen Subjekte zählen mit.
    */
   async accessTag(p: Principal): Promise<string> {
     const acl = await this.load(p.tenantId);
     const until = this.breakGlassUntil(acl, p.principalId)?.toISOString() ?? '';
-    const parts = [acl.version, p.kind, p.principalId, [...p.subjects].sort().join(','), p.scopeBound ? 's' : '', [...p.scopes].sort().join(','), until];
+    const subjects = new Set(p.subjects), now = Date.now();
+    const timed = acl.tuples.filter(t => t.expires_at && subjects.has(t.subject) && live(t, now)).map(t => t.id).sort().join(',');
+    const parts = [acl.version, p.kind, p.principalId, [...p.subjects].sort().join(','), p.scopeBound ? 's' : '', [...p.scopes].sort().join(','), until, timed];
     return createHash('sha256').update(parts.join('|')).digest('base64url').slice(0, 10);
   }
 

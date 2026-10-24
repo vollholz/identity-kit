@@ -10,6 +10,8 @@ import { after, before, describe, test } from 'node:test';
 import { accessCases, runAccessCases } from '@vollholz/iam-testkit';
 import { AccessService, capabilities, noFacts, subjectsOf, type Facts, type TenantAccess, type Tuple } from '../src/access.ts';
 import { pgAudit } from '../src/audit.ts';
+import { resourceProblems } from '../src/iam.ts';
+import { defineModel } from '../src/model.ts';
 import { withTenant } from '../src/db.ts';
 import type { Level } from '../src/model.ts';
 import type { Principal } from '../src/principal.ts';
@@ -17,7 +19,7 @@ import { refKey } from '../src/resources.ts';
 import { expireAccess } from '../src/sync.ts';
 import { skipDb } from './support/db.ts';
 import { folderWithNote, full, grant, notesDb, notesResources, person, team, tenant, type NotesState } from './support/http.ts';
-import { notesModel } from './support/models.ts';
+import { notesInput, notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -64,6 +66,26 @@ describe('Entscheidung (ohne Datenbank)', () => {
     assert.equal(acc.decide(p(), a, 'note:write', N2), false, 'anderer Ordner');
     assert.equal(acc.decide(p(), a, 'note:write'), false, 'nicht an org');
     assert.equal(acc.decide(p(), acl([tuple(me, 'editor', 'folder', U(12))]), 'note:read', F1), false, 'nicht nach oben');
+  });
+
+  test('canSomewhere über Zuständigkeit gilt für jeden Typ mit scope, nicht nur den ersten', () => {
+    const i = notesInput();
+    const two = defineModel({
+      ...i,
+      permissions: { ...i.permissions, 'doc:read': { label: 'Dokumente lesen', group: 'notes', description: 'Dokumente sehen.', resources: ['org', 'doc'] }, 'doc:write': { label: 'Dokumente ändern', group: 'notes', description: 'Dokumente ändern.', resources: ['org', 'doc'] } },
+      roles: { ...i.roles, viewer: { ...i.roles.viewer, permissions: [...i.roles.viewer.permissions, 'doc:read'] }, editor: { ...i.roles.editor, permissions: [...i.roles.editor.permissions, 'doc:read', 'doc:write'] } },
+      types: { ...i.types, doc: { label: 'Dokument', parent: 'org', roles: ['editor', 'viewer'], scope: { via: 'reference', relation: 'betrifft' }, read: 'doc:read', write: 'doc:write' } },
+    } as never);
+    const a2 = new AccessService(null as never, { model: two, schema: 'notes', resources: notesResources });
+    const a = acl([tuple(me, 'member', 'team', U(31))]);
+    for (const perm of ['note:read', 'note:write', 'doc:read', 'doc:write']) assert.equal(a2.somewhere(p({ subjects: [me] }), a, perm), true, perm);
+    assert.equal(a2.somewhere(p({ subjects: [me] }), a, 'team:read'), false, 'member gibt kein Recht an der Einheit');
+  });
+
+  test('ResourceModel mit load braucht version (sonst bliebe die Kette im Zwischenspeicher)', () => {
+    const { version: _, ...noVersion } = notesResources;
+    assert.ok(resourceProblems(notesModel, noVersion as never).some(x => /version fehlt/.test(x)));
+    assert.deepEqual(resourceProblems(notesModel, notesResources), []);
   });
 
   test('Blatt-Tupel: Rolle an der Notiz; member gibt keine Rechte, auch nicht an der Einheit selbst', () => {
@@ -179,6 +201,21 @@ describe('Entscheidung mit PostgreSQL', { skip }, () => {
     acc = new AccessService(t.runtime, { model: notesModel, schema: 'notes', resources: notesResources });
   });
   after(async () => { await t?.drop(); });
+
+  test('accessTag ändert sich, wenn ein Tupel mit Ablauf abläuft (ohne neue Version, vor dem Aufräumen)', async ctx => {
+    const pid = await person(t.runtime, A, 'tag-expiry');
+    const who = p({ tenantId: A, principalId: pid, subjects: [`user:${pid}`, 'org:members'] });
+    const id = await grant(t.runtime, A, `user:${pid}`, 'viewer', { type: 'org' }, new Date(Date.now() + 3_600_000));
+    const live = await acc.accessTag(who);
+    const version = (await acc.load(A)).version;
+    // Zwei Stunden später, gleiche Version (der Worker hat noch nicht aufgeräumt)
+    ctx.mock.timers.enable({ apis: ['Date'], now: Date.now() + 7_200_000 });
+    try {
+      assert.equal((await acc.load(A)).version, version, 'gleiche Version');
+      assert.notEqual(await acc.accessTag(who), live, 'abgelaufen: anderer Tag');
+    } finally { ctx.mock.timers.reset(); }
+    await full(t.runtime, A, tx => tx.query('DELETE FROM notes.authz_tuple WHERE id = $1', [id]));
+  });
 
   test('Zuständigkeit über untergeordnete Teams (inherits), Tiefe 16, Kreis endet', async () => {
     const root = await team(t.runtime, A, 'root');

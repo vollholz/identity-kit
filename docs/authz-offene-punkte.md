@@ -24,6 +24,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | D8 | 2026-10-24 | Assets: geteilte Inhalte (Ansicht, Report, Dashboard) mit eigenen Rollen `share-viewer`/`share-editor` und Rechten `content:read`/`content:write`, damit private Inhalte nicht über org-weite Rollen lesbar sind |
 | D10 | 2026-10-24 | «Für alle Mitglieder» setzt die Rolle aus `types[].membersRole` des Modells (Standard `viewer`), damit Apps mit eigenen Teilen-Rollen (D8) den Schalter behalten; Kit 1.2 |
 | D11 | 2026-10-24 | org-admin sieht auch private Inhalte anderer (konsequent zu D2); Teilen-Rollen nie an org vergebbar (Kit 1.3: `types.org.roles` als Liste) |
+| D12 | 2026-10-24 | Zurücksetzen und frisch Aufsetzen automatisiert: alles (App-Datenbank, Organisationen und Personen in Keycloak); Init aus Datei oder Workflow-Eingaben, optional mit Demo-Inhalten; GitHub-Workflow mit Freigabe; generisch im Kit (`iam-reset`, `iam-org-bootstrap --file`), Aufruf in Assets |
 | D9 | 2026-10-24 | Zuständigkeit über Personen aus Fachdaten generisch im Baukasten (Kit 1.1, P1b), nicht als Sonderlösung in Assets |
 
 ## Pakete und Stand
@@ -42,6 +43,8 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 → #43) |
 | 10 Doku Assets | assets | `authz-p10-docs` | erledigt (assets#45) |
 | 8b Nachtrag: Diskussions-Webhooks maskieren (Codex auf #45) | assets | `authz-p8b-discussion-webhooks` | erledigt (assets#46) |
+| 12 Kit: `iam-reset`, Init aus Datei (1.4.0) | identity-kit | `authz-p12-reset` | in Arbeit (session_01L5q1X5LhwkB64AXNK71z8w) |
+| 13 Assets: Reset-Workflow | assets | `authz-p13-reset` | in Arbeit (session_01LwdURy7pBDnkanZzdBfxXc) |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
 ## Offene Punkte

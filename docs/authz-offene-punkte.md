@@ -43,7 +43,7 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | erledigt (assets#44 → #43) |
 | 10 Doku Assets | assets | `authz-p10-docs` | erledigt (assets#45) |
 | 8b Nachtrag: Diskussions-Webhooks maskieren (Codex auf #45) | assets | `authz-p8b-discussion-webhooks` | erledigt (assets#46) |
-| 12 Kit: `iam-reset`, Init aus Datei (1.4.0) | identity-kit | `authz-p12-reset` | in Arbeit (session_01L5q1X5LhwkB64AXNK71z8w) |
+| 12 Kit: `iam-reset`, Init aus Datei (1.4.0) | identity-kit | `authz-p12-reset` | erledigt (#55), Release 1.4.0 |
 | 13 Assets: Reset-Workflow | assets | `authz-p13-reset` | in Arbeit (session_01LwdURy7pBDnkanZzdBfxXc) |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
@@ -62,6 +62,9 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Assets erzeugt `access.changed` übergangsweise über einen Audit-Wrapper | P8 assets#43 | offen, Kit-Folgearbeit |
 | O11 | Alte Dateien in Assets löschen (Liste in assets#43) | P8 | erledigt (assets#47) |
 | O12 | E2E-Tests (Playwright) gegen lokalen Stack für Zugriff/Klassifizierung in Assets nicht ausgeführt (CI-Umgebung ohne Docker) | P9 assets#44 | offen, vor produktivem Einsatz |
+| O13 | `iam-reset --keycloak` entfernt keine Entra-Anbieter, die nach einem abgebrochenen Lauf an keiner Organisation mehr hängen | P12 #55 | offen, klein |
+| O14 | `platform.reset` nur im Workflow-Protokoll (stdout), nicht in der Datenbank; bei Bedarf Plattform-Audit ohne Mandant (eigene Tabelle) | P12 #55 | offen, nur bei Bedarf |
+| O15 | Versionstabelle in docs/neue-app.md veraltet | P12 #55 | offen, klein |
 | O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 
 ## Verworfen

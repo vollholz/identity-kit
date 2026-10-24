@@ -236,6 +236,7 @@ describe('Ersteinrichtung einer Organisation', () => {
       const n = fake.calls.length;
       for (const [args, env, m] of [
         [['--email', 'a@b.ch'], {}, /--alias fehlt/],
+        [['--alias', 'x', '--email', 'a@b.ch', '--falsch'], {}, /--falsch/],
         [['--alias', 'x', '--email', 'kaputt'], {}, /E-Mail/],
         [['--alias', 'x', '--email', 'a@b.ch'], { KEYCLOAK_TF_REALM: 'master' }, /master/],
         [['--alias', 'x', '--email', 'a@b.ch'], { DATABASE_ADMIN_URL: '' }, /DATABASE_ADMIN_URL fehlt/],

@@ -21,16 +21,20 @@ import { parseArgs } from 'node:util';
 import { initFileErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile } from '../bootstrap.ts';
 import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
-const { values: a } = parseArgs({
-  options: {
-    alias: { type: 'string' }, name: { type: 'string' }, domain: { type: 'string' }, schema: { type: 'string' },
-    email: { type: 'string' }, first: { type: 'string' }, last: { type: 'string' }, file: { type: 'string' },
-    'platform-admin': { type: 'boolean', default: false },
-    'dry-run': { type: 'boolean', default: false }, 'initial-password': { type: 'boolean', default: false },
-  },
-});
 const env = process.env;
 const fail = (m: string): never => { console.error(m); process.exit(64); };
+let parsed;
+try {
+  parsed = parseArgs({
+    options: {
+      alias: { type: 'string' }, name: { type: 'string' }, domain: { type: 'string' }, schema: { type: 'string' },
+      email: { type: 'string' }, first: { type: 'string' }, last: { type: 'string' }, file: { type: 'string' },
+      'platform-admin': { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false }, 'initial-password': { type: 'boolean', default: false },
+    },
+  });
+} catch (e) { fail((e as Error).message); }
+const a = parsed!.values;
 
 let file: InitFile | null = null;
 let alias = '', email = '';

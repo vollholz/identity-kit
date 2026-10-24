@@ -19,15 +19,19 @@ import { parseArgs } from 'node:util';
 import { resetDatabase, resetKeycloak } from '../reset.ts';
 import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
-const { values: a } = parseArgs({
-  options: {
-    keycloak: { type: 'boolean', default: false }, database: { type: 'boolean', default: false },
-    confirm: { type: 'string' }, schema: { type: 'string' }, 'keep-table': { type: 'string', multiple: true, default: [] },
-    'dry-run': { type: 'boolean', default: false },
-  },
-});
 const env = process.env;
 const fail = (m: string, code = 64): never => { console.error(m); process.exit(code); };
+let parsed;
+try {
+  parsed = parseArgs({
+    options: {
+      keycloak: { type: 'boolean', default: false }, database: { type: 'boolean', default: false },
+      confirm: { type: 'string' }, schema: { type: 'string' }, 'keep-table': { type: 'string', multiple: true, default: [] },
+      'dry-run': { type: 'boolean', default: false },
+    },
+  });
+} catch (e) { fail((e as Error).message); }
+const a = parsed!.values;
 
 if (!a.keycloak && !a.database) fail('--keycloak und/oder --database angeben');
 const realm = realmFromEnv(env, fail);

@@ -77,10 +77,12 @@ export async function resetDatabase(o: DatabaseResetOptions): Promise<DatabaseRe
     if (unknown.length) throw new Error(`--keep-table: ${unknown.join(', ')} nicht im Schema ${S}`);
     const kept = all.filter(t => keep.has(t.name) || MIGRATION_TABLES.includes(t.name)).map(t => t.name);
     const targets = all.filter(t => !kept.includes(t.name));
-    // CASCADE leerte auch Tabellen, die auf eine Zieltabelle verweisen: nur zulässig, wenn auch sie Ziel sind
+    // CASCADE leerte auch Tabellen, die auf eine Zieltabelle verweisen: nur zulässig, wenn auch sie Ziel sind (samt
+    // Partitionen: Fremdschlüssel partitionierter Tabellen stehen auch an jeder Partition)
     const refs = (await c.query<{ ref: string; target: string }>(
-      `SELECT DISTINCT conrelid::regclass::text AS ref, confrelid::regclass::text AS target FROM pg_constraint
-        WHERE contype = 'f' AND confrelid = ANY($1::oid[]) AND NOT (conrelid = ANY($1::oid[])) ORDER BY 1, 2`, [targets.map(t => t.oid)])).rows;
+      `WITH t AS (SELECT r AS relid FROM unnest($1::oid[]) r UNION SELECT p.relid FROM unnest($1::oid[]) r, pg_partition_tree(r) p)
+       SELECT DISTINCT conrelid::regclass::text AS ref, confrelid::regclass::text AS target FROM pg_constraint
+        WHERE contype = 'f' AND confrelid IN (SELECT relid FROM t) AND conrelid NOT IN (SELECT relid FROM t) ORDER BY 1, 2`, [targets.map(t => t.oid)])).rows;
     if (refs.length) throw new Error(`Ausgenommene Tabellen verweisen auf zu leerende (CASCADE leerte sie mit): ${refs.map(r => `${r.ref} → ${r.target}`).join(', ')}`);
 
     // Zählen: FORCE ROW LEVEL SECURITY gilt auch für die Besitzer-Rolle; nur in einem Savepoint aufgehoben

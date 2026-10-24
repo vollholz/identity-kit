@@ -71,6 +71,8 @@ describe('Datenbank zurücksetzen', { skip }, () => {
     CREATE TABLE notes.note (tenant_id uuid NOT NULL REFERENCES notes.tenant(id), id bigint GENERATED ALWAYS AS IDENTITY, body text, PRIMARY KEY (tenant_id, id));
     CREATE TABLE notes.lookup (code text PRIMARY KEY);
     CREATE TABLE notes.lookup_ref (tenant_id uuid REFERENCES notes.tenant(id), code text);
+    CREATE TABLE notes.event (tenant_id uuid NOT NULL REFERENCES notes.tenant(id), at date NOT NULL) PARTITION BY RANGE (at);
+    CREATE TABLE notes.event_2026 PARTITION OF notes.event FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
   `)] };
   const db = productDb({ model: notesModel, sources: [app] });
   let t: Awaited<ReturnType<typeof db.create>>;
@@ -82,6 +84,7 @@ describe('Datenbank zurücksetzen', { skip }, () => {
     const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', database: { url: t.adminUrl, schema: 'notes' } });
     await t.inspect.query("INSERT INTO notes.note (tenant_id, body) VALUES ($1, 'a'), ($1, 'b')", [r.tenantId]);
     await t.inspect.query("INSERT INTO notes.lookup VALUES ('x') ON CONFLICT DO NOTHING");
+    await t.inspect.query("INSERT INTO notes.event VALUES ($1, '2026-10-24')", [r.tenantId]);
     return fake;
   };
 
@@ -90,7 +93,8 @@ describe('Datenbank zurücksetzen', { skip }, () => {
     const log: string[] = [];
     const r = await resetDatabase({ url: t.adminUrl, schema: 'notes', keep: ['lookup'], dryRun: true, log: m => log.push(m) });
     const rows = Object.fromEntries(r.tables.map(x => [x.name, x.rows]));
-    assert.deepEqual([rows.tenant, rows.principal, rows.authz_tuple, rows.audit_log, rows.note], [1, 1, 1, 1, 2]);
+    assert.deepEqual([rows.tenant, rows.principal, rows.authz_tuple, rows.audit_log, rows.note, rows.event], [1, 1, 1, 1, 2, 1]);
+    assert.ok(!('event_2026' in rows), 'Partitionen mit der partitionierten Tabelle');
     assert.deepEqual(r.kept, ['lookup']);
     assert.ok(!('lookup' in rows));
     assert.match(log.join('\n'), /\[Probelauf\] Datenbank: \d+ Tabellen im Schema notes würden geleert/);
@@ -108,7 +112,7 @@ describe('Datenbank zurücksetzen', { skip }, () => {
     const force = async () => (await t.inspect.query("SELECT relname, relforcerowsecurity FROM pg_class WHERE relnamespace = 'notes'::regnamespace AND relkind = 'r' ORDER BY 1")).rows;
     const forcedBefore = await force();
     await resetDatabase({ url: t.adminUrl, schema: 'notes', keep: ['lookup'] });
-    for (const x of ['tenant', 'principal', 'authz_tuple', 'audit_log', 'note', 'lookup_ref']) assert.equal(await count(`notes.${x}`), 0, x);
+    for (const x of ['tenant', 'principal', 'authz_tuple', 'audit_log', 'note', 'lookup_ref', 'event', 'event_2026']) assert.equal(await count(`notes.${x}`), 0, x);
     assert.equal(await count('notes.lookup'), 1, '--keep-table bleibt');
     assert.ok(await count('public.schema_migrations') > 0, 'Migrationsbuchhaltung bleibt');
     assert.deepEqual(await force(), forcedBefore, 'FORCE ROW LEVEL SECURITY unverändert');
@@ -129,6 +133,8 @@ describe('Datenbank zurücksetzen', { skip }, () => {
       const n = fake.calls.length, rows = await count('notes.tenant');
       for (const [args, env, m] of [
         [['--confirm', 'notes'], {}, /--keycloak und\/oder --database/],
+        [['--keycloak', '--confirm', 'notes', '--unbekannt'], {}, /--unbekannt/],
+        [['--keycloak', '--confirm'], {}, /--confirm/],
         [['--keycloak'], {}, /--confirm notes fehlt/],
         [['--keycloak', '--database', '--confirm', 'assets'], {}, /entspricht nicht dem Realm notes/],
         [['--keycloak', '--confirm', 'master'], { KEYCLOAK_TF_REALM: 'master' }, /master/],

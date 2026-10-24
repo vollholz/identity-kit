@@ -21,18 +21,23 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 | D5 | 2026-10-23 | Organisationseinheiten, Verantwortliche, Attributgruppen, Klassifizierung in Assets; im Baukasten nur das Generische |
 | D6 | 2026-10-23 | Rollen nur noch in der App-Datenbank; Keycloak ohne Rollengruppen und Client-Rollen |
 | D7 | 2026-10-23 | PRs werden nach grüner CI automatisch gemergt (Squash) |
+| D8 | 2026-10-24 | Assets: geteilte Inhalte (Ansicht, Report, Dashboard) mit eigenen Rollen `share-viewer`/`share-editor` und Rechten `content:read`/`content:write`, damit private Inhalte nicht über org-weite Rollen lesbar sind |
+| D10 | 2026-10-24 | «Für alle Mitglieder» setzt die Rolle aus `types[].membersRole` des Modells (Standard `viewer`), damit Apps mit eigenen Teilen-Rollen (D8) den Schalter behalten; Kit 1.2 |
+| D9 | 2026-10-24 | Zuständigkeit über Personen aus Fachdaten generisch im Baukasten (Kit 1.1, P1b), nicht als Sonderlösung in Assets |
 
 ## Pakete und Stand
 
 | Paket | Repo | Branch | Stand |
 |---|---|---|---|
-| 0 Spezifikation (Vertrag) | identity-kit | `authz-p0-spec` | PR #45, Entscheide A1–A24 werden eingearbeitet |
-| 1–3, 5 Backend + Testkit | identity-kit | `authz-p1-backend` | wartet auf 0 |
-| 4 Realm-Modul | identity-kit | `authz-p4-realm` | PR #44 |
-| 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | wartet auf 0 |
-| 7 Release 1.0 | identity-kit | – | wartet auf 1–6 |
-| 8, 9a Assets Backend + Standardschema | assets | `authz-p8-backend` | wartet auf 7 |
-| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | wartet auf 8 |
+| 0 Spezifikation (Vertrag) | identity-kit | `authz-p0-spec` | erledigt (#45) |
+| 1–3, 5 Backend + Testkit | identity-kit | `authz-p1-backend` | erledigt (#47) |
+| 4 Realm-Modul | identity-kit | `authz-p4-realm` | erledigt (#44) |
+| 6 Oberfläche Baukasten | identity-kit | `authz-p6-web` | erledigt (#46) |
+| 1b Kit 1.1: Zuständigkeit über Personen | identity-kit | `authz-p1b-persons` | erledigt (#48), Release 1.1.0 |
+| 1c Kit 1.2: `membersRole` | identity-kit | `authz-p1c-members-role` | in Arbeit |
+| 7 Release 1.0 | identity-kit | – | automatisch nach Merge (release.yml): iam-web, product-realm 1.0.0 veröffentlicht, iam/iam-testkit im Lauf |
+| 8, 9a Assets Backend + Standardschema (+ Backend von 9b) | assets | `authz-p8-backend` | in Arbeit (session_01UWR9VNXN5ahNpJHagFH6T2) |
+| 9, 9b Assets Oberfläche + Attributgruppen | assets | `authz-p9-web` | in Arbeit (session_01PvfpnohjZyvyNnJQPwQohG), auf Stand von P8 |
 | 10 Doku Assets | assets | `authz-p10-docs` | wartet auf 9 |
 | 11 identity README | identity | `ccr-4fc410d5-h3g8d6` | erledigt (identity #7) |
 
@@ -42,10 +47,13 @@ Punkte im Abschlussbericht ihres PRs, nicht durch Bauen.
 |---|---|---|---|
 | O1 | Entra-Gruppen: Überlauf bei mehr als 200 Gruppen (Entra liefert dann keinen `groups`-Claim); ggf. Gruppen-Filter in der App-Registrierung oder Abfrage über Graph | Review #43 | offen, nach P1 |
 | O2 | Attribut `entra_groups` im Realm-User-Profile | P4 | entschieden: im Modul deklariert, nur admin, mehrwertig |
-| O4 | `catalog.platformJson()` ohne `roles`; `machine_clients` im Modul ohne `roles` | P4 | an P1 |
+| O4 | `catalog.platformJson()` ohne `roles`; `machine_clients` im Modul ohne `roles` | P4 | erledigt (#47) |
 | O5 | Eigene Rollen der Organisation (D3): Rückfrage der Person offen; später als Rollen aus Tabelle mit derselben API möglich | Person | offen |
 | O6 | Besitz (`owner`) übertragen | P0 A7 | offen, nicht in diesem Vorhaben |
-| O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | an P1 |
+| O7 | Release-Hinweis 1.0: neue Symbole `arrow`, `lock` in `IamIconName`; OpenAPI-Auszug in iam-web erneuern, sobald P1 eine OpenAPI liefert | P6 | an P7 |
+| O8 | Alte Dateien in packages/iam löschen (Migrationen iam_009…014 bzw. alte Module, Tests, Skripte, Fixtures): Umgebung verweigert `git rm`; Liste im PR von P1 | P1 | wartet auf die Person |
+| O9 | «Warum?» für andere Personen kennt deren Entra-Gruppen nicht (nur aus dem eigenen Token); Vorschlag: Gruppen beim Login am Principal speichern | P1 #47 | offen, nach Assets |
+| O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 
 ## Verworfen
 

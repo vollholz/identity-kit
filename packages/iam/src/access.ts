@@ -205,6 +205,8 @@ export class AccessService<P extends string = string, S = unknown> {
   private grants(relation: string, type: string, perm: string): boolean {
     if (relation === MEMBER) return false;
     if (relation === OWNER) return !!this.model.types.get(type)?.owner && this.model.permissionsOf(OWNER, type).has(perm as P);
+    // Tupel mit einer Rolle, die am Typ nicht (mehr) zulässig ist (z. B. nach `types.org.roles` als Liste), zählen nicht
+    if (!this.model.relationsAt(type).includes(relation)) return false;
     return this.model.roles.get(relation)?.permissions.includes(perm as P) ?? false;
   }
 
@@ -414,7 +416,8 @@ export class AccessService<P extends string = string, S = unknown> {
   rolesAtOrg(who: Pick<Who, 'subjects'>, acl: TenantAccess<S>): string[] {
     const subjects = new Set(who.subjects), now = Date.now();
     const have = new Set(this.at(acl, { type: ORG }).filter(t => subjects.has(t.subject) && live(t, now)).map(t => t.relation));
-    return [...this.model.roles.keys()].filter(r => have.has(r));
+    const here = this.model.relationsAt(ORG);
+    return [...this.model.roles.keys()].filter(r => have.has(r) && here.includes(r));
   }
 
   /** Rechte an org (∧ Scope), in Reihenfolge des Modells. */
@@ -433,7 +436,7 @@ export class AccessService<P extends string = string, S = unknown> {
   /** Regel 6: Client mit mindestens einem nicht abgelaufenen Tupel `client:<id> <rolle> org`. */
   clientGranted(acl: TenantAccess<S>, principalId: string): boolean {
     const s = `client:${principalId}`, now = Date.now();
-    return this.at(acl, { type: ORG }).some(t => t.subject === s && this.model.roles.has(t.relation as never) && live(t, now));
+    return this.at(acl, { type: ORG }).some(t => t.subject === s && this.model.relationsAt(ORG).includes(t.relation) && live(t, now));
   }
 
   /**
@@ -464,7 +467,9 @@ export class AccessService<P extends string = string, S = unknown> {
     const orgPerms = this.orgPermissions(who, acl);
     const allowed = (perm: string | null) => !!perm && this.scopeAllows(who, perm);
     const rel: Record<string, string[]> = {};
-    for (const perm of m.permissions) if (allowed(perm)) rel[perm] = this.relationsWith(perm);
+    // org: nur über `app.org_permissions`; an den übrigen Typen zählen nur Relationen, die an irgendeinem von ihnen zulässig sind
+    const below = new Set([...m.types.keys()].filter(k => k !== ORG).flatMap(k => m.relationsAt(k)));
+    for (const perm of m.permissions) if (allowed(perm)) rel[perm] = this.relationsWith(perm).filter(r => below.has(r));
     const out: Record<string, string> = {
       'app.subjects': pgArray(who.subjects),
       'app.clearance': String(this.clearanceOf(who, acl)),
@@ -475,8 +480,9 @@ export class AccessService<P extends string = string, S = unknown> {
       const readAll = !!leaf.read && orgPerms.includes(leaf.read), writeAll = !!leaf.write && orgPerms.includes(leaf.write);
       out['app.read_all'] = readAll ? 'on' : 'off';
       out['app.write_all'] = writeAll ? 'on' : 'off';
-      out['app.read_relations'] = pgArray(allowed(leaf.read) ? this.relationsWith(leaf.read!) : []);
-      out['app.write_relations'] = pgArray(allowed(leaf.write) ? this.relationsWith(leaf.write!) : []);
+      const atLeaf = (perm: string | null) => (allowed(perm) ? this.relationsWith(perm!).filter(r => m.relationsAt(leaf.key).includes(r)) : []);
+      out['app.read_relations'] = pgArray(atLeaf(leaf.read));
+      out['app.write_relations'] = pgArray(atLeaf(leaf.write));
       if (leaf.parent && leaf.parent !== ORG) {
         out['app.read_types'] = pgArray(readAll || !allowed(leaf.read) ? [] : this.placesWith(who, acl, leaf.parent, leaf.read!));
         out['app.write_types'] = pgArray(writeAll || !allowed(leaf.write) ? [] : this.placesWith(who, acl, leaf.parent, leaf.write!));

@@ -139,7 +139,7 @@ export class AccessInfo {
     for (let i = chain.length - 1; i >= 0; i--) {
       const step = chain[i]!, here = i === chain.length - 1;
       for (const t of a.at(acl, step)) {
-        if (!live(t, now)) continue;
+        if (!live(t, now) || !a.model.relationsAt(t.object_type).includes(t.relation)) continue;
         if (here) list.push({ t, via: 'direct', removable: t.relation !== OWNER && !this.manageProblem(p, acl, ref, t.relation, facts, hint) });
         else if (t.relation !== MEMBER && t.relation !== OWNER && a.model.roles.get(t.relation)?.permissions.includes(type.read)) list.push({ t, via: 'inherited', removable: false });
       }

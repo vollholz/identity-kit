@@ -1,0 +1,8 @@
+Identity-Kit
+Copyright 2026 vollholz
+
+Lizenziert unter der Apache License, Version 2.0 (Datei LICENSE).
+
+Dieses Produkt enthält Texte aus Keycloak (https://www.keycloak.org), Copyright Red Hat, Inc. und Mitwirkende,
+lizenziert unter der Apache License, Version 2.0: die Originaltexte in modules/product-realm/texts/*.source.json
+und die daraus abgeleiteten Texte in modules/product-realm/texts/.

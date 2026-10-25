@@ -1,6 +1,6 @@
 /**
  * Fehlendes Recht und Rollenmatrix: Labels und Rollen aus dem Katalog, keine Rohschlüssel im Text.
- * Aus vollholz/assets `web/src/ui/rights.test.tsx`, produktneutral (Notiz-App).
+ * Beispiel: Notiz-App.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

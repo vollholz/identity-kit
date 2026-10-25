@@ -1,6 +1,5 @@
 /**
- * Personen in mehreren Organisationen über HTTP (aus Assets test/platform/multi-org.test.ts, «Personen in mehreren
- * Organisationen», produktneutral mit der Beispiel-App «notes»; Pflichttest `multi-org`, Kap. 14). Ergänzt
+ * Personen in mehreren Organisationen über HTTP (Beispiel-App «notes»; Pflichttest `multi-org`, Kap. 14). Ergänzt
  * principal.test.ts (Resolver) und http.test.ts (Wahl der Organisation) um Rechte aus Tupeln je Mandant über eine
  * Fachroute, Rollen im Token ohne Wirkung und den Austritt über die Verwaltung (Modul `admin`), der nur die eine
  * Organisation betrifft und dort die Tupel löscht.

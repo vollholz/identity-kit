@@ -1,6 +1,5 @@
 /**
- * Mandantentrennung direkt in PostgreSQL mit den IAM-Migrationen (ohne API; aus Assets test/platform/rls.test.ts, IAM-Teil,
- * und iam-kit.test.ts): die Datenbank selbst muss Fremdzugriffe verhindern, auch wenn die Anwendung einen Fehler hätte.
+ * Mandantentrennung direkt in PostgreSQL mit den IAM-Migrationen (ohne API): die Datenbank selbst muss Fremdzugriffe verhindern, auch wenn die Anwendung einen Fehler hätte.
  * Neue Tabellen, Policies oder Ausnahmen kommen mit Begründung hierher – sonst schlägt der Test fehl.
  */
 import assert from 'node:assert/strict';

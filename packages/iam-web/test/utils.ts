@@ -1,4 +1,4 @@
-/** Testhilfen: fetch-Ersatz mit Antworten je «METHOD /pfad» (aus vollholz/assets `web/src/test/utils.tsx`). */
+/** Testhilfen: fetch-Ersatz mit Antworten je «METHOD /pfad» */
 import { vi } from 'vitest';
 
 type Handler = (req: Request) => Response | Promise<Response>;

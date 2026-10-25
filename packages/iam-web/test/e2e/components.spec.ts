@@ -100,7 +100,7 @@ test('Variablen der App gehen den Vorgaben vor, auch im dunklen Thema des System
 
 test('Element-Regeln der App (a, h1, button ohne Klasse) überdecken die Klassen der Bausteine nicht', async ({ page }) => {
   await page.goto('/?dlg=confirm');
-  // wie ein globales Reset einer App (z. B. Assets: a { color: inherit }, button { color: inherit }, h3 { margin: 0 })
+  // wie ein globales Reset einer App (z. B. a { color: inherit }, button { color: inherit }, h3 { margin: 0 })
   await page.addStyleTag({ content: 'a { color: inherit } button { color: inherit; background: none } h3 { margin: 40px }' });
   await expect(page.getByRole('link', { name: 'Als Link' })).toHaveCSS('background-color', await page.getByRole('button', { name: 'Standard' }).evaluate(e => getComputedStyle(e).backgroundColor));
   const del = page.getByRole('alertdialog').getByRole('button', { name: 'Rolle löschen' });

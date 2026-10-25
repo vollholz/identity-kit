@@ -1,6 +1,5 @@
 /**
  * Sitzung: Wechsel per POST mit CSRF, öffentliche Abmeldeseite, «Recht irgendwo», Sitzungsablauf, Anmeldung bei 401.
- * Aus vollholz/assets `web/src/auth/session.test.tsx`, ergänzt.
  */
 import { QueryClient } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
@@ -172,11 +171,11 @@ describe('IamProvider', () => {
   });
 
   it('übernimmt einmal einen früheren Schlüssel der Organisation je Tab (legacyTabKey)', async () => {
-    sessionStorage.setItem('assets.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'muster', name: 'Muster GmbH' }));
-    const { api } = setup({}, { legacyTabKey: 'assets.tab.org' });
+    sessionStorage.setItem('app.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'muster', name: 'Muster GmbH' }));
+    const { api } = setup({}, { legacyTabKey: 'app.tab.org' });
     expect(await screen.findByText('App')).toBeInTheDocument();
     expect(api.calls[0]!.headers.get('x-tenant')).toBe('muster');
-    expect(sessionStorage.getItem('assets.tab.org')).toBeNull();
+    expect(sessionStorage.getItem('app.tab.org')).toBeNull();
   });
 
   it('Sprache und Texte der App gelten für die Bausteine', async () => {

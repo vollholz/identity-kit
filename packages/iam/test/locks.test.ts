@@ -12,7 +12,7 @@ import { productDb, skipDb } from './support/db.ts';
 
 const skip = await skipDb();
 
-test('Werte der Sperren (gleich wie Assets, nie ändern)', () => {
+test('Werte der Sperren (nie ändern)', () => {
   assert.deepEqual(LOCKS, { migrate: 727001, memberSync: 727016 });
   assert.equal(lockKey.audit('t1'), 'audit:t1');
   // wie NEW.tenant_id::text im Trigger: UUID immer klein

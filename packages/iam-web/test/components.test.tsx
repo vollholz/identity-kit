@@ -1,4 +1,4 @@
-/** Grundkomponenten; Fälle aus vollholz/assets `web/src/ui/components.test.tsx`, ergänzt um Austausch und axe. */
+/** Grundkomponenten, Austausch und axe. */
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';

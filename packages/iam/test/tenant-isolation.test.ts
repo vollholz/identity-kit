@@ -1,6 +1,6 @@
 /**
- * Mandantentrennung über die Routen des Pakets (Spezifikation Kap. 14; Gerüst nach Assets
- * test/platform/tenant-isolation.test.ts mit den Werkzeugen des Test-Kits): Organisation B erfährt nichts von
+ * Mandantentrennung über die Routen des Pakets (Spezifikation Kap. 14; mit den Werkzeugen
+ * des Test-Kits): Organisation B erfährt nichts von
  * Organisation A – weder Inhalte noch die Existenz von IDs, Namen, Personen oder Mengen.
  *
  * A («acme») legt Ordner, Notizen, Tupel (auch einer Gruppe aus Entra) und Principals mit auffälligen Markierungen an;

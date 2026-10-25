@@ -3,7 +3,7 @@
  * eingebauten Clients realm-management und admin-permissions: der Provider liest dabei das Client-Secret, was
  * Keycloak ab 26.8 verweigert (403). Hier wird kein Secret gelesen. Keine Abhängigkeiten ausser Node.
  *
- *   stdin  {"client_id": "realm-management", "url": "https://identity.project-suite.ch", "realm": "<produkt>", "iac_client_id": "<produkt>-iac"}
+ *   stdin  {"client_id": "realm-management", "url": "https://id.example.ch", "realm": "<produkt>", "iac_client_id": "<produkt>-iac"}
  *   stdout {"id": "<uuid>"}
  *
  * Anmeldung als IaC-Client (admin-api.ts); privater Schlüssel aus KEYCLOAK_IAC_PRIVATE_KEY.

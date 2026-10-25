@@ -1,6 +1,6 @@
 /**
  * Rechtekatalog: Labels und Rollen aus dem Katalog, Orte und Stufen der Vertraulichkeit, Sprache im Abruf und im
- * Schlüssel, Gruppen der Rollen (V3). Aus vollholz/assets `web/src/auth/authz.test.tsx`, produktneutral (Notiz-App).
+ * Schlüssel, Gruppen der Rollen (V3). Beispiel: Notiz-App.
  */
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';

@@ -1,6 +1,6 @@
 /**
- * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (aus Assets test/platform/entra.test.ts,
- * produktneutral mit der Beispiel-App «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
+ * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (Beispiel-App
+ * «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
  * das nachgebildete Microsoft (`EntraFake` des Test-Kits).
  * Schwerpunkte: Admin-Zustimmung (state einmal gültig, an Person, Organisation und Tenant gebunden), nur verifizierte
  * Domänen, keine Domäne einer anderen Organisation (ohne sie zu nennen), Verknüpfung nur über die Objekt-ID und ohne

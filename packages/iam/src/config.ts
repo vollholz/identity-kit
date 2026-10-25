@@ -79,7 +79,7 @@ export function IAM_VARS(product: string): VarSpec[] {
     { name: 'DATABASE_STATEMENT_TIMEOUT', kind: 'duration', group: 'Datenbank', default: '30s', description: 'Abbruch langer SQL-Anweisungen.' },
     { name: 'DATABASE_SSL', kind: 'enum', group: 'Datenbank', values: ['disable', 'require', 'verify-full'], default: 'disable', description: 'TLS zur Datenbank. In Produktion `verify-full`.' },
 
-    { name: 'OIDC_ISSUER_URL', kind: 'url', group: 'Anmeldung (Keycloak)', required: true, description: 'Issuer des Realms. Endpunkte werden über Discovery ermittelt.', example: `https://identity.project-suite.ch/realms/${p}` },
+    { name: 'OIDC_ISSUER_URL', kind: 'url', group: 'Anmeldung (Keycloak)', required: true, description: 'Issuer des Realms. Endpunkte werden über Discovery ermittelt.', example: `https://id.example.ch/realms/${p}` },
     { name: 'OIDC_API_AUDIENCE', kind: 'string', group: 'Anmeldung (Keycloak)', default: `${p}-api`, description: 'Erwartete Zielgruppe (`aud`) für Tokens der REST-API.' },
     { name: 'OIDC_MCP_AUDIENCE', kind: 'string', group: 'Anmeldung (Keycloak)', default: `${p}-mcp`, description: 'Erwartete Zielgruppe für Tokens des MCP-Dienstes.' },
     { name: 'OIDC_CLOCK_TOLERANCE', kind: 'duration', group: 'Anmeldung (Keycloak)', default: '30s', description: 'Toleranz für Uhrzeitabweichungen bei `exp`, `nbf`, `iat`.' },

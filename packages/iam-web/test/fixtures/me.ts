@@ -1,6 +1,6 @@
 /**
  * `/auth/me` nach Spezifikation 9.5 mit allen Feldern; `test/contract.check.ts` hält damit den Typ `Me` fest (gleiche
- * Felder, gleiche Pflichtfelder). Die OpenAPI von Assets beschreibt `/auth/me` nicht.
+ * Felder, gleiche Pflichtfelder). Der OpenAPI-Auszug beschreibt `/auth/me` nicht.
  */
 import type { Me } from '../../src/contract.ts';
 

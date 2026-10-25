@@ -1,9 +1,8 @@
 /**
- * Modul `admin`: Verwaltung von Organisationen, Mitgliedern und Rollen (aus Assets test/platform/admin.test.ts,
- * produktneutral mit der Beispiel-App «notes»), über app.inject gegen Wegwerf-Datenbank, Mock-IdP und den
+ * Modul `admin`: Verwaltung von Organisationen, Mitgliedern und Rollen (Beispiel-App
+ * «notes»), über app.inject gegen Wegwerf-Datenbank, Mock-IdP und den
  * `KeycloakFake` des Test-Kits. Schwerpunkte: Mandantengrenze (auch mit manipulierten IDs), letzter aktiver org-admin,
  * Rechte, Audit, gleiche Antworten beim Einladen, abgeschaltete Verwaltung; dazu der Abgleich im Worker (MemberSync).
- * Assets-Teile ohne Gegenstück im Paket (`/v1/people`, `/v1/tenant`, Objekte) sind über die Tabellen geprüft.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';

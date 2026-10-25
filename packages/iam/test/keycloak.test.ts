@@ -1,5 +1,5 @@
 /**
- * Zugang zur Keycloak-Admin-API (aus Assets test/platform/admin.test.ts, «signierte Client-Assertion» und «V9»), gegen
+ * Zugang zur Keycloak-Admin-API, gegen
  * die Nachbildung `KeycloakFake` des Test-Kits: Anmeldung mit private_key_jwt bzw. Geheimnis, Token wiederverwendet,
  * Admin-URL aus dem Issuer, Einladungen, Suche, Fehler als KeycloakError ohne Interna.
  */

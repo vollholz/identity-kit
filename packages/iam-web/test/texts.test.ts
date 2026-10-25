@@ -1,7 +1,6 @@
 /**
  * Texte des Baukastens (Spezifikation 11.2, docs/entwurf.md › Texte): `en` vollständig wie `de`, Du-Form und Schweizer
  * Rechtschreibung, verbindliche Begriffe – in den Wörterbüchern und in allen sichtbaren Zeichenketten der Quellen.
- * Herkunft der Prüfungen: vollholz/assets `web/src/ui/texts.test.ts`, `terms.test.ts`, `scripts/check-address.ts`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -21,7 +20,7 @@ const SIE_FORM = /\b(Sie|Ihr|Ihre|Ihren|Ihrem|Ihrer|Ihres|Ihnen)\b/;
 /** Gewollte 3. Person, z. B. «Sie lässt sich nicht entfernen» (Organisation, Rolle) – mit Begründung eintragen. */
 // `iam.handover.*`: öffentliche Freigabe für die Entra-Administration der Kunden-IT, eine Person ausserhalb der App («Sie»)
 const SIE_EXCEPTIONS = new Set<string>([
-  'iam.members.lastAdmin', // «Sie lässt sich nicht entfernen»: die Person mit der Rolle, keine Anrede (Wortlaut Assets)
+  'iam.members.lastAdmin', // «Sie lässt sich nicht entfernen»: die Person mit der Rolle, keine Anrede
 ]);
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();

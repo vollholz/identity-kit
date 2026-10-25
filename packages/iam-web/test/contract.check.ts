@@ -1,8 +1,8 @@
 /**
- * Vertragstest auf Typebene (läuft mit `npm run typecheck`): Antworten der OpenAPI von Assets müssen sich den Typen des
+ * Vertragstest auf Typebene (läuft mit `npm run typecheck`): Antworten eines OpenAPI-Auszugs müssen sich den Typen des
  * Pakets zuweisen lassen (das Paket liest nur, was es gibt), und die Anfragekörper des Pakets haben dieselben Felder
  * wie die der OpenAPI und lassen jeden gültigen Körper der OpenAPI zu (Schlüssel der Rechte sind im Paket `string`, in
- * Assets eine Aufzählung). Weicht der Vertrag ab, schlägt die Typprüfung hier fehl. Quelle: test/fixtures/openapi-iam.json
+ * der OpenAPI einer App oft eine Aufzählung). Weicht der Vertrag ab, schlägt die Typprüfung hier fehl. Quelle: test/fixtures/openapi-iam.json
  * (Auszug), erzeugt mit `npm run contract:types`.
  *
  * Authz neu (Spezifikation 9.5–9.7): Katalog, Zugriff, Mitglieder, Clients und Break-Glass stehen noch in keiner

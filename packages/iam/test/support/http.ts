@@ -48,7 +48,7 @@ export const notesMigration = migration('001_notes.sql', `
   CREATE POLICY view_read ON notes.view AS RESTRICTIVE FOR SELECT TO notes_app USING (app.read_all_of('view:read') OR app.has_tuple('view', id, app.relations_of('view:read')));`);
 
 /**
- * Zuständige Personen je Notiz (Fachdaten, `edges.persons`; wie in Assets das Attribut «Verantwortlich») und die
+ * Zuständige Personen je Notiz (Fachdaten, `edges.persons`, z. B. ein Feld «Verantwortlich») und die
  * Policies der Notizen mit dem Weg über `app.read_person()`, `app.write_person()` und `app.person_for()` (Muster Kap. 7.6).
  */
 export const notesPersonsMigration = migration('002_notes_persons.sql', `

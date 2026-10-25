@@ -21,9 +21,9 @@ function errorsOf(change: (m: any) => void): string[] {
   try { defineModel(input as ModelInput); return []; } catch (e) { assert.ok(e instanceof ModelError); return e.errors; }
 }
 
-/** Modell wie Assets (Konzept 5.1): Schema → Typ (self) → Objekt (Blatt, Klassifizierung, Zuständigkeit), Ansichten mit Besitz. */
-const assetsLike = () => defineModel({
-  product: 'assets',
+/** Grosses Modell (Konzept 5.1): Schema → Typ (self) → Objekt (Blatt, Klassifizierung, Zuständigkeit), Ansichten mit Besitz. */
+const inventory = () => defineModel({
+  product: 'inventar',
   permissions: {
     'object:read': { label: 'Objekte lesen', group: 'catalog', description: 'Objekte sehen.', resources: ['org', 'schema', 'type', 'object'] },
     'object:write': { label: 'Objekte ändern', group: 'catalog', description: 'Objekte ändern.', resources: ['org', 'schema', 'type', 'object'] },
@@ -38,7 +38,7 @@ const assetsLike = () => defineModel({
     editor: { label: 'Bearbeiter:in', description: 'Ändert Objekte und Ansichten, gibt Zugriff; Organisation lesen.', permissions: ['tenant:read', 'object:read', 'object:write', 'view:read', 'view:write', 'access:admin'] },
     viewer: { label: 'Leser:in', description: 'Liest Objekte und Ansichten; Organisation lesen.', permissions: ['tenant:read', 'object:read', 'view:read'] },
   },
-  scopes: { 'assets:read': { text: 'Lesen', permissions: ['tenant:read', 'object:read', 'view:read'] } },
+  scopes: { 'inventar:read': { text: 'Lesen', permissions: ['tenant:read', 'object:read', 'view:read'] } },
   types: {
     schema: { label: 'Schema', parent: 'org', roles: ['schema-admin', 'editor', 'viewer'], read: 'object:read' },
     type: { label: 'Objekttyp', parent: 'schema', self: 'type', roles: ['editor', 'viewer'], read: 'object:read' },
@@ -49,9 +49,9 @@ const assetsLike = () => defineModel({
 });
 
 describe('defineModel', () => {
-  test('Modell wie Assets und Notizen: gültig, besteht checkModel; Reserviertes ergänzt, org-admin zuerst mit allen Rechten', () => {
-    const a = assetsLike();
-    assert.deepEqual(checkModel(a.toJSON(), { product: 'assets', platformJson: a.platformJson() }), { errors: [], warnings: [] });
+  test('Inventar und Notizen: gültig, besteht checkModel; Reserviertes ergänzt, org-admin zuerst mit allen Rechten', () => {
+    const a = inventory();
+    assert.deepEqual(checkModel(a.toJSON(), { product: 'inventar', platformJson: a.platformJson() }), { errors: [], warnings: [] });
     assert.deepEqual(checkModel(notesModel.toJSON(), { product: 'notes', platformJson: notesModel.platformJson() }), { errors: [], warnings: [] });
     assert.deepEqual(checkModel(simpleModel.toJSON()).errors, []);
     assert.deepEqual(a.permissions.slice(0, 2), ['tenant:read', 'tenant:admin']);

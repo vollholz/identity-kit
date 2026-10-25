@@ -1,6 +1,5 @@
 /**
- * Token-Prüfung (Spezifikation Kap. 6.1; aus Assets test/platform/auth.test.ts und unit.test.ts, auf Ebene des
- * Verifiers): Signatur, Aussteller, Zielgruppe, Ablauf, nur Access Tokens, DPoP (RFC 9449) mit Replay-Schutz,
+ * Token-Prüfung (Spezifikation Kap. 6.1, auf Ebene des Verifiers): Signatur, Aussteller, Zielgruppe, Ablauf, nur Access Tokens, DPoP (RFC 9449) mit Replay-Schutz,
  * mTLS-gebundene Tokens (RFC 8705), unbekannte Bindung. Die HTTP-Fälle (Schema «DPoP», DPOP_MODE) folgen mit dem Plugin.
  */
 import assert from 'node:assert/strict';
@@ -12,7 +11,7 @@ import { MemoryReplayStore } from '../src/state.ts';
 import { normalizeHtu, OidcProvider, parseClientCert, TokenVerifier } from '../src/tokens.ts';
 import { testConfig } from './support/config.ts';
 
-/** Selbstsigniertes Client-Zertifikat (P-256) aus Assets, nur für Tests. */
+/** Selbstsigniertes Client-Zertifikat (P-256), nur für Tests. */
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
 MIIBkTCCATegAwIBAgIUVAra84SoY/XHw8mEbYjqxOzH48kwCgYIKoZIzj0EAwIw
 HTEbMBkGA1UEAwwSYXNzZXRzLXRlc3QtY2xpZW50MCAXDTI2MTAyMTEzMDMwMloY

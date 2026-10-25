@@ -1,6 +1,6 @@
 /**
  * Rechte-Übersicht: Status je Recht, «Warum?», Umschalter und Suche, Organisations-Admin, Änderung gegenüber bisher.
- * Aus vollholz/assets `web/src/ui/rights-overview.test.tsx`, produktneutral (Notiz-App).
+ * Beispiel: Notiz-App.
  */
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

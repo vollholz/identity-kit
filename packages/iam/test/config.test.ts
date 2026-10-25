@@ -1,5 +1,5 @@
 /**
- * Konfiguration (aus Assets test/platform/unit.test.ts, IAM-Teil): Standardwerte je Produkt, Pflicht je Dienst,
+ * Konfiguration: Standardwerte je Produkt, Pflicht je Dienst,
  * Prüfungen über mehrere Variablen, Produktion, `_FILE`, Warnungen bei Client-Geheimnissen (P3).
  */
 import assert from 'node:assert/strict';

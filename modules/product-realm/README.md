@@ -29,7 +29,8 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `public_base_url` | string | – | Adresse der Oberfläche (`PUBLIC_BASE_URL`); daraus Redirect, Web-Origin, Logout-Adressen von `<produkt>-platform` |
 | `catalog` | object | – | Scopes aus dem Modell der App: `scopes = [<scope>, …]`. Rollen gibt es hier nicht mehr (Rollen liegen in der App-Datenbank) |
 | `jwks` | map(string) | – | öffentliche Schlüssel (Inhalt von `keys/<produkt>-<client>.json`) für `platform`, `admin`, `sync` und mit `mcp` auch `mcp`; je genau ein EC-P-256-Schlüssel mit `kid`, ohne privaten Teil |
-| `theme_texts` | map(map(string)) | `{}` | Werte des Themes `identity` je Sprache (`themeAccent…` nur `#RRGGBB`, `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`, kurze Login-Titel); überschreiben alle anderen Texte |
+| `theme` | string | `null` | Theme für Login, Konto und E-Mails (auf der Instanz installiert); `null`: Standard-Theme von Keycloak |
+| `theme_texts` | map(map(string)) | `{}` | Werte des Themes je Sprache (`themeAccent…` nur `#RRGGBB`, `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`, kurze Login-Titel); überschreiben alle anderen Texte |
 | `localization` | map(map(string)) | `{}` | weitere Realm-Texte der App je Sprache; überschreiben die Standardtexte |
 | `standard_texts` | bool | `true` | Texte des Baukastens ([texts/](texts/README.md)): Login, E-Mails und Kontoverwaltung in Du-Form (de), Einladungs-E-Mail (de, en) |
 | `supported_locales` | list(string) | `["de", "en"]` | Sprachen; die erste ist die Standardsprache. Je Sprache eine Lokalisierung |
@@ -64,7 +65,7 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 
 | Bereich | Inhalt |
 |---|---|
-| Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme `identity`, Sprachen, SMTP), Ereignisse 30 Tage |
+| Realm ✓ | Einstellungen nach Kap. 3.1 (Organisationen, Passwort-Richtlinie, Token und Sitzungen, «Angemeldet bleiben», Offline-Sitzungen 30/90 Tage (immer), Brute-Force, `admin_permissions_enabled`, Theme aus `theme`, Sprachen, SMTP), Ereignisse 30 Tage |
 | Richtlinien | `<produkt>-code-flow` ✓, `<produkt>-confidential` ✓, `<produkt>-m2m-dpop` (`m2m`; Bedingung Attribut `<produkt>.m2m = true`) |
 | Clients | `<produkt>-api` ✓, `<produkt>-platform` ✓, `<produkt>-admin` ✓, `<produkt>-sync` ✓, `<produkt>-mcp` und `<produkt>-mcp-cli` (`mcp`); alle mit `<produkt>.platform = true`, vertrauliche mit `private_key_jwt` (ES256, JWKS aus `jwks`) |
 | Mapper | `aud-api` an den Personen-Clients, `entra-groups` an `<produkt>-platform` (`entra`; Benutzerattribut `entra_groups` → Claim `groups`, siehe [Gruppen aus Entra](#gruppen-aus-entra)), `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
@@ -169,9 +170,9 @@ keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgr
 
 ## Umstieg auf 2.0.0
 
-Breaking: `keycloak_url` hat keine Vorgabe mehr; die App gibt dieselbe Adresse wie im Provider an (ohne Pfad, Basispfad in
+Breaking: `theme` statt fest `identity` – wer das Theme `identity` nutzt, setzt `theme = "identity"`. `keycloak_url` hat keine Vorgabe mehr; die App gibt dieselbe Adresse wie im Provider an (ohne Pfad, Basispfad in
 `keycloak_base_path`). Als Realm-Name ist nur noch `master` gesperrt. Sonst unverändert: Ein Plan mit gesetzter
-`keycloak_url` zeigt «No changes».
+`keycloak_url` und `theme` zeigt «No changes».
 
 ## Umstieg auf 1.0.0
 

@@ -1,9 +1,9 @@
 # Texte der Anmeldeseiten, E-Mails und Kontoverwaltung je Sprache. Die Realm-Texte überschreiben die gleichnamigen
-# Schlüssel des Keycloak-Standards und des Themes «identity». Reihenfolge (spätere gewinnen):
+# Schlüssel des Keycloak-Standards und des Themes (var.theme). Reihenfolge (spätere gewinnen):
 #   1. Texte des Baukastens (var.standard_texts, texts/README.md): Du-Form und Schweizer Rechtschreibung (de) für Login,
 #      E-Mails und Kontoverwaltung; Einladungs-E-Mail «executeActions» (de, en) mit display_name
 #   2. var.localization: weitere Texte der App
-#   3. var.theme_texts: Akzent, Claim, Stichworte, kurze Login-Titel des Themes «identity»
+#   3. var.theme_texts: Akzent, Claim, Stichworte, kurze Login-Titel des Themes
 # Eine Ressource je Sprache aus supported_locales, auch ohne Texte (leere Liste).
 
 locals {

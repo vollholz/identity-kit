@@ -384,3 +384,25 @@ run "maschinen_client_ohne_organisation" {
 
   expect_failures = [var.machine_clients]
 }
+
+run "theme_standard" {
+  command = plan
+
+  assert {
+    condition     = keycloak_realm.this.login_theme == null && keycloak_realm.this.email_theme == null
+    error_message = "Ohne theme setzt das Modul kein Theme (Standard von Keycloak)."
+  }
+}
+
+run "theme_gesetzt" {
+  command = plan
+
+  variables {
+    theme = "beispiel"
+  }
+
+  assert {
+    condition     = keycloak_realm.this.login_theme == "beispiel" && keycloak_realm.this.account_theme == "beispiel" && keycloak_realm.this.email_theme == "beispiel"
+    error_message = "theme gilt für Login, Konto und E-Mails."
+  }
+}

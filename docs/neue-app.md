@@ -33,7 +33,7 @@ Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in iden
 ## 2. Realm anlegen (einmalig, als Code)
 
 Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.
-Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-identity-plattform), Modul
+Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-keycloak-instanz), Modul
 [product-realm-bootstrap](../modules/product-realm-bootstrap/README.md). Beteiligt sind die App und der Betreiber der
 Keycloak-Instanz:
 

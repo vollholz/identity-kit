@@ -97,8 +97,14 @@ variable "jwks" {
   }
 }
 
+variable "theme" {
+  description = "Name des Themes für Login, Konto und E-Mails; es muss auf der Keycloak-Instanz installiert sein (z. B. ein Theme des Betreibers). Leer: Standard-Theme von Keycloak."
+  type        = string
+  default     = null
+}
+
 variable "theme_texts" {
-  description = "Werte für das Theme «identity» je Sprache (themeAccent, themeAccentDark, themeAccentText, themeAccentTextDark, themeClaim, themeClaimSub, themeChips, themeSub.<Seite>, themeMailFooter, kurze Login-Titel; vollholz/identity docs/betrieb.md › Anmeldeseiten). Überschreiben alle anderen Texte."
+  description = "Werte für das Theme je Sprache als Realm-Texte (Schlüssel wie themeAccent, themeAccentDark, themeAccentText, themeAccentTextDark, themeClaim, themeClaimSub, themeChips, themeSub.<Seite>, themeMailFooter, kurze Login-Titel – je nachdem, was das Theme auswertet). Überschreiben alle anderen Texte."
   type        = map(map(string))
   default     = {}
   validation {

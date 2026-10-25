@@ -1,7 +1,7 @@
 # Modul product-realm-bootstrap
 
 Legt den Realm einer App und ihren IaC-Client `<produkt>-iac` an (Spezifikation
-[Kap. 2](../../docs/spezifikation.md#2-anbindung-an-die-identity-plattform), Schritt 4) – einmalig bzw. beim
+[Kap. 2](../../docs/spezifikation.md#2-anbindung-an-die-keycloak-instanz), Schritt 4) – einmalig bzw. beim
 Neuaufbau, als Service Account `<produkt>-tofu` im Realm `master` (nur `create-realm`, eingerichtet vom Betreiber der
 Instanz). Danach weist der Betreiber `<produkt>-iac` `realm-management/realm-admin` zu (Schritt 5), und alles Weitere
 verwaltet [product-realm](../product-realm/README.md).

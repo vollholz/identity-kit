@@ -1,18 +1,16 @@
-# Spezifikation: IAM-Baukasten für Apps der Identity-Plattform
+# Spezifikation: IAM-Baukasten für Apps mit Keycloak
 
-Stand 2026-10-23 · Status: **Entwurf, Vertrag für Authz neu (Kap. 7–11, 14)** · Ort: vollholz/identity-kit (bis 2026-10-22 vollholz/identity `docs/produkt-iam.md`) · Abgeleitet aus vollholz/assets (`3c11515`) und vollholz/identity (`667e6bf`)
+Stand 2026-10-23 · Status: **Entwurf, Vertrag für Authz neu (Kap. 7–11, 14)** · Ort: vollholz/identity-kit
 
-Diese Spezifikation beschreibt die Identitäts- und Rechteverwaltung (IAM), die vollholz/assets umgesetzt und geprüft
-hat, so, dass ein **neues Produkt** sie vollständig übernimmt und an `https://identity.project-suite.ch` angehängt
-wird: eigener Realm, Anmeldung über ein BFF, Keycloak-Organisationen als Mandanten, Rollen an Orten, Freigaben,
+Diese Spezifikation beschreibt die Identitäts- und Rechteverwaltung (IAM) so, dass ein **neues Produkt** sie
+vollständig übernimmt und an eine Keycloak-Instanz (z. B. `https://id.example.ch`) angehängt wird: eigener Realm, Anmeldung über ein BFF, Keycloak-Organisationen als Mandanten, Rollen an Orten, Freigaben,
 Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der App, Mandantentrennung bis in die Datenbank.
 
 - **MUSS** / **SOLL** / **KANN** kennzeichnen die Verbindlichkeit. Ohne Kennzeichnung gilt MUSS.
-- `<produkt>` steht für den technischen Namen des Produkts (Kleinbuchstaben, z. B. `assets`), `<Produkt>` für den
-  Anzeigenamen (z. B. «Assets»). Was in Assets `assets` heisst, heisst im neuen Produkt `<produkt>`.
-- **Referenz** nennt die Stelle in vollholz/assets, die das Verhalten heute umsetzt und als Vorlage dient. Bei
-  Widersprüchen gilt diese Spezifikation; Abweichungen der Referenz sind Fehler der Spezifikation und werden hier
-  nachgetragen.
+- `<produkt>` steht für den technischen Namen des Produkts (Kleinbuchstaben, z. B. `notes`), `<Produkt>` für den
+  Anzeigenamen (z. B. «Notes»). Die Beispiele verwenden die App `notes` unter `https://notes.example.ch` mit der
+  Keycloak-Instanz `https://id.example.ch`.
+- Bei Widersprüchen zwischen dieser Spezifikation und der Umsetzung im Baukasten gilt diese Spezifikation.
 - Produktneutral (gleich in jedem Produkt) sind Kapitel 2–7 und 9–14. Rechte, Rollen, Scopes und Typen (Orte) definiert
   die App selbst in ihrem Modell; Kapitel 8 legt die Schlüsselregeln und die reservierten Namen fest, die in jedem
   Produkt gleich heissen.
@@ -23,7 +21,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 ## Inhalt
 
 1. [Überblick](#1-überblick) · [Standard und App-lokal](#11-standard-und-app-lokal)
-2. [Anbindung an die Identity-Plattform](#2-anbindung-an-die-identity-plattform) · [Kommandozeilen](#21-kommandozeilen)
+2. [Anbindung an die Keycloak-Instanz](#2-anbindung-an-die-keycloak-instanz) · [Kommandozeilen](#21-kommandozeilen)
 3. [Realm des Produkts](#3-realm-des-produkts)
 4. [Mandanten](#4-mandanten)
 5. [Anmeldung der Oberfläche (BFF)](#5-anmeldung-der-oberfläche-bff)
@@ -43,13 +41,13 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 ## 1. Überblick
 
 ```
-                         identity.project-suite.ch (vollholz/identity)
+                         Keycloak-Instanz, z. B. id.example.ch (Betreiber)
                          ┌──────────────────────────────────────────────────────────┐
-                         │ Realm master: identity-iac, <produkt>-tofu (create-realm)│
+                         │ Realm master: IaC des Betreibers, <produkt>-tofu         │
                          │ Realm <produkt> (gehört dem Produkt, IaC im Produkt):    │
                          │   Organisationen = Mandanten (ohne Rollen, ohne Gruppen),│
                          │   Clients <produkt>-platform|-api|-admin|-sync|(-mcp…)   │
-                         │ Theme «identity» (Login, Konto, E-Mails)                 │
+                         │ Theme des Betreibers oder Standard (Login, Konto, E-Mail)│
                          └───────▲───────────────▲──────────────────▲───────────────┘
               OIDC Code + PKCE   │  JWKS, Token  │  Admin-API        │ Admin-API (nur lesen)
                                  │               │  (<produkt>-admin)│ (<produkt>-sync)
@@ -60,11 +58,11 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
                                  PostgreSQL: FORCE RLS je Mandant (app.tenant_id), authz_tuple, Lesesicht
 ```
 
-Grundsätze (aus assets `docs/zielarchitektur.md`, Leitentscheidungen):
+Grundsätze:
 
 1. **Keycloak ist führend** für Konten, Anmeldung, Organisationen und Mitgliedschaften. Die App speichert keine
    Passwörter und setzt keine.
-2. **Eigener Realm je Produkt** (assets Nr. 52). Nie `master`, nie ein Realm eines anderen Produkts. Einmalige
+2. **Eigener Realm je Produkt**. Nie `master`, nie ein Realm eines anderen Produkts. Einmalige
    Anmeldung über mehrere Produkte, falls gewünscht, über Identity Brokering, nicht über einen geteilten Realm.
 3. **Mandant = Keycloak-Organisation.** Der Mandant kommt nur aus dem geprüften Token, nie aus der Anfrage (ausser der
    Wahl unter den eigenen Organisationen).
@@ -78,8 +76,8 @@ Grundsätze (aus assets `docs/zielarchitektur.md`, Leitentscheidungen):
 
 ### 1.1 Standard und App-lokal
 
-Ziel: eine replizierbare, app-agnostische Lösung für Authentisierung (authn) und Autorisierung (authz) auf der
-Standard-Instanz `identity.project-suite.ch`, die sich möglichst standardisiert auf Apps ausrollen lässt – Frontend und
+Ziel: eine replizierbare, app-agnostische Lösung für Authentisierung (authn) und Autorisierung (authz) auf einer
+beliebigen Keycloak-Instanz, die sich möglichst standardisiert auf Apps ausrollen lässt – Frontend und
 Backend, für Personen, Service-Clients, M2M, API und MCP.
 
 | Standard (Baukasten, in jeder App gleich) | App-lokal (liefert die App) |
@@ -96,18 +94,19 @@ Backend, für Personen, Service-Clients, M2M, API und MCP.
 | Texte des Baukastens (de/en, Du-Form): Oberfläche `iam.*`, Anmeldeseiten, Konto und Einladung (`standard_texts` des Realm-Moduls) | **Texte** der App, Labels und Beschreibungen des Katalogs, Theme-Texte der Anmeldeseiten, Übersetzungen weiterer Sprachen |
 | Tests: Isolation über alle Routen, RLS, Lesesicht = `can`, Multi-Org, BFF, Verwaltung, Modellregeln, Entscheidung | Fachtests; Eintrag der Fachrouten in den Isolationstest (automatisch über die Routenliste) |
 
-## 2. Anbindung an die Identity-Plattform
+## 2. Anbindung an die Keycloak-Instanz
 
-Ablauf über zwei Repositories. Referenz: identity `infra/keycloak/products.tf`, `docs/betrieb.md` › Neues Produkt;
-Modul `modules/product-realm-bootstrap`; assets `docs/produktion.md` › Keycloak-Anbindung.
+Ablauf zwischen dem Betreiber der Keycloak-Instanz und dem Produkt. Modul `modules/product-realm-bootstrap`. Wie der
+Betreiber seine Schritte umsetzt (Repository, Werkzeuge, Freigaben), ist dessen Sache; der Baukasten setzt nur das
+Ergebnis voraus.
 
-| # | Wo | Schritt | Ergebnis |
+| # | Wer | Schritt | Ergebnis |
 |---|---|---|---|
-| 1 | identity | `deploy/scripts/secrets.sh client-key <produkt>-tofu <ENV-NAME>` | `infra/keycloak/keys/<produkt>-tofu.json` (öffentlich, versioniert); privater Schlüssel in der lokalen `.env`, an die Betriebsverantwortlichen des Produkts übergeben, hier danach löschen |
-| 2 | identity | `infra/keycloak/production.tfvars › products`: `<produkt> = { realm = "<produkt>", iac_client_id = "<produkt>-iac", grant_realm_admin = false }`, Workflow «Keycloak» | Service Account `<produkt>-tofu` im Realm `master` mit Rolle `create-realm`, `private_key_jwt` (ES256) |
+| 1 | Betreiber | Schlüsselpaar für `<produkt>-tofu` erzeugen (ES256) | öffentlicher Schlüssel beim Betreiber; privater Schlüssel an die Betriebsverantwortlichen des Produkts übergeben, beim Betreiber danach löschen |
+| 2 | Betreiber | Service Account für das Produkt einrichten | Service Account `<produkt>-tofu` im Realm `master` mit Rolle `create-realm`, `private_key_jwt` (ES256) |
 | 3 | Produkt | Schlüsselpaar für `<produkt>-iac` erzeugen, `infra/keycloak/keys/<produkt>-iac.json` | öffentlicher Schlüssel versioniert; privater in `.env` (`KEYCLOAK_IAC_PRIVATE_KEY_B64`) und GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY` |
 | 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
-| 5 | identity | `grant_realm_admin = true`, Workflow «Keycloak» | identity-iac weist `<produkt>-iac` `realm-management/realm-admin` zu (mit FGAP v2 darf das nur ein Server-Admin) |
+| 5 | Betreiber | dem IaC-Client des Produkts Realm-Admin geben | `<produkt>-iac` hat `realm-management/realm-admin` am Realm `<produkt>` (mit FGAP v2 darf das nur ein Server-Admin) |
 | 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
 | 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` oder `iam-org-bootstrap --file <init.json>` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail) mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
 
@@ -115,7 +114,7 @@ Regeln:
 
 - Der Schlüssel von `<produkt>-tofu` wird nur für Bootstrap, Neuaufbau und den Wechsel des Schlüssels von
   `<produkt>-iac` gebraucht. Er liegt nur lokal (Tresor, für den Bootstrap in der `.env`), **nie** als GitHub-Secret
-  und nie in einem Workflow (identity `docs/betrieb.md` › Bewusste Restrisiken).
+  und nie in einem Workflow.
 - Im laufenden Betrieb verwaltet das Produkt seinen Realm ausschliesslich mit `<produkt>-iac` aus seinem Repository
   (Workflow `keycloak.yml`: fmt, validate, tflint, Tests → Plan nach Freigabe, verschlüsselt als Artefakt → Apply genau
   dieses Plans nach zweiter Freigabe → Kontrollplan «No changes»). Ein manueller Lauf «abgleich» plant nur und schlägt
@@ -123,10 +122,11 @@ Regeln:
 - OpenTofu mit Provider `keycloak/keycloak` (Version gepinnt, Lockfile), State im S3-Bucket des Produkts, eigener Key
   für `infra/keycloak` und `infra/keycloak/bootstrap`, clientseitig verschlüsselt (`TF_STATE_PASSPHRASE`). Die
   Anmeldung des Providers kommt nur aus der Umgebung (`kc.sh`), nie aus dem gespeicherten Plan.
-- Variable `realm` mit Validierung: nicht `master` und nicht der Realm eines anderen Produkts.
-- Das Produkt braucht **keinen** Deploy in vollholz/identity (auch nicht für das Theme, [3.2](#32-theme-und-texte)).
+- Variable `keycloak_url` (Adresse der Keycloak-Instanz, z. B. `https://id.example.ch`) ohne Vorgabe, Pflicht (ab `product-realm` 2.0.0).
+- Variable `realm` mit Validierung: nicht `master`; der Realm eines anderen Produkts ist ebenfalls nicht erlaubt.
+- Das Produkt braucht **keinen** Deploy beim Betreiber der Keycloak-Instanz (auch nicht für die Theme-Werte, [3.2](#32-theme-und-texte)).
 
-**Umstellung einer bestehenden App auf das Modul** (z. B. Assets): Der Aufruf mit `moved`-Blöcken ergibt im ersten
+**Umstellung einer bestehenden App auf das Modul**: Der Aufruf mit `moved`-Blöcken ergibt im ersten
 Plan **nur Verschiebungen** (`Plan: 0 to add, 0 to change, 0 to destroy`, Exit 2) – das ist kein «No changes». Der
 Apply nach Freigabe schreibt nur den State; erst der Kontrollplan danach zeigt «No changes». Freigegeben wird nur ein
 Plan, der ausschliesslich Verschiebungen enthält (Anzahl = Ressourcen im State, keine Zeile `will be …`/`must be …`,
@@ -172,15 +172,15 @@ Produkts.
 | Brute-Force | 10 Fehlversuche, Wartezeit wachsend ab 60 s bis 15 min, Rücksetzen nach 12 h, keine dauerhafte Sperre |
 | Ereignisse | Admin-Ereignisse (ohne Details) und Anmeldeereignisse, 30 Tage, Listener `jboss-logging` |
 | Sprachen | `de` (Standard), `en` |
-| SMTP | eigenes Konto des Produkts (assets: Infomaniak, `mail.infomaniak.com:587`, STARTTLS, Absender `noreply@project-suite.ch` mit Anzeigename `<Produkt>`); Passwort nur aus der Umgebung (`TF_VAR_smtp_password`), Precondition: ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab. `kc.sh smtp-test <empfänger>` |
+| SMTP | eigenes Konto des Produkts (z. B. `smtp.example.ch:587`, STARTTLS, Absender `noreply@notes.example.ch` mit Anzeigename `<Produkt>`); Passwort nur aus der Umgebung (`TF_VAR_smtp_password`), Precondition: ist SMTP gesetzt und fehlt das Passwort, bricht der Plan ab. `kc.sh smtp-test <empfänger>` |
 
 ### 3.2 Theme und Texte
 
-- `login_theme`, `account_theme`, `email_theme` = `identity`. Fehlt das Theme, nimmt Keycloak das Standard-Theme.
-- Realm-Lokalisierung je Sprache mit den Theme-Schlüsseln aus identity `docs/betrieb.md` › Anmeldeseiten:
+- `login_theme`, `account_theme`, `email_theme` = Eingabe `theme` (ein auf der Instanz installiertes Theme, z. B. des
+  Betreibers); ohne Angabe das Standard-Theme von Keycloak.
+- Realm-Lokalisierung je Sprache mit den Werten, die das Theme auswertet (`theme_texts`), z. B.
   `themeAccent`, `themeAccentDark`, `themeAccentText`, `themeAccentTextDark` (nur `#RRGGBB`), `themeClaim`,
-  `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`. Referenz: assets
-  `infra/keycloak/localization-theme.json`; Modul `product-realm`, `localization.tf`.
+  `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`. Umsetzung: Modul `product-realm`, `localization.tf`.
 - SOLL: Texte in Du-Form und Schweizer Rechtschreibung. Umsetzung im Modul `product-realm`: `texts/localization-de.json`
   (nur Schlüssel des Standards mit Sie-Form oder ß) mit `texts/localization-de.source.json` (Originaltexte der
   Keycloak-Version) und Test `test/texts.test.ts` (gleiche Schlüssel, Platzhalter und HTML-Tags, keine Sie-Form);
@@ -199,7 +199,7 @@ Realmweit, gelten auch für Clients, die später jemand in der Konsole anlegt. U
 - Die Clients des Produkts setzen die erzwungenen Werte selbst (PKCE S256, kein Implicit, kein Passwort-Grant), damit
   die Auto-Konfiguration keine Abweichung zum OpenTofu-Stand erzeugt; jede Client-Ressource `depends_on` die
   Richtlinien (Keycloak wendet sie schon beim Ändern an).
-- DPoP-Pflicht nur über die **positive** Markierung `<produkt>.m2m` (eine Bedingung «alle ausser …» sperrte in Assets
+- DPoP-Pflicht nur über die **positive** Markierung `<produkt>.m2m` (eine Bedingung «alle ausser …» sperrte in der Praxis
   das Ändern des BFF-Clients).
 - `secure-redirect-uris-enforcer` bleibt aus, solange ein öffentlicher MCP-Client Loopback-Platzhalter braucht.
 
@@ -229,14 +229,14 @@ Mapper:
 | Organisation | eingebauter Scope `organization` | `oidc-organization-membership-mapper` mit `addOrganizationId = true`, `multivalued = true`, `jsonType.label = JSON`, Access/ID/Userinfo/Introspektion: Claim `{"<alias>": {"id": "<kc-org-id>"}}` |
 
 Den Organisations-Mapper legt Keycloak beim Anlegen des Realms selbst an; der Provider kann ihn nicht übernehmen.
-Referenz: `org-mapper.ts` (Admin-API, idempotent) über `terraform_data` mit der Soll-Konfiguration als Auslöser.
+Umsetzung: Modul `product-realm`, `scripts/org-mapper.ts` (Admin-API, idempotent) über `terraform_data` mit der Soll-Konfiguration als Auslöser.
 
 Scopes der Clients als vollständige Listen (was fehlt, entfernt OpenTofu): Standard-Scopes `profile`, `email`, `roles`,
 `web-origins`, `acr`, `basic`; `organization` als optionaler Scope. Keycloak 26.8 hängt neuen Clients `organization`
 als optionalen Scope an: erst die optionalen, dann die Standard-Scopes setzen (`depends_on`).
 
-IDs eingebauter Clients (`realm-management`, `admin-permissions`) über die Admin-API nachschlagen (Referenz
-`lookup.ts`), nicht mit `data "keycloak_openid_client"` (liest das Client-Secret, ab 26.8 403) und ohne `depends_on` auf
+IDs eingebauter Clients (`realm-management`, `admin-permissions`) über die Admin-API nachschlagen (Modul `product-realm`,
+`scripts/lookup.ts`), nicht mit `data "keycloak_openid_client"` (liest das Client-Secret, ab 26.8 403) und ohne `depends_on` auf
 den Realm.
 
 ### 3.5 Rollen und Gruppen
@@ -268,9 +268,9 @@ Legt jemand weitere v2-Berechtigungen für *alle Benutzer* an, müssen deren Ric
 
 ### 3.8 Fremde Clients
 
-SOLL: Das Einrichtungsskript für Entwicklung und Test (Referenz `scripts/keycloak-setup.ts`) richtet dasselbe Modell
+SOLL: Das Einrichtungsskript für Entwicklung und Test richtet dasselbe Modell
 ein wie OpenTofu und bricht in Produktion ab, wenn der Realm Clients anderer Anwendungen enthält (Liste der
-Systemclients + `KEYCLOAK_SYSTEM_CLIENTS` + Heuristik, Referenz `scripts/lib/system-clients.ts`). Clients ohne
+Systemclients + `KEYCLOAK_SYSTEM_CLIENTS` + Heuristik). Clients ohne
 `<produkt>.platform` und ohne `<produkt>.m2m` sind verdächtig.
 
 ## 4. Mandanten
@@ -297,9 +297,6 @@ Systemclients + `KEYCLOAK_SYSTEM_CLIENTS` + Heuristik, Referenz `scripts/lib/sys
   `platformAdmin` und `actorTenant`. Auch die Plattform-Administration braucht eine eigene Organisation zum Anmelden.
 
 ## 5. Anmeldung der Oberfläche (BFF)
-
-Referenz: assets `src/platform/modules/auth/bff.ts`, `index.ts`, `sealer.ts`; Migrationen `001_core.sql`,
-`006_session_bff.sql`.
 
 ### 5.1 Endpunkte
 
@@ -342,8 +339,6 @@ Problem-JSON.
   Schemaprüfung entfernt).
 
 ## 6. Token-Prüfung und Principal
-
-Referenz: assets `src/platform/auth/tokens.ts`, `principal.ts`.
 
 ### 6.1 Token-Prüfung
 
@@ -413,7 +408,7 @@ erlaubt = Beziehung ergibt Recht  ∧  Klassifizierung ≤ Freigabestufe  ∧  S
 | **Freigabe** | Ein Eintrag «Wer – Rolle – Ort», optional mit Ablaufdatum (ein Tupel) | «Anna ist Bearbeiterin am Schema IT bis 31.12.» |
 | **Zuständigkeit** | Rechte, die aus Fachdaten folgen: Ressource gehört zu einer Einheit, Person ist Mitglied der Einheit; oder die Person steht selbst in den Fachdaten der Ressource (ab 1.1) | «Mitglieder der Abteilung X lesen alles, was der Abteilung gehört»; «Verantwortliche bearbeiten ihre Objekte» |
 | **Vertraulichkeit** | Stufe an der Ressource (`0` intern, `1` vertraulich, `2` streng vertraulich); **Freigabestufe** je Person und Client | «Streng vertraulich sehen nur Personen mit Freigabestufe 2» |
-| **Scope** | Obergrenze im Token für Programme, MCP, Assistent («Freigabe im Token») | `assets:read` |
+| **Scope** | Obergrenze im Token für Programme, MCP, Assistent («Freigabe im Token») | `notes:read` |
 | **Recht** | Was eine Aktion verlangt, Schlüssel `<bereich>:<verb>` | `object:write` |
 | **Organisation** | Mandant (nie «Mandant» in der Oberfläche) | – |
 
@@ -461,11 +456,11 @@ interface TypeDef<P extends string, R extends string, T extends string> {
   label: string;
   /** Typ darüber in der Kette; Pflicht ausser bei `org`. */
   parent?: T | 'org';
-  /** Eigener Schlüssel: Vorfahren desselben Typs zählen zur Kette (Assets: `object_type.parent_id`). */
+  /** Eigener Schlüssel: Vorfahren desselben Typs zählen zur Kette (z. B. Ordner in Ordnern). */
   self?: T;
   /** Rollen, die hier hängen dürfen; `'*'` nur bei `org` (dort Standard; eine Liste begrenzt die Rollen an der Organisation, `org-admin` wird ergänzt, M5). */
   roles: readonly R[] | '*';
-  /** Beziehungen ohne Rechte, die hier hängen dürfen (Assets: `['member']` an Objekten = Einheiten). */
+  /** Beziehungen ohne Rechte, die hier hängen dürfen (z. B. `['member']` an Objekten, die Einheiten sind). */
   relations?: readonly 'member'[];
   /** Blatt: kein Typ hat es als `parent`; Lesesicht über `app.read_types()` ([7.6](#76-lesesicht-je-anfrage)). */
   leaf?: true;
@@ -485,7 +480,7 @@ interface TypeDef<P extends string, R extends string, T extends string> {
 }
 ```
 
-Beispiel (Stufe «mittel», [neue-app.md](neue-app.md#4-modell-und-ressourcen)) und Assets: Konzept 3.3 und 5.1.
+Beispiel (Stufe «mittel»): [neue-app.md](neue-app.md#4-modell-und-ressourcen).
 
 `defineModel` prüft beim Start und im Test (`checkModel` des Test-Kits) und bricht mit allen Befunden ab
 (`ModelError`, Feld `errors: string[]`):
@@ -551,7 +546,7 @@ Ein Tupel ist eine Freigabe: «Subjekt hat Relation an Ort». Tabelle [10.2](#10
    `units(p)`. `grants = read` ergibt `read` des Typs, `grants = edit` ergibt `read` und `write`. `units(p)` = Einheiten
    mit Tupel `member` eines Subjekts von `p`, dazu transitiv alle darunter (Kanten mit `inherits_scope`, Tiefe ≤ 16).
    **Über Personen** (ab 1.1, `ResourceModel.edges.persons`): `p` ist eine Person und steht in den Fachdaten von `ref`
-   mit `grants ≠ none` (Assets: Attribut «Verantwortlich» der Art `user`); `read` und `edit` wirken wie oben. Es zählt
+   mit `grants ≠ none` (z. B. Feld «Verantwortlich», das auf eine Person zeigt); `read` und `edit` wirken wie oben. Es zählt
    nur `principal.id` der Person selbst, solange sie im Mandanten aktiv ist (`kind = 'user'`, nicht entfernt), nie
    Gruppen, «Alle Mitglieder» oder Clients; nur an `ref` selbst, nicht an Ressourcen darunter.
 3. **Klassifizierung** (nur Typen mit `classified`): `classification(ref) ≤ clearance(p)`.
@@ -605,7 +600,7 @@ Baukasten die **volle Sicht** (`read_all`, `write_all` = `on`, `clearance` = 2);
 Name oder Wert an die Person zurück. Policies der App (RESTRICTIVE, zusätzlich zu `tenant_isolation`), Muster:
 
 ```sql
--- Blatt (Assets: object)
+-- Blatt (z. B. object)
 USING (classification <= app.clearance() AND (
   app.read_all() OR type_id = ANY (app.read_types()) OR app.has_tuple('object', id, app.read_relations())
   OR EXISTS (/* Kante mit grants <> 'none' */ … WHERE r.from_id = object.id AND r.to_id = ANY (app.read_units()))
@@ -614,11 +609,11 @@ WITH CHECK (classification <= app.clearance() AND (
   app.write_all() OR type_id = ANY (app.write_types()) OR app.has_tuple('object', id, app.write_relations())
   OR EXISTS (/* Kante mit grants = 'edit' */ … AND r.to_id = ANY (app.write_units()))
   OR EXISTS (/* Person mit grants = 'edit' */ … AND v.principal_id = app.write_person())))
--- weitere Ressource mit Tupeln (Assets: view, report, dashboard): Rolle an org über das Recht der App, sonst Tupel
+-- weitere Ressource mit Tupeln (z. B. view, report, dashboard): Rolle an org über das Recht der App, sonst Tupel
 USING (app.read_all_of('view:read') OR app.has_tuple('view', id, app.relations_of('view:read')))
 ```
 
-Die Lesesicht ersetzt alle App-seitigen Filter verborgener Ressourcen (Assets: `hiddenObjects()`); der Test
+Die Lesesicht ersetzt alle App-seitigen Filter verborgener Ressourcen; der Test
 «Lesesicht = `can`» ([14](#14-mandantentrennung-und-tests)) hält beide gleich.
 
 ### 7.7 `ResourceModel` der App
@@ -634,7 +629,7 @@ interface ResourceModel<S = unknown> {
   chain(state: S, ref: ResourceRef, hint?: string | null): ResourceRef[];
   /** Gibt es die Ressource im Mandanten (volle Sicht)? Sonst 404 bei /v1/access. */
   exists(tx: pg.ClientBase, ref: ResourceRef): Promise<boolean>;
-  /** Hinweise für viele Ressourcen (Assets: Typ je Objekt), Schlüssel `<type>:<id>`. */
+  /** Hinweise für viele Ressourcen (z. B. Typ je Objekt), Schlüssel `<type>:<id>`. */
   hints?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, string>>;
   /** Pflicht bei classified-Typen: Stufe je Ressource, Schlüssel `<type>:<id>` (volle Sicht). */
   classification?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, 0 | 1 | 2>>;
@@ -663,7 +658,7 @@ interface ResourceModel<S = unknown> {
 `unit`, `children` und `belongs` stehen nur gemeinsam; ab 1.1 dürfen alle drei fehlen, wenn die App nur `persons`
 liefert (`personGrants` nur mit `persons`; Prüfung beim Start). `edges.persons` gilt für Typen mit `scope` (wie `belongs`); dasselbe SQL dient einer und vielen Ressourcen
 (`req.can`, `req.need`, `req.capabilities(refs)`, `capabilitiesFor(access, p, refs)`). Fehlt `edges.persons`, gibt es
-den Weg nicht. Beispiel Assets: `SELECT v.object_id AS id, v.principal_id, d.grants, d.name AS label FROM
+den Weg nicht. Beispiel: `SELECT v.object_id AS id, v.principal_id, d.grants, d.name AS label FROM
 attribute_value v JOIN attribute_def d ON … WHERE v.object_id = ANY($1) AND d.kind = 'user'`.
 
 `version` muss sich mit jeder Änderung der Daten ändern, aus denen `load` die Kette baut (Anlegen, Verschieben; z. B.
@@ -677,7 +672,7 @@ synchrone `chain` bleiben (A11).
 | Element | Soll |
 |---|---|
 | Stufen | `0` intern (Standard), `1` vertraulich, `2` streng vertraulich; Labels aus `classifications` |
-| Ressource | Spalte der App (Assets: `object.classification smallint NOT NULL DEFAULT 0`, Vorgabe `object_type.default_classification`); Policy `classification <= app.clearance()` |
+| Ressource | Spalte der App (z. B. `object.classification smallint NOT NULL DEFAULT 0`, Vorgabe je Typ); Policy `classification <= app.clearance()` |
 | Person, Client | `principal.clearance` (Standard 0), gesetzt über `PUT /v1/admin/members/{id}/clearance` bzw. `PUT /v1/admin/clients/{clientId}` mit `members:admin`: **nie für sich selbst und nie über die eigene Freigabestufe** (wirksam ohne Break-Glass). Die erste Person einer Organisation erhält Stufe 2 von der Plattform-Administration; die eigene Stufe heben geht nur über Break-Glass |
 | Stufe an einer Ressource setzen | Endpunkt der App; verlangt `write` des Typs und `clearance(p) ≥` neue **und** bisherige Stufe (niemand klassifiziert über die eigene Stufe hinaus); Audit `object.classified` (`from`, `to`). Hilfe des Baukastens: `req.needClearance(level)` → 403 mit Grund `clearance` (A14) |
 | Break-Glass | `POST /v1/break-glass {reason, minutes}` ([9.7](#97-break-glass-v1break-glass)): nur Personen mit Tupel `org-admin` an `org`; setzt `clearance_boost = 2`, `clearance_until = now() + minutes` (1–240); keine Verlängerung ausser durch neuen Aufruf; `DELETE /v1/break-glass` beendet; Audit `break_glass.started`, `break_glass.ended`; Banner in der Oberfläche |
@@ -737,10 +732,9 @@ Entfallen: `acl:read`, `acl:admin` (kein `access:read`, A13), Typ `tenant` (heis
   einen Text.
 - Rechte mit `scope: false`, `members:admin`, `access:admin` und Rechte, die Tokens an fremde Hosts schicken, stehen in
   keinem Scope. Scopes nur für Maschinen-Clients und MCP.
-- `access:admin` steht in den Rollen, die an ihrem Ort freigeben sollen (Assets: `org-admin`, `schema-admin` an Schemas,
+- `access:admin` steht in den Rollen, die an ihrem Ort freigeben sollen (z. B. `org-admin`, `schema-admin` an Schemas,
   `editor` an Objekten, Ansichten, Reports); «niemand gibt mehr, als er hat» begrenzt es ([7.5](#75-entscheidung)).
-- SOLL: Rollenset minimal, wenige Typen (Stufen [8.3](#83-stufen)). Vorlage für den Schnitt: Modell von Assets
-  (`src/authz/model.ts`).
+- SOLL: Rollenset minimal, wenige Typen (Stufen [8.3](#83-stufen)).
 - Rollen aus dem Modell entfernen: zuerst ihre Tupel löschen (Release-Hinweis); `syncModelChecks` bricht sonst ab.
 
 ### 8.3 Stufen
@@ -749,16 +743,15 @@ Entfallen: `acl:read`, `acl:admin` (kein `access:read`, A13), Typ `tenant` (heis
 |---|---|---|
 | einfach | nur `org` mit 2–3 Rollen | Mitglieder, Meine Rechte |
 | mittel | Kette `org → bereich → ding` | zusätzlich «Zugriff» an Bereichen |
-| komplex (Assets) | Blatt-Freigaben, Zuständigkeit, Klassifizierung, Besitz | alles |
+| komplex | Blatt-Freigaben, Zuständigkeit, Klassifizierung, Besitz | alles |
 
 Panel und Endpunkte sind dieselben; die App deklariert nur mehr oder weniger `types`.
 
 ## 9. Verwaltung in der App
 
 Organisations-Admins verwalten Mitglieder, Clients, Rollen an der Organisation und Freigabestufen, wer `access:admin`
-hat Freigaben an Orten, die Plattform-Administration Organisationen – ohne Keycloak-Konsole. Referenz für Einladen,
-Entra und Organisationen: assets `src/platform/modules/admin/*`, `docs/mandantentrennung.md` › Verwaltung; für Rollen,
-Freigaben und Break-Glass gilt allein dieses Kapitel.
+hat Freigaben an Orten, die Plattform-Administration Organisationen – ohne Keycloak-Konsole. Für Rollen, Freigaben und
+Break-Glass gilt allein dieses Kapitel.
 
 ### 9.1 Regeln
 
@@ -784,7 +777,7 @@ Freigaben und Break-Glass gilt allein dieses Kapitel.
 9. Jede Änderung im Audit des betroffenen Mandanten in derselben Transaktion ([9.8](#98-audit-aktionen)). Scheitert
    Keycloak nach erfolgten Schritten: eigener Eintrag `…_failed` mit den Schritten; neu angelegte Konten werden wieder
    gelöscht.
-10. Die Verwaltung einer Organisation erfährt **nichts über andere Organisationen** (assets Nr. 56, Nr. 99):
+10. Die Verwaltung einer Organisation erfährt **nichts über andere Organisationen**:
     - Einladen antwortet immer `202 {"result":"invitation-sent"}` mit den Angaben aus der Einladung, gleich ob ein
       Konto bestand; Mindestdauer `KEYCLOAK_MGMT_INVITE_MIN_TIME` (auch für erneut Senden und Zurückziehen); bei
       Kollision eindeutiger Benutzername; E-Mail-Fehler gleich behandelt.
@@ -849,8 +842,7 @@ Organisation: `id` (Keycloak), `alias`, `name`, `description`, `enabled`, `domai
 ### 9.4 Anmeldung über den IdP der Organisation (KANN)
 
 Eine Organisation verbindet ihre Anmeldung selbst mit Microsoft Entra ID; Personen ihrer verifizierten Domänen melden
-sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzepte/entra-id.md`,
-`src/platform/modules/admin/{entra,graph}.ts`, Migrationen `046`, `047`.
+sich danach nur noch über Microsoft an.
 
 - **Eigene App der Organisation (Kit 0.3, Normalfall):** Die Organisation registriert eine App in ihrem eigenen Tenant
   und trägt Tenant, Anwendungs-ID und Geheimnis ein (`PUT …/entra/app`); Kunden haben so nichts mit einer App des
@@ -926,8 +918,7 @@ sich danach nur noch über Microsoft an. Referenz: assets Nr. 104, `docs/konzept
   `login.microsoftonline.com` (per Konfiguration erweiterbar).
 - Mit «Nur Entra» prüft der Resolver, dass die Sitzung über den Anbieter angemeldet ist (`identity_provider`), sonst 403
   `entra-login-required`; Einladen in die Domänen wird abgelehnt.
-- Personen aus Entra suchen, vorab anlegen und verknüpfen, Rollen setzen (Teil 2). Austritte über Graph/SCIM offen
-  (assets Nr. 105).
+- Personen aus Entra suchen, vorab anlegen und verknüpfen, Rollen setzen (Teil 2). Austritte über Graph/SCIM offen.
 - Weitere IdPs (Google Workspace, SAML) nach demselben Muster als spätere Erweiterung des Baukastens.
 
 ### 9.5 Zugriff (`/v1/access`)
@@ -1145,8 +1136,7 @@ zusätzlich `platformAdmin` und `actorTenant`. Filter «Zugriff» im Protokoll d
 
 ## 10. Datenbank
 
-Referenz: assets `db/bootstrap.sql`, `db/migrations/001_core.sql`, `016_org_admin.sql`, `020_tenant_isolation.sql`,
-`043_invitation_id.sql`, `src/platform/db/pool.ts`; Tupel und Lesesicht: [authz-konzept.md](authz-konzept.md) 3.2–3.4.
+Tupel und Lesesicht: [authz-konzept.md](authz-konzept.md) 3.2–3.4.
 
 ### 10.1 Rollen
 
@@ -1228,8 +1218,7 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
 
 ## 11. Oberfläche
 
-Referenz: assets `web/src/auth/*`, `web/src/shell/*`, `web/src/ui/{MissingRight,RightsOverview,RoleMatrix,AdminHead,
-MenuButton,org}.tsx`, `web/src/features/admin/*`, `docs/oberflaeche.md`; Zugriff, Vertraulichkeit und Break-Glass:
+Zugriff, Vertraulichkeit und Break-Glass:
 [authz-konzept.md](authz-konzept.md) 5.2.
 
 ### 11.1 Anmeldung und Organisation
@@ -1292,7 +1281,7 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
   Abteilung X (Gruppe)   Mitglied         Zuständigkeit: gehört zu «Abt X» –            →
   Peter Meier            Leser            Schema «IT»                      –            →
   Alle Mitglieder        Leser            Organisation                     –            →
-  sync-1 (Client)        Bearbeiter       Organisation · Scope assets:read –            →
+  sync-1 (Client)        Bearbeiter       Organisation · Scope notes:read  –            →
 
   Warum sehe ich das?  →  «Du liest dieses Objekt über die Rolle Leser:in am Schema IT.»
 ```
@@ -1345,7 +1334,7 @@ useGrant(), usePatchAccess(), useRevoke();       // Mutationen, invalidieren use
 - `Level`, `ResourceRef`, `AccessList`, `AccessEntry`, `Explain`, `Me`, `Member`, `Client`, `AuthzCatalog` stehen in
   `contract.ts` genau wie in [9.5](#95-zugriff-v1access)–[9.7](#97-break-glass-v1break-glass).
 - Wo die App die Bausteine einbindet (Zeilenmenü «Zugriff…», Aktion im Kopf, Feld Vertraulichkeit, «Warum sehe ich
-  das?» im Fuss), entscheidet die App; Assets: Konzept 5.2.
+  das?» im Fuss), entscheidet die App; Beispiel: [authz-konzept.md](authz-konzept.md) 5.2.
 - Texte unter `iam.access.*`, `iam.classification.*`, `iam.breakGlass.*`, `iam.members.*` (de/en, Du-Form).
 
 ## 12. Maschinen-Clients und MCP
@@ -1357,7 +1346,7 @@ Konfiguration der App an.
 | Zugangsart | Wer | Anmeldung | Token | Organisation | Rechte | Einrichtung |
 |---|---|---|---|---|---|---|
 | Oberfläche | Person | BFF, Code + PKCE, `private_key_jwt` | bleibt auf dem Server | `organization:*`, Wahl je Tab | Tupel ∧ Vertraulichkeit | Standard |
-| API für Personen (Skripte, CLI) | Person | öffentlicher Client, Code + PKCE (Loopback, RFC 8252), DPoP empfohlen | Bearer/DPoP, `aud = <produkt>-api` | `organization:*`, `X-Tenant` | Tupel ∧ Vertraulichkeit ∧ **Scope** | Schalter `person_api`; `azp` in `OIDC_PERSON_CLIENT_IDS`, scope-gebunden. **Neu:** In Assets erreichen Personen die API nur über BFF und MCP; Tokens eines anderen Clients gelten dort als Maschinen-Client |
+| API für Personen (Skripte, CLI) | Person | öffentlicher Client, Code + PKCE (Loopback, RFC 8252), DPoP empfohlen | Bearer/DPoP, `aud = <produkt>-api` | `organization:*`, `X-Tenant` | Tupel ∧ Vertraulichkeit ∧ **Scope** | Schalter `person_api`; `azp` in `OIDC_PERSON_CLIENT_IDS`, scope-gebunden. **Neu:** Ohne den Schalter erreichen Personen die API nur über BFF und MCP; Tokens eines anderen Clients gelten als Maschinen-Client |
 | Organisations-Client (M2M) | Maschine einer Organisation | Client Credentials, `private_key_jwt` | DPoP Pflicht (mTLS möglich), 5 min, kein Refresh | fester Claim mit einem Alias | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | Realm-Modul `machine_clients` (IaC der App, ohne Rollen); **Freigabe** durch `members:admin` ([12.1](#121-maschinen-clients-muss-sobald-die-api-für-maschinen-offen-ist)) |
 | System-Client | Dienst des Betriebs (z. B. Worker eines anderen Produkts, Export, Monitoring) | Client Credentials, `private_key_jwt` | DPoP, 5 min | Claim mit den Aliassen, für die er eingerichtet ist; je Aufruf `X-Tenant`; gilt nur, wo freigegeben | Tupel an `org` ∧ Vertraulichkeit ∧ Scope | im Realm-Modul (`machine_clients` mit mehreren Organisationen), Freigabe je Mandant wie M2M; nie `members:admin` (in keinem Scope) |
 | App-zu-App | Dienst von Produkt B ruft API von Produkt A | wie System-Client im Realm von A | wie oben | wie System-Client | wie oben | System-Client in A; B verwahrt nur seinen privaten Schlüssel. Personen-Kontext über Realm-Grenzen nur mit Identity Brokering (offen) |
@@ -1386,8 +1375,6 @@ Regeln für alle Zugänge ausser der Oberfläche: Scope-Grenze (`scopeBound`), k
 
 ### 12.2 MCP-Dienst (KANN)
 
-Referenz: assets `src/platform/mcp/*`, `docs/mcp.md`.
-
 - Eigener Prozess, Streamable HTTP, Protected Resource Metadata (RFC 9728), Keycloak als Authorization Server.
 - `<produkt>-mcp` (vertraulich, `private_key_jwt`): Standard Token Exchange (RFC 8693) des MCP-Tokens gegen ein Token mit
   Zielgruppe `<produkt>-api`, ohne Refresh-Token im Exchange; die Person bleibt erhalten, Rechte werden nie erweitert;
@@ -1400,13 +1387,12 @@ Referenz: assets `src/platform/mcp/*`, `docs/mcp.md`.
 
 ## 13. Konfiguration und Geheimnisse
 
-Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`. Referenz: assets `src/platform/config/env.ts`,
-`docs/konfiguration.md`.
+Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`.
 
 | Variable | Standard | Zweck |
 |---|---|---|
 | `PUBLIC_BASE_URL` | — | Adresse der Oberfläche (Redirects) |
-| `OIDC_ISSUER_URL` | — | `https://identity.project-suite.ch/realms/<produkt>` |
+| `OIDC_ISSUER_URL` | — | `https://id.example.ch/realms/<produkt>` (z. B. `https://id.example.ch/realms/notes`) |
 | `OIDC_API_AUDIENCE` | `<produkt>-api` | erwartete Zielgruppe |
 | `OIDC_CLOCK_TOLERANCE` | `30s` | |
 | `OIDC_BFF_CLIENT_ID` | `<produkt>-platform` | |
@@ -1461,8 +1447,8 @@ neues Paar, `keys/<client>.json` ersetzen, `kc.sh apply`, Deploy.
 
 Oberstes Ziel: **Eine Organisation sieht weder Daten noch Personen einer anderen Organisation – und erfährt auch
 nichts über sie** (nicht über Fehlermeldungen, Zähler, Antwortzeiten, Verwaltungsantworten oder Tokens).
-Bedrohungsmodell und Inventar: assets `docs/mandantentrennung.md`; das Produkt führt ein eigenes Inventar nach
-demselben Muster (Weg · was preisgegeben werden könnte · Schutz · Test · Befund).
+Bedrohungsmodell und Inventar: Das Produkt führt ein eigenes Inventar nach
+diesem Muster (Weg · was preisgegeben werden könnte · Schutz · Test · Befund).
 
 | Angreifer | Grenze |
 |---|---|
@@ -1493,14 +1479,12 @@ Pflichttests (Kit: `packages/*/test`, Konformität über `@vollholz/iam-testkit`
 | Oberfläche | Typ `Permission` = Katalog; Organisation je Tab; `AccessSheet`, `GrantDialog` (nur `grantable`), `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, `Members` (Personen und Clients, Freigabestufe, Orte), `RightsOverview` (Status `role`/`place`/`scope`); 390 px, hell/dunkel, axe ohne serious/critical |
 | E2E | Anmeldung, Einladen, Rollen, Freigabe am Ort und am Blatt, Zuständigkeit, Klassifizierung, Break-Glass, Organisation je Tab (gegen lokalen Keycloak) |
 
-Für Tests ohne echten Keycloak eine Nachbildung der Admin-API (Referenz `test/platform/keycloak-fake.ts`); für
-Entwicklung `npm run dev:setup` (PostgreSQL und Keycloak in Docker, `scripts/keycloak-setup.ts` mit Demo-Organisationen
-und Testpersonen).
+Für Tests ohne echten Keycloak eine Nachbildung der Admin-API (Test-Kit, `keycloak-fake.ts`); für
+Entwicklung PostgreSQL und Keycloak lokal in Docker mit Demo-Organisationen und Testpersonen.
 
 ## 15. Baukasten und Ausrollen
 
-Der Baukasten liegt in diesem Repository (vollholz/identity-kit) und wird aus vollholz/assets herausgelöst; Assets ist danach das erste Produkt, das ihn nutzt. Jede neue App
-bindet ihn ein, statt Code zu kopieren. Referenz bleibt Assets, bis der Baukasten dieselben Tests besteht.
+Der Baukasten liegt in diesem Repository (vollholz/identity-kit). Jede App bindet ihn ein, statt Code zu kopieren.
 
 ### 15.1 Bestandteile
 
@@ -1583,7 +1567,7 @@ app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note
 
 ### 15.3 Ausrollen
 
-1. **Anbindung** an identity ([Kapitel 2](#2-anbindung-an-die-identity-plattform), Schritte 1–2, 5).
+1. **Anbindung** an die Keycloak-Instanz durch deren Betreiber ([Kapitel 2](#2-anbindung-an-die-keycloak-instanz), Schritte 1–2, 5).
 2. `npx create-iam-app` im Repository der App: Gerüst nach 15.1; danach Modell und Ressourcen füllen.
 3. Realm: Bootstrap und `kc.sh apply` mit dem Modul (Schritte 3–6).
 4. Pakete einbinden (Backend, Frontend), Migration ausführen, Konfiguration und Geheimnisse ([Kapitel 13](#13-konfiguration-und-geheimnisse)).
@@ -1601,22 +1585,7 @@ Versionierung und Pflege:
   führt sie vor den eigenen aus; danach `app.secure_tenant_tables()`.
 - Das Realm-Modul ist idempotent; ein Update ergibt einen Plan, der vor dem Apply freigegeben wird.
 - Sicherheitsupdates (Keycloak, Abhängigkeiten, Befunde der Mandantentrennung) zuerst im Baukasten, dann in allen
-  Apps; die Liste der Apps und ihrer Version steht in identity `infra/keycloak/production.tfvars › products`.
-
-### 15.4 Herauslösen aus Assets
-
-| Teil | Aus vollholz/assets | Ziel |
-|---|---|---|
-| Realm | `infra/keycloak/*.tf`, `org-mapper.ts`, `lookup.ts`, `bootstrap/`, `kc.sh` | Modul `product-realm`, `product-realm-bootstrap`; Assets ruft das Modul auf (`moved`-Blöcke, damit nichts neu angelegt wird) |
-| Anmeldung | `src/platform/auth/*`, `modules/auth/*` | `@vollholz/iam` |
-| Rechte | `src/platform/authz/{access,capabilities}.ts`, Mechanik aus `permissions.ts` | `@vollholz/iam`; Katalog von Assets bleibt in Assets |
-| Verwaltung | `src/platform/modules/admin/*`, `ops/tenants.ts`, `worker/member-sync.ts`, `scripts/{keycloak-setup,org-bootstrap}.ts`, `scripts/lib/system-clients.ts` | `@vollholz/iam` |
-| Datenbank | IAM-Teile aus `001`, `006`, `016`, `020`, `043`, `045` | Migrationen `iam_…`; Assets übernimmt sie als bereits angewendet |
-| Oberfläche | `web/src/auth/*`, `shell/{UserMenu,MyRights}.tsx`, `ui/{MissingRight,RightsOverview,RoleMatrix,AdminHead,MenuButton,org}.tsx`, `features/{admin,acl}/*` | `@vollholz/iam-web` |
-| Tests | `test/platform/{auth,bff,admin,authz,capabilities,multi-org,rls,tenant-isolation}.test.ts`, `keycloak-fake.ts`, `harness.ts` | `@vollholz/iam-testkit` |
-
-Reihenfolge: Vertrag festschreiben → Test-Kit (gegen Assets grün) → Backend-Paket → Realm-Modul → Frontend-Paket →
-Vorlage → erste neue App. Nach jedem Schritt läuft Assets auf dem Baukasten, und alle Tests von Assets bleiben grün.
+  Apps; der Betreiber der Keycloak-Instanz führt die Liste der angebundenen Apps.
 
 ## 16. Abnahme
 
@@ -1625,7 +1594,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | # | Prüfpunkt | Kriterium |
 |---|---|---|
 | P1 | Anbindung | `<produkt>-tofu` nur mit `create-realm`, Schlüssel nicht in GitHub; `<produkt>-iac` mit `realm-admin`; zweiter Plan «No changes» (Umstellung: erster Plan nur Verschiebungen); Workflow mit zwei Freigaben |
-| P2 | Realm | Einstellungen, Richtlinien, Clients, Mapper, Scopes nach Kapitel 3 (keine Rollen, keine Rollengruppen); Login, Konto und E-Mails im Theme `identity` mit Name, Claim und Akzent des Produkts |
+| P2 | Realm | Einstellungen, Richtlinien, Clients, Mapper, Scopes nach Kapitel 3 (keine Rollen, keine Rollengruppen); Login, Konto und E-Mails im Theme aus `theme` mit Name, Claim und Akzent des Produkts |
 | P3 | Keine Geheimnisse | alle vertraulichen Clients `private_key_jwt`; kein Client-Geheimnis im State; jeder Dienst nur seine Schlüssel |
 | P4 | Anmeldung | Code-Flow mit PKCE, keine Tokens im Browser, CSRF, Fixation, Erneuerung, RP- und Backchannel-Logout, `/abgemeldet` |
 | P5 | Mandant | nur aus dem Token; `X-Tenant` nur eigene; Bindung an `kc_org_id`; gesperrt → 403; Alias ASCII |
@@ -1643,13 +1612,13 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 
 ## 17. Grenzen und Restrisiken
 
-Übernommen aus vollholz/assets und vollholz/identity; gelten für jedes Produkt, bis sie eigens entschieden werden.
+Gelten für jedes Produkt, bis sie eigens entschieden werden.
 
 | Thema | Grenze bzw. Restrisiko | Umgang |
 |---|---|---|
 | `manage-realm` der Service Accounts | Keycloak 26 kennt keine Rechte je Organisation; wer den Schlüssel von `-admin` hat, beherrscht faktisch den Realm des Produkts (nicht andere Realms) | eigener Realm, Schlüssel nur im API-Prozess, kurze Tokens, Admin-Ereignisse, Audit der App; Admin-Ereignisse ausserhalb `organizations`, `users`, `groups` überwachen; ersetzen, sobald FGAP v2 Organisationen kennt |
-| `create-realm` von `<produkt>-tofu` | fast Realm-Admin am eigenen Realm, dauerhaft; kann weitere Realms anlegen | Schlüssel nur lokal, Admin-Ereignisse im Realm `master` (identity) |
-| `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | identity › Bewusste Restrisiken |
+| `create-realm` von `<produkt>-tofu` | fast Realm-Admin am eigenen Realm, dauerhaft; kann weitere Realms anlegen | Schlüssel nur lokal, Admin-Ereignisse im Realm `master` (beim Betreiber) |
+| `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | bewusstes Restrisiko des Betreibers der Keycloak-Instanz |
 | Zwischenspeicher | Entfernen einer Person wirkt nach ≤ 5 min, Gruppen aus Entra mit dem nächsten Token; Tupel sofort (`acl_version`) | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |
 | Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen | Verwaltung kann entfernen |
 | Gruppen aus Entra | mehr als 200 Gruppen: Entra liefert keinen `groups`-Claim (Überlauf) | O1 in authz-offene-punkte.md |
@@ -1657,16 +1626,16 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | Maschinen-Clients | nur als Code über das Realm-Modul (`machine_clients`), nicht zur Laufzeit aus der App | Freigabe in der App; Review des Repositorys |
 | Sicherheitsfunktionen der Datenbank | `resolve_tenant` und Plattform-Funktionen für die ganze Laufzeit-Rolle ausführbar (Schutz in der API) | kein beliebiges SQL (SQL-Injection geprüft); eigene Rolle als offener Punkt |
 | Organisation löschen | Alias könnte neu vergeben werden | sperren statt löschen; Bindung an `kc_org_id` |
-| Erste Anmeldung | Bindung einer leeren `kc_org_id` beim ersten Kontakt | bewusst (assets E11) |
+| Erste Anmeldung | Bindung einer leeren `kc_org_id` beim ersten Kontakt | bewusst |
 
 ### Offene Entscheide zum Baukasten
 
 | # | Frage | Vorschlag |
 |---|---|---|
-| B1 | Wo liegt der Baukasten? | **entschieden 2026-10-22:** eigenes Repository `vollholz/identity-kit` (Vertrag, Modul, Pakete, Test-Kit, Vorlage); vollholz/identity bleibt Betrieb der Instanz und verweist darauf |
+| B1 | Wo liegt der Baukasten? | **entschieden 2026-10-22:** eigenes Repository `vollholz/identity-kit` (Vertrag, Modul, Pakete, Test-Kit, Vorlage); der Betrieb der Keycloak-Instanz bleibt beim Betreiber |
 | B2 | Verteilung | **entschieden 2026-10-22:** npm-Pakete über GitHub Packages (`@vollholz/*`), Modul als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`) |
 | B3 | Frameworks | Backend zuerst nur Fastify, Frontend nur React; weitere Adapter erst bei Bedarf |
-| B4 | Zugänge neu gegenüber Assets | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gibt es in Assets bereits und gehen unverändert in den Baukasten. Neu ist nur noch `person_api` (Personen direkt an der API, ohne BFF/MCP), erst mit der ersten App, die ihn braucht. **Umgesetzt 2026-10-23:** Maschinen-Clients als Code (`machine_clients` in `product-realm` 0.2.0) für eine Organisation (Organisations-Client) oder mehrere (System-Client) |
+| B4 | Neue Zugänge | REST-API, Organisations-Clients (M2M, DPoP, Freigabe) und MCP gehören zum Baukasten. Neu ist nur noch `person_api` (Personen direkt an der API, ohne BFF/MCP), erst mit der ersten App, die ihn braucht. **Umgesetzt 2026-10-23:** Maschinen-Clients als Code (`machine_clients` in `product-realm` 0.2.0) für eine Organisation (Organisations-Client) oder mehrere (System-Client) |
 | A1 | Lese- und Schreibrecht je Typ | **entschieden 2026-10-23:** `TypeDef.read`/`write` (7.3, M7); `app.read_relations()`/`write_relations()` je Anfrage aus Modell ∩ Scope (7.6) |
 | A2 | Mehrere Blatt-Typen | **entschieden 2026-10-23:** höchstens einer je Modell (M6) |
 | A3 | Clients an Orten | **entschieden 2026-10-23:** Tupel `client:` nur an `org`, nur über `/v1/admin/clients` (CHECK, 422) |
@@ -1694,4 +1663,4 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | A24 | Rollen an `org` über `/v1/access` | **entschieden 2026-10-23:** erlaubt für Personen, Gruppen, «Alle Mitglieder» mit denselben Regeln; Audit `access.granted` |
 
 Offen und nicht Teil dieser Spezifikation: Identity Brokering zwischen Produkten (Single Sign-on über Realms),
-`full_scope_allowed` der Clients (assets Nr. 101), Kontingente je Mandant, Crypto-Shredding je Mandant.
+`full_scope_allowed` der Clients, Kontingente je Mandant, Crypto-Shredding je Mandant.

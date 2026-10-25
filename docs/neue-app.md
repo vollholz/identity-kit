@@ -12,10 +12,10 @@ dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), da
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 0.4.0 | GitHub Packages |
-| `@vollholz/iam-web` (Oberfläche) | 0.3.1 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests) | 0.4.0 | GitHub Packages |
-| `product-realm` (OpenTofu) | 0.2.0 | Git-Tag `product-realm-v0.2.0` |
+| `@vollholz/iam` (Backend) | 1.5.0 | GitHub Packages |
+| `@vollholz/iam-web` (Oberfläche) | 1.2.0 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests) | 1.3.0 | GitHub Packages |
+| `product-realm` (OpenTofu) | 1.0.0 | Git-Tag `product-realm-v1.0.0` |
 | `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `product-realm-bootstrap-v0.1.0` |
 
 ---
@@ -133,7 +133,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v0.2.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v1.0.0"
 
   product         = "notes"
   display_name    = "Notes"
@@ -383,7 +383,7 @@ createRoot(root).render(
 
 ## 9. Tests, CI und Image
 
-Mit `@vollholz/iam-testkit` 0.4.0 (Spezifikation Kap. 14):
+Mit `@vollholz/iam-testkit` 1.3.0 (Spezifikation Kap. 14):
 
 - **Wegwerf-Datenbank** je Testdatei: `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })`.
 - **Modell:** `checkModel(model)` und `checkCatalog(<Antwort von GET /v1/authz/catalog>)` ergeben keine Fehler;

@@ -32,10 +32,10 @@ herausgelöst wird: [vollholz/assets](https://github.com/vollholz/assets).
 
 | Teil | Stand |
 |---|---|
-| `packages/iam` | **0.4.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP, Migrationen; Entra ID mit eigener App der Organisation ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
-| `packages/iam-web` | **0.3.1** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» ([README](packages/iam-web/README.md)) |
-| `packages/iam-testkit` | **0.4.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen ([README](packages/iam-testkit/README.md)) |
-| `modules/product-realm` | **0.2.0** – Realm-Soll als OpenTofu-Modul: `org-admin` aus dem Baukasten, Maschinen-Clients als Code (`machine_clients`); für Assets gegen Keycloak 26.8.1 dasselbe Ergebnis (`moved`-Blöcke, [README](modules/product-realm/README.md)) |
+| `packages/iam` | **1.5.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, Rollen als Tupel in der Datenbank der App, Verwaltung, Abgleich, MCP, Migrationen; Entra ID mit eigener App der Organisation; `iam-org-bootstrap` (mit Einladung «Passwort festlegen»), `iam-reset` ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
+| `packages/iam-web` | **1.2.0** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» ([README](packages/iam-web/README.md)) |
+| `packages/iam-testkit` | **1.3.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen ([README](packages/iam-testkit/README.md)) |
+| `modules/product-realm` | **1.0.0** – Realm-Soll als OpenTofu-Modul ohne Rollen (Rollen stehen nur in der Datenbank der App), Maschinen-Clients als Code (`machine_clients`); gegen Keycloak 26.8.1 ([README](modules/product-realm/README.md)) |
 | `modules/product-realm-bootstrap` | **0.1.0** – Anlage von Realm und `<produkt>-iac` |
 | `templates/create-iam-app` | leer; bis dahin [docs/neue-app.md](docs/neue-app.md) |
 

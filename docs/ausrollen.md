@@ -6,9 +6,8 @@ Gilt für jedes Paket `@vollholz/*` (Test-Kit, Backend, Frontend).
 
 - `.npmrc` der App, ohne Token: `@vollholz:registry=https://npm.pkg.github.com`
 - Versionen exakt pinnen (`"@vollholz/iam-testkit": "0.1.0"`), Renovate hält sie aktuell.
-- Das Paket gibt der App Lesezugriff: Paket › Package settings › Manage Actions access › Repository hinzufügen
-  (gleiche Organisation). Repositories anderer Organisationen: Maschinenkonto mit Leserecht auf dem Paket und
-  Token (classic) mit `read:packages` als Secret.
+- Die Pakete sind öffentlich auf GitHub Packages. Die npm-Registry von GitHub verlangt trotzdem eine Anmeldung: Jedes
+  GitHub-Konto genügt, eine Mitgliedschaft in `vollholz` oder ein Zugang zum Repository ist nicht nötig.
 
 ## CI (GitHub Actions)
 
@@ -18,6 +17,8 @@ permissions:
   packages: read
 env:
   NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # auf Jobebene: auch npm audit signatures fragt die Registry
+  # Reicht GITHUB_TOKEN in einem Repository ausserhalb von vollholz nicht (403): ein persönliches Token (classic) mit
+  # nur read:packages als Secret nehmen (kein Maschinenkonto nötig): NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
 steps:
   - uses: actions/setup-node@v7.0.0
     with:
@@ -40,8 +41,8 @@ ist nur während `npm ci` gemountet und nie im Image.
 
 ## Lokal
 
-Einmalig ein persönliches Token (classic) mit `read:packages` in die eigene `~/.npmrc`:
-`//npm.pkg.github.com/:_authToken=<token>`.
+Einmalig ein persönliches Token (classic) mit nur `read:packages` (beliebiges GitHub-Konto) in die eigene `~/.npmrc`:
+`//npm.pkg.github.com/:_authToken=<token>`. CI ausserhalb von GitHub Actions: ebenso, das Token als Secret der CI.
 
 ## Ohne Zugang (Sessions, unveröffentlichter Stand)
 

@@ -1,20 +1,25 @@
 #!/usr/bin/env node
 /**
- * Kommandozeile zu `orgBootstrap` (Spezifikation Kap. 2 Schritt 7, A20): Organisation und erste Person im Realm der App,
- * in der Datenbank der App Mandant, Principal, Rolle org-admin (Tupel) und Freigabestufe 2 – idempotent.
+ * Kommandozeile zu `orgBootstrap` und `operatorBootstrap` (Spezifikation Kap. 2 Schritt 7, Kap. 6.3, A20): Organisation
+ * und erste Person im Realm der App, in der Datenbank der App Mandant, Principal, Rolle org-admin (Tupel) und
+ * Freigabestufe 2 – bzw. ein Konto des Betriebs mit der Realm-Rolle der Plattform-Administration, ohne Organisation.
+ * Idempotent.
  *
+ *   npx iam-org-bootstrap --operator --email betrieb@example.ch --first Bea --last Betrieb [--initial-password] [--dry-run]
  *   npx iam-org-bootstrap --alias solutions --name "Solutions" --email anna@example.ch --first Anna --last Admin \
- *       [--schema <schema>] [--platform-admin] [--initial-password] [--dry-run]
+ *       [--schema <schema>] [--initial-password] [--dry-run]
  *   npx iam-org-bootstrap --file init.json [--schema <schema>] [--initial-password] [--dry-run]
- *   npx iam-org-bootstrap --manifest identity.app.json [...]   Organisationen aus dem Manifest der App (Feld organizations)
+ *   npx iam-org-bootstrap --manifest identity.app.json [...]   Betrieb und Organisationen aus dem Manifest der App (Felder operators, organizations)
  *   alle: [--no-email | --resend] [--invite-days <tage>] [--client-id <client> [--redirect-uri <url>]] [--keycloak-only]
  *
- * Ohne DATABASE_ADMIN_URL bricht der Lauf ab (ausser `--dry-run`): sonst entstünde eine Organisation ohne org-admin.
+ * Ohne DATABASE_ADMIN_URL bricht der Lauf ab (ausser `--dry-run` und `--operator`, der keine Datenbank braucht): sonst
+ * entstünde eine Organisation ohne org-admin.
  * `--keycloak-only` legt ausdrücklich nur Organisation, Konto und Mitgliedschaft in Keycloak an; Mandant, Tupel
  * `org-admin` und Freigabestufe setzt dann ein eigener Schritt in der Datenbank der App.
  *
- * `--file`: mehrere Organisationen mit je mehreren Admins (Format `schema/init.schema.json`, `platformAdmin` je Person);
- * nicht zusammen mit `--alias`, `--email`, `--name`, `--domain`, `--first`, `--last`, `--platform-admin`.
+ * `--file`: Betrieb (`operators`) und mehrere Organisationen mit je mehreren Admins (Format `schema/init.schema.json`);
+ * nicht zusammen mit `--operator`, `--alias`, `--email`, `--name`, `--domain`, `--first`, `--last`. Betrieb und
+ * Organisation nie mit demselben Konto (Abbruch).
  * Einladung «Passwort festlegen» per E-Mail an neu angelegte Personen ohne Passwort und Identitätsanbieter (Standard,
  * gültig 7 Tage); `--resend` auch an bestehende ohne Passwort, `--no-email` keine. Scheitert der Versand (kein SMTP),
  * meldet der Lauf das am Schluss und endet trotzdem mit 0. Nicht zusammen mit `--initial-password` (Alternative).
@@ -27,7 +32,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { initFileErrors, inviteErrors, manifestInitFile, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapResult } from '../bootstrap.ts';
+import { initFileErrors, inviteErrors, manifestInitFile, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapResult } from '../bootstrap.ts';
 import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
 const env = process.env;
@@ -39,7 +44,7 @@ try {
       alias: { type: 'string' }, name: { type: 'string' }, domain: { type: 'string' }, schema: { type: 'string' },
       email: { type: 'string' }, first: { type: 'string' }, last: { type: 'string' }, file: { type: 'string' }, manifest: { type: 'string' },
       'keycloak-only': { type: 'boolean', default: false },
-      'platform-admin': { type: 'boolean', default: false },
+      operator: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false }, 'initial-password': { type: 'boolean', default: false },
       'no-email': { type: 'boolean', default: false }, resend: { type: 'boolean', default: false },
       'invite-days': { type: 'string' }, 'client-id': { type: 'string' }, 'redirect-uri': { type: 'string' },
@@ -66,7 +71,7 @@ if (a.file !== undefined && a.manifest !== undefined) fail('--file nicht zusamme
 const source = a.file !== undefined ? '--file' : '--manifest';
 if (a.file !== undefined || a.manifest !== undefined) {
   const single = (['alias', 'email', 'name', 'domain', 'first', 'last'] as const).filter(k => a[k] !== undefined).map(k => `--${k}`);
-  if (a['platform-admin']) single.push('--platform-admin');
+  if (a.operator) single.push('--operator');
   if (single.length) fail(`${source} nicht zusammen mit ${single.join(', ')}`);
   const path = (a.file ?? a.manifest)!;
   let data: unknown;
@@ -80,8 +85,14 @@ if (a.file !== undefined || a.manifest !== undefined) {
     if (m.errors.length) fail(`--manifest ${path} ungültig:\n${m.errors.join('\n')}`);
     file = m.file;
   }
+} else if (a.operator) {
+  const other = (['alias', 'name', 'domain', 'schema'] as const).filter(k => a[k] !== undefined).map(k => `--${k}`);
+  if (a['keycloak-only']) other.push('--keycloak-only');
+  if (other.length) fail(`--operator (Betrieb, ohne Organisation) nicht zusammen mit ${other.join(', ')}`);
+  email = (a.email ?? fail('--email fehlt')).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('E-Mail-Adresse ungültig');
 } else {
-  alias = (a.alias ?? fail('--alias fehlt (oder --file)')).toLowerCase();
+  alias = (a.alias ?? fail('--alias fehlt (oder --file, --manifest, --operator)')).toLowerCase();
   email = (a.email ?? fail('--email fehlt')).toLowerCase();
   const errors = orgBootstrapErrors({ alias, email });
   if (errors.length) fail(errors.join('\n'));
@@ -90,7 +101,9 @@ if (!env.KEYCLOAK_TF_URL) fail('KEYCLOAK_TF_URL fehlt');
 const realm = realmFromEnv(env, fail);
 if (a['keycloak-only'] && env.DATABASE_ADMIN_URL) fail('--keycloak-only nicht zusammen mit DATABASE_ADMIN_URL');
 // null = ausdrücklich nur Keycloak, undefined = Probelauf ohne Datenbank
-const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
+// Nur Betrieb (--operator oder eine Datei ohne Organisationen) braucht keine Datenbank der App
+const operatorsOnly = a.operator || (!!file && !(file.organizations ?? []).length);
+const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] || operatorsOnly ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
 const kc = keycloakFromEnv(env, fail);
 const common = {
   database: typeof dbUrl === 'string' ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm) } : dbUrl,
@@ -102,7 +115,8 @@ const platformAdminRole = env.PLATFORM_ADMIN_ROLE || 'platform-admin';
 let results: OrgBootstrapResult[] = [];
 try {
   if (file) results = await orgBootstrapFile(kc, file, { ...common, platformAdminRole });
-  else results = [await orgBootstrap(kc, { ...common, alias, email, name: a.name, domain: a.domain, firstName: a.first, lastName: a.last, platformAdminRole: a['platform-admin'] ? platformAdminRole : null })];
+  else if (a.operator) results = [await operatorBootstrap(kc, { ...common, email, firstName: a.first, lastName: a.last, platformAdminRole })];
+  else results = [await orgBootstrap(kc, { ...common, alias, email, name: a.name, domain: a.domain, firstName: a.first, lastName: a.last, operatorRole: platformAdminRole })];
 } catch (e) {
   fail(`Abgebrochen: ${(e as Error).message}`);
 }

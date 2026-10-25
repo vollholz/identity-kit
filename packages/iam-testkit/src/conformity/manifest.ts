@@ -74,6 +74,11 @@ export const ManifestSchema = Type.Object({
     key: Type.Optional(Type.String({ pattern: '^[\\w./-]+\\.tfstate$', description: 'Schlüssel des Realm-States; Standard <produkt>/keycloak.tfstate (bestehende Apps: bisheriger Schlüssel)' })),
     bootstrapKey: Type.Optional(Type.String({ pattern: '^[\\w./-]+\\.tfstate$', description: 'Schlüssel des Bootstrap-States; Standard <produkt>/keycloak-bootstrap.tfstate' })),
   }, { additionalProperties: false, description: 'S3-Backend des OpenTofu-States' })),
+  operators: Type.Optional(Type.Array(Type.Object({
+    email: Type.String({ pattern: EMAIL }),
+    first: Type.Optional(Type.String()),
+    last: Type.Optional(Type.String()),
+  }, { additionalProperties: false }), { minItems: 1, description: 'Betrieb: Konten mit der Realm-Rolle der Plattform-Administration, ohne Organisation (iam-org-bootstrap --manifest)' })),
   organizations: Type.Optional(Type.Array(Type.Object({
     alias: Type.String({ pattern: ALIAS }),
     name: Type.Optional(Type.String({ minLength: 1 })),
@@ -81,8 +86,7 @@ export const ManifestSchema = Type.Object({
       email: Type.String({ pattern: EMAIL }),
       first: Type.Optional(Type.String()),
       last: Type.Optional(Type.String()),
-      platformAdmin: Type.Optional(Type.Boolean()),
-    }, { additionalProperties: false }), { minItems: 1 }),
+    }, { additionalProperties: false }), { minItems: 1, description: 'org-admin der Organisation, nie die Plattform-Administration' }),
   }, { additionalProperties: false }), { minItems: 1, description: 'Erste Organisationen mit ihren Admins (iam-org-bootstrap --manifest)' })),
   exceptions: Type.Optional(Type.Object({
     files: Type.Optional(Type.Record(Type.String(), REASON, { description: 'Eigene Dateien in verwalteten Ordnern (z. B. infra/keycloak/moved.tf)' })),
@@ -108,6 +112,11 @@ export function manifestErrors(data: unknown): string[] {
   for (const c of Object.keys(r.machineClients ?? {})) if (reserved.includes(c)) out.push(`/realm/machineClients/${c}: Client-ID ist für das Produkt oder Keycloak reserviert`);
   const seen = new Set<string>();
   (m.organizations ?? []).forEach((o, i) => { if (seen.has(o.alias)) out.push(`/organizations/${i}/alias: ${o.alias} doppelt`); seen.add(o.alias); });
+  // Betrieb und Organisation nie mit demselben Konto (iam 3.0)
+  const operators = new Set((m.operators ?? []).map(x => x.email.trim().toLowerCase()));
+  (m.organizations ?? []).forEach((o, i) => o.admins.forEach((a, j) => {
+    if (operators.has(a.email.trim().toLowerCase())) out.push(`/organizations/${i}/admins/${j}/email: ${a.email} ist Betrieb (operators) – für die Organisation eine andere Adresse verwenden`);
+  }));
   return out;
 }
 

@@ -4,6 +4,7 @@
  *
  *   npx @vollholz/create-iam-app init --product notes --name Notes --url https://notes.example.ch \
  *       --keycloak https://id.example.ch [--entra] [--admin anna@example.ch --org solutions [--org-name "Solutions"]] \
+ *       [--operator betrieb@example.ch]   Betrieb (platform-admin, ohne Organisation; nie dieselbe Adresse wie --admin) \
  *       [--state-bucket <bucket> --state-region <region> --state-endpoint <url>]
  *       identity.app.json (falls es fehlt), verwaltete Dateien, Dateien der App (Modell, platform.json, …), Lock-Datei
  *   npx @vollholz/create-iam-app sync [--force]     verwaltete Dateien auf diese Version bringen (nach einem Upgrade)
@@ -29,7 +30,7 @@ try {
     options: {
       dir: { type: 'string', default: '.' }, force: { type: 'boolean', default: false },
       product: { type: 'string' }, name: { type: 'string' }, url: { type: 'string' }, keycloak: { type: 'string' }, entra: { type: 'boolean', default: false },
-      admin: { type: 'string' }, org: { type: 'string' }, 'org-name': { type: 'string' },
+      admin: { type: 'string' }, org: { type: 'string' }, 'org-name': { type: 'string' }, operator: { type: 'string' },
       'state-bucket': { type: 'string' }, 'state-region': { type: 'string' }, 'state-endpoint': { type: 'string' },
       'secret-dir': { type: 'string' },
     },
@@ -51,6 +52,7 @@ try {
       const m = newManifest({
         product: need('product'), displayName: need('name'), publicBaseUrl: need('url'), keycloakUrl: need('keycloak'), entra: a.entra, state,
         admin: a.admin ? { alias: a.org!, name: a['org-name'], email: a.admin } : undefined,
+        operator: a.operator ? { email: a.operator } : undefined,
       });
       writeManifest(dir, m);
       console.log(`${MANIFEST_FILE} angelegt`);

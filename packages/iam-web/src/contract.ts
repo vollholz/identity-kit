@@ -225,6 +225,23 @@ export interface AdminStatus {
   canManageMembers: boolean;
   roles: RoleInfo[];
 }
+/** `GET /v1/account` (Kontext Konto, Spezifikation 6.3): auch ohne Organisation. */
+export interface AccountInfo {
+  /** `subject`: ID der Person in Keycloak (wie `Member.id`). */
+  account: { id: string; subject: string; name: string; email: string | null; emailVerified: boolean };
+  /** Realm-Rolle der Plattform-Administration: Organisationen verwalten, keine Rechte in einer Organisation. */
+  platformAdmin: boolean;
+  /** Organisationen aus dem Token; `status` `active`, `suspended` oder `unavailable` (der Plattform unbekannt). */
+  organizations: { alias: string; name: string; status: string }[];
+  selfService: { signup: boolean; createOrganization: boolean; organizationLimit: number };
+}
+/** `POST /v1/account/organizations`. */
+export interface OwnOrganizationInput { alias: string; name: string }
+export interface OwnOrganization { alias: string; name: string }
+/** `POST /v1/signup` (öffentlich). */
+export interface SignupInput { email: string; firstName?: string; lastName?: string }
+export interface SignupResult { result: 'signup-received' }
+
 /** Rolle in `GET /v1/admin/status`: Rollen an der Organisation mit ihren Rechten. */
 export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
 

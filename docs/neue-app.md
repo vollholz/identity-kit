@@ -336,7 +336,19 @@ Mit `@vollholz/iam-testkit` 1.4.0 (Spezifikation Kap. 14):
 CI und Image: GitHub Packages mit `GITHUB_TOKEN` und `packages: read`, im Image über ein Build-Secret (nie im Image),
 Vorlagen in [ausrollen.md](ausrollen.md).
 
-## 10. Erste Organisation und Microsoft Entra ID
+## 10. Betrieb, erste Organisation und Microsoft Entra ID
+
+**Konto des Betriebs** (Plattform-Administration, ohne Organisation; ab `@vollholz/iam` 3.0, Spezifikation
+[6.3](spezifikation.md#63-konto-ohne-organisation)):
+
+```sh
+KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+  npx iam-org-bootstrap --operator --email betrieb@example.ch --first Bea --last Betrieb
+```
+
+Das Konto erhält die Realm-Rolle `platform-admin` und gehört keiner Organisation an; nach der Anmeldung zeigt die
+Oberfläche das Konto mit «Organisationen verwalten». Betrieb und Organisation nie mit demselben Konto: wer auch in einer
+Organisation arbeitet, hat dafür ein zweites Konto.
 
 **Erste Organisation** aus dem Manifest (`organizations`, idempotent; danach verwaltet die Organisations-Administration
 in der Oberfläche), nach den Migrationen:
@@ -347,13 +359,15 @@ DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
   npm run identity:first-org          # = npx iam-org-bootstrap --manifest identity.app.json
 ```
 
-In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», mit `platformAdmin` die Realm-Rolle
-`platform-admin`); die neue Person erhält von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
-nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» – dann SMTP einrichten und mit `--resend` wiederholen
-oder `--initial-password`). In der Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal,
-das Tupel `org-admin` an der Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). **Ohne `DATABASE_ADMIN_URL`
-bricht es ab** (ab `@vollholz/iam` 2.1): sonst entstünde eine Organisation ohne Admin. Nur Keycloak geht ausdrücklich
-mit `--keycloak-only`.
+Das Manifest nennt den Betrieb unter `operators` und die erste Organisation unter `organizations` (nie dieselbe
+Adresse). In Keycloak entstehen das Konto des Betriebs (Realm-Rolle `platform-admin`, ohne Organisation) sowie
+Organisation und Konto der ersten Person (Pflichtaktion «Passwort festlegen», keine Realm-Rolle); neue Personen erhalten
+von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm nötig, sonst meldet der Lauf «Einladung
+NICHT gesendet an: …» – dann SMTP einrichten und mit `--resend` wiederholen oder `--initial-password`). In der
+Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal, das Tupel `org-admin` an der
+Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). **Ohne `DATABASE_ADMIN_URL` bricht es ab** (ab
+`@vollholz/iam` 2.1): sonst entstünde eine Organisation ohne Admin. Nur Keycloak geht ausdrücklich mit
+`--keycloak-only`.
 
 Danach `npx iam-conformity-test --db --no-repo` (mit `DATABASE_ADMIN_URL`): Die Prüfung «Jede Organisation hat einen
 org-admin» muss grün sein.
@@ -401,8 +415,9 @@ npx iam-org-bootstrap --file init.json
   "$schema": "./node_modules/@vollholz/iam/schema/init.schema.json",
   "organizations": [
     { "alias": "solutions", "name": "Solutions",
-      "admins": [ { "email": "anna@example.ch", "first": "Anna", "last": "Admin", "platformAdmin": true } ] }
-  ]
+      "admins": [ { "email": "anna@example.ch", "first": "Anna", "last": "Admin" } ] }
+  ],
+  "operators": [ { "email": "betrieb@example.ch", "first": "Bea", "last": "Betrieb" } ]
 }
 ```
 

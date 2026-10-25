@@ -135,20 +135,17 @@ describe('Zugriff über HTTP (/v1/access)', { skip }, () => {
     assert.equal((await call('admin', 'DELETE', `/v1/access/${tid}`)).statusCode, 204);
   });
 
-  test('org-admin: nur platform-admin, ohne Ablauf; letzter Admin bleibt', async () => {
-    const r = await call('admin', 'POST', '/v1/access', { subject: `user:${ids.admin2}`, relation: 'org-admin', type: 'org' });
-    assert.deepEqual([r.statusCode, r.json().reason], [403, 'platform-admin-only']);
-    const exp = await call('platform', 'POST', '/v1/access', { subject: `user:${ids.admin2}`, relation: 'org-admin', type: 'org', expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
-    assert.equal(exp.statusCode, 422);
-    assert.equal(exp.json().errors[0].path, '/expiresAt');
-    // Platform-Admin ist von «niemand gibt mehr» ausgenommen (A9), braucht kein access:admin
-    const ok = await call('platform', 'POST', '/v1/access', { subject: `user:${ids.admin2}`, relation: 'org-admin', type: 'org' });
-    assert.equal(ok.statusCode, 201, ok.body);
-    assert.equal((await call('platform', 'DELETE', `/v1/access/${ok.json().id}`)).statusCode, 204);
+  test('org-admin: im Mandanten für niemanden, auch nicht mit der Realm-Rolle der Plattform (nur /v1/platform/…)', async () => {
+    for (const who of ['admin', 'platform'] as const) {
+      const r = await call(who, 'POST', '/v1/access', { subject: `user:${ids.admin2}`, relation: 'org-admin', type: 'org' });
+      assert.deepEqual([r.statusCode, r.json().reason], [403, 'platform-admin-only'], who);
+    }
     const list = (await call('admin', 'GET', '/v1/access?type=org')).json();
     const only = list.items.find((i: { relation: string }) => i.relation === 'org-admin');
-    const last = await call('platform', 'DELETE', `/v1/access/${only.id}`);
-    assert.deepEqual([last.statusCode, last.json().reason], [409, 'last-admin']);
+    for (const who of ['admin', 'platform'] as const) {
+      const r = await call(who, 'DELETE', `/v1/access/${only.id}`);
+      assert.deepEqual([r.statusCode, r.json().reason], [403, 'platform-admin-only'], who);
+    }
   });
 
   test('Ablauf ändern (PATCH) mit previousExpiresAt; entfernen (DELETE) mit access.revoked; 404 für fremde Tupel', async () => {

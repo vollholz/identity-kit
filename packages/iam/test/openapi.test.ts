@@ -16,7 +16,7 @@ import { claims, notesApp, notesDb, type NotesApp } from './support/http.ts';
 
 const skip = await skipDb();
 const IAM_ROUTES = [
-  'GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/access', 'POST /v1/access', 'PATCH /v1/access/{id}', 'DELETE /v1/access/{id}', 'GET /v1/access/explain', 'GET /v1/access/groups',
+  'GET /v1/me', 'GET /v1/authz/catalog', 'GET /v1/account', 'POST /v1/account/organizations', 'POST /v1/signup', 'GET /v1/access', 'POST /v1/access', 'PATCH /v1/access/{id}', 'DELETE /v1/access/{id}', 'GET /v1/access/explain', 'GET /v1/access/groups',
   'POST /v1/break-glass', 'DELETE /v1/break-glass', 'PUT /v1/admin/members/{id}/clearance', 'PUT /v1/platform/organizations/{alias}/members/{id}/clearance',
   'GET /v1/admin/clients', 'PUT /v1/admin/clients/{clientId}', 'DELETE /v1/admin/clients/{clientId}',
   'GET /v1/platform/organizations/{alias}/clients', 'PUT /v1/platform/organizations/{alias}/clients/{clientId}', 'DELETE /v1/platform/organizations/{alias}/clients/{clientId}',

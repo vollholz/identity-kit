@@ -10553,6 +10553,388 @@
      }
     }
    }
+  },
+  "/v1/account": {
+   "get": {
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "title": "ApiAccount",
+         "type": "object",
+         "required": [
+          "account",
+          "platformAdmin",
+          "organizations",
+          "selfService"
+         ],
+         "properties": {
+          "account": {
+           "type": "object",
+           "required": [
+            "id",
+            "subject",
+            "name",
+            "email",
+            "emailVerified"
+           ],
+           "properties": {
+            "id": {
+             "type": "string"
+            },
+            "subject": {
+             "type": "string"
+            },
+            "name": {
+             "type": "string"
+            },
+            "email": {
+             "anyOf": [
+              {
+               "type": "string"
+              },
+              {
+               "type": "null"
+              }
+             ]
+            },
+            "emailVerified": {
+             "type": "boolean"
+            }
+           }
+          },
+          "platformAdmin": {
+           "type": "boolean"
+          },
+          "organizations": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "required": [
+             "alias",
+             "name",
+             "status"
+            ],
+            "properties": {
+             "alias": {
+              "type": "string"
+             },
+             "name": {
+              "type": "string"
+             },
+             "status": {
+              "type": "string"
+             }
+            }
+           }
+          },
+          "selfService": {
+           "type": "object",
+           "required": [
+            "signup",
+            "createOrganization",
+            "organizationLimit"
+           ],
+           "properties": {
+            "signup": {
+             "type": "boolean"
+            },
+            "createOrganization": {
+             "type": "boolean"
+            },
+            "organizationLimit": {
+             "type": "integer"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/account/organizations": {
+   "post": {
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+         "alias",
+         "name"
+        ],
+        "properties": {
+         "alias": {
+          "minLength": 1,
+          "maxLength": 63,
+          "type": "string"
+         },
+         "name": {
+          "minLength": 1,
+          "maxLength": 200,
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "alias",
+          "name"
+         ],
+         "properties": {
+          "alias": {
+           "type": "string"
+          },
+          "name": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "409": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "422": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationProblem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v1/signup": {
+   "post": {
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+         "email"
+        ],
+        "properties": {
+         "email": {
+          "minLength": 3,
+          "maxLength": 254,
+          "type": "string"
+         },
+         "firstName": {
+          "maxLength": 100,
+          "type": "string"
+         },
+         "lastName": {
+          "maxLength": 100,
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "result"
+         ],
+         "properties": {
+          "result": {
+           "type": "string",
+           "enum": [
+            "signup-received"
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrganizationChoice"
+        }
+       }
+      }
+     },
+     "401": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "403": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "409": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "422": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/ValidationProblem"
+        }
+       }
+      }
+     },
+     "429": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     },
+     "500": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  }
 }

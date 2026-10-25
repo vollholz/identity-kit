@@ -119,6 +119,9 @@ const EXEMPT: Record<string, string> = {
   '/v1/openapi.json': 'öffentliche Beschreibung der API, ohne Mandantendaten',
   '/v1/platform/organizations': 'Plattform-Administration arbeitet absichtlich mandantenübergreifend (Realm-Rolle platform-admin); ohne die Rolle 403, Grenze in admin.test.ts',
   '/v1/platform/entra/refresh': 'Plattform-Administration über alle Organisationen (platform-admin); ohne die Rolle 403, entra.test.ts «Aktualisieren …»',
+  '/v1/account': 'Kontext Konto ohne Mandant: nur das eigene Konto und die Organisationen aus dem eigenen Token; account.test.ts «K4»',
+  '/v1/account/organizations': 'Kontext Konto: legt einen neuen Mandanten an, liest keinen bestehenden; account.test.ts «K6»',
+  '/v1/signup': 'Öffentlich ohne Anmeldung, ohne Mandant; gleiche Antwort für bestehende und neue Adressen; account.test.ts «K7»',
 };
 
 describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {

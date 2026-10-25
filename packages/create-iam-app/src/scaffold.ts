@@ -101,6 +101,8 @@ export interface InitOptions {
   entra?: boolean;
   state?: Manifest['state'];
   admin?: { alias: string; name?: string; email: string };
+  /** Konto des Betriebs (Realm-Rolle platform-admin, ohne Organisation); nie dieselbe Adresse wie `admin`. */
+  operator?: { email: string };
 }
 
 /** Manifest aus den Angaben von `init`. */
@@ -110,7 +112,8 @@ export function newManifest(o: InitOptions): Manifest {
     product: o.product, displayName: o.displayName, publicBaseUrl: o.publicBaseUrl, keycloakUrl: o.keycloakUrl,
     realm: { entra: o.entra ?? false, m2m: false, mcp: false, smtp: null },
     ...(o.state ? { state: o.state } : {}),
-    ...(o.admin ? { organizations: [{ alias: o.admin.alias, ...(o.admin.name ? { name: o.admin.name } : {}), admins: [{ email: o.admin.email, platformAdmin: true }] }] } : {}),
+    ...(o.operator ? { operators: [{ email: o.operator.email }] } : {}),
+    ...(o.admin ? { organizations: [{ alias: o.admin.alias, ...(o.admin.name ? { name: o.admin.name } : {}), admins: [{ email: o.admin.email }] }] } : {}),
   };
   const errors = manifestErrors(m);
   if (errors.length) throw new Error(`Angaben ungültig:\n${errors.join('\n')}`);

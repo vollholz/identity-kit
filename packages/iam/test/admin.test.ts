@@ -267,7 +267,12 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     const a = (await auditOf('demo', 'member.roles_changed')).at(-1)!;
     assert.equal(a.actor_name, 'Paula Plattform');
     assert.equal(a.data.platformAdmin, true);
-    assert.equal(a.data.actorTenant, 'ops');
+    assert.equal(a.data.actorTenant, undefined, 'die Plattform handelt ohne eigenen Mandanten');
+    // dieselbe Änderung im Protokoll der Plattform, mit der Organisation und dem Konto statt eines Principals
+    const pl = (await t.inspect.query<{ actor_id: string; org: string; data: any }>(
+      "SELECT l.actor_id::text, x.alias AS org, l.data FROM notes.platform_audit_log l JOIN notes.tenant x ON x.id = l.org_id WHERE l.action = 'member.roles_changed' ORDER BY l.seq DESC LIMIT 1")).rows[0]!;
+    assert.equal(pl.org, 'demo');
+    assert.equal(pl.actor_id, (await t.inspect.query("SELECT id::text FROM notes.account WHERE subject = $1", [u.paula.id])).rows[0].id);
     // Plattform-Administration entfernt sich auch über die Plattform-Route nicht selbst (zweite aktive Admin-Person da)
     const otto = kc.user('otto', { email: 'otto@ops.example', firstName: 'Otto', lastName: 'Ops' });
     await join([...kc.orgs.values()].find(o => o.alias === 'ops')!, otto, ['org-admin']);
@@ -487,8 +492,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.deepEqual(ok(await call('paula', 'DELETE', `/v1/platform/organizations/neu/members/${inv.member.id}`)), { accountDeleted: true });
   });
 
-  test('Plattform: sperren und entsperren – Keycloak und Mandant gleich; Body optional mit Grund; eigene Organisation nicht', async () => {
-    assert.equal((await call('paula', 'POST', '/v1/platform/organizations/ops/suspend')).status, 409);
+  test('Plattform: sperren und entsperren – Keycloak und Mandant gleich; Body optional mit Grund', async () => {
     const tooLong = await call('paula', 'POST', '/v1/platform/organizations/muster/suspend', { reason: 'x'.repeat(501) });
     assert.equal(tooLong.status, 422, JSON.stringify(tooLong.body));
     assert.equal(muster.enabled, true, 'nichts geändert');

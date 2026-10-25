@@ -9,7 +9,7 @@ import { memo } from 'react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Me } from '../src/index.ts';
-import { json, ME } from '../src/testing/index.tsx';
+import { accountInfo, json, ME } from '../src/testing/index.tsx';
 
 class MemoryStorage implements Storage {
   private m = new Map<string, string>();
@@ -43,6 +43,8 @@ function server() {
       return json(me);
     }
     if (path === '/auth/logout' && req.method === 'POST') return json({ redirect: '/' });
+    // Konto ohne Organisation (Startseite ohne Wahl): nur die Organisationen der Sitzung
+    if (path === '/v1/account') return json(accountInfo({ organizations: s.orgs.map(alias => ({ alias, name: ORGS[alias]?.name ?? alias, status: 'active' })) }));
     if (path === '/auth/switch' && req.method === 'POST') {
       if (s.switchStatus === 401) return json({ title: 'Nicht angemeldet', status: 401 }, 401);
       const { org } = (await req.json()) as { org: string };

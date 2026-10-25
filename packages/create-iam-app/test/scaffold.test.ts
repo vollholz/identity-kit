@@ -15,7 +15,7 @@ const run = (args: string[]) => promisify(execFile)(process.execPath, [bin, ...a
   .then(r => ({ code: 0, out: r.stdout, err: r.stderr }), (e: { code: number; stdout: string; stderr: string }) => ({ code: e.code, out: e.stdout, err: e.stderr }));
 const failed = (f: Finding[]) => f.filter(x => x.status === 'fail').map(x => `${x.check}: ${x.details.join('; ')}`);
 const init = (dir: string, extra: string[] = []) => run(['init', '--dir', dir, '--product', 'notes', '--name', 'Notes', '--url', 'https://notes.example.ch', '--keycloak', 'https://id.example.ch',
-  '--entra', '--admin', 'anna@demo.example', '--org', 'demo', '--state-bucket', 'notes-state', '--state-region', 'nbg1', '--state-endpoint', 'https://nbg1.example.com', ...extra]);
+  '--entra', '--admin', 'anna@demo.example', '--org', 'demo', '--operator', 'betrieb@demo.example', '--state-bucket', 'notes-state', '--state-region', 'nbg1', '--state-endpoint', 'https://nbg1.example.com', ...extra]);
 
 /** Neue App; @vollholz/iam aus dem Workspace, damit das Modell lädt. */
 function newApp(name: string): string {
@@ -32,7 +32,8 @@ describe('init', () => {
     assert.equal(r.code, 0, r.out + r.err);
     const m = JSON.parse(readFileSync(join(dir, 'identity.app.json'), 'utf8'));
     assert.deepEqual(manifestErrors(m), []);
-    assert.deepEqual([m.product, m.realm.entra, m.organizations[0].alias, m.organizations[0].admins[0]], ['notes', true, 'demo', { email: 'anna@demo.example', platformAdmin: true }]);
+    assert.deepEqual([m.product, m.realm.entra, m.organizations[0].alias, m.organizations[0].admins[0]], ['notes', true, 'demo', { email: 'anna@demo.example' }]);
+    assert.deepEqual(m.operators, [{ email: 'betrieb@demo.example' }], 'Betrieb ohne Organisation');
     const lock = JSON.parse(readFileSync(join(dir, '.identity-kit.lock'), 'utf8')) as Lock;
     assert.equal(lock.kit, KIT_VERSION);
     assert.deepEqual(Object.keys(lock.files).sort(), [...managedFiles().keys()].sort());

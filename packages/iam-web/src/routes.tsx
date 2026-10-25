@@ -6,7 +6,7 @@
  * nicht mitlädt.
  */
 import type { ComponentType } from 'react';
-import { useAdminStatus } from './admin.ts';
+import { useAccount } from './account.ts';
 import { DEFAULT_PATHS, useIamConfig, type IamFeatures, type IamPaths } from './config.tsx';
 import type { Permission } from './permissions.ts';
 import { useIam } from './session.tsx';
@@ -72,7 +72,7 @@ export function useIamNav(): IamNavItem[] {
   useIamText();
   const pathname = router.usePathname();
   const routes = makeIamRoutes(paths, features).filter(r => r.nav);
-  const platform = useAdminStatus(features.platform !== false && routes.some(r => r.need && 'platformAdmin' in r.need)).data?.platformAdmin ?? false;
+  const platform = useAccount(features.platform !== false && routes.some(r => r.need && 'platformAdmin' in r.need)).data?.platformAdmin ?? false;
   return routes
     .filter(r => !r.need || ('perm' in r.need ? canSomewhere(r.need.perm) : platform))
     .map(r => ({ id: r.id, path: r.path, title: r.title, icon: r.icon, active: pathname === r.path || pathname.startsWith(`${r.path}/`) }));

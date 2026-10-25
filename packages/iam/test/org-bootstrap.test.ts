@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { KeycloakFake } from '@vollholz/iam-testkit';
-import { InitFileSchema, initFileErrors, inviteErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile } from '../src/bootstrap.ts';
+import { InitFileSchema, initFileErrors, inviteErrors, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile } from '../src/bootstrap.ts';
 import type { IamConfig } from '../src/config.ts';
 import { KeycloakAdmin } from '../src/keycloak.ts';
 import { productDb, skipDb } from './support/db.ts';
@@ -34,23 +34,50 @@ describe('Ersteinrichtung einer Organisation', () => {
     for (const m of [/Alias/, /E-Mail/]) assert.match(e, m);
   });
 
-  test('nur Keycloak (database: null): Organisation, Person, Mitgliedschaft und Realm-Rolle, keine Gruppen; zweiter Lauf ändert nichts', async () => {
+  test('nur Keycloak (database: null): Organisation, Person und Mitgliedschaft, keine Realm-Rolle, keine Gruppen; zweiter Lauf ändert nichts', async () => {
     const fake = new KeycloakFake();
-    const r = await orgBootstrap(admin(fake), { alias: 'Demo', name: 'Demo AG', email: 'Anna@Demo.example', firstName: 'Anna', lastName: 'Admin', platformAdminRole: 'platform-admin', database: null });
+    const r = await orgBootstrap(admin(fake), { alias: 'Demo', name: 'Demo AG', email: 'Anna@Demo.example', firstName: 'Anna', lastName: 'Admin', operatorRole: 'platform-admin', database: null });
     const org = [...fake.orgs.values()][0]!;
     assert.deepEqual([org.alias, org.name, org.domains], ['demo', 'Demo AG', [{ name: 'demo.invalid', verified: false }]]);
     assert.equal(fake.groups.size, 0, 'keine Rollengruppen (A21)');
     const u = fake.byEmail('anna@demo.example')!;
     assert.deepEqual([u.username, u.password, u.requiredActions, fake.orgMembers.get(org.id)!.has(u.id)], ['anna@demo.example', false, ['UPDATE_PASSWORD'], true]);
-    assert.deepEqual([...fake.realmRoleMappings.get(u.id)!], ['platform-admin']);
+    assert.equal(fake.realmRoleMappings.get(u.id)?.size ?? 0, 0, 'Admins einer Organisation erhalten nie die Plattform-Administration');
     assert.deepEqual([r.orgId, r.userId, r.passwordFile, r.tenantId], [org.id, u.id, null, null]);
     assert.ok(r.steps.some(x => /^Nur Keycloak/.test(x)));
 
     const writes = () => fake.calls.filter(c => !c.startsWith('GET ')).length;
     const before = writes();
-    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', platformAdminRole: 'platform-admin', database: null });
+    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', operatorRole: 'platform-admin', database: null });
     assert.equal(writes(), before, 'idempotent');
     assert.deepEqual(again.steps.filter(x => !/^Nur Keycloak/.test(x)), ['Organisation demo vorhanden', 'Person anna@demo.example vorhanden', 'Fertig.']);
+  });
+
+  test('Betrieb: Konto mit Realm-Rolle, ohne Organisation; idempotent; nie zugleich Admin einer Organisation', async () => {
+    const fake = new KeycloakFake();
+    const r = await operatorBootstrap(admin(fake), { email: 'Bea@Betrieb.example', firstName: 'Bea', lastName: 'Betrieb', platformAdminRole: 'platform-admin' });
+    const bea = fake.byEmail('bea@betrieb.example')!;
+    assert.deepEqual([bea.password, bea.requiredActions, [...fake.realmRoleMappings.get(bea.id)!]], [false, ['UPDATE_PASSWORD'], ['platform-admin']]);
+    assert.equal(fake.orgs.size, 0, 'keine Organisation');
+    assert.deepEqual([r.userId, r.orgId, r.tenantId], [bea.id, null, null]);
+    const writes = () => fake.calls.filter(c => !c.startsWith('GET ')).length;
+    const n = writes();
+    await operatorBootstrap(admin(fake), { email: 'bea@betrieb.example', platformAdminRole: 'platform-admin' });
+    assert.equal(writes(), n, 'idempotent');
+    // Betrieb wird nicht Admin einer Organisation …
+    await assert.rejects(orgBootstrap(admin(fake), { alias: 'kunde', email: 'bea@betrieb.example', operatorRole: 'platform-admin', database: null }), /Betrieb und Organisation nie mit demselben Konto/);
+    // … und ein Mitglied einer Organisation nicht Betrieb
+    await orgBootstrap(admin(fake), { alias: 'kunde', email: 'karl@kunde.example', operatorRole: 'platform-admin', database: null });
+    await assert.rejects(operatorBootstrap(admin(fake), { email: 'karl@kunde.example', platformAdminRole: 'platform-admin' }), /Mitglied von kunde/);
+    assert.equal(fake.realmRoleMappings.get(fake.byEmail('karl@kunde.example')!.id)?.size ?? 0, 0);
+    // geerbt (Gruppe oder zusammengesetzte Rolle) zählt wie direkt zugewiesen
+    const geerbt = fake.user('gerd', { email: 'gerd@betrieb.example' });
+    fake.inheritedRealmRoles.set(geerbt.id, new Set(['platform-admin']));
+    await assert.rejects(orgBootstrap(admin(fake), { alias: 'kunde', email: 'gerd@betrieb.example', operatorRole: 'platform-admin', database: null }), /Betrieb und Organisation nie mit demselben Konto/);
+    assert.ok(!fake.orgMembers.get([...fake.orgs.values()].find(o => o.alias === 'kunde')!.id)!.has(geerbt.id), 'nicht Mitglied geworden');
+    const n2 = fake.calls.filter(c => !c.startsWith('GET ')).length;
+    await operatorBootstrap(admin(fake), { email: 'gerd@betrieb.example', platformAdminRole: 'platform-admin' });
+    assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, n2, 'geerbte Rolle nicht nochmals zuweisen');
   });
 
   describe('mit Datenbank der App (A20)', { skip }, () => {
@@ -231,8 +258,8 @@ describe('Ersteinrichtung einer Organisation', () => {
   });
 
   describe('mehrere Organisationen aus einer Datei (--file)', () => {
-    const init: InitFile = { organizations: [
-      { alias: 'solutions', name: 'Solutions', admins: [{ email: 'Anna@Solutions.example', first: 'Anna', last: 'Admin', platformAdmin: true }, { email: 'ben@solutions.example' }] },
+    const init: InitFile = { operators: [{ email: 'Bea@Betrieb.example', first: 'Bea', last: 'Betrieb' }], organizations: [
+      { alias: 'solutions', name: 'Solutions', admins: [{ email: 'Anna@Solutions.example', first: 'Anna', last: 'Admin' }, { email: 'ben@solutions.example' }] },
       { alias: 'muster', admins: [{ email: 'cleo@muster.example' }] },
     ] };
 
@@ -245,18 +272,21 @@ describe('Ersteinrichtung einer Organisation', () => {
 
     test('Format: Fehler mit Pfad (unbekanntes Feld, Alias, leere Admins, E-Mail, doppelt)', () => {
       const e = (x: unknown) => initFileErrors(x).join('\n');
-      assert.match(e({}), /organizations/);
-      assert.match(e({ organizations: [] }), /\/organizations/);
+      assert.match(e({}), /operators oder organizations/);
+      assert.match(e({ organizations: [] }), /operators oder organizations/);
+      assert.deepEqual(initFileErrors({ operators: [{ email: 'b@betrieb.ch' }] }), [], 'nur Betrieb');
+      assert.match(e({ operators: [{ email: 'b@x.ch' }, { email: 'B@x.ch' }] }), /\/operators\/1\/email: b@x.ch doppelt/);
+      assert.match(e({ operators: [{ email: 'b@x.ch' }], organizations: [{ alias: 'a', admins: [{ email: 'B@x.ch' }] }] }), /\/organizations\/0\/admins\/0\/email: b@x.ch ist Betrieb/);
       assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }], extra: 1 }] }), /\/organizations\/0/);
       assert.match(e({ organizations: [{ alias: 'Böse', admins: [{ email: 'a@b.ch' }] }] }), /\/organizations\/0\/alias/);
       assert.match(e({ organizations: [{ alias: 'a', admins: [] }] }), /\/organizations\/0\/admins/);
       assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'kaputt' }] }] }), /\/organizations\/0\/admins\/0\/email/);
-      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch', platformAdmin: 'ja' }] }] }), /platformAdmin/);
+      assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch', platformAdmin: true }] }] }), /\/organizations\/0\/admins\/0/, 'platformAdmin entfällt: Betrieb steht unter operators');
       assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }] }, { alias: 'a', admins: [{ email: 'x@b.ch' }] }] }), /\/organizations\/1\/alias: a doppelt/);
       assert.match(e({ organizations: [{ alias: 'a', admins: [{ email: 'a@b.ch' }, { email: 'A@b.ch' }] }] }), /\/organizations\/0\/admins\/1\/email: a@b.ch doppelt/);
     });
 
-    test('ohne Datenbank: alle Organisationen und Admins, platformAdmin je Person; Probelauf schreibt nichts; idempotent', async () => {
+    test('ohne Datenbank: Betrieb ohne Organisation, alle Organisationen und Admins ohne Realm-Rolle; Probelauf schreibt nichts; idempotent', async () => {
       const fake = new KeycloakFake();
       await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', dryRun: true });
       assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, 0, 'Probelauf schreibt nichts');
@@ -266,11 +296,13 @@ describe('Ersteinrichtung einer Organisation', () => {
       const anna = fake.byEmail('anna@solutions.example')!, ben = fake.byEmail('ben@solutions.example')!, cleo = fake.byEmail('cleo@muster.example')!;
       assert.deepEqual([...fake.orgMembers.get(org('solutions').id)!].sort(), [anna.id, ben.id].sort());
       assert.deepEqual([...fake.orgMembers.get(org('muster').id)!], [cleo.id]);
-      assert.deepEqual([fake.realmRoleMappings.get(anna.id)?.size, fake.realmRoleMappings.get(ben.id)?.size ?? 0], [1, 0]);
+      const bea = fake.byEmail('bea@betrieb.example')!;
+      assert.deepEqual([fake.realmRoleMappings.get(bea.id)?.size, fake.realmRoleMappings.get(anna.id)?.size ?? 0, fake.realmRoleMappings.get(ben.id)?.size ?? 0], [1, 0, 0]);
+      assert.ok(![...fake.orgMembers.values()].some(m => m.has(bea.id)), 'Betrieb in keiner Organisation');
       const writes = fake.calls.filter(c => !c.startsWith('GET ')).length;
       await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: null });
       assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, writes, 'idempotent');
-      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin', database: null }), /organizations/);
+      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin', database: null }), /operators oder organizations/);
     });
 
     test('mit Datenbank: je Admin org-admin an org und Freigabestufe 2', { skip }, async () => {
@@ -279,7 +311,8 @@ describe('Ersteinrichtung einer Organisation', () => {
       try {
         const fake = new KeycloakFake();
         const r = await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: { url: t.adminUrl, schema: 'notes' } });
-        assert.equal(r.length, 3);
+        assert.equal(r.length, 4);
+        assert.deepEqual([r[0]!.email, r[0]!.tenantId], ['bea@betrieb.example', null], 'Betrieb ohne Mandant');
         const rows = (await t.inspect.query(
           `SELECT x.alias, p.email, p.clearance, a.relation FROM notes.tenant x JOIN notes.principal p ON p.tenant_id = x.id
              JOIN notes.authz_tuple a ON a.tenant_id = x.id AND a.subject = 'user:' || p.id AND a.object_type = 'org' ORDER BY 1, 2`)).rows;
@@ -353,21 +386,33 @@ describe('Ersteinrichtung einer Organisation', () => {
     });
     test('--file: alle Organisationen aus der Datei; nicht zusammen mit Einzel-Flags; ungültige Datei → Code 64', async () => {
       const file = join(mkdtempSync(join(tmpdir(), 'iam-init-')), 'init.json');
-      writeFileSync(file, JSON.stringify({ organizations: [{ alias: 'datei', name: 'Datei AG', admins: [{ email: 'dora@datei.example', platformAdmin: true }, { email: 'emil@datei.example' }] }] }));
+      writeFileSync(file, JSON.stringify({ operators: [{ email: 'otto@betrieb.example' }], organizations: [{ alias: 'datei', name: 'Datei AG', admins: [{ email: 'dora@datei.example' }, { email: 'emil@datei.example' }] }] }));
       const r = await run(['--file', file]);
       assert.equal(r.code, 0, r.err);
-      assert.match(r.out, /— datei: dora@datei\.example[\s\S]*— datei: emil@datei\.example[\s\S]*Fertig\./);
+      assert.match(r.out, /— Betrieb: otto@betrieb\.example[\s\S]*— datei: dora@datei\.example[\s\S]*— datei: emil@datei\.example[\s\S]*Fertig\./);
       const rows = (await t.inspect.query("SELECT p.email FROM notes.principal p JOIN notes.tenant x ON x.id = p.tenant_id JOIN notes.authz_tuple a ON a.subject = 'user:' || p.id WHERE x.alias = 'datei' AND a.relation = 'org-admin' ORDER BY 1")).rows;
       assert.deepEqual(rows.map(x => x.email), ['dora@datei.example', 'emil@datei.example']);
-      assert.ok(fake.realmRoleMappings.get(fake.byEmail('dora@datei.example')!.id)?.has('platform-admin'));
-      assert.ok(!fake.realmRoleMappings.get(fake.byEmail('emil@datei.example')!.id)?.size);
+      assert.ok(fake.realmRoleMappings.get(fake.byEmail('otto@betrieb.example')!.id)?.has('platform-admin'));
+      for (const m of ['dora@datei.example', 'emil@datei.example']) assert.ok(!fake.realmRoleMappings.get(fake.byEmail(m)!.id)?.size, m);
+
+      // nur Betrieb: ohne Datenbank der App, die Datei enthält keine Organisation
+      const ops = join(dirname(file), 'ops.json');
+      writeFileSync(ops, JSON.stringify({ operators: [{ email: 'olaf@betrieb.example' }] }));
+      const opsRun = await run(['--file', ops], { DATABASE_ADMIN_URL: '' });
+      assert.equal(opsRun.code, 0, opsRun.err);
+      assert.ok(fake.realmRoleMappings.get(fake.byEmail('olaf@betrieb.example')!.id)?.has('platform-admin'));
+      // mit Organisationen bleibt die Datenbank Pflicht
+      const mixed = await run(['--file', file], { DATABASE_ADMIN_URL: '' });
+      assert.deepEqual([mixed.code, /DATABASE_ADMIN_URL fehlt/.test(mixed.err)], [64, true]);
 
       const n = fake.calls.length;
       const bad = join(dirname(file), 'bad.json');
       writeFileSync(bad, JSON.stringify({ organizations: [{ alias: 'x', admins: [] }] }));
       for (const [args, m] of [
         [['--file', file, '--alias', 'x'], /nicht zusammen mit --alias/],
-        [['--file', file, '--platform-admin'], /nicht zusammen mit --platform-admin/],
+        [['--file', file, '--operator'], /nicht zusammen mit --operator/],
+        [['--operator', '--email', 'x@y.example', '--alias', 'x'], /--operator .* nicht zusammen mit --alias/],
+        [['--platform-admin', '--alias', 'x', '--email', 'x@y.example'], /platform-admin/],
         [['--file', bad], /ungültig[\s\S]*\/organizations\/0\/admins/],
         [['--file', join(dirname(file), 'fehlt.json')], /fehlt\.json/],
       ] as [string[], RegExp][]) {

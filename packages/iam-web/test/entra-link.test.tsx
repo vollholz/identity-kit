@@ -9,7 +9,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IamProvider, publicEntraPage, type ConsentLink, type EntraConnection, type IamProviderProps } from '../src/index.ts';
 import { EntraScreen, OrganizationScreen } from '../src/pages/index.ts';
-import { json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
@@ -340,7 +340,7 @@ describe('Link an die Entra-Administration (Abschnitt «Anmeldung»)', () => {
 
   it('verbunden: Knopf neben «Erneut zustimmen» mit dem Verzeichnis vorgegeben; Plattformansicht über die Route der Organisation', async () => {
     const api = admin({
-      'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, rolesManageable: true, roles: [] }),
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
       'GET /v1/platform/organizations/muster': () => json({ id: 'kc-muster', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: [], tenant: { id: 't', status: 'active', createdAt: AT } }),
       'GET /v1/platform/organizations/muster/members': () => json({ items: [] }),
       'GET /v1/platform/organizations/muster/clients': () => json({ items: [] }),

@@ -12,7 +12,7 @@ import {
   AccessSheet, BreakGlassBanner, ClassificationBadge, historyRouter, IamNav, IamProvider, makeIamRoutes, WhyDialog,
   type AccessEntry, type Client, type ConsentLink, type EntraConnection, type Explain, type Level, type Me, type Member, type Organization, type ResourceRef,
 } from '../../../src/index.ts';
-import { CATALOG, json, ME, mockIamApi, staticResources } from '../../../src/testing/index.tsx';
+import { accountInfo, CATALOG, json, ME, mockIamApi, staticResources } from '../../../src/testing/index.tsx';
 import './page.css';
 
 sessionStorage.removeItem('iam.tab.org');
@@ -111,6 +111,7 @@ const idOf = (req: Request) => new URL(req.url).pathname.split('/')[4]!;
 const api = mockIamApi({
   'GET /auth/me': () => { syncMe(); return json(me); },
   'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, roles: CATALOG.roles }),
+  'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
   'GET /v1/admin/members': () => json({ items: mark(all()) }),
   'POST /v1/admin/members': async req => {
     const b = await req.json() as { email: string; roles: string[] };

@@ -249,6 +249,30 @@
         }
       }
     },
+    "operators": {
+      "minItems": 1,
+      "description": "Betrieb: Konten mit der Realm-Rolle der Plattform-Administration, ohne Organisation (iam-org-bootstrap --manifest)",
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+            "type": "string"
+          },
+          "first": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "organizations": {
       "minItems": 1,
       "description": "Erste Organisationen mit ihren Admins (iam-org-bootstrap --manifest)",
@@ -271,6 +295,7 @@
           },
           "admins": {
             "minItems": 1,
+            "description": "org-admin der Organisation, nie die Plattform-Administration",
             "type": "array",
             "items": {
               "additionalProperties": false,
@@ -288,9 +313,6 @@
                 },
                 "last": {
                   "type": "string"
-                },
-                "platformAdmin": {
-                  "type": "boolean"
                 }
               }
             }

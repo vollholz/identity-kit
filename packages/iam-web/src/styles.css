@@ -677,3 +677,11 @@ button.iam-mk{border:0;cursor:pointer}
   .iam-switch,.iam-switch > span,.iam-cls{border:1px solid CanvasText}
 }
 
+/* Konto ohne Organisation und Plattform-Administration ohne Organisation (Kap. 6.3) */
+.iam-account-sec{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--iam-line);padding-top:12px}
+.iam-account-sec h2{font:600 15px/1.3 var(--iam-font-display);margin:0}
+.iam-account-actions{display:flex;justify-content:flex-end;gap:8px}
+.iam-platform{min-height:100%;display:flex;flex-direction:column}
+.iam-platform-head{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--iam-line);background:var(--iam-surface)}
+.iam-platform-head .iam-sp{flex:1}
+.iam-platform-main{flex:1;min-width:0}

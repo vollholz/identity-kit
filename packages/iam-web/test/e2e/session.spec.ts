@@ -11,6 +11,8 @@ const VIEWS: [string, string][] = [
   ['choose', 'Organisation wählen'],
   ['unavailable', 'Organisation nicht verfügbar'],
   ['loggedout', 'Du bist abgemeldet'],
+  ['account', 'Dein Konto'],
+  ['signup', 'Konto erstellen'],
   ['', 'Angemeldet'],
 ];
 
@@ -49,4 +51,27 @@ test('Auswahlseite per Tastatur: Organisationen als Knöpfe in einer Gruppe', as
   await expect(group.getByRole('button')).toHaveText(['Demo AG', 'Muster GmbH']);
   await page.keyboard.press('Tab');
   await expect(group.getByRole('button', { name: 'Demo AG' })).toBeFocused();
+});
+
+test('Konto ohne Organisation: Plattform öffnen und eigene Organisation erstellen per Tastatur', async ({ page }) => {
+  await page.goto('/session.html?view=account');
+  await expect(page.getByRole('heading', { name: 'Dein Konto', level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Organisationen verwalten' })).toBeVisible();
+  await page.getByRole('button', { name: 'Organisation erstellen' }).click();
+  const form = page.getByRole('form', { name: 'Organisation erstellen' });
+  await expect(form.getByLabel('Name')).toBeFocused();
+  await page.keyboard.type('Zürich AG');
+  await expect(form.getByLabel('Alias')).toHaveValue('zurich-ag');
+  expect(await axe(page)).toEqual([]);
+});
+
+test('Konto erstellen: Prüfung am Feld, danach dieselbe Antwort für jede Adresse', async ({ page }) => {
+  await page.goto('/session.html?view=signup');
+  await page.getByRole('button', { name: 'Konto erstellen' }).click();
+  await expect(page.getByText('Gültige E-Mail-Adresse angeben', { exact: false })).toBeVisible();
+  await expect(page.getByLabel('E-Mail-Adresse')).toBeFocused();
+  await page.getByLabel('E-Mail-Adresse').fill('neu@firma.example');
+  await page.getByRole('button', { name: 'Konto erstellen' }).click();
+  await expect(page.getByRole('heading', { name: 'Prüfe dein Postfach', level: 1 })).toBeVisible();
+  expect(await axe(page)).toEqual([]);
 });

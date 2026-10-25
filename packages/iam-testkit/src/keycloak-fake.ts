@@ -29,6 +29,8 @@ export class KeycloakFake {
   /** Realm-Rollen (z. B. platform-admin) und ihre Zuweisung je Konto. */
   readonly realmRoles = new Set<string>(['platform-admin']);
   readonly realmRoleMappings = new Map<string, Set<string>>();
+  /** Geerbte Realm-Rollen je Konto (über Gruppen oder zusammengesetzte Rollen): nur in `…/role-mappings/realm/composite`. */
+  readonly inheritedRealmRoles = new Map<string, Set<string>>();
   readonly idps = new Map<string, FakeIdp>();
   /** Mapper je Identitätsanbieter (z. B. `entra-groups`). */
   readonly idpMappers = new Map<string, { id: string; name: string; identityProviderAlias: string; identityProviderMapper: string; config: Record<string, string> }[]>();
@@ -258,7 +260,8 @@ export class KeycloakFake {
       if (seg[2] === 'role-mappings' && seg[3] === 'realm') {
         const mine = this.realmRoleMappings.get(u.id) ?? new Set<string>();
         this.realmRoleMappings.set(u.id, mine);
-        // `composite`: wirksame Rollen (hier ohne Verschachtelung gleich den zugewiesenen)
+        // `composite`: wirksame Rollen = zugewiesene und geerbte (Gruppen, zusammengesetzte Rollen)
+        if (method === 'GET' && seg[4] === 'composite') return json(200, [...new Set([...mine, ...(this.inheritedRealmRoles.get(u.id) ?? [])])].map(name => ({ name })));
         if (method === 'GET') return json(200, [...mine].map(name => ({ name })));
         if (method === 'POST') { for (const r of data as { name: string }[]) { if (!this.realmRoles.has(r.name)) return json(404, { error: 'Role not found' }); mine.add(r.name); } return empty(); }
       }

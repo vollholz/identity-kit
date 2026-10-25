@@ -23,7 +23,7 @@ import { fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { ApiError } from '../problem.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
-import { useIam } from '../session.tsx';
+import { useIam, useIamMaybe } from '../session.tsx';
 import { t, tn } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
@@ -272,7 +272,7 @@ function ConnectDialog({ alias, orgLabel, tenant: fixed, onClose }: { alias: str
 function EnforceDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string | null; orgLabel: string; c: EntraConnection; onClose: () => void; onDone: (r: EntraResult) => Promise<void> }) {
   const { Dialog, Button, Icon } = useIamUi();
   const fid = useId();
-  const { me } = useIam();
+  const me = useIamMaybe()?.me ?? null;
   const pv = useQuery({ queryKey: [...iamKeys.entra(alias), 'preview'], staleTime: 0, gcTime: 0, queryFn: ({ signal }) => entraApi(alias).preview(signal) });
   const [changed, setChanged] = useState<EntraMember[] | null>(null);
   const [ack, setAck] = useState(false);
@@ -284,7 +284,7 @@ function EnforceDialog({ alias, orgLabel, c, onClose, onDone }: { alias: string 
     onSuccess: onDone,
     onError: e => { const l = notLinkedOf(e); if (l) { setChanged(l); setAck(false); } },
   });
-  const mine = alias === null && !!me.person.email && c.domains.includes(me.person.email.split('@')[1]!.toLowerCase());
+  const mine = alias === null && !!me?.person.email && c.domains.includes(me.person.email.split('@')[1]!.toLowerCase());
   return (
     <Dialog title={t('iam.entra.enforce.title', { org: orgLabel })} role="alertdialog" onClose={onClose} onSubmit={() => { if (pv.data && (ack || !lost.length)) run.mutate(); }} width={600} initialFocus="[data-cancel]"
       footer={<><Button variant="ghost" data-cancel onClick={onClose}>{t('iam.common.cancel')}</Button><Button type="submit" variant="danger-solid" disabled={!pv.data || (lost.length > 0 && !ack)} busy={run.isPending}>{t('iam.entra.enforce.confirm')}</Button></>}>
@@ -353,7 +353,8 @@ export function EntraConsentReturn() {
 
 function SessionConsentReturn() {
   const { router: { Link, useSearch, usePathname, navigate }, paths } = useIamConfig();
-  const { me } = useIam();
+  // Rückkehr der Plattform-Administration auch ohne Organisation (keine Sitzung eines Mandanten)
+  const me = useIamMaybe()?.me ?? null;
   useIamText();
   const search = useSearch();
   const pathname = usePathname();
@@ -372,7 +373,7 @@ function SessionConsentReturn() {
   const qc = useQueryClient();
   const complete = useMutation({ mutationFn: (b: EntraConsentReturn) => entraApi(target).complete(b), onSuccess: () => qc.invalidateQueries({ queryKey: iamKeys.entra(target) }) });
   const sent = useRef(false);
-  const wrongOrg = kind === 'o' && alias !== me.tenant?.alias;
+  const wrongOrg = kind === 'o' && alias !== me?.tenant?.alias;
   useEffect(() => {
     if (!body || wrongOrg || sent.current) return;
     sent.current = true;

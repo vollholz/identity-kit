@@ -4,15 +4,34 @@
   "title": "iam-org-bootstrap --file",
   "additionalProperties": false,
   "type": "object",
-  "required": [
-    "organizations"
-  ],
   "properties": {
     "$schema": {
       "type": "string"
     },
+    "operators": {
+      "description": "Betrieb: Konto mit der Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE), ohne Organisation",
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+            "type": "string"
+          },
+          "first": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "organizations": {
-      "minItems": 1,
       "type": "array",
       "items": {
         "additionalProperties": false,
@@ -34,7 +53,7 @@
           },
           "admins": {
             "minItems": 1,
-            "description": "Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2",
+            "description": "Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2 (nie die Plattform-Administration)",
             "type": "array",
             "items": {
               "additionalProperties": false,
@@ -52,10 +71,6 @@
                 },
                 "last": {
                   "type": "string"
-                },
-                "platformAdmin": {
-                  "description": "Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE) zusätzlich",
-                  "type": "boolean"
                 }
               }
             }

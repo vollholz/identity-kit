@@ -6,7 +6,7 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest, FastifySchema } from 'fastify';
 import { forbidden, HttpError, invalid } from '../errors.ts';
-import type { Principal } from '../principal.ts';
+import type { Account, Principal } from '../principal.ts';
 import type { Iam } from '../iam.ts';
 
 export interface OpenApiOverrides {
@@ -145,6 +145,25 @@ export function ifMatchVersion(h: string | string[] | undefined): number | undef
 export class Params {
   readonly values: unknown[] = [];
   add(v: unknown): string { this.values.push(v); return `$${this.values.length}`; }
+}
+
+/**
+ * Handelnde Plattform-Administration (Kontext `platform`, Routen unter `/v1/platform/…`): Konto mit der Realm-Rolle als
+ * Principal ohne Mandant – `tenantId` und `tenantAlias` leer, `principalId` ist die ID des Kontos. Nur als `actor` mit
+ * `platform: true` verwenden; Rechte im Mandanten hat dieser Principal keine.
+ */
+export function platformActor(a: Account): Principal {
+  return {
+    tenantId: '', tenantAlias: '', principalId: a.accountId, kind: 'user', subject: a.subject, name: a.name, email: a.email, clientId: null,
+    grantId: null, groups: [], subjects: [], scopes: [], platformAdmin: true, binding: a.binding, identityProvider: a.identityProvider, token: a.token,
+  };
+}
+
+/** Plattform-Administration der Anfrage (Kontext `platform`), sonst 403. */
+export function platformOf(req: FastifyRequest, role: string): Principal {
+  const a = req.requireAccount();
+  if (!a.platformAdmin) throw forbidden(`Nur für die Plattform-Administration (Realm-Rolle ${role}).`, { reason: 'platform-admin-only' });
+  return platformActor(a);
 }
 
 /** Angemeldete Person (nicht Maschinen-Client, nicht über den MCP-Dienst), sonst 403: für die Verwaltung. */

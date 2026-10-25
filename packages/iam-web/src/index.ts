@@ -29,6 +29,7 @@ export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAccessF
 export { useResourceCan } from './resourceCan.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamResources, type RoleGroup } from './config.tsx';
 export { defaultPeople, isPrincipalId, PersonName, PersonPick, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
+export { accountApi, useAccount } from './account.ts';
 export { CONSENT_HOSTS, ENTRA_STATE, HANDOVER_TOKEN, publicEntraPage, takeHandoverToken, type PublicEntraPage } from './entra.ts';
 export {
   accessApi, breakGlassApi, useAccessList, useBreakGlassMutations, useExplain, useGrant, useMyAccess, usePatchAccess, useRevoke, useSubjectAccess,

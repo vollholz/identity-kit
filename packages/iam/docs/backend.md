@@ -169,13 +169,27 @@ alle auf einmal geladen (ohne `refs` gelten nur Tupel und Kette).
 - **`@fastify/swagger` vor dem Plugin** registrieren, mit `transformObject: optionalBodies`, damit optionale Bodies
   (`…/suspend`, `…/resume`) als optional erscheinen.
 
-**Was das Plugin bringt:** Anmeldung je Anfrage (Bearer, DPoP, mTLS, Sitzung mit CSRF), `req.principal`, `req.tx`
+**Kontexte (ab 3.0, Spezifikation 6.3):** Jede Route läuft in einem Kontext. Ohne Angabe `tenant` (Mitglied einer
+Organisation, `req.principal`); Routen unter `/v1/platform/` `platform` (Realm-Rolle, ohne Mitgliedschaft). Eigene
+Routen der App ohne Organisation erklären das:
+
+```ts
+app.get('/v1/profile', { config: { iam: { contexts: ['account'] } } }, async req => {
+  const a = req.requireAccount();          // Konto: accountId, subject, name, email, platformAdmin, organizations
+  return { name: a.name };
+});
+```
+
+Mit `['tenant', 'account']` läuft die Route mit Organisation im Token als `tenant`, sonst als `account`. Im Kontext
+`account` gibt es kein `req.tx`, keine Tupel und keinen Mandanten; Maschinen-Clients und der MCP-Dienst erhalten 403.
+
+**Was das Plugin bringt:** Anmeldung je Anfrage (Bearer, DPoP, mTLS, Sitzung mit CSRF), `req.principal`, `req.account`, `req.tx`
 (Mandantenkontext, RLS), `req.need`, `req.needSomewhere`, `req.can`, `req.capabilities`, `req.audit`, Fehler als
 problem+json und die Module:
 
 | Modul | Routen | Voraussetzung |
 |---|---|---|
-| `account` | `GET /v1/me`, `GET /v1/authz/catalog` | – |
+| `account` | `GET /v1/me`, `GET /v1/authz/catalog`, `GET /v1/account`, `POST /v1/account/organizations`, öffentlich `POST /v1/signup` | Konto und Registrieren: Verwaltung, `SELF_SERVICE_ORGS` bzw. `SELF_SERVICE_SIGNUP` |
 | `access` | `/v1/access…` (Wer hat Zugriff?, Warum?, Gruppen aus Entra, freigeben, Ablauf, entfernen) | – (Gruppen nur mit Entra-Verbindung) |
 | `break-glass` | `POST/DELETE /v1/break-glass` | – |
 | `admin` | `/v1/admin/status`, `/v1/admin/members…`, `/v1/platform/organizations…` | `KEYCLOAK_MGMT_CLIENT_ID`, sonst 503 |
@@ -244,13 +258,23 @@ app.route({ method: ['GET', 'POST', 'DELETE'], url: '/mcp', handler: async (req,
 
 ## 8. Betrieb
 
+**Konto des Betriebs** (Plattform-Administration ohne Organisation, ab 3.0; Spezifikation 6.3):
+
+```sh
+KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+  npx iam-org-bootstrap --operator --email betrieb@example.ch [--first Bea --last Betrieb] [--initial-password | --no-email | --resend] [--dry-run]
+```
+
 **Ersteinrichtung einer Organisation** (idempotent, A20; danach verwaltet org-admin die Mitglieder in der Oberfläche):
 
 ```sh
 KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… DATABASE_ADMIN_URL=… \
   npx iam-org-bootstrap --alias solutions --name "Solutions" --email anna@example.ch --first Anna --last Admin \
-  [--schema notes] [--platform-admin] [--initial-password | --no-email | --resend] [--dry-run]
+  [--schema notes] [--initial-password | --no-email | --resend] [--dry-run]
 ```
+
+- `--platform-admin` entfällt (3.0): Admins einer Organisation erhalten die Realm-Rolle nie; Betrieb nur mit
+  `--operator` bzw. `operators` in `--file`. Ist die Adresse Betrieb, bricht der Lauf ab.
 
 - In Keycloak: Organisation, Person, Mitgliedschaft (keine Rollengruppen). In der Datenbank der App als Besitzer-Rolle
   (Policies `owner_tenant`): Mandant gebunden an die Organisation, Principal, Tupel `org-admin` an org, Freigabestufe 2,

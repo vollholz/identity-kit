@@ -9,3 +9,4 @@ export { EntraHandoverPage, EntraHandoverReturn } from './EntraHandover.tsx';
 export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { OwnAppDialog, OwnAppFields, OwnAppGuideSteps, ownAppErrorText, type OwnAppDraft } from './EntraOwnApp.tsx';
 export { EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen } from './screens.tsx';
+export { AccountHome, PlatformShell, SignupPage, type AccountHomeProps } from './Account.tsx';

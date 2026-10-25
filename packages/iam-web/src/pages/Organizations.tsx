@@ -7,15 +7,16 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';
-import { orgApi, useAdminStatus, useOrganization, useOrganizations } from '../admin.ts';
+import { useAccount } from '../account.ts';
+import { orgApi, useOrganization, useOrganizations } from '../admin.ts';
 import { useIamConfig } from '../config.tsx';
-import type { AdminStatus, Organization } from '../contract.ts';
+import type { AccountInfo, Organization } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { PLATFORM_ADMIN } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { NoPermission } from '../rights/MissingRight.tsx';
-import { orgName, useIam } from '../session.tsx';
+import { orgName, useIamMaybe } from '../session.tsx';
 import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
@@ -37,16 +38,16 @@ function TenantPill({ o }: { o: Organization }) {
 }
 
 /**
- * Zugang nur für die Plattform-Administration; sonst dieselbe Seite «Recht fehlt» wie bei fehlenden Rechten
- * (`NoPermission`). `page`: ganze Seite statt Inhalt unter dem eigenen Kopf.
+ * Zugang nur für die Plattform-Administration (Konto, auch ohne Organisation); sonst dieselbe Seite «Recht fehlt» wie
+ * bei fehlenden Rechten (`NoPermission`). `page`: ganze Seite statt Inhalt unter dem eigenen Kopf. Ist die Verwaltung
+ * nicht eingerichtet, antworten die Aufrufe mit 503 (Fehlerzustand der Liste).
  */
-function useGate(title: string): { status: AdminStatus | undefined; gate: ReactNode | null; page: ReactNode | null } {
-  const status = useAdminStatus();
-  if (status.isPending) return { status: undefined, gate: <SkeletonRows rows={4} />, page: null };
-  if (status.error) return { status: undefined, gate: <ErrorState error={status.error} onRetry={() => void status.refetch()} />, page: null };
-  if (!status.data.platformAdmin) return { status: status.data, gate: true, page: <NoPermission perm={PLATFORM_ADMIN} icon="building" title={title} /> };
-  if (!status.data.enabled) return { status: status.data, gate: <Empty icon="cog" title={t('iam.members.off.title')}>{status.data.reason}</Empty>, page: null };
-  return { status: status.data, gate: null, page: null };
+function useGate(title: string): { account: AccountInfo | undefined; gate: ReactNode | null; page: ReactNode | null } {
+  const account = useAccount();
+  if (account.isPending) return { account: undefined, gate: <SkeletonRows rows={4} />, page: null };
+  if (account.error) return { account: undefined, gate: <ErrorState error={account.error} onRetry={() => void account.refetch()} />, page: null };
+  if (!account.data.platformAdmin) return { account: account.data, gate: true, page: <NoPermission perm={PLATFORM_ADMIN} icon="building" title={title} /> };
+  return { account: account.data, gate: null, page: null };
 }
 
 /** Liste der Organisationen (Plattform-Administration; ohne sie «Recht fehlt»). */
@@ -153,18 +154,16 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
   const { paths, features } = useIamConfig();
   useIamText();
   const { gate, page } = useGate(t('iam.orgs.one'));
-  const { me } = useIam();
+  // Ohne Organisation (Plattform-Administration ohne Mitgliedschaft) gibt es keine Sitzung eines Mandanten
+  const me = useIamMaybe()?.me ?? null;
   const q = useOrganization(alias, !gate && !!alias);
   const [statusDlg, setStatusDlg] = useState(false);
-  const whyId = useId();
   const o = q.data;
   const crumbs: [string, string][] = [[t('iam.orgs.title'), paths.organizations]];
   if (page) return page;
-  // Sperren der Organisation, in der die Person angemeldet ist, lehnt die API ab: gesperrt mit Grund statt ausgeblendet
-  const ownOrg = !!o && o.alias === me.tenant?.alias;
+  const ownOrg = !!o && !!me && o.alias === me.tenant?.alias;
   // Beide Namen aus Keycloak: die bearbeitete aus der Plattform-API, die eigene aus dem Token (organizationNames)
-  const own = me.tenant ? orgName(me, me.tenant.alias) : '';
-  const lockWhy = t('iam.orgs.ownLock');
+  const own = me?.tenant ? orgName(me, me.tenant.alias) : '';
   return (
     <>
       <AdminHead icon="building" title={o?.name ?? alias} crumbs={crumbs}
@@ -173,9 +172,8 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
           <span>{t('iam.orgs.col.platform')}: {o.tenant ? t('iam.orgs.since', { status: t(o.tenant.status === 'suspended' ? 'iam.orgs.suspended' : 'iam.members.status.active'), date: fmtDate(o.tenant.createdAt) }) : t('iam.orgs.unused')}</span></span> : undefined}
         actions={o && !gate ? (o.tenant?.status === 'suspended' || !o.enabled
           ? <Button icon="reset" onClick={() => setStatusDlg(true)}>{t('iam.orgs.resume')}</Button>
-          : <><Button variant="danger" icon="shield" aria-disabled={ownOrg ? true : undefined} aria-describedby={ownOrg ? whyId : undefined} title={ownOrg ? lockWhy : undefined} onClick={() => { if (!ownOrg) setStatusDlg(true); }}>{t('iam.orgs.suspend')}</Button>
-            {ownOrg ? <span id={whyId} className="iam-sr">{lockWhy}</span> : null}</>) : null}>
-        {o && !ownOrg ? <p className="iam-org-context" role="note"><Icon name="building" className="iam-ico" /><span>{t('iam.orgs.context', { org: o.name, own })}</span></p> : null}
+          : <Button variant="danger" icon="shield" onClick={() => setStatusDlg(true)}>{t('iam.orgs.suspend')}</Button>) : null}>
+        {o && !ownOrg ? <p className="iam-org-context" role="note"><Icon name="building" className="iam-ico" /><span>{own ? t('iam.orgs.context', { org: o.name, own }) : t('iam.orgs.contextPlatform', { org: o.name })}</span></p> : null}
       </AdminHead>
       <div className="iam-body"><div className="iam-int">
         {gate ?? (q.isPending ? <SkeletonRows rows={4} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} home={paths.organizations} /> : (

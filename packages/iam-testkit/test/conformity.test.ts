@@ -71,6 +71,10 @@ describe('Manifest', () => {
     assert.match(e({ ...manifest, realm: { m2m: true, machineClients: { 'notes-api': { organizations: ['a'] } } } }), /reserviert/);
     assert.match(e({ ...manifest, organizations: [{ alias: 'a', admins: [{ email: 'x@a.ch' }] }, { alias: 'a', admins: [{ email: 'y@a.ch' }] }] }), /a doppelt/);
     assert.match(e({ ...manifest, realm: { standardTexts: false } }), /realm/);
+    // Betrieb (iam 3.0): eigene Konten ohne Organisation, nie zugleich Admin einer Organisation; platformAdmin entfällt
+    assert.deepEqual(e({ ...manifest, operators: [{ email: 'b@betrieb.ch' }], organizations: [{ alias: 'a', admins: [{ email: 'x@a.ch' }] }] }), '');
+    assert.match(e({ ...manifest, operators: [{ email: 'X@a.ch' }], organizations: [{ alias: 'a', admins: [{ email: 'x@a.ch' }] }] }), /ist Betrieb/);
+    assert.match(e({ ...manifest, organizations: [{ alias: 'a', admins: [{ email: 'x@a.ch', platformAdmin: true }] }] }), /admins/);
   });
 
   test('mitgeliefertes JSON Schema entspricht der Prüfung', () => {

@@ -1,6 +1,9 @@
 /**
- * Ersteinrichtung einer Organisation (Spezifikation Kap. 2 Schritt 7, A20): in Keycloak Organisation, erste Person
- * (ohne Passwort, Pflichtaktion «Passwort festlegen») und Mitgliedschaft, optional die Realm-Rolle platform-admin; in
+ * Ersteinrichtung (Spezifikation Kap. 2 Schritt 7, A20). Zwei Arten von Personen, nie beides zugleich:
+ * - Betrieb (`operatorBootstrap`): Konto mit der Realm-Rolle der Plattform-Administration, ohne Organisation
+ *   (Kap. 6.3). Verwaltet danach Organisationen über die Oberfläche bzw. `/v1/platform/…`.
+ * - Organisation (`orgBootstrap`): in Keycloak Organisation, erste Person
+ * (ohne Passwort, Pflichtaktion «Passwort festlegen») und Mitgliedschaft; in
  * der Datenbank der App (Besitzer-Rolle, `DATABASE_ADMIN_URL`) Mandant (gebunden an die ID der Organisation), Principal,
  * Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned`. Idempotent. Rollen stehen nie in
  * Keycloak; danach verwaltet org-admin die Mitglieder in der Oberfläche.
@@ -42,8 +45,8 @@ export interface OrgBootstrapOptions {
    * still eine Organisation ohne Admin.
    */
   database?: { url: string; schema: string } | null;
-  /** Realm-Rolle der Plattform-Administration zusätzlich vergeben (Name aus PLATFORM_ADMIN_ROLE). */
-  platformAdminRole?: string | null;
+  /** Realm-Rolle des Betriebs (PLATFORM_ADMIN_ROLE): eine Person mit dieser Rolle wird nie Admin einer Organisation. */
+  operatorRole?: string | null;
   initialPassword?: { realm: string; secretDir: string } | null;
   /** Einladung per E-Mail an neu angelegte Personen ohne Passwort (Standard an). */
   sendEmail?: boolean;
@@ -89,16 +92,20 @@ const EMAIL = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
 /** Datei für `iam-org-bootstrap --file` (mitgeliefert als `schema/init.schema.json`). */
 export const InitFileSchema = Type.Object({
   $schema: Type.Optional(Type.String()),
-  organizations: Type.Array(Type.Object({
+  operators: Type.Optional(Type.Array(Type.Object({
+    email: Type.String({ pattern: EMAIL }),
+    first: Type.Optional(Type.String()),
+    last: Type.Optional(Type.String()),
+  }, { additionalProperties: false }), { description: 'Betrieb: Konto mit der Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE), ohne Organisation' })),
+  organizations: Type.Optional(Type.Array(Type.Object({
     alias: Type.String({ pattern: ALIAS_PATTERN.source, description: 'Alias der Organisation in Keycloak und des Mandanten' }),
     name: Type.Optional(Type.String({ minLength: 1, description: 'Anzeigename; Standard der Alias' })),
     admins: Type.Array(Type.Object({
       email: Type.String({ pattern: EMAIL }),
       first: Type.Optional(Type.String()),
       last: Type.Optional(Type.String()),
-      platformAdmin: Type.Optional(Type.Boolean({ description: 'Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE) zusätzlich' })),
-    }, { additionalProperties: false }), { minItems: 1, description: 'Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2' }),
-  }, { additionalProperties: false }), { minItems: 1 }),
+    }, { additionalProperties: false }), { minItems: 1, description: 'Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2 (nie die Plattform-Administration)' }),
+  }, { additionalProperties: false }))),
 }, { $id: 'https://github.com/vollholz/identity-kit/packages/iam/schema/init.schema.json', title: 'iam-org-bootstrap --file', additionalProperties: false });
 export type InitFile = Static<typeof InitFileSchema>;
 
@@ -106,13 +113,17 @@ export type InitFile = Static<typeof InitFileSchema>;
 export function initFileErrors(data: unknown): string[] {
   if (!Value.Check(InitFileSchema, data)) return [...Value.Errors(InitFileSchema, data)].map(e => `${e.path || '/'}: ${e.message}`);
   const seen = new Set<string>(), out: string[] = [];
-  data.organizations.forEach((o, i) => {
+  const operators = (data.operators ?? []).map(x => x.email.trim().toLowerCase());
+  if (!operators.length && !data.organizations?.length) out.push('/: mindestens ein Eintrag in operators oder organizations');
+  operators.forEach((m, i) => { if (operators.indexOf(m) !== i) out.push(`/operators/${i}/email: ${m} doppelt`); });
+  (data.organizations ?? []).forEach((o, i) => {
     if (seen.has(o.alias)) out.push(`/organizations/${i}/alias: ${o.alias} doppelt`);
     seen.add(o.alias);
     const mails = new Set<string>();
     o.admins.forEach((a, j) => {
       const m = a.email.trim().toLowerCase();
       if (mails.has(m)) out.push(`/organizations/${i}/admins/${j}/email: ${m} doppelt`);
+      if (operators.includes(m)) out.push(`/organizations/${i}/admins/${j}/email: ${m} ist Betrieb (operators) – Betrieb und Organisation nie mit demselben Konto`);
       mails.add(m);
     });
   });
@@ -120,33 +131,40 @@ export function initFileErrors(data: unknown): string[] {
 }
 
 /**
- * Organisationen aus dem Manifest der App (`identity.app.json`, Feld `organizations`, gleiches Format wie die Datei für
- * `--file`); die übrigen Felder des Manifests prüft das Test-Kit (`iam-conformity-test`). Fehlertexte wie `initFileErrors`.
+ * Betrieb und Organisationen aus dem Manifest der App (`identity.app.json`, Felder `operators` und `organizations`,
+ * gleiches Format wie die Datei für `--file`); die übrigen Felder des Manifests prüft das Test-Kit
+ * (`iam-conformity-test`). Fehlertexte wie `initFileErrors`.
  */
 export function manifestInitFile(data: unknown): { file: InitFile | null; errors: string[] } {
-  const orgs = data && typeof data === 'object' && !Array.isArray(data) ? (data as { organizations?: unknown }).organizations : undefined;
-  if (orgs === undefined) return { file: null, errors: ['/organizations: fehlt (erste Organisation mit ihren Admins)'] };
-  const file = { organizations: orgs };
+  const m = data && typeof data === 'object' && !Array.isArray(data) ? data as { operators?: unknown; organizations?: unknown } : {};
+  if (m.operators === undefined && m.organizations === undefined) return { file: null, errors: ['/organizations: fehlt (Betrieb unter operators und/oder erste Organisation mit ihren Admins)'] };
+  const file = { ...(m.operators !== undefined ? { operators: m.operators } : {}), ...(m.organizations !== undefined ? { organizations: m.organizations } : {}) };
   const errors = initFileErrors(file);
   return errors.length ? { file: null, errors } : { file: file as InitFile, errors };
 }
 
 export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'dryRun' | 'log'> & {
-  /** Name der Realm-Rolle für Admins mit `platformAdmin` (PLATFORM_ADMIN_ROLE). */
+  /** Realm-Rolle der Personen in `operators` (PLATFORM_ADMIN_ROLE). */
   platformAdminRole: string;
 };
 
-/** Alle Organisationen und Admins einer Datei, je Admin wie `orgBootstrap` (idempotent). */
+/** Betrieb, dann alle Organisationen und Admins einer Datei (je wie `operatorBootstrap` bzw. `orgBootstrap`, idempotent). */
 export async function orgBootstrapFile(kc: KeycloakAdmin, file: InitFile, o: OrgBootstrapFileOptions): Promise<OrgBootstrapResult[]> {
   const errors = initFileErrors(file);
   if (errors.length) throw new Error(errors.join('\n'));
   const out: OrgBootstrapResult[] = [];
-  for (const org of file.organizations) {
+  for (const a of file.operators ?? []) {
+    o.log?.(`— Betrieb: ${a.email.trim().toLowerCase()}`);
+    out.push(await operatorBootstrap(kc, {
+      email: a.email, firstName: a.first, lastName: a.last, platformAdminRole: o.platformAdminRole,
+      initialPassword: o.initialPassword, sendEmail: o.sendEmail, resend: o.resend, invite: o.invite, dryRun: o.dryRun, log: o.log,
+    }));
+  }
+  for (const org of file.organizations ?? []) {
     for (const a of org.admins) {
       o.log?.(`— ${org.alias}: ${a.email.trim().toLowerCase()}`);
       out.push(await orgBootstrap(kc, {
-        alias: org.alias, name: org.name, email: a.email, firstName: a.first, lastName: a.last,
-        platformAdminRole: a.platformAdmin ? o.platformAdminRole : null,
+        alias: org.alias, name: org.name, email: a.email, firstName: a.first, lastName: a.last, operatorRole: o.platformAdminRole,
         database: o.database, initialPassword: o.initialPassword, sendEmail: o.sendEmail, resend: o.resend, invite: o.invite, dryRun: o.dryRun, log: o.log,
       }));
     }
@@ -197,12 +215,12 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   } else step(`Organisation ${alias} vorhanden`);
 
   // Person (ohne Passwort, Pflichtaktion «Passwort festlegen»)
-  res.userId = (await kc.findUserByEmail(email))?.id ?? null;
-  const created = !res.userId;
-  if (!res.userId) {
-    step(`Person ${email} anlegen (ohne Passwort)`);
-    if (!dry) res.userId = await kc.createUser({ username: email, email, emailVerified: true, enabled: true, firstName: o.firstName, lastName: o.lastName, requiredActions: ['UPDATE_PASSWORD'] });
-  } else step(`Person ${email} vorhanden`);
+  const person = await ensurePerson(kc, email, o, dry, step);
+  res.userId = person.userId;
+  const created = person.created;
+  if (res.userId && await isOperator(kc, res.userId, o.operatorRole ?? null)) {
+    throw new Error(`${email} ist Betrieb (Realm-Rolle ${o.operatorRole}): Betrieb und Organisation nie mit demselben Konto. Eine andere Adresse für die Organisation verwenden.`);
+  }
   if (!res.userId || !res.orgId) {
     if (!dry) throw new Error('Organisation oder Person fehlt nach dem Anlegen');
     step(`${email} → Organisation ${alias}, Rolle ${ADMIN_ROLE}, Freigabestufe 2`);
@@ -216,35 +234,7 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
     step(`${email} → Organisation ${alias}`);
     if (!dry) await kc.addMember(res.orgId, res.userId);
   }
-  if (o.platformAdminRole) {
-    const role = o.platformAdminRole;
-    const mapped = ((await kc.call<{ name: string }[]>('GET', `/users/${seg(res.userId)}/role-mappings/realm`)).data ?? []).some(x => x.name === role);
-    if (!mapped) {
-      step(`${email} → Realm-Rolle ${role}`);
-      if (!dry) await kc.call('POST', `/users/${seg(res.userId)}/role-mappings/realm`, [(await kc.call('GET', `/roles/${seg(role)}`, undefined, { what: 'Realm-Rolle lesen' })).data], { what: 'Realm-Rolle zuweisen' });
-    }
-  }
-  if (o.initialPassword) {
-    if (await kc.hasPassword(res.userId)) step(`${email} hat schon ein Passwort – nichts geändert`);
-    // Konto mit Anmeldung über einen Identitätsanbieter (z. B. Entra ID): ein Passwort umginge dessen MFA
-    else if ((await kc.federatedIdentities(res.userId)).length) step(`${email} meldet sich über einen Identitätsanbieter an – kein Passwort gesetzt`);
-    else if (dry) step(`${email}: temporäres Passwort würde gesetzt`);
-    else {
-      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.:+';
-      const password = Array.from({ length: 20 }, () => alphabet[randomInt(alphabet.length)]).join('');
-      const { realm, secretDir } = o.initialPassword;
-      const file = join(privateDir(secretDir), `initial-password-${safeName(realm)}-${safeName(email)}.txt`);
-      writeSecret(file, `${password}\n`);
-      try {
-        await kc.call('PUT', `/users/${seg(res.userId)}/reset-password`, { type: 'password', value: password, temporary: true }, { what: 'Passwort setzen' });
-      } catch (e) {
-        rmSync(file, { force: true }); // ohne gesetztes Passwort keine Datei, die eines vortäuscht
-        throw e;
-      }
-      res.passwordFile = file;
-      step(`${email}: temporäres Passwort gesetzt, abgelegt in ${file}`);
-    }
-  }
+  res.passwordFile = await initialPassword(kc, res.userId, email, o, dry, step);
   if (o.database) {
     const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
     res.tenantId = r.tenantId; res.principalId = r.principalId;
@@ -257,11 +247,91 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   return res;
 }
 
+/** Optionen für ein Konto des Betriebs (ohne Organisation). */
+export type OperatorBootstrapOptions = Pick<OrgBootstrapOptions, 'email' | 'firstName' | 'lastName' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'dryRun' | 'log'> & {
+  /** Realm-Rolle der Plattform-Administration (PLATFORM_ADMIN_ROLE). */
+  platformAdminRole: string;
+};
+
+/**
+ * Konto des Betriebs (Kap. 6.3): Person ohne Passwort mit der Realm-Rolle der Plattform-Administration, keiner
+ * Organisation zugeordnet; Einladung bzw. temporäres Passwort wie bei `orgBootstrap`. Ist die Person schon Mitglied einer
+ * Organisation, bricht der Lauf ab: Betrieb und Organisation nie mit demselben Konto. Idempotent.
+ */
+export async function operatorBootstrap(kc: KeycloakAdmin, o: OperatorBootstrapOptions): Promise<OrgBootstrapResult> {
+  const email = o.email.trim().toLowerCase();
+  const errors = [...inviteErrors(o.invite), ...(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? [] : ['E-Mail-Adresse ungültig'])];
+  if (errors.length) throw new Error(errors.join('\n'));
+  const dry = !!o.dryRun;
+  const steps: string[] = [];
+  const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
+  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, invitation: null };
+  const person = await ensurePerson(kc, email, o, dry, step);
+  res.userId = person.userId;
+  if (res.userId) {
+    const orgs = await kc.memberOrgs(res.userId);
+    if (orgs.length) throw new Error(`${email} ist Mitglied von ${orgs.map(x => x.alias).join(', ')}: Betrieb und Organisation nie mit demselben Konto. Eine eigene Adresse für den Betrieb verwenden.`);
+    if (!(await isOperator(kc, res.userId, o.platformAdminRole))) {
+      step(`${email} → Realm-Rolle ${o.platformAdminRole} (Betrieb, ohne Organisation)`);
+      if (!dry) await kc.call('POST', `/users/${seg(res.userId)}/role-mappings/realm`, [(await kc.call('GET', `/roles/${seg(o.platformAdminRole)}`, undefined, { what: 'Realm-Rolle lesen' })).data], { what: 'Realm-Rolle zuweisen' });
+    } else step(`${email} hat die Realm-Rolle ${o.platformAdminRole}`);
+    res.passwordFile = await initialPassword(kc, res.userId, email, o, dry, step);
+  } else step(`${email} → Realm-Rolle ${o.platformAdminRole} (Betrieb, ohne Organisation)`);
+  if (o.sendEmail !== false && !o.initialPassword && (person.created || o.resend)) {
+    if (res.userId) res.invitation = await invite(kc, res.userId, email, o, dry, step);
+    else step(`${email}: Einladung «Passwort festlegen» würde gesendet`);
+  }
+  step('Fertig.');
+  return res;
+}
+
+/** Person zur Adresse finden oder ohne Passwort anlegen (Pflichtaktion «Passwort festlegen»). Probelauf: `userId` null, wenn neu. */
+async function ensurePerson(kc: KeycloakAdmin, email: string, o: Pick<OrgBootstrapOptions, 'firstName' | 'lastName'>, dry: boolean, step: (m: string) => void): Promise<{ userId: string | null; created: boolean }> {
+  const existing = (await kc.findUserByEmail(email))?.id ?? null;
+  if (existing) { step(`Person ${email} vorhanden`); return { userId: existing, created: false }; }
+  step(`Person ${email} anlegen (ohne Passwort)`);
+  if (dry) return { userId: null, created: true };
+  return { userId: await kc.createUser({ username: email, email, emailVerified: true, enabled: true, firstName: o.firstName, lastName: o.lastName, requiredActions: ['UPDATE_PASSWORD'] }), created: true };
+}
+
+/**
+ * Hat die Person die Realm-Rolle des Betriebs – auch geerbt über eine Gruppe oder eine zusammengesetzte Rolle? Das Token
+ * enthält sie dann ebenso; die direkte Zuweisung allein genügte nicht für die Trennung von Betrieb und Organisation.
+ */
+async function isOperator(kc: KeycloakAdmin, userId: string, role: string | null): Promise<boolean> {
+  return !!role && (await kc.realmRoles(userId)).includes(role);
+}
+
+/**
+ * Temporäres Passwort (`initialPassword`): nur ohne Passwort und ohne Identitätsanbieter; nur in die Datei
+ * `<secretDir>/initial-password-<realm>-<e-mail>.txt` (0600), nie ausgegeben. Liefert die Datei oder null.
+ */
+async function initialPassword(kc: KeycloakAdmin, userId: string, email: string, o: Pick<OrgBootstrapOptions, 'initialPassword'>, dry: boolean, step: (m: string) => void): Promise<string | null> {
+  if (!o.initialPassword) return null;
+  if (await kc.hasPassword(userId)) { step(`${email} hat schon ein Passwort – nichts geändert`); return null; }
+  // Konto mit Anmeldung über einen Identitätsanbieter (z. B. Entra ID): ein Passwort umginge dessen MFA
+  if ((await kc.federatedIdentities(userId)).length) { step(`${email} meldet sich über einen Identitätsanbieter an – kein Passwort gesetzt`); return null; }
+  if (dry) { step(`${email}: temporäres Passwort würde gesetzt`); return null; }
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.:+';
+  const password = Array.from({ length: 20 }, () => alphabet[randomInt(alphabet.length)]).join('');
+  const { realm, secretDir } = o.initialPassword;
+  const file = join(privateDir(secretDir), `initial-password-${safeName(realm)}-${safeName(email)}.txt`);
+  writeSecret(file, `${password}\n`);
+  try {
+    await kc.call('PUT', `/users/${seg(userId)}/reset-password`, { type: 'password', value: password, temporary: true }, { what: 'Passwort setzen' });
+  } catch (e) {
+    rmSync(file, { force: true }); // ohne gesetztes Passwort keine Datei, die eines vortäuscht
+    throw e;
+  }
+  step(`${email}: temporäres Passwort gesetzt, abgelegt in ${file}`);
+  return file;
+}
+
 /**
  * Einladung «Passwort festlegen» per E-Mail (Keycloak `execute-actions-email`), nur an Konten ohne Passwort und ohne
  * Identitätsanbieter. Scheitert der Versand, bleibt es bei einer Meldung (Lauf geht weiter).
  */
-async function invite(kc: KeycloakAdmin, userId: string, email: string, o: OrgBootstrapOptions, dry: boolean, step: (m: string) => void): Promise<'sent' | 'failed' | null> {
+async function invite(kc: KeycloakAdmin, userId: string, email: string, o: Pick<OrgBootstrapOptions, 'invite'>, dry: boolean, step: (m: string) => void): Promise<'sent' | 'failed' | null> {
   if (await kc.hasPassword(userId)) { step(`${email} hat schon ein Passwort – keine Einladung`); return null; }
   if ((await kc.federatedIdentities(userId)).length) { step(`${email} meldet sich über einen Identitätsanbieter an – keine Einladung`); return null; }
   const lifespanSec = o.invite?.lifespanSec ?? INVITE_LIFESPAN_SEC;

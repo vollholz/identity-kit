@@ -24,20 +24,22 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { AccessService } from './access.ts';
-import type { Actor, AuditEntry, AuditPort, Source } from './audit.ts';
+import { writePlatformAudit, type Actor, type AuditEntry, type AuditPort, type Source } from './audit.ts';
 import type { IamConfig } from './config.ts';
-import { schemaName, withTenant, type Db, type Tx } from './db.ts';
+import { schemaName, setContext, withTenant, withTx, type Db, type Tx } from './db.ts';
 import { conflict, HttpError, invalid, notFound } from './errors.ts';
 import { notLinkable, type EntraGraph, type EntraUser } from './graph.ts';
 import { listClients } from './http/clients.ts';
 import { KeycloakAdmin, KeycloakError, type KcOrg, type KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
 import { ADMIN_ROLE, type Level, type Model } from './model.ts';
-import { ALIAS_PATTERN, asciiLower, type Principal, type PrincipalResolver } from './principal.ts';
+import { ALIAS_PATTERN, asciiLower, type Account, type Principal, type PrincipalResolver } from './principal.ts';
 import { checkRoleChange, checkRoles, lastAdminGuard, setClearance, setOrgRoles, type Acting } from './rules.ts';
 import { displayName, orgMatches, pendingActions, syncTenantMembers, syncTenantName, type SyncContext } from './sync.ts';
 import { createTenant, findTenant, listTenants, setTenantStatus, type TenantActor, type TenantRow, type TenantsContext } from './tenants.ts';
 import type { TupleStore } from './tuples.ts';
+
+const selfServiceOff = (what: string) => new HttpError(403, 'Nicht eingerichtet', `${what} ist in dieser Instanz nicht eingeschaltet.`, {}, { reason: 'self-service-off' });
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -204,7 +206,7 @@ export class AdminService {
     const p = s.actor;
     return {
       principal: { kind: p.kind, principalId: p.principalId, name: p.name, clientId: p.clientId }, source: s.source, correlationId: s.correlationId,
-      data: s.platform ? { platformAdmin: true, actorTenant: p.tenantAlias } : {},
+      data: s.platform ? { platformAdmin: true } : {},
     };
   }
 
@@ -733,6 +735,87 @@ export class AdminService {
     return this.organization(alias, s.correlationId);
   }
 
+  // ---------------------------------------------------------------- Konto ohne Organisation (Kap. 6.3)
+  /**
+   * Registrieren mit E-Mail (`SELF_SERVICE_SIGNUP`). Ohne Konto: Konto ohne Passwort, Pflichtaktionen «E-Mail bestätigen»
+   * und «Passwort festlegen», E-Mail von Keycloak; danach meldet sich die Person an (ohne Organisation). Besteht schon ein
+   * Konto oder gilt «Nur Entra» für die Domäne, geschieht nichts. Antwort und Dauer sind in allen Fällen gleich
+   * (`KEYCLOAK_MGMT_INVITE_MIN_TIME`), damit niemand erfährt, ob eine Adresse ein Konto hat.
+   */
+  async signup(input: { email: string; firstName?: string; lastName?: string }, ctx: { source: Source; correlationId: string }): Promise<{ result: 'signup-received' }> {
+    if (!this.deps.cfg.selfService.signup) throw selfServiceOff('Registrieren');
+    const email = input.email.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) throw invalid('E-Mail-Adresse ungültig', [{ path: '/email', message: 'Gültige E-Mail-Adresse angeben' }]);
+    const domain = email.slice(email.lastIndexOf('@') + 1);
+    return this.padded(async () => {
+      const who: Actor = { principal: null, source: ctx.source, correlationId: ctx.correlationId };
+      const entra = (await this.deps.db.query<{ a: string | null }>('SELECT app.entra_login_alias($1) AS a', [domain])).rows[0]?.a;
+      if (entra || await this.kc.findUserByEmail(email)) {
+        await writePlatformAudit(this.deps.db, who, { action: 'account.signup_ignored', data: { domain, reason: entra ? 'entra-domain' : 'exists' } });
+        return { result: 'signup-received' as const };
+      }
+      const userId = await this.createAccount(email, input, ['VERIFY_EMAIL', 'UPDATE_PASSWORD']);
+      const emailSent = await this.kc.sendActionsEmail(userId, ['VERIFY_EMAIL', 'UPDATE_PASSWORD'], {
+        lifespanSec: this.deps.cfg.mgmt.inviteLifespanSec, clientId: this.deps.cfg.oidc.bffClientId, redirectUri: this.deps.cfg.publicBaseUrl,
+      });
+      await writePlatformAudit(this.deps.db, who, { action: 'account.signup', data: { domain, emailSent } });
+      return { result: 'signup-received' as const };
+    });
+  }
+
+  /** Darf `alias` selbst erstellt werden? Reservierte Aliasse und das Produkt nur über die Plattform-Administration. */
+  private ownAlias(raw: string): string {
+    const alias = asciiLower(raw.trim());
+    if (!ALIAS_PATTERN.test(alias)) throw invalid('Alias ungültig', [{ path: '/alias', message: 'Kleinbuchstaben, Ziffern, - und _ (beginnt mit Buchstabe oder Ziffer, höchstens 63 Zeichen)' }]);
+    if ([...this.deps.cfg.selfService.reservedAliases, this.deps.model.product].includes(alias)) throw invalid('Alias reserviert', [{ path: '/alias', message: `«${alias}» ist reserviert. Bitte einen anderen wählen.` }]);
+    return alias;
+  }
+
+  /**
+   * Eigene Organisation erstellen (`SELF_SERVICE_ORGS`, Kontext «Konto»): bestätigte E-Mail, Alias frei und nicht
+   * reserviert, höchstens `SELF_SERVICE_ORG_LIMIT` je Konto. Organisation in Keycloak ohne Domäne (Domänen setzt nur die
+   * Plattform bzw. die Anmeldung über Entra ID mit verifizierten Domänen), die Person als Mitglied, dann in einer
+   * Transaktion Mandant, Principal, Tupel `org-admin` an org, Freigabestufe 2 und Protokoll (Mandant und Plattform).
+   * Scheitert etwas, wird die Organisation in Keycloak gelöscht und die Reservierung freigegeben. Danach erneuert die
+   * Oberfläche das Token; die Organisation steht dann darin.
+   */
+  async createOwnOrganization(a: Account, input: { alias: string; name: string }, ctx: { source: Source; correlationId: string }): Promise<{ alias: string; name: string; tenantId: string }> {
+    const ss = this.deps.cfg.selfService;
+    if (!ss.orgs) throw selfServiceOff('Organisationen selbst erstellen');
+    if (!a.emailVerified) throw new HttpError(403, 'E-Mail nicht bestätigt', 'Bestätige zuerst deine E-Mail-Adresse (Link in der E-Mail von der Registrierung), dann melde dich neu an.', {}, { reason: 'email-unverified' });
+    const alias = this.ownAlias(input.alias);
+    const name = input.name.trim();
+    if (!name) throw invalid('Name fehlt', [{ path: '/name', message: 'Name angeben' }]);
+    if ((await this.kc.listOrgs()).some(o => asciiLower(o.alias) === alias) || await findTenant(this.deps.db, alias)) throw conflict(`Der Alias «${alias}» ist bereits vergeben.`, { reason: 'alias-taken' });
+    const reserved = (await this.deps.db.query<{ ok: boolean }>('SELECT app.account_reserve_org($1, $2) AS ok', [a.accountId, ss.orgLimit])).rows[0]?.ok;
+    if (!reserved) throw conflict(`Du hast schon ${ss.orgLimit} Organisationen erstellt (Höchstzahl). Weitere richtet die Plattform-Administration ein.`, { reason: 'org-limit' });
+    let orgId: string | null = null;
+    try {
+      try { orgId = await this.kc.createOrg({ alias, name, enabled: true, domains: [] }); }
+      catch (e) { if (e instanceof KeycloakError && e.kcStatus === 409) throw conflict(`Der Alias «${alias}» oder der Name ist bereits vergeben.`, { reason: 'alias-taken' }); throw e; }
+      await this.kc.addMember(orgId, a.subject);
+      const kcOrgId = orgId;
+      const tenantId = await withTx(this.deps.db, async tx => {
+        const id = (await tx.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, true) AS id', [alias, kcOrgId, name])).rows[0]?.id;
+        if (!id) throw conflict(`Der Alias «${alias}» ist bereits vergeben.`, { reason: 'alias-taken' });
+        await setContext(tx, { tenantId: id });
+        const principalId = await this.principalOf(tx, a.subject, a.name, a.email);
+        await tx.query(`UPDATE ${this.S}.principal SET clearance = 2, last_seen_at = now() WHERE id = $1`, [principalId]);
+        const actor: Actor = { principal: { kind: 'user', principalId, name: a.name, clientId: null }, source: ctx.source, correlationId: ctx.correlationId };
+        await this.deps.audit.write(tx, actor, { action: 'tenant.provisioned', resourceType: 'tenant', resourceId: id, data: { alias, kcOrgId, selfService: true } });
+        await this.deps.tuples.grant(tx, { subject: `user:${principalId}`, relation: ADMIN_ROLE, place: { type: 'org' }, createdBy: principalId }, actor);
+        await writePlatformAudit(tx, { ...actor, principal: { kind: 'user', principalId: a.accountId, name: a.name, clientId: null } }, { action: 'organization.self_created', resourceType: 'tenant', resourceId: id, org: 'current', data: { alias, kcOrgId } });
+        return id;
+      });
+      this.orgs = null;
+      return { alias, name, tenantId };
+    } catch (e) {
+      if (orgId) await this.kc.deleteOrg(orgId).catch(() => undefined);
+      await this.deps.db.query('SELECT app.account_release_org($1)', [a.accountId]).catch(() => undefined);
+      throw e;
+    }
+  }
+
   async updateOrganization(s: Scope, alias: string, input: { name?: string; description?: string | null; domains?: string[] }): Promise<Organization> {
     const org = await this.org(alias, true);
     const next: KcOrg = { ...org };
@@ -772,7 +855,6 @@ export class AdminService {
    */
   async setOrganizationStatus(s: Scope, alias: string, status: 'active' | 'suspended', reason = ''): Promise<Organization> {
     const org = await this.org(alias, true);
-    if (status === 'suspended' && asciiLower(org.alias) === s.actor.tenantAlias) throw conflict('Die Organisation, in der du gerade angemeldet bist, kannst du nicht sperren.');
     const enabled = status === 'active';
     await this.locked({ ...s, alias: org.alias }, org, null, async () => {
       const cur = (await this.kc.getOrg(org.id)) ?? org;

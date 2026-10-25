@@ -339,12 +339,25 @@ export class Bff implements SessionBridge {
     return p;
   }
 
-  private refresh(id: string): Promise<SessionData | null> {
+  /**
+   * Token sofort erneuern, auch wenn es noch gilt – z. B. nach «Organisation erstellen», damit die neue Mitgliedschaft im
+   * Token und in der Liste der Organisationen der Sitzung steht. Null: Sitzung beendet.
+   */
+  renew(s: Session): Promise<SessionData | null> {
+    let p = this.inflight.get(s.id);
+    if (!p) {
+      p = this.refresh(s.id, true).finally(() => this.inflight.delete(s.id));
+      this.inflight.set(s.id, p);
+    }
+    return p;
+  }
+
+  private refresh(id: string, force = false): Promise<SessionData | null> {
     return withTx(this.db, async tx => {
       const row = (await tx.query<{ data: Buffer }>(`SELECT data FROM ${this.schema}.session WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!row) return null;
       const data = JSON.parse(this.sealer.open(row.data, id).toString('utf8')) as SessionData;
-      if (data.accessExp - this.now() > REFRESH_SKEW_MS) return data; // eine andere Instanz war schneller
+      if (!force && data.accessExp - this.now() > REFRESH_SKEW_MS) return data; // eine andere Instanz war schneller
       const drop = async () => { await tx.query(`DELETE FROM ${this.schema}.session WHERE id = $1`, [id]); return null; };
       if (!data.refreshToken) return drop();
       let tokens: Awaited<ReturnType<typeof client.refreshTokenGrant>>;

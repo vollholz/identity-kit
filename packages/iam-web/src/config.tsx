@@ -18,6 +18,8 @@ export interface IamPaths {
    */
   entra: string;
   organizations: string;
+  /** Öffentliche Seite «Konto erstellen» (nur mit `features.signup`). */
+  signup: string;
 }
 
 /** Standardpfade; `loggedOut` ist im Realm als post_logout_redirect_uri eingetragen (5.1). */
@@ -27,6 +29,7 @@ export const DEFAULT_PATHS: IamPaths = {
   members: '/verwalten/mitglieder',
   entra: '/verwalten/anmeldung',
   organizations: '/verwalten/organisationen',
+  signup: '/registrieren',
 };
 
 /**
@@ -47,6 +50,11 @@ export interface IamFeatures {
   entra?: boolean;
   /** Seiten der Plattform-Administration; Standard an. */
   platform?: boolean;
+  /**
+   * Öffentliche Seite «Konto erstellen» (`paths.signup`) und der Link dazu nach dem Abmelden; Standard aus. Der Server
+   * muss `SELF_SERVICE_SIGNUP` einschalten, sonst antwortet er mit 403.
+   */
+  signup?: boolean;
 }
 
 /** Gruppe im Rollendialog und in der Rollenmatrix (nur Darstellung, V3). */

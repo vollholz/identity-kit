@@ -1,6 +1,6 @@
 # Pakete des Baukastens in einer App
 
-Gilt für jedes Paket `@vollholz/*` (Test-Kit, Backend, Frontend). Referenz: vollholz/assets (PR #23).
+Gilt für jedes Paket `@vollholz/*` (Test-Kit, Backend, Frontend).
 
 ## Bezug
 

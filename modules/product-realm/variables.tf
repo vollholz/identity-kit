@@ -142,7 +142,7 @@ variable "smtp" {
     reply_to          = optional(string, "")
     starttls          = optional(bool, true)
     ssl               = optional(bool, false)
-    # Bei Infomaniak die Postfachadresse; mit dem Login des Kontos lehnt der Server ab (535)
+    # Bei manchen Anbietern die Postfachadresse; mit einem abweichenden Login lehnt der Server ab (535)
     user = optional(string)
   })
   default = null

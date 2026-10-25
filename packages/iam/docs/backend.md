@@ -103,7 +103,7 @@ CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT TO notes_app USI
 
 **Übernahme bestehender Objekte** (nur für eine App, die die IAM-Tabellen schon aus eigenen Migrationen hat; eine neue
 App braucht das nicht): `adopted` trägt die IAM-Migrationen bis `IAM_BASELINE` und die zugeordneten späteren nur ein,
-nach geprüften Vorbedingungen (sonst Abbruch ohne Eintrag). Beispiel einer App, deren Migrationen 051–053 den
+nach geprüften Vorbedingungen (sonst Abbruch ohne Eintrag). Beispiel einer App, deren Migrationen 031–033 den
 IAM-Migrationen 010–012 entsprechen:
 
 ```ts
@@ -112,9 +112,9 @@ await migrate(cfg.db.adminUrl!, [
   iamMigrations({
     product: 'notes', model,
     adopted: {
-      after: '053_acl_unique.sql',
-      map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
-             '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },
+      after: '033_acl_unique.sql',
+      map: { '031_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
+             '032_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '033_acl_unique.sql': 'iam_012_acl_unique.sql' },
     },
   }),
 ]);
@@ -158,7 +158,7 @@ alle auf einmal geladen (ohne `refs` gelten nur Tupel und Kette).
 
 **Einstellungen, die das Paket voraussetzt:**
 
-- **`ajv.customOptions.removeAdditional: false`** (wie Assets; die Tests des Pakets laufen so). Der Fastify-Standard
+- **`ajv.customOptions.removeAdditional: false`** (die Tests des Pakets laufen so). Der Fastify-Standard
   entfernt unbekannte Felder still; mit dieser Einstellung ergeben sie 422, und Tippfehler der Oberfläche fallen auf.
   Ohne sie öffnet sich nichts (entfernte Felder geben keine Rechte, die Schemas des Pakets kennen keine Varianten von
   Objekten, bei denen Entfernen den Sinn änderte), aber falsch geschriebene optionale Felder wirken stumm nicht, etwa
@@ -247,7 +247,7 @@ app.route({ method: ['GET', 'POST', 'DELETE'], url: '/mcp', handler: async (req,
 **Ersteinrichtung einer Organisation** (idempotent, A20; danach verwaltet org-admin die Mitglieder in der Oberfläche):
 
 ```sh
-KEYCLOAK_TF_URL=https://identity.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… DATABASE_ADMIN_URL=… \
+KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… DATABASE_ADMIN_URL=… \
   npx iam-org-bootstrap --alias solutions --name "Solutions" --email anna@example.ch --first Anna --last Admin \
   [--schema notes] [--platform-admin] [--initial-password | --no-email | --resend] [--dry-run]
 ```
@@ -312,7 +312,7 @@ Entra ID; die Kunden stimmen ihr zu:
 
 - Redirect-URIs: `<PUBLIC_BASE_URL><ENTRA_UI_PATH>/zustimmung` und die Plätze `entra-NNN` des Realms
   (`brokerRedirectUris`, `ENTRA_IDP_SLOTS`).
-- Berechtigungen in Microsoft Graph (wie Assets `docs/einrichtung.md`): delegiert `User.Read` (Keycloak liest bei der
+- Berechtigungen in Microsoft Graph: delegiert `User.Read` (Keycloak liest bei der
   Anmeldung `/me`), Anwendung `Organization.Read.All` (Organisation und verifizierte Domänen, `GET /organization`),
   Anwendung `User.Read.All` (`GET /users` mit `$filter`/`$search`, `GET /users/{id}`: Personen finden und verknüpfen),
   Anwendung `GroupMember.Read.All` (`GET /groups` mit `$search`, `GET /groups/{id}`: Gruppen für Freigaben, O3).

@@ -1,13 +1,12 @@
 # Modul product-realm
 
-OpenTofu-Modul für den Realm einer App auf **https://identity.project-suite.ch** (Keycloak 26.8.1): Realm-Einstellungen,
+OpenTofu-Modul für den Realm einer App auf einer Keycloak-Instanz (getestet mit 26.8.1): Realm-Einstellungen,
 Client-Richtlinien, Clients, Mapper, Scopes, Rechte der Service Accounts, Texte. Jede App
 ruft es auf, statt IaC zu kopieren. Spezifikation [Kap. 2, 3, 12, 15](../../docs/spezifikation.md#3-realm-des-produkts).
-Herausgelöst aus vollholz/assets `infra/keycloak`.
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version** in [`VERSION`](VERSION) (1.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (2.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -16,7 +15,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 - Node 24 beim Plan und Apply: `scripts/lookup.ts` (IDs eingebauter Clients) und `scripts/org-mapper.ts`
   (Organisations-Mapper) sprechen die Admin-API an, ohne Abhängigkeiten.
 - Anmeldung als IaC-Client `<produkt>-iac` (Service Account mit `realm-management/realm-admin`, Spezifikation Kap. 2
-  Schritt 5) nur aus der Umgebung, wie `kc.sh` in Assets sie setzt: `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`,
+  Schritt 5) nur aus der Umgebung (z. B. über ein Skript `kc.sh` der App): `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`,
   `KEYCLOAK_JWT_SIGNING_KEY` für den Provider und `KEYCLOAK_IAC_PRIVATE_KEY` (PEM) für die Hilfsskripte. Nichts davon
   steht in der Konfiguration oder im gespeicherten Plan.
 - Backend, State-Verschlüsselung (`TF_STATE_PASSPHRASE`) und Provider-Block gehören dem Aufrufer.
@@ -43,9 +42,9 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `mcp_extra_redirect_uris` | list(string) | `[]` | weitere Weiterleitungen von `<produkt>-mcp-cli`, z. B. `https://claude.ai/api/mcp/auth_callback` |
 | `entra` | bool | `false` | Anmeldung über Entra ID (Kap. 9.4): `manage-identity-providers` für `<produkt>-admin`, Ablauf `<produkt>-entra-first-login`, Claim `identity_provider`, Weiterleitung `/auth/entra/*` |
 | `entra_deny_message` | string | Du-Form | Meldung für nicht vorab verknüpfte Microsoft-Konten |
-| `realm` | string | `product` | Realm, falls er anders heisst als das Produkt (nie `master`, `project-suite`) |
+| `realm` | string | `product` | Realm, falls er anders heisst als das Produkt (nie `master`) |
 | `iac_client_id` | string | `<produkt>-iac` | IaC-Client, mit dem die Hilfsskripte sich anmelden |
-| `keycloak_url`, `keycloak_base_path` | string | `https://identity.project-suite.ch`, `""` | Instanz für Issuer und Hilfsskripte (wie der Provider) |
+| `keycloak_url`, `keycloak_base_path` | string | – (Pflicht), `""` | Instanz für Issuer und Hilfsskripte, dieselbe wie im Provider; `keycloak_url` ohne Pfad (z. B. `https://id.example.ch`), Basispfad separat (z. B. `/auth`) |
 
 Noch nicht: `person_api` (Spezifikation B4, erst mit der ersten App, die ihn braucht).
 
@@ -74,7 +73,7 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 | Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» (Mitgliederverwaltung; keine Rechte auf Gruppen) mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
 | Texte ✓ | eine Lokalisierung je Sprache: Standardtexte, dann `localization`, dann `theme_texts` |
 
-Assets (alle Schalter an, 17 Scopes): 57 Ressourcen. Ohne Schalter mit 2 Scopes: 23. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
+Alle Schalter an mit 17 Scopes: 57 Ressourcen. Ohne Schalter mit 2 Scopes: 23. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
 
 ## Aufruf
 
@@ -89,7 +88,12 @@ terraform {
     external = { source = "hashicorp/external", version = "2.4.2" }
   }
   backend "s3" {}
-  encryption { … wie in Assets infra/keycloak/versions.tf (TF_STATE_PASSPHRASE) … }
+  encryption {
+    key_provider "pbkdf2" "state" { passphrase = var.state_passphrase }   # TF_VAR_state_passphrase aus TF_STATE_PASSPHRASE
+    method "aes_gcm" "state" { keys = key_provider.pbkdf2.state }
+    state { method = method.aes_gcm.state, enforced = true }
+    plan { method = method.aes_gcm.state, enforced = true }
+  }
 }
 
 # Anmeldung nur aus der Umgebung (kc.sh): KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID=<produkt>-iac, KEYCLOAK_JWT_SIGNING_KEY
@@ -110,11 +114,11 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v1.0.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v2.0.0"
 
   product            = "notes"
   display_name       = "Notes"
-  public_base_url    = "https://notes.project-suite.ch"
+  public_base_url    = "https://notes.example.ch"
   keycloak_url       = var.keycloak_url
   keycloak_base_path = var.keycloak_base_path
 
@@ -123,9 +127,9 @@ module "realm" {
   jwks        = { for c in ["platform", "admin", "sync"] : c => file("${path.module}/keys/notes-${c}.json") }
 
   smtp = {
-    host = "mail.infomaniak.com"
-    from = "noreply@notes.project-suite.ch"
-    user = "noreply@notes.project-suite.ch"
+    host = "smtp.example.ch"
+    from = "noreply@notes.example.ch"
+    user = "noreply@notes.example.ch"
   }
   smtp_password = var.smtp_password
 
@@ -163,13 +167,19 @@ keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgr
 - Nur für die REST-API: Der MCP-Dienst (`McpAuth`) tauscht keine sendergebundenen Tokens und nimmt nur Anmeldungen
   über die MCP-Hosts an (`MCP_HOST_CLIENT_IDS`); «MCP für Maschinen» (Spezifikation 12) ist deshalb noch offen.
 
+## Umstieg auf 2.0.0
+
+Breaking: `keycloak_url` hat keine Vorgabe mehr; die App gibt dieselbe Adresse wie im Provider an (ohne Pfad, Basispfad in
+`keycloak_base_path`). Als Realm-Name ist nur noch `master` gesperrt. Sonst unverändert: Ein Plan mit gesetzter
+`keycloak_url` zeigt «No changes».
+
 ## Umstieg auf 1.0.0
 
 Breaking: `catalog.roles` und `machine_clients[*].roles` entfallen; Keycloak legt keine Client-Rollen, keine Gruppe `/orgs`
 und kein Gruppenrecht mehr an (`will be destroyed` im Plan), mit `entra` entstehen `entra-groups` und das User Profile.
 Modul und `@vollholz/iam` ≥ 1.0 gemeinsam anheben.
 
-`kc.sh` wie in Assets, mit einer Änderung: Der SMTP-Test liegt nach `tofu init` im Modul. Alle Hilfsskripte lesen
+Ein Skript `kc.sh` der App meldet sich aus der Umgebung an; der SMTP-Test liegt nach `tofu init` im Modul. Alle Hilfsskripte lesen
 dieselben Angaben (`KEYCLOAK_URL` mit Basispfad, `KEYCLOAK_REALM`, `KEYCLOAK_IAC_CLIENT_ID`,
 `KEYCLOAK_IAC_PRIVATE_KEY`); `lookup.ts` und `org-mapper.ts` erhalten die ersten drei vom Modul, den SMTP-Test ruft
 `kc.sh` so auf:
@@ -182,13 +192,7 @@ smtp-test) login_iac
 
 Neue Version des Moduls: `ref` erhöhen, `kc.sh init -upgrade`, Plan prüfen und freigeben.
 
-## Aufruf aus Assets
-
-In Assets heissen die Werte `theme_texts = jsondecode(file("${path.module}/localization-theme.json"))`, `jwks` aus
-`keys/assets-<client>.json`; `catalog` hat nur noch `scopes`. Eine Umstellung bestehender IaC mit `moved`-Blöcken gibt es nicht
-(Greenfield).
-
-### Gruppen aus Entra
+## Gruppen aus Entra
 
 Keycloak kennt keine Rollen der App; Gruppen kommen nur aus Entra (Subjekt `group:<objekt-id>`). Mit `entra` legt das
 Modul am Client `<produkt>-platform` den Mapper `entra-groups` an (Typ Benutzerattribut, `user_attribute = entra_groups`,

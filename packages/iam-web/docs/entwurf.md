@@ -1,7 +1,7 @@
 # Entwurf: `@vollholz/iam-web`
 
 Stand 2026-10-22 · Status: **freigegeben** (identity-kit#4, mit Auflagen; nachgeführt im ersten Umsetzungs-PR) · Spezifikation: [Kap. 11](../../../docs/spezifikation.md#11-oberfläche),
-[15.2](../../../docs/spezifikation.md#152-schnittstelle-zur-app) · Referenz: vollholz/assets `3a148ae`, `web/`
+[15.2](../../../docs/spezifikation.md#152-schnittstelle-zur-app)
 
 > **Stand 1.0.0 (Authz neu, 2026-10-23):** Dieser Entwurf beschreibt 0.x. Mit 1.0.0 gilt für Rechte, Zugriff,
 > Vertraulichkeit, Break-Glass und Mitglieder allein die [Spezifikation](../../../docs/spezifikation.md) Kap. 7, 9 und 11:
@@ -14,11 +14,10 @@ Das Paket bringt Anmeldung, Organisation je Tab, Rechte-Bausteine und die Verwal
 React-App. Die App liefert nur Design-Tokens, Texte (Überschreibungen, weitere Sprachen), ihren Katalog (über die API)
 und – falls sie Zugriffsregeln nutzt – die Auflösung ihrer Ressourcen. Alles andere kommt aus dem Paket, ohne Kopien.
 
-Grundlage ist der Code von Assets (`web/src/auth/*`, `shell/{UserMenu,MyRights}.tsx`, `ui/{MissingRight,
-RightsOverview,RoleMatrix,AdminHead,MenuButton,Overlay,Picker,states,org}`, `features/{admin,acl}/*`, `api/{client,
-problem,admin,roles}.ts`, rund 4500 Zeilen ohne Tests). Er wird übernommen, nicht neu geschrieben: Verhalten, Texte und
-Tests bleiben gleich, nur was Assets-spezifisch ist, wird zur Eingabe der App (Abschnitt [Was produktneutral
-wird](#was-produktneutral-wird)).
+Grundlage ist der Code einer bestehenden React-App (Sitzung, Kontomenü, «Meine Rollen und Rechte», Rechte-Bausteine,
+Verwalten-Seiten, Zugriffsregeln und Client, rund 4500 Zeilen ohne Tests). Er wird übernommen, nicht neu geschrieben:
+Verhalten, Texte und Tests bleiben gleich, nur was app-spezifisch ist, wird zur Eingabe der App (Abschnitt [Was
+produktneutral wird](#19-was-produktneutral-wird)).
 
 ## Inhalt
 
@@ -29,7 +28,7 @@ wird](#was-produktneutral-wird)).
 5. [Barrierefreiheit](#5-barrierefreiheit)
 6. [Teststrategie](#6-teststrategie)
 7. [Plan der Teil-PRs](#7-plan-der-teil-prs)
-8. [Umstellung von Assets (Phase 2)](#8-umstellung-von-assets-phase-2)
+8. [Umstellung einer bestehenden App (Phase 2)](#8-umstellung-einer-bestehenden-app-phase-2)
 9. [Fragen zum Vertrag](#9-fragen-zum-vertrag)
 
 ## 1. Öffentliche API
@@ -40,7 +39,7 @@ wird](#was-produktneutral-wird)).
 |---|---|---|
 | `@vollholz/iam-web` | `IamProvider`, Hooks, Rechte-Bausteine, Routen-Guard, Kontomenü, Grundkomponenten, `iamRoutes` und `IamNav` | Kern, den jede Seite der App braucht; die Routen liegen hier, damit Router und Navigation der App die Seiten nicht mitladen |
 | `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …) | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein |
-| `@vollholz/iam-web/testing` | `StaticIam` (feste Sitzung ohne Server), `mockIamApi` (fetch-Ersatz für `/auth/*` und `/v1/…` des Vertrags), Beispiel-`Me` und Beispielkatalog | Tests der App ohne eigene Nachbildung (heute `web/src/test/utils.tsx` in Assets) |
+| `@vollholz/iam-web/testing` | `StaticIam` (feste Sitzung ohne Server), `mockIamApi` (fetch-Ersatz für `/auth/*` und `/v1/…` des Vertrags), Beispiel-`Me` und Beispielkatalog | Tests der App ohne eigene Nachbildung |
 | `@vollholz/iam-web/styles.css` | Struktur und Aussehen aus `--iam-*` | Einmal in der App importieren |
 
 **Build mit `tsc`** (wie `iam-testkit`), ESM mit `.d.ts`, kein Bundler im Paket:
@@ -61,15 +60,15 @@ import { IamProvider } from '@vollholz/iam-web';
 import '@vollholz/iam-web/styles.css';
 
 <IamProvider
-  product="Notizen"                         // Anzeigename (Seitentitel, Auswahlseite, «Du bist abgemeldet»)
+  product="Notes"                           // Anzeigename (Seitentitel, Auswahlseite, «Du bist abgemeldet»)
   locale="de"                               // 'de' | 'en' | weitere aus texts
   texts={{ de: { 'iam.rules.note': '…' } }} // überschreibt einzelne Schlüssel, ergänzt Sprachen
   queryClient={queryClient}                 // optional; sonst der aus QueryClientProvider, sonst ein eigener
   router={routerAdapter}                    // Navigation und Suchparameter (1.6); ohne: History-API
   features={{ acl: true, entra: true, platform: true }} // optional (1.5)
-  legacyTabKey="assets.tab.org"             // optional: früherer Schlüssel der Organisation je Tab (einmal übernommen)
+  legacyTabKey="app.tab.org"                // optional: früherer Schlüssel der Organisation je Tab (einmal übernommen)
   onTenant={me => …} onLogout={() => …}     // optional: eigene Einstellungen je Person und Organisation
-  paths={{ members: '/verwalten/mitglieder', … }} // optional, Standard wie Assets (1.6)
+  paths={{ members: '/verwalten/mitglieder', … }} // optional, Standardpfade (1.6)
   components={{ Button, Dialog, Menu, Table, Icon, toast }} // optional (2.2)
   roleGroups={[…]}                          // optional: Gruppen im Rollendialog (Darstellung)
   roleIcons={{ editor: 'edit' }}            // optional: Symbol je vordefinierter Rolle
@@ -81,7 +80,7 @@ import '@vollholz/iam-web/styles.css';
 </IamProvider>
 ```
 
-Verhalten wie `SessionProvider` in Assets (Spezifikation 11.1):
+Verhalten (Spezifikation 11.1):
 
 - Start mit `GET /auth/me` (mit `X-Tenant` der Organisation des Tabs); 401 → `loginUrl()` =
   `/auth/login?returnTo=<adresse>[&org=<alias>]` (exportiert, auch für Links der App).
@@ -91,36 +90,36 @@ Verhalten wie `SessionProvider` in Assets (Spezifikation 11.1):
 - Jede 401 öffnet «Sitzung abgelaufen» mit «Erneut anmelden» (Eingaben bleiben); jede 403 lässt `/auth/me` prüfen.
 - Anderer Mandant im Tab → Cache der App ausser `/auth/me` leeren (deshalb der gemeinsame `QueryClient`, Abschnitt 4).
 - Abmelden: `POST /auth/logout`, Organisation des Tabs löschen, Hook `onLogout` der App (z. B. persönliche
-  Einstellungen löschen, in Assets `clearPersonalPrefs`).
+  Einstellungen löschen).
 - **Organisation je Tab** in `sessionStorage` unter `iam.tab.org`: `{ sub, alias, name }`. Gehört der gespeicherte
   `sub` nicht zur angemeldeten Person (andere Person im selben Tab), gilt die Wahl nicht: verwerfen, `/auth/me` ohne
   `X-Tenant` neu laden. Ohne Speicher (gesperrt, privates Fenster) gilt die Wahl bis zum Neuladen. `legacyTabKey`
-  übernimmt einmal einen früheren Schlüssel (Assets: `assets.tab.org`) und löscht ihn.
+  übernimmt einmal einen früheren Schlüssel (z. B. `app.tab.org`) und löscht ihn.
 
 ### 1.3 Hooks
 
-| Hook | Liefert | Herkunft Assets |
-|---|---|---|
-| `useIam()` | `me`, `can(p)`, `canSomewhere(p)`, `switchOrg(alias)`, `logout()`, `orgName` (Name der Organisation des Tabs) | `useSession`, `ui/org.ts` |
-| `useAuthz()` | Katalog mit eigenen Rollen: `permission`, `permLabel`, `roleLabel`, `rolesWith`, `scopeText`, `resourceLabel`, `groupRoles` | `auth/authz.ts` |
-| `useResourceCan()` | `(resource, capability, perm) => boolean` nach `can` der Ressource, sonst Mandantenebene | `auth/resource-can.ts` |
-| `useIamFetch()` | `fetch` mit Cookie, `X-Tenant`, `X-CSRF-Token`, problem+json → `ApiError`, 401/403-Meldung; für eigene Aufrufe der App | `api/client.ts` |
-| `iamKeys` | Abfrageschlüssel des Pakets (unten; Konstante, der Katalog mit `iamKeys.catalog(locale)`) | `aqk`, `authzKey`, `rolesKey` |
-| `useIamText()` | `{ t, tn, locale }` (Abschnitt 3); zeichnet bei Wechsel der Sprache neu | neu |
-| `useAdminStatus()`, `useRoles()`, `useMembers(alias)`, `useClientGrants(alias)` | Daten der Verwaltung, für eigene Anzeigen der App | `api/admin.ts`, `api/roles.ts` |
+| Hook | Liefert |
+|---|---|
+| `useIam()` | `me`, `can(p)`, `canSomewhere(p)`, `switchOrg(alias)`, `logout()`, `orgName` (Name der Organisation des Tabs) |
+| `useAuthz()` | Katalog mit eigenen Rollen: `permission`, `permLabel`, `roleLabel`, `rolesWith`, `scopeText`, `resourceLabel`, `groupRoles` |
+| `useResourceCan()` | `(resource, capability, perm) => boolean` nach `can` der Ressource, sonst Mandantenebene |
+| `useIamFetch()` | `fetch` mit Cookie, `X-Tenant`, `X-CSRF-Token`, problem+json → `ApiError`, 401/403-Meldung; für eigene Aufrufe der App |
+| `iamKeys` | Abfrageschlüssel des Pakets (unten; Konstante, der Katalog mit `iamKeys.catalog(locale)`) |
+| `useIamText()` | `{ t, tn, locale }` (Abschnitt 3); zeichnet bei Wechsel der Sprache neu |
+| `useAdminStatus()`, `useRoles()`, `useMembers(alias)`, `useClientGrants(alias)` | Daten der Verwaltung, für eigene Anzeigen der App |
 
 Ausserdem ohne React:
 
 - `ApiError`, `networkError`, `describeError`, `fieldErrorText` – **einzige** Fehlerklasse; die App übernimmt sie aus
-  dem Paket (Assets löscht `api/problem.ts`), damit `instanceof ApiError` überall gilt.
+  dem Paket (und löscht eine eigene Fehlerklasse), damit `instanceof ApiError` überall gilt.
 - `withTenant(url)` (Links mit `?x-tenant=`), `tenantHeaders()` (`X-Tenant`/`X-CSRF-Token` für eigene Aufrufe),
   `ifMatch(version)`, `loginUrl(returnTo?, org?)`, `ADMIN_ROLE`, `PLATFORM_ADMIN`, `isCustomRole`, Formatierung
-  `fmtDate`, `fmtDateTime`, `relTime`, `fmtNum`, `plural` (aus Assets `ui/format.ts`, auf `Intl` mit `locale`).
+  `fmtDate`, `fmtDateTime`, `relTime`, `fmtNum`, `plural` (auf `Intl` mit `locale`).
 - **Rückkanal für eigene Clients der App** (401 → «Sitzung abgelaufen», 403 → `/auth/me` neu prüfen):
   - `reportStatus(status)` meldet den Status einer Antwort, die nicht über das Paket lief;
   - `iamMiddleware` erfüllt die Middleware-Schnittstelle von `openapi-fetch` (`onRequest` setzt `X-Tenant`,
     `X-CSRF-Token`, `Accept`; `onResponse` wirft `ApiError` und meldet 401/403; `onError` → `networkError`), ohne
-    `openapi-fetch` zu importieren (nur strukturell typisiert). Assets: `api.use(iamMiddleware)`.
+    `openapi-fetch` zu importieren (nur strukturell typisiert). Beispiel: `api.use(iamMiddleware)`.
   - `onSessionExpired(fn)`, `onForbidden(fn)` für Tests und Sonderfälle.
 
 **Abfrageschlüssel** (für Invalidierung durch die App; alle beginnen mit `'iam'`, damit der Wechsel der Organisation
@@ -154,7 +153,7 @@ Ohne Registrierung ist `Permission` = `string`. Die reservierten Rechte (`tenant
 | `<Can perm>` | nur mit Recht anzeigen, sonst `fallback` |
 | `<MissingRight perm lead? page?>`, `missingRightText()` | fehlendes Recht an der Stelle der Aktion: Label, Rollen, wer vergibt (11.2) |
 | `<NoPermission perm title icon>` | ganze Seite «Recht fehlt» |
-| `<Requires perm somewhere? title? icon?>` | Routen-Guard: Kinder nur mit Recht, sonst `NoPermission` (11.2); `somewhere` (Standard) prüft `canSomewhere` wie `requires()` in Assets |
+| `<Requires perm somewhere? title? icon?>` | Routen-Guard: Kinder nur mit Recht, sonst `NoPermission` (11.2); `somewhere` (Standard) prüft `canSomewhere` |
 | `<RequiresPlatformAdmin title? icon?>` | Guard für die Plattform-Administration: `platformAdmin` aus `GET /v1/admin/status` (Realm-Rolle, **kein** Recht des Katalogs); sonst `NoPermission` mit `PLATFORM_ADMIN` |
 | `<RightsOverview roles permissions scopes admin rulesNote>`, `rightsModel()` | Rechte-Übersicht für alle Blickwinkel (11.2) |
 | `<RoleMatrix>`, `<RoleCompare>` | Rechtegruppe × Rolle, ohne waagrechtes Scrollen |
@@ -163,25 +162,25 @@ Ohne Registrierung ist `Permission` = `string`. Die reservierten Rechte (`tenant
 | `<OrgName>`, `useOrgSwitchItems()` | Name der Organisation für die Kopfzeile; Einträge «Zu «X» wechseln» (`{ alias, name, label, run }`) für die Befehlspalette der App |
 | `<AdminHead icon title sub? actions? crumbs?>` | Kopf der Verwalten-Seiten: Pfad «Produkt › Verwalten › … › Titel» mit Links über den Router-Adapter |
 | `<AclHint resourceType resourceId>` | «Zugriff eingeschränkt (n)» an einer Ressource (nur mit Zugriffsregeln) |
-| `<NotFound>`, `<ErrorState>`, `<ErrorBox>`, `<Loading>`, `<Empty>` | Zustände wie in Assets, 404-Text nach 11.1 |
+| `<NotFound>`, `<ErrorState>`, `<ErrorBox>`, `<Loading>`, `<Empty>` | Zustände, 404-Text nach 11.1 |
 
 ### 1.5 Seiten
 
 Aus `@vollholz/iam-web/pages`; jede Seite prüft ihr Recht selbst nicht, das machen `Requires` bzw.
-`RequiresPlatformAdmin` (wie heute in Assets).
+`RequiresPlatformAdmin`.
 
-| Seite | Pfad (Standard) | Recht | Herkunft Assets |
-|---|---|---|---|
-| `MembersPage` | `/verwalten/mitglieder` | `members:admin` | `features/admin/Members.tsx` |
-| `RolesPage` | `/verwalten/rollen` | `members:admin` (Seite und Navigation, wie Assets; `GET /v1/roles` bleibt mit `tenant:read` lesbar) | `Roles.tsx` |
-| `ClientsPage` | `/verwalten/maschinen-clients` | `members:admin` | `Clients.tsx` |
-| `EntraPage`, `EntraConsentReturn`, `EntraTestReturn` | `/verwalten/anmeldung`, `…/zustimmung`, `…/test` (nur mit `features.entra`) | `members:admin` bzw. API prüft | `EntraLogin.tsx` |
-| `AccessPage` | `/verwalten/zugriff` | `acl:read` | `features/acl/*` |
-| `OrganizationsPage`, `OrganizationPage` | `/verwalten/organisationen[/:alias]` | Plattform-Administration (`RequiresPlatformAdmin`) | `Organizations.tsx` |
+| Seite | Pfad (Standard) | Recht |
+|---|---|---|
+| `MembersPage` | `/verwalten/mitglieder` | `members:admin` |
+| `RolesPage` | `/verwalten/rollen` | `members:admin` (Seite und Navigation; `GET /v1/roles` bleibt mit `tenant:read` lesbar) |
+| `ClientsPage` | `/verwalten/maschinen-clients` | `members:admin` |
+| `EntraPage`, `EntraConsentReturn`, `EntraTestReturn` | `/verwalten/anmeldung`, `…/zustimmung`, `…/test` (nur mit `features.entra`) | `members:admin` bzw. API prüft |
+| `AccessPage` | `/verwalten/zugriff` | `acl:read` |
+| `OrganizationsPage`, `OrganizationPage` | `/verwalten/organisationen[/:alias]` | Plattform-Administration (`RequiresPlatformAdmin`) |
 
 Dazu im Kern `iamRoutes`: Liste aller Seiten, aus der die App ihre Routen und ihre Navigation erzeugt (Standardpfade;
 mit eigenen Pfaden `makeIamRoutes(paths)`), `useIamNav()` mit den erlaubten Einträgen und `active` für eine eigene
-Leiste der App (Assets: `Rail.tsx`) und `<IamNav>` als fertige Gruppe «Zugang» (Mitglieder, Rollen, Anmeldung,
+Leiste der App und `<IamNav>` als fertige Gruppe «Zugang» (Mitglieder, Rollen, Anmeldung,
 Maschinen-Clients, Zugriff, Organisationen – je nach Recht und `features`). `load()` importiert den Einstieg `./pages`
 dynamisch; ein Bundler der App macht daraus einen eigenen Teil. Umgesetzt sind Mitglieder und Rollen (PR 4),
 Maschinen-Clients und Organisationen (PR 5a); Anmeldung (5b) und Zugriff (6) kommen dazu. Der Parameter der
@@ -199,11 +198,11 @@ interface IamRoute {
 }
 ```
 
-`features` (App-Schalter, Standard in Klammern): `acl` (Katalog enthält `acl:read`), `entra` (aus; Assets setzt
-`true`), `platform` (an). Ob Entra in der Organisation verbunden ist, sagt `enabled` aus `GET /v1/admin/entra`; ohne
+`features` (App-Schalter, Standard in Klammern): `acl` (Katalog enthält `acl:read`), `entra` (aus),
+`platform` (an). Ob Entra in der Organisation verbunden ist, sagt `enabled` aus `GET /v1/admin/entra`; ohne
 `features.entra` ruft das Paket diesen Endpunkt nie auf.
 
-Beispiel TanStack Router (Assets):
+Beispiel TanStack Router:
 
 ```tsx
 for (const r of makeIamRoutes(paths, features, { param: tanstackParam })) createRoute({ getParentRoute: () => adminRoute,
@@ -235,9 +234,9 @@ macht aus `?client=123` eine Zahl und schreibt JSON-Werte in Anführungszeichen)
 
 Ohne Adapter nutzt das Paket die History-API (`pushState` und `popstate`); das genügt für Apps ohne Router und für
 die Tests. Ziele innerhalb des Pakets (Organisation → Detail, Maschinen-Client → «Rechte prüfen», `AclHint` →
-gefilterte Zugriffsseite) laufen über `paths`, Standardwerte wie in Assets. Suchparameter der Zugriffsseite
-(`ansicht`, `resourceType`, `resourceId`, `permission`, `who`, `client`, `rolle`) bleiben gleich, damit Links aus
-Assets weiter gelten. Die Rückkehr-Pfade von Entra (`…/anmeldung/zustimmung`) sind bei Microsoft registriert; sie
+gefilterte Zugriffsseite) laufen über `paths` (Standardwerte unter `/verwalten/…`). Suchparameter der Zugriffsseite
+(`ansicht`, `resourceType`, `resourceId`, `permission`, `who`, `client`, `rolle`) bleiben gleich, damit bestehende
+Links weiter gelten. Die Rückkehr-Pfade von Entra (`…/anmeldung/zustimmung`) sind bei Microsoft registriert; sie
 kommen von der API (`redirect`), die App muss nur die Route haben.
 
 ### 1.7 Ressourcen der Zugriffsregeln
@@ -288,15 +287,15 @@ Der Baustein `<PersonName id>` löst gesammelt auf (ein Aufruf je Darstellung, Z
 
 ### 1.9 Was produktneutral wird
 
-| In Assets fest | Im Paket |
+| In der bestehenden App fest | Im Paket |
 |---|---|
 | `Permission` als Union aller 32 Rechte | `Register` der App (1.3) |
-| `ROLE_GROUPS` (Verwaltung/Arbeit/Kontrolle mit Assets-Rollen), `ROLE_ICON` | Props `roleGroups`, `roleIcons`; Standard: «Gesamte Organisation» (`org-admin`), «Rollen» (übrige vordefinierte), «Eigene Rollen» |
+| `ROLE_GROUPS` (Verwaltung/Arbeit/Kontrolle mit Rollen der App), `ROLE_ICON` | Props `roleGroups`, `roleIcons`; Standard: «Gesamte Organisation» (`org-admin`), «Rollen» (übrige vordefinierte), «Eigene Rollen» |
 | `RULES_NOTE` nennt Schemas, Typen, Verbindungen | Text `iam.rights.rulesNote` (neutral: «… für einzelne Bereiche …»); die App überschreibt ihn über `texts` |
 | Ressourcennamen aus `useCatalog`, `useConnections`, `useCredentials`; Regel «keine Freigabe auf `object`» | `resources` (1.7) |
 | `UserChip` und Personensuche aus `/v1/people` | `people`-Adapter mit Standard `/v1/people` (1.8) |
-| Marke «Assets» mit Symbol `layers` auf Auswahl- und Abmeldeseite | `product`, `brand` |
-| Icons der App (`ui/icons.ts`, 70 Symbole) | eigener kleiner Satz oder `components.Icon` mit diesen Namen (`IamIconName`, die Teilmenge der Namen von Assets, die die übernommenen Teile nutzen): `building`, `check`, `chevron`, `clock`, `copy`, `edit`, `eye`, `info`, `key`, `link`, `mail`, `minus`, `more`, `plus`, `refresh`, `search`, `shield`, `tag`, `trash`, `user`, `users`, `warn`, `x`; die endgültige Liste legt PR 3 fest (Test: jeder genutzte Name steht in der Liste) |
+| Marke der App mit eigenem Symbol auf Auswahl- und Abmeldeseite | `product`, `brand` |
+| Icons der App (`ui/icons.ts`, 70 Symbole) | eigener kleiner Satz oder `components.Icon` mit diesen Namen (`IamIconName`, die Teilmenge der Namen der App, die die übernommenen Teile nutzen): `building`, `check`, `chevron`, `clock`, `copy`, `edit`, `eye`, `info`, `key`, `link`, `mail`, `minus`, `more`, `plus`, `refresh`, `search`, `shield`, `tag`, `trash`, `user`, `users`, `warn`, `x`; die endgültige Liste legt PR 3 fest (Test: jeder genutzte Name steht in der Liste) |
 | Toasts der App (`ui/Toasts.tsx`) | `components.toast`, sonst eigene Meldungen (`aria-live`) |
 | Personen-Einstellungen (`ui/prefs.ts`) | nicht im Paket; Hooks `onTenant(me)`, `onLogout()` |
 
@@ -314,9 +313,8 @@ ihren Tokens.
 und Farbe der Bedienelemente, Fokus). Jede Regel der App ausserhalb einer Ebene geht damit vor, gleich welche
 Reihenfolge, Spezifität oder Systemfarbe gilt. Die **Regeln der Bausteine** (Klassen `iam-*`) stehen dagegen ohne Ebene:
 Sonst überdeckten Element-Regeln der App wie `a { color: inherit }` oder `h1 { margin: 0 }` die Klassen der Bausteine
-(gefunden bei der Probe in Assets: weisse Schrift auf dem Knopf «Erneut anmelden» wurde dunkel). Die App überschreibt
-Klassen der Bausteine mit gleicher Spezifität nach dem Stylesheet des Pakets. Tests im Browser prüfen beides. Beispiel
-Assets:
+(gefunden bei der Probe in einer bestehenden App: weisse Schrift auf dem Knopf «Erneut anmelden» wurde dunkel). Die App überschreibt
+Klassen der Bausteine mit gleicher Spezifität nach dem Stylesheet des Pakets. Tests im Browser prüfen beides. Beispiel:
 
 ```css
 :root { --iam-accent: var(--accent); --iam-surface: var(--surface); --iam-text: var(--fg); … }
@@ -334,19 +332,19 @@ Assets:
 | `--iam-focus` | Fokusring (Standard: `--iam-accent`) |
 | `--iam-shadow` | Schatten von Dialog, Menü, Meldung |
 
-Abstände und Rundungen sind fest wie in Assets (keine Variablen), damit eine App mit gleichen Tokens gleich aussieht.
-Abbildung für Assets: `--iam-text` ← `--fg`, `--iam-text-2` ← `--fg-2`, `--iam-text-3` ← `--fg-3`, `--iam-accent-text` ←
+Abstände und Rundungen sind fest (keine Variablen), damit eine App mit gleichen Tokens gleich aussieht.
+Beispiel einer Abbildung: `--iam-text` ← `--fg`, `--iam-text-2` ← `--fg-2`, `--iam-text-3` ← `--fg-3`, `--iam-accent-text` ←
 `--accent-fg`, `--iam-font` ← `--f-body`, `--iam-font-display` ← `--f-display`, `--iam-font-mono` ← `--f-mono`, übrige
-gleichnamig (`--iam-bad` ← `--bad` …); `--iam-bad-text` setzt Assets hell `#fff`, dunkel dunkel (heute weiss, zu wenig
-Kontrast – sichtbare Verbesserung, im Screenshot-Vergleich begründet).
+gleichnamig (`--iam-bad` ← `--bad` …); `--iam-bad-text` setzt die App hell `#fff`, dunkel dunkel (weiss hätte zu
+wenig Kontrast; bei einer Umstellung eine sichtbare Verbesserung, im Screenshot-Vergleich begründet).
 
-Hell/dunkel steuert die App: sie setzt die Variablen in ihrem dunklen Thema (Assets: `[data-theme=dark]`). In
+Hell/dunkel steuert die App: sie setzt die Variablen in ihrem dunklen Thema (z. B. `[data-theme=dark]`). In
 `forced-colors` nutzen die Bausteine Systemfarben.
 
 ### 2.2 Austauschbare Grundkomponenten
 
-Über `components` ersetzt die App einzelne Grundkomponenten durch ihre eigenen; ohne Angabe gelten die des Pakets
-(übernommen aus Assets `ui/`). Verhalten (Fokus, Tastatur, ARIA) ist Teil des Vertrags jeder Komponente; eigene
+Über `components` ersetzt die App einzelne Grundkomponenten durch ihre eigenen; ohne Angabe gelten die des Pakets.
+Verhalten (Fokus, Tastatur, ARIA) ist Teil des Vertrags jeder Komponente; eigene
 Komponenten müssen es erfüllen, die Tests des Pakets prüfen das mit den Standard-Komponenten.
 
 | Schlüssel | Vertrag (Props) | Standard aus |
@@ -356,18 +354,18 @@ Komponenten müssen es erfüllen, die Tests des Pakets prüfen das mit den Stand
 | `Menu` | `label`, `button`, `buttonLabel`, `fixed`, `children(close)`; Einträge `MenuItem` mit `why` (gesperrt mit Grund) | `ui/MenuButton.tsx` |
 | `Table` | Props von `<table>` plus `stack?: boolean` (unter 760 px gestapelt); Inhalt (`thead`, `tbody`, Zellen) schreibt die Seite selbst wie heute, Zellen mit `iam-hide-narrow` bzw. `iam-label-narrow` | `.tbl`, `.stack-tbl` |
 | `Icon` | `name`, `className` | eigener Satz |
-| `toast` | `{ show(text, { tone?, action?, ms? }), error(err, prefix?) }` (gleich wie Assets `useToast()`) | eigene `aria-live`-Meldung |
+| `toast` | `{ show(text, { tone?, action?, ms? }), error(err, prefix?) }` | eigene `aria-live`-Meldung |
 
 `Confirm`, `Sheet`, `Picker`, Tabs und Rollenauswahl bleiben Teil des Pakets (sie bauen auf `Dialog`, `Button` auf); die
 Liste der austauschbaren Teile bleibt bewusst kurz. `Table` ist bewusst keine Datentabelle mit Spaltenmodell: Die
-Seiten aus Assets werden übernommen, nicht neu geschrieben, deshalb ersetzt `Table` nur das `<table>`-Element mit den
+Seiten wurden aus einer bestehenden App übernommen, nicht neu geschrieben, deshalb ersetzt `Table` nur das `<table>`-Element mit den
 Klassen für Rahmen und Stapeln.
 
 ## 3. Texte
 
 - Alle sichtbaren Texte des Pakets stehen in `src/texts/de.ts` und `src/texts/en.ts` unter Schlüsseln `iam.<bereich>.<text>`
   (z. B. `iam.session.expired.title`, `iam.members.invite`, `iam.missing.right`). Deutsch ist Quelle und Standard; `de`
-  enthält die heutigen Texte von Assets wörtlich, damit Assets nach der Umstellung gleich aussieht und seine E2E-Tests
+  enthält die bisherigen Texte wörtlich, damit eine bestehende App nach der Umstellung gleich aussieht und ihre E2E-Tests
   ungeändert bestehen.
 - Platzhalter `{name}`; Mehrzahl über `Intl.PluralRules` mit Schlüsseln `…_one`/`…_other`. Datum und Zahlen über `Intl`
   mit `locale`.
@@ -378,24 +376,23 @@ Klassen für Rahmen und Stapeln.
   Abfrageschlüssel (`['iam', 'catalog', locale]`).
 - Fehlertexte der API (`title`, `detail`) zeigt das Paket unverändert; nur Rückfalltexte je Status sind Schlüssel.
 - Tests: Du-Form (kein «Sie/Ihr/Ihnen» als Anrede), kein «ß», Begriffe nach 11.2 (kein «Mandant», «Tenant», «ACL»,
-  «Principal» in sichtbaren Texten) über alle Schlüssel und über die JSX-Texte (wie `ui/texts.test.ts`,
-  `ui/terms.test.ts` in Assets); `en` hat dieselben Schlüssel und Platzhalter wie `de`.
+  «Principal» in sichtbaren Texten) über alle Schlüssel und über die JSX-Texte; `en` hat dieselben Schlüssel und Platzhalter wie `de`.
 
 ## 4. Abhängigkeiten
 
 | Paket | Art | Entscheid und Begründung |
 |---|---|---|
 | `react`, `react-dom` `^19` | peer | Vorgabe; Portale für Dialoge |
-| `@tanstack/react-query` `^5` | peer | **Übernommen.** Assets nutzt es überall; das Paket muss beim Wechsel der Organisation den **Cache der App** leeren (sonst sind Daten der vorigen Organisation sichtbar, 11.1) und nach Änderungen gezielt invalidieren (Rollen, Mitglieder, Katalog). Mit eigenen Abruf-Hooks bräuchte es dafür eine Brücke zur App und doppelte Logik für Wiederholung, Abbruch und Platzhalter (`keepPreviousData` in «Rechte prüfen»). Apps ohne Query erhalten einen paketeigenen `QueryClient`, dann leert der Wechsel nur die Daten des Pakets und die App bekommt `onTenant`. |
+| `@tanstack/react-query` `^5` | peer | **Übernommen.** Die bestehende App nutzt es überall; das Paket muss beim Wechsel der Organisation den **Cache der App** leeren (sonst sind Daten der vorigen Organisation sichtbar, 11.1) und nach Änderungen gezielt invalidieren (Rollen, Mitglieder, Katalog). Mit eigenen Abruf-Hooks bräuchte es dafür eine Brücke zur App und doppelte Logik für Wiederholung, Abbruch und Platzhalter (`keepPreviousData` in «Rechte prüfen»). Apps ohne Query erhalten einen paketeigenen `QueryClient`, dann leert der Wechsel nur die Daten des Pakets und die App bekommt `onTenant`. |
 | Router (`@tanstack/react-router`, React Router) | keine | **Nicht übernommen.** Typisierte Routen von TanStack lassen sich nicht aus einem Paket in den Routenbaum der App registrieren, und eine App mit React Router bräuchte sonst zwei Router. Adapter mit vier Funktionen (1.6). |
-| `openapi-fetch`, `openapi-typescript` | keine | **Nicht übernommen.** Das Paket darf nicht von den erzeugten Typen von Assets abhängen. Eigener Client (`fetch`, rund 80 Zeilen wie `api/client.ts`) mit von Hand geschriebenen Typen des Vertrags in `src/contract.ts`; ein Test vergleicht sie mit einem Auszug der OpenAPI von Assets (Abschnitt 6). |
+| `openapi-fetch`, `openapi-typescript` | keine | **Nicht übernommen.** Das Paket darf nicht von den erzeugten Typen einer App abhängen. Eigener Client (`fetch`, rund 80 Zeilen wie `api/client.ts`) mit von Hand geschriebenen Typen des Vertrags in `src/contract.ts`; ein Test vergleicht sie mit einem Auszug der OpenAPI des Servers (Abschnitt 6). |
 | `@fontsource/*`, Icons | keine | Schrift und Symbole sind Sache der App (`--iam-font`, `components.Icon`). |
 | Laufzeit sonst | keine | `dependencies` bleibt leer. |
-| Entwicklung | dev | `typescript`, `vitest`, `jsdom`, `@testing-library/{react,user-event,jest-dom}`, `axe-core`, `vite`, `@vitejs/plugin-react` (nur Testseite), `@playwright/test`, `@axe-core/playwright`, `@types/react(-dom)`, `openapi-typescript` (nur Vertragstest); Versionen exakt wie in Assets `web/package.json` |
+| Entwicklung | dev | `typescript`, `vitest`, `jsdom`, `@testing-library/{react,user-event,jest-dom}`, `axe-core`, `vite`, `@vitejs/plugin-react` (nur Testseite), `@playwright/test`, `@axe-core/playwright`, `@types/react(-dom)`, `openapi-typescript` (nur Vertragstest); Versionen exakt gepinnt |
 
 ## 5. Barrierefreiheit
 
-Ziel WCAG 2.2 AA, gleich wie Assets (`docs/oberflaeche.md` › Bedienung und Barrierefreiheit):
+Ziel WCAG 2.2 AA:
 
 - **axe** ohne `serious`/`critical` auf allen Seiten und Dialogen, hell und dunkel, bei 1440 und 390 px.
 - **Tastatur**: Menü-Button nach ARIA-Muster (Pfeile, Pos1/Ende, Esc, Fokus zurück), Reiter nach Muster Tabs, Dialoge
@@ -408,23 +405,23 @@ Ziel WCAG 2.2 AA, gleich wie Assets (`docs/oberflaeche.md` › Bedienung und Bar
 - **Sonst**: gesperrt mit Grund statt ausgeblendet (`aria-disabled` + Beschreibung), zugängliche Namen «Mehr zu <Name>»,
   `prefers-reduced-motion`, `forced-colors`, Überschriftenebenen einstellbar (`headingLevel`), weil das Paket die
   Seitenstruktur der App nicht kennt.
-- Lint: `eslint-plugin-jsx-a11y` wie in Assets, sobald das Repository ESLint einführt (heute nur `tsc`); bis dahin
+- Lint: `eslint-plugin-jsx-a11y`, sobald das Repository ESLint einführt (heute nur `tsc`); bis dahin
   decken axe in Vitest und Playwright das ab.
 
 ## 6. Teststrategie
 
 | Ebene | Werkzeug | Inhalt |
 |---|---|---|
-| Einheit/Komponente | Vitest + jsdom + Testing Library, `axe-core` je Komponente | Die Tests von Assets für diese Teile (rund 150 Fälle: `auth/*.test.tsx`, `shell/rights.test.tsx`, `ui/{components,rights,rights-overview,texts,terms}.test.*`, `features/admin*.test.tsx`, `features/acl/acl.test.tsx`), übernommen und produktneutral: Beispielkatalog einer Notiz-App (Rechte `note:*` plus reservierte, Rollen `editor`, `viewer`, `org-admin`, Ressource `folder` → `note`) statt des Assets-Katalogs |
-| Vertrag | `tsc` + Vitest | `src/contract.ts` gegen einen Auszug der OpenAPI von Assets (`test/fixtures/openapi-iam.json`: `/auth/*`, `/v1/authz/catalog`, `/v1/acl*`, `/v1/roles*`, `/v1/admin/*`, `/v1/platform/*`, `/v1/people*`, ohne Beschreibungen). Daraus erzeugt `openapi-typescript` Typen (`test/fixtures/openapi-iam.d.ts`, ein Test prüft, dass sie aktuell sind); `test/contract.check.ts` weist jede Antwort der OpenAPI dem Typ des Pakets zu und jeden Anfragekörper des Pakets dem Typ der OpenAPI – die Typprüfung schlägt fehl, wenn der Vertrag abweicht. `/auth/me` hat in Assets kein Schema; `Me` folgt Spezifikation 5.1. Der Auszug wird bei Vertragsänderungen erneuert, später aus `@vollholz/iam` erzeugt |
+| Einheit/Komponente | Vitest + jsdom + Testing Library, `axe-core` je Komponente | Die bestehenden Tests dieser Teile (rund 150 Fälle: `auth/*.test.tsx`, `shell/rights.test.tsx`, `ui/{components,rights,rights-overview,texts,terms}.test.*`, `features/admin*.test.tsx`, `features/acl/acl.test.tsx`), übernommen und produktneutral: Beispielkatalog einer Notiz-App (Rechte `note:*` plus reservierte, Rollen `editor`, `viewer`, `org-admin`, Ressource `folder` → `note`) statt des Katalogs der bestehenden App |
+| Vertrag | `tsc` + Vitest | `src/contract.ts` gegen einen Auszug der OpenAPI des Servers (`test/fixtures/openapi-iam.json`: `/auth/*`, `/v1/authz/catalog`, `/v1/acl*`, `/v1/roles*`, `/v1/admin/*`, `/v1/platform/*`, `/v1/people*`, ohne Beschreibungen). Daraus erzeugt `openapi-typescript` Typen (`test/fixtures/openapi-iam.d.ts`, ein Test prüft, dass sie aktuell sind); `test/contract.check.ts` weist jede Antwort der OpenAPI dem Typ des Pakets zu und jeden Anfragekörper des Pakets dem Typ der OpenAPI – die Typprüfung schlägt fehl, wenn der Vertrag abweicht. `/auth/me` hat in der OpenAPI kein Schema; `Me` folgt Spezifikation 5.1. Der Auszug wird bei Vertragsänderungen erneuert, später aus `@vollholz/iam` erzeugt |
 | Oberfläche im Browser | Playwright (Chromium) + `@axe-core/playwright` | Testseite (`test/e2e/app`, Vite) mit allen Seiten und nachgebildeter API über `page.route` (gleiche Nachbildung wie `testing/mockIamApi`): axe hell/dunkel, 390 px ohne waagrechtes Scrollen, Tastaturabläufe (Kontomenü, Einladen, Rollen setzen, Zugriffsregel anlegen), Organisation je Tab mit zwei Seiten im selben Kontext, Sitzung abgelaufen |
-| Gegen echten Stack | in Assets | Die E2E-Tests von Assets (`members`, `rollen`, `rechte-zugriff`, `organisation-je-tab`, `mandantentrennung`, `ui`) bleiben dort und laufen nach der Umstellung unverändert grün (Abnahme Phase 2) |
+| Gegen echten Stack | in der App | Die E2E-Tests der App (z. B. `members`, `rollen`, `rechte-zugriff`, `organisation-je-tab`, `mandantentrennung`, `ui`) bleiben dort und laufen nach der Umstellung unverändert grün (Abnahme Phase 2, Kap. 8) |
 
 - `npm test` im Paket: Vitest; `npm run e2e`: Playwright. Root-CI: `npm test` läuft schon über alle Workspaces; für E2E
   kommt ein Schritt dazu (Chromium installieren, `npm run e2e -w @vollholz/iam-web`), in Sessions mit
   `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`.
-- Testhilfen für Apps (`@vollholz/iam-web/testing`) sind selbst getestet und ersetzen in Assets `test/utils.tsx`
-  (`renderWith`, `StaticSession`, `ME`).
+- Testhilfen für Apps (`@vollholz/iam-web/testing`) sind selbst getestet und ersetzen eigene Testhilfen
+  der App (z. B. `renderWith`, `StaticSession`, `ME`).
 
 ## 7. Plan der Teil-PRs
 
@@ -436,57 +433,57 @@ Jeder PR mit Tests, `typecheck`, `build`, `test` grün; Version `0.1.0` und `pri
 | 2a | Gerüst und Client | Workspace, `package.json`, Build (`tsc` + `styles.css`), Vitest; `contract.ts`, `ApiError`, Client (`iamFetch`, `authFetch`, `iamMiddleware`, `reportStatus`), Organisation je Tab (mit `sub`, `legacyTabKey`), Formatierung, Texte (Mechanik, `de`, `en`); Nachführung dieses Entwurfs | Client, Organisation je Tab, Formatierung, Texte (Du-Form, ß, Begriffe), Vertrag, Paket lässt sich laden |
 | 2b | Grundkomponenten | Theming (`styles.css` in `@layer iam`), Button, Dialog/Confirm/Sheet (Fokusfalle), Menu/MenuItem, Table, Icon, Toast, Zustände (`Loading`, `Empty`, `ErrorBox`, `ErrorState`, `NotFound`), Picker; Testseite + Playwright | `ui/components.test` (15 Fälle), axe, Vorrang der App-Variablen im Browser |
 | 2c | Provider und Sitzung | `IamProvider` (Gates, Auswahlseite, «nicht verfügbar», «Sitzung abgelaufen», `/abgemeldet`), Router-Adapter mit Standard, `useIam`, `useAuthz` (Sprache, `roleGroups`, `roleGroupProblems`), `useRoles`, `useResourceCan`, `useIamFetch`, `Can`, `iamKeys`, `testing` (`StaticIam`, `mockIamApi`, Beispielkatalog) | `auth/session`, `auth/organisation`, `auth/authz`, Router, Testhilfen; Browser: Zustände der Sitzung mit axe |
-| 3 | Rechte-Bausteine | `Requires`, `RequiresPlatformAdmin` (brauchen `NoPermission`), `useAdminStatus`, `AdminHead`, `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in Assets** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
+| 3 | Rechte-Bausteine | `Requires`, `RequiresPlatformAdmin` (brauchen `NoPermission`), `useAdminStatus`, `AdminHead`, `MissingRight`, `NoPermission`, `RightsOverview`, `RoleMatrix`/`RoleCompare`, `MyRightsDialog`, `AccountMenu`, `OrgName`, `OrgSwitchItems`; danach **Probe in einer bestehenden App** (nur lokal über `scripts/local-registry.ts`: Sitzung, Kontomenü, Rechte-Bausteine umgestellt, Tests und Screenshots), Ergebnis im PR | `rights`, `rights-overview`, `shell/rights`, Kontomenü per Tastatur |
 | 4 | Mitglieder und Rollen | `MembersPage`, `RolesPage`, `iamRoutes`, `IamNav` | `members`, `roles-page`, `roles-dialog`, Teile von `admin.test`, E2E Einladen/Rollen |
 | 5 | Maschinen-Clients, Anmeldung, Organisationen (geteilt: 5a Maschinen-Clients und Organisationen, 5b Anmeldung) | `ClientsPage`, `EntraPage` + Rückkehrseiten, `OrganizationsPage`/`OrganizationPage`; in `MembersPage` «Person hinzufügen» aus Entra ID (mit `features.entra`) | `clients`, `entra`, `entra-add`, übrige `admin.test`, E2E |
 | 6 | Zugriff | `AccessPage` (Regeln, Dialog mit Vorschau, «Rechte prüfen»), `AclHint`, `resources`- und `people`-Adapter, `PersonName` | `acl.test` (40 Fälle), E2E Zugriffsregel |
-| 7 | Freigabe 0.1.0 | README (Einbinden, Beispiel), Migrationshinweis für Assets, CI-Schritt E2E, `private` entfernen → Release veröffentlicht `0.1.0` | `npm pack` enthält `dist`, `styles.css`, Typen |
+| 7 | Freigabe 0.1.0 | README (Einbinden, Beispiel), Migrationshinweis für bestehende Apps, CI-Schritt E2E, `private` entfernen → Release veröffentlicht `0.1.0` | `npm pack` enthält `dist`, `styles.css`, Typen |
 
 Reihenfolge 2b vor 2c (abweichend von der Freigabe «Gerüst+Client / Provider+Sitzung / Grundkomponenten»): Der Provider
 braucht Dialog («Sitzung abgelaufen»), Zustände und Knöpfe; so wird jeder PR mit seinen eigenen Teilen getestet, statt
 vorläufige Platzhalter zu bauen.
 
-## 8. Umstellung von Assets (Phase 2)
+## 8. Umstellung einer bestehenden App (Phase 2)
 
-Eigener PR in vollholz/assets nach 0.1.0, Paket gepinnt (`"@vollholz/iam-web": "0.1.0"`, Bezug nach
-[docs/ausrollen.md](../../../docs/ausrollen.md)):
+Für eine App, die Sitzung, Rechte-Bausteine und Verwalten-Seiten bisher selbst enthält: eigener PR in der App nach
+0.1.0, Paket gepinnt (`"@vollholz/iam-web": "0.1.0"`, Bezug nach [docs/ausrollen.md](../../../docs/ausrollen.md)):
 
-1. `main.tsx`: `SessionProvider` → `IamProvider` mit diesen Props (vollständig):
+1. Einstieg (`main.tsx`): eigener Sitzungs-Provider → `IamProvider` mit diesen Props (vollständig; Beispiel `notes`):
 
-   | Prop | Wert in Assets |
+   | Prop | Wert |
    |---|---|
-   | `product` | `"Assets"` |
-   | `brand` | Marke mit Symbol `layers` (heute in `Gate`) |
+   | `product` | Name der App, z. B. `"Notes"` |
+   | `brand` | bisherige Marke der App (Auswahl- und Abmeldeseite) |
    | `locale` | `"de"` |
-   | `texts` | `{ de: { 'iam.rights.rulesNote': <heutiger RULES_NOTE> } }`; sonst keine (die deutschen Texte des Pakets sind die von Assets) |
+   | `texts` | nur Abweichungen, z. B. `{ de: { 'iam.rights.rulesNote': <bisheriger Hinweis> } }` |
    | `queryClient` | der bestehende `QueryClient` aus `main.tsx` |
-   | `router` | TanStack-Router-Adapter (1.6) |
-   | `paths` | keine (Standard = heutige Pfade) |
-   | `features` | `{ acl: true, entra: true, platform: true }` |
-   | `legacyTabKey` | `"assets.tab.org"` |
-   | `components` | `{ Icon }` (Assets-Symbole), `toast` aus `ui/Toasts.tsx`; Knopf, Dialog, Menü, Tabelle aus dem Paket |
-   | `roleGroups`, `roleIcons` | heutige `ROLE_GROUPS`, `ROLE_ICON` |
-   | `resources` | Schema, Typ (Kette Schema › Obertypen), Verbindung, Credential; `noGrant: ['object']` (solange der Katalog `leaf` nicht meldet) |
+   | `router` | Router-Adapter (1.6) |
+   | `paths` | keine, solange die bisherigen Pfade dem Standard entsprechen |
+   | `features` | nach Bedarf, z. B. `{ acl: true, entra: true, platform: true }` |
+   | `legacyTabKey` | bisheriger Schlüssel der Organisation je Tab, z. B. `"app.tab.org"` |
+   | `components` | z. B. `{ Icon }` (Symbole der App) und `toast` der App; Knopf, Dialog, Menü, Tabelle aus dem Paket |
+   | `roleGroups`, `roleIcons` | bisherige Gruppen und Symbole der Rollen |
+   | `resources` | Ressourcen der App mit Kette; `noGrant` mit den Blättern (solange der Katalog `leaf` nicht meldet) |
    | `inviteRoles` | keine (Standard: Rolle mit den wenigsten Rechten ausser org-admin) |
    | `groupRolePrefix` | keine (der Server meldet ihn in `/v1/admin/status`) |
    | `entraConsentHosts` | keine (Standard `login.microsoftonline.com`) |
    | `people` | keine (Standard `/v1/people`) |
-   | `onTenant` | `me => setPrefScope(me.person.subject, me.tenant?.id ?? null)` |
-   | `onLogout` | `clearPersonalPrefs` |
+   | `onTenant` | Einstellungen je Person und Organisation, z. B. `me => setPrefScope(me.person.subject, me.tenant?.id ?? null)` |
+   | `onLogout` | persönliche Einstellungen löschen |
 
-   Dazu `api.use(iamMiddleware)` statt der eigenen Middleware in `api/client.ts`; `ApiError` aus dem Paket.
-2. `Register` mit dem bestehenden Typ `Permission`; der Test «Typ `Permission` = Katalog» bleibt in Assets.
-3. `styles`: `@vollholz/iam-web/styles.css` importieren und `--iam-*` auf die Tokens von `base.css` abbilden; Klassen
-   der übernommenen Teile aus `admin.css`, `acl.css`, `shell.css` entfernen.
-4. `router.tsx`: Routen der Seiten aus `iamRoutes`, `requires()` → `Requires`; `Rail.tsx` nutzt `IamNav` oder
-   `iamRoutes`; `CommandPalette` nutzt `OrgSwitchItems`.
-5. Löschen: `auth/{session.tsx,authz.ts,tabOrg.ts,resource-can.ts}`, `shell/{UserMenu,MyRights}.tsx`,
-   `ui/{MissingRight,RightsOverview,RoleMatrix,org}.tsx`, `features/{admin,acl}/*`, `api/{admin,roles}.ts`; `ui/
-   {Overlay,MenuButton,Picker,states,AdminHead}` bleiben, solange andere Seiten von Assets sie nutzen (oder werden durch
-   die Exporte des Pakets ersetzt). Importe der übrigen Features auf das Paket umstellen (`useSession` → `useIam`).
-6. Organisation je Tab: `legacyTabKey="assets.tab.org"` übernimmt die Wahl offener Tabs einmal nach `iam.tab.org`.
-7. Tests: übernommene Tests in Assets entfernen, `test/utils.tsx` auf `@vollholz/iam-web/testing`; E2E von Assets
-   unverändert grün, dazu `npm run check` und axe wie bisher.
+   Dazu `api.use(iamMiddleware)` statt einer eigenen Middleware; `ApiError` aus dem Paket.
+2. `Register` mit dem bestehenden Typ `Permission`; ein Test «Typ `Permission` = Katalog» bleibt in der App.
+3. `styles`: `@vollholz/iam-web/styles.css` importieren und `--iam-*` auf die Tokens der App abbilden; Klassen der
+   übernommenen Teile entfernen.
+4. Router: Routen der Seiten aus `iamRoutes`, eigener Routen-Guard → `Requires`; die Navigation der App nutzt `IamNav`
+   oder `iamRoutes`, eine Befehlspalette `OrgSwitchItems`.
+5. Löschen: die eigenen Umsetzungen von Sitzung, Organisation je Tab, Rechte-Bausteinen, Kontomenü, Verwalten-Seiten,
+   Zugriffsregeln und deren API-Aufrufen. Eigene Grundkomponenten (Dialog, Menü, Auswahl, Zustände) bleiben, solange
+   andere Seiten der App sie nutzen (oder werden durch die Exporte des Pakets ersetzt). Importe der übrigen Features auf
+   das Paket umstellen (z. B. `useSession` → `useIam`).
+6. Organisation je Tab: `legacyTabKey="app.tab.org"` übernimmt die Wahl offener Tabs einmal nach `iam.tab.org`.
+7. Tests: übernommene Tests in der App entfernen, eigene Testhilfen auf `@vollholz/iam-web/testing`; E2E der App
+   unverändert grün, dazu die üblichen Prüfungen und axe wie bisher.
 
 **Abnahme «ohne sichtbare Veränderung»:** Ein Playwright-Lauf nimmt vor der Umstellung (Stand `main`) und danach
 Screenshots derselben Ansichten auf – Kontomenü, «Meine Rollen und Rechte», Mitglieder mit Rollendialog und Einladen,
@@ -505,6 +502,6 @@ App-Schalter und `enabled` aus `GET /v1/admin/entra`; V5 ja. Die Spezifikation z
 |---|---|---|
 | V1 | Personenverzeichnis `GET /v1/people` (Suche, Namen zu Principal-IDs) braucht die Seite «Zugriff» (Person in einer Zugriffsregel, «Rechte prüfen»). Es steht nicht in der Liste des Vertrags (15.1). | Teil des Standards (`@vollholz/iam` liefert es, da `principal` eine IAM-Tabelle ist); bis dahin `people`-Adapter mit diesem Standard |
 | V2 | Labels des Katalogs je Sprache (15.2 «aus dem Katalog (je Sprache)»): wie wählt `GET /v1/authz/catalog` die Sprache? | `Accept-Language` (das Paket sendet `locale`), Antwort mit `Content-Language`; ohne Übersetzung Deutsch |
-| V3 | Gruppen und Reihenfolge der Rollen in Rollendialog und Matrix sind in Assets fest im Frontend (`ROLE_GROUPS`). Das widerspricht «keine eigenen Listen» (7.2). | Katalog um `roleGroups` ergänzen (`defineCatalog`), bis dahin Prop `roleGroups` |
+| V3 | Gruppen und Reihenfolge der Rollen in Rollendialog und Matrix sind in der bestehenden App fest im Frontend (`ROLE_GROUPS`). Das widerspricht «keine eigenen Listen» (7.2). | Katalog um `roleGroups` ergänzen (`defineCatalog`), bis dahin Prop `roleGroups` |
 | V4 | Ist die Anmeldung über Entra angeboten (KANN, 9.4)? Die Oberfläche kann es heute nicht erkennen. | Feld `entra: boolean` in `GET /v1/admin/status`; bis dahin `features.entra` |
 | V5 | `grantedPermissions` steht in 7.1, aber nicht in der Feldliste von `/auth/me` (5.1). | in 5.1 ergänzen (optional) |

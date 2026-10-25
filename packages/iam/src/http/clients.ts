@@ -19,7 +19,7 @@ import { forbidden, notFound } from '../errors.ts';
 import type { Level } from '../model.ts';
 import { checkRoleChange, setClearance, setOrgRoles, type Acting } from '../rules.ts';
 import { findTenant } from '../tenants.ts';
-import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG_CLIENTS = 'Verwaltung: Mitglieder und Rollen';
 export const CLIENT_ID_PATTERN = '^[A-Za-z0-9][A-Za-z0-9._:@-]{0,254}$';
@@ -75,17 +75,16 @@ export const clientsModule: IamModule = {
       return { tenantId: p.tenantId, alias: p.tenantAlias, actor: p, platform: false };
     };
     const platform = async (req: FastifyRequest): Promise<Target> => {
-      const p = personOf(req);
-      if (!p.platformAdmin) throw forbidden(`Nur für die Plattform-Administration (Realm-Rolle ${iam.cfg.tenancy.platformAdminRole}).`);
+      const p = platformOf(req, iam.cfg.tenancy.platformAdminRole);
       const alias = (req.params as { alias: string }).alias;
       const t = await findTenant(iam.db, alias);
-      if (!t) throw notFound(`Organisation «${alias}» (noch nie benutzt – zuerst eine Person einladen oder anmelden lassen)`);
+      if (!t) throw notFound(`Organisation «${alias}»`);
       return { tenantId: t.id, alias: t.alias, actor: p, platform: true };
     };
     const inTenant = <T>(t: Target, fn: (tx: Tx) => Promise<T>) => withTenant(iam.db, { tenantId: t.tenantId, principalId: t.platform ? null : t.actor.principalId }, fn);
     const actorOf = (req: FastifyRequest, t: Target): Actor & { extra?: Record<string, unknown> } => ({
       principal: { kind: t.actor.kind, principalId: t.actor.principalId, name: t.actor.name, clientId: t.actor.clientId }, source: req.source, correlationId: req.id,
-      ...(t.platform ? { extra: { platformAdmin: true, actorTenant: t.actor.tenantAlias } } : {}),
+      ...(t.platform ? { extra: { platformAdmin: true } } : {}),
     });
     const record = (req: FastifyRequest, tx: Tx, t: Target, action: string, principalId: string, data: Record<string, unknown>) => {
       const a = actorOf(req, t);

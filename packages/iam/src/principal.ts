@@ -47,6 +47,29 @@ export interface Principal {
   token: string;
 }
 
+/**
+ * Angemeldete Person ohne Bezug zu einem Mandanten (Kontext «Konto» und «Plattform», Spezifikation Kap. 6.3): Konto
+ * über allen Mandanten, Realm-Rolle der Plattform-Administration. Nie ein Maschinen-Client und nie ein Zugriff über den
+ * MCP-Dienst.
+ */
+export interface Account {
+  /** `account.id` (nie eine ID eines Mandanten). */
+  accountId: string;
+  /** `sub` in Keycloak. */
+  subject: string;
+  name: string;
+  email: string | null;
+  /** Claim `email_verified`. */
+  emailVerified: boolean;
+  /** Realm-Rolle `PLATFORM_ADMIN_ROLE`. */
+  platformAdmin: boolean;
+  /** Aliasse der Organisationen im Token (Mitgliedschaften laut Keycloak), ASCII klein geschrieben. */
+  organizations: string[];
+  binding: VerifiedToken['binding'];
+  identityProvider: string | null;
+  token: string;
+}
+
 type Claims = VerifiedToken['claims'];
 
 /** Organisationen aus dem Claim lesen. Keycloak 26 liefert je nach Mapper eine Liste von Aliassen oder ein Objekt. */
@@ -125,6 +148,36 @@ export class PrincipalResolver {
     return isClient(claims, this.personClients) ? 'client' : 'user';
   }
 
+  /** Enthält das Token mindestens eine Organisation (Claim `TENANT_CLAIM`)? */
+  hasOrganization(claims: Claims): boolean { return orgsFromClaims(claims, this.cfg.tenancy.claim).length > 0; }
+
+  private readonly accounts = new Map<string, { id: string; key: string; at: number }>();
+  /**
+   * Konto der Person (Kontext «Konto» bzw. «Plattform»): ohne Mandant, auch ohne Organisation im Token. Maschinen-Clients
+   * und Zugriffe über den MCP-Dienst → 403. «Nur Entra» gilt wie im Mandanten (ausser für die Plattform-Administration).
+   */
+  async account(v: VerifiedToken): Promise<Account> {
+    const c = v.claims, t = this.cfg.tenancy;
+    const clientId = (c.azp as string) ?? (c.client_id as string) ?? null;
+    if (isClient(c, this.personClients) || (clientId !== null && clientId === this.cfg.mcp.clientId)) throw new HttpError(403, 'Nur für Personen', 'Konto und Plattform-Administration stehen nur angemeldeten Personen über die Oberfläche oder die API offen, nicht Maschinen-Clients und nicht dem MCP-Dienst.');
+    const platformAdmin = (((c.realm_access as { roles?: string[] } | undefined)?.roles) ?? []).includes(t.platformAdminRole);
+    if (!platformAdmin) await this.requireEntraLogin(c);
+    const subject = String(c.sub ?? '');
+    if (!subject) throw new HttpError(401, 'Token ungültig', 'Das Token nennt keine Person (sub).');
+    const name = String(c.name ?? c.preferred_username ?? subject), email = typeof c.email === 'string' ? c.email : null;
+    const key = JSON.stringify([name, email]), hit = this.accounts.get(subject);
+    let accountId = hit && hit.key === key && Date.now() - hit.at < 300_000 ? hit.id : null;
+    if (!accountId) {
+      accountId = (await this.db.query<{ id: string }>('SELECT app.account_touch($1, $2, $3) AS id', [subject, email, name])).rows[0]!.id;
+      this.accounts.set(subject, { id: accountId, key, at: Date.now() });
+    }
+    return {
+      accountId, subject, name, email, emailVerified: c.email_verified === true, platformAdmin,
+      organizations: [...new Set(orgsFromClaims(c, t.claim).map(o => asciiLower(o.alias)).filter(a => ALIAS_PATTERN.test(a)))],
+      binding: v.binding, identityProvider: typeof c.identity_provider === 'string' ? c.identity_provider : null, token: v.token,
+    };
+  }
+
   /**
    * @param requestedTenant optional gewünschter Mandant (Header `X-Tenant` bzw. Wahl der Sitzung), muss im Token
    *   enthalten sein. Ungültige Aliasse (ALIAS_PATTERN nach ASCII-Kleinschreibung) im Wunsch oder im Claim → 403.
@@ -139,7 +192,7 @@ export class PrincipalResolver {
     if (requestedTenant && !wanted) throw invalidOrg();
     const org = wanted ? orgs.find(o => o.alias === wanted) : orgs.length === 1 ? orgs[0] : undefined;
     if (!org) {
-      if (!orgs.length) throw new HttpError(403, 'Keine Organisation', `Das Token enthält keine Organisation (Claim «${t.claim}»). Scope «organization» anfordern.`);
+      if (!orgs.length) throw new HttpError(403, 'Keine Organisation', `Das Token enthält keine Organisation (Claim «${t.claim}»). Eine Organisation erstellen oder eine Einladung annehmen; Maschinen-Clients fordern den Scope «organization» an.`, {}, { reason: 'no-organization' });
       if (wanted) throw new HttpError(403, 'Organisation nicht erlaubt', `Kein Zugriff auf «${wanted}».`);
       throw new HttpError(400, 'Organisation wählen', 'Das Token enthält mehrere Organisationen. Header «X-Tenant» mit dem Alias setzen.', {}, { organizations: orgs.map(o => o.alias) });
     }

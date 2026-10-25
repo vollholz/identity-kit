@@ -16,7 +16,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AdminService, Scope } from '../admin.ts';
 import { forbidden, HttpError } from '../errors.ts';
 import { ORG, type Level, type Model } from '../model.ts';
-import { DateTime, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG_MEMBERS = 'Verwaltung: Mitglieder und Rollen';
 const TAG_ORGS = 'Plattform: Organisationen';
@@ -92,8 +92,7 @@ export const adminModule: IamModule = {
       return { alias: p.tenantAlias, actor: p, platform: false, source: req.source, correlationId: req.id };
     };
     const platform = (req: FastifyRequest, alias = ''): Scope => {
-      const p = personOf(req);
-      if (!p.platformAdmin) throw forbidden(`Nur für die Plattform-Administration (Realm-Rolle ${iam.cfg.tenancy.platformAdminRole}).`);
+      const p = platformOf(req, iam.cfg.tenancy.platformAdminRole);
       on();
       return { alias, actor: p, platform: true, source: req.source, correlationId: req.id };
     };
@@ -104,19 +103,20 @@ export const adminModule: IamModule = {
     app.get(statusUrl, {
       schema: routeSchema(ctx, 'GET', statusUrl, {
         tags: [TAG_MEMBERS], summary: 'Ist die Verwaltung eingerichtet, was darf ich?',
-        description: 'Für jede angemeldete Person. `enabled`: Verwaltungs-Client konfiguriert. `canManageMembers`: Recht `members:admin` in dieser Organisation. `roles`: Rollen des Modells mit Erklärungen.',
+        description: 'Für jede angemeldete Person. `enabled`: Verwaltungs-Client konfiguriert. `canManageMembers`: Recht `members:admin` in dieser Organisation. `platformAdmin`: Realm-Rolle der Plattform-Administration (gibt in der Organisation keine Rechte). `roles`: Rollen des Modells an der Organisation mit Erklärungen.',
         response: { 200: Type.Object({
           enabled: Type.Boolean(), reason: Nullable(Type.String()), organization: Type.String(), platformAdmin: Type.Boolean(), canManageMembers: Type.Boolean(),
           roles: Type.Array(statusRole(iam.model)),
         }) },
       }),
     }, async req => {
+      const roles = iam.model.toJSON().roles.filter(r => iam.model.relationsAt(ORG).includes(r.key));
       const p = req.requirePrincipal();
       const isPerson = p.kind === 'user' && !p.scopeBound;
       return {
         enabled: !!svc, reason: svc ? null : OFF_DETAIL, organization: p.tenantAlias, platformAdmin: isPerson && p.platformAdmin,
         canManageMembers: !!svc && isPerson && (await req.can('members:admin')),
-        roles: iam.model.toJSON().roles.filter(r => iam.model.relationsAt(ORG).includes(r.key)),
+        roles,
       };
     });
 

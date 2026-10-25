@@ -6,7 +6,7 @@
 import { AccessService, fullView } from './access.ts';
 import { AdminService } from './admin.ts';
 import { Bff, type BffOptions } from './bff.ts';
-import type { AuditPort } from './audit.ts';
+import { withPlatformAudit, type AuditPort } from './audit.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db, type Tx } from './db.ts';
 import { EntraService } from './entra.ts';
@@ -111,8 +111,10 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const wantsBff = o.bff !== false && !!(o.cfg.oidc.bffClientSecret || o.cfg.oidc.bffPrivateKey);
   const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.model.product }) : null;
   const resolver = new PrincipalResolver(o.db, o.cfg, { schema, access: access as AccessService });
-  const tuples = new TupleStore({ schema, model: o.model, audit: o.audit });
-  const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit: o.audit, resolver, access: access as AccessService, tuples };
+  // Plattform-Administration steht zusätzlich im Protokoll der Plattform
+  const audit = withPlatformAudit(o.audit);
+  const tuples = new TupleStore({ schema, model: o.model, audit });
+  const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit, resolver, access: access as AccessService, tuples };
   const admin = o.cfg.mgmt.clientId
     ? new AdminService(deps, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
     : null;
@@ -121,7 +123,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
   const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
-    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit: o.audit, events: o.events ?? null, replay,
+    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events: o.events ?? null, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
     async tx(p, fn) {

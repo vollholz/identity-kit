@@ -38,6 +38,9 @@ type S = components['schemas'];
 // Antworten: Vertrag → Paket
 ok<Fits<Res<'/auth/switch', 'post'>, C.SwitchResult>>();
 ok<Fits<Res<'/v1/admin/status', 'get'>, C.AdminStatus>>();
+ok<Fits<Res<'/v1/account', 'get'>, C.AccountInfo>>();
+ok<Fits<Res<'/v1/account/organizations', 'post', 201>, C.OwnOrganization>>();
+ok<Fits<Res<'/v1/signup', 'post', 202>, C.SignupResult>>();
 ok<Fits<Res<'/v1/admin/members/{id}', 'delete'>, C.RemoveResult>>();
 ok<Fits<Res<'/v1/admin/members/{id}/invitation', 'post'>, C.ResendResult>>();
 ok<Fits<Res<'/v1/admin/members/entra-search', 'get'>, C.EntraCandidateList>>();
@@ -77,6 +80,8 @@ ok<SameKeys<NonNullable<C.Me['tenant']>, NonNullable<(typeof ME_FIXTURE)['tenant
 // Anfragekörper: gleiche Felder wie im Vertrag
 ok<SameKeys<C.SwitchInput, Omit<Body<'/auth/switch', 'post'>, 'csrf'>>>();
 ok<SameKeys<C.InviteInput, Body<'/v1/admin/members', 'post'>>>();
+ok<SameKeys<C.OwnOrganizationInput, Body<'/v1/account/organizations', 'post'>>>();
+ok<SameKeys<C.SignupInput, Body<'/v1/signup', 'post'>>>();
 ok<SameKeys<C.RolesInput, Body<'/v1/admin/members/{id}/roles', 'put'>>>();
 ok<SameKeys<C.EntraAddInput, Body<'/v1/admin/members/entra', 'post'>>>();
 ok<SameKeys<C.EntraConsentInput, Body<'/v1/admin/entra/consent', 'post'>>>();

@@ -561,6 +561,25 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.equal((await me(viaLogin.cookie)).json().tenant.alias, 'acme');
   });
 
+  test('Neue Mitgliedschaft (z. B. Organisation selbst erstellt): /auth/switch erneuert das Token einmal und wechselt', async () => {
+    op.user = userClaims({ org: [] });
+    op.refreshAs = null;
+    const { cookie } = await login();
+    const before = await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } });
+    assert.deepEqual([before.json().tenant, before.json().organizations], [null, []]);
+    const refreshes = op.refreshCount;
+    // noch nicht Mitglied: einmal erneuert, dann 403
+    assert.equal((await switchTo(cookie, { org: 'neu' })).statusCode, 403);
+    assert.equal(op.refreshCount, refreshes + 1);
+    // inzwischen Mitglied (Keycloak nimmt die Organisation ins erneuerte Token)
+    op.refreshAs = { ...op.user, organization: ['neu'] };
+    const ok = await switchTo(cookie, { org: 'neu' });
+    assert.equal(ok.statusCode, 200, ok.body);
+    const after = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
+    assert.deepEqual([after.organizations, after.selectedOrganization], [['neu'], 'neu']);
+    op.refreshAs = null;
+  });
+
   test('Aus der gewählten Organisation entfernt: nach der Erneuerung nicht mehr gewählt und nicht mehr angeboten', async () => {
     op.user = userClaims({ org: ['acme', 'globex'] });
     const { cookie } = await login();

@@ -213,7 +213,7 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-test('Organisation sperren und entsperren; die eigene Organisation bleibt gesperrt mit Grund', async ({ page }) => {
+test('Organisation sperren und entsperren; auch die eigene Organisation (Plattform ohne Organisation)', async ({ page }) => {
   await page.goto('/admin.html?p=organization');
   await page.getByRole('button', { name: 'Sperren' }).click();
   const dlg = page.getByRole('alertdialog', { name: '«Muster GmbH» sperren?' });
@@ -227,7 +227,7 @@ test('Organisation sperren und entsperren; die eigene Organisation bleibt gesper
   await page.getByRole('navigation', { name: 'Pfad' }).getByRole('link', { name: 'Organisationen' }).click();
   await page.getByRole('link', { name: 'Demo AG' }).click();
   await expect(page.getByText('deine Organisation')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sperren' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Sperren' })).not.toHaveAttribute('aria-disabled');
 });
 
 for (const scheme of ['light', 'dark'] as const) {

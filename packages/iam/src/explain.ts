@@ -76,8 +76,8 @@ export class AccessInfo {
   manageProblem(p: Principal, acl: TenantAccess<any>, ref: ResourceRef, relation: string, facts: Facts, hint?: string | null): HttpError | null {
     const a = this.access;
     if (!this.person(p)) return new HttpError(403, 'Keine Berechtigung', 'Nur angemeldete Personen verwalten Freigaben.');
-    if (relation === ADMIN_ROLE && !p.platformAdmin) return new HttpError(403, 'Keine Berechtigung', `Die Rolle «${a.model.roles.get(ADMIN_ROLE)?.label}» vergibt und entzieht nur die Plattform-Administration.`, {}, { reason: 'platform-admin-only' });
-    if (p.platformAdmin) return null; // A9: die Plattform-Administration ist von «niemand gibt mehr, als er hat» ausgenommen
+    // org-admin nur über die Plattform-Administration (/v1/platform/…); im Mandanten gibt die Realm-Rolle keine Rechte
+    if (relation === ADMIN_ROLE) return new HttpError(403, 'Keine Berechtigung', `Die Rolle «${a.model.roles.get(ADMIN_ROLE)?.label}» vergibt und entzieht nur die Plattform-Administration.`, {}, { reason: 'platform-admin-only' });
     if (!a.decide(p, acl, 'access:admin', ref, hint, facts)) return a.missingPermission('access:admin', ref.type === ORG ? '' : ' an diesem Ort');
     const missing = [...a.model.permissionsOf(relation, ref.type)].filter(perm => !a.decide(p, acl, perm, ref, hint, facts));
     if (missing.length) return new HttpError(403, 'Keine Berechtigung', `Die Rolle enthält Rechte, die du hier nicht hast: ${missing.map(x => a.model.permissionText(x)).join(', ')}.`, {}, { reason: 'exceeds-own', missing });

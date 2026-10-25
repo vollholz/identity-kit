@@ -25,7 +25,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 3. [Realm des Produkts](#3-realm-des-produkts)
 4. [Mandanten](#4-mandanten)
 5. [Anmeldung der Oberfläche (BFF)](#5-anmeldung-der-oberfläche-bff)
-6. [Token-Prüfung und Principal](#6-token-prüfung-und-principal)
+6. [Token-Prüfung und Principal](#6-token-prüfung-und-principal) · [Konto ohne Organisation](#63-konto-ohne-organisation)
 7. [Rechtemodell](#7-rechtemodell)
 8. [Modell des Produkts](#8-modell-des-produkts)
 9. [Verwaltung in der App](#9-verwaltung-in-der-app)
@@ -108,7 +108,7 @@ Ergebnis voraus.
 | 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
 | 5 | Betreiber | dem IaC-Client des Produkts Realm-Admin geben | `<produkt>-iac` hat `realm-management/realm-admin` am Realm `<produkt>` (mit FGAP v2 darf das nur ein Server-Admin) |
 | 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
-| 7 | Produkt | `iam-org-bootstrap --alias <alias> --name … --email … --platform-admin` oder `iam-org-bootstrap --file <init.json>` | erste Organisation, erste Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail) mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
+| 7 | Produkt | `iam-org-bootstrap --operator --email …` und `iam-org-bootstrap --alias <alias> --name … --email …`, oder beides mit `iam-org-bootstrap --file <init.json>` | Konto des Betriebs mit `platform-admin`, **ohne Organisation** ([6.3](#63-konto-ohne-organisation)); erste Organisation mit erster Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail), nie mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
 
 Regeln:
 
@@ -142,9 +142,10 @@ Im Backend-Paket `@vollholz/iam` (`npx …`). Anmeldung bei Keycloak mit dem Ser
 
 | Befehl | Wirkung |
 |---|---|
-| `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last] [--platform-admin]` | Organisation und eine Person als org-admin (Schritt 7, A20); idempotent |
-| `iam-org-bootstrap --file <init.json>` | dasselbe für alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "organizations": [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"?, "platformAdmin"? } ] } ] }`; nicht zusammen mit den Einzel-Flags |
-| beide zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
+| `iam-org-bootstrap --operator --email … [--first] [--last]` | Konto des Betriebs mit der Realm-Rolle `PLATFORM_ADMIN_ROLE`, ohne Organisation ([6.3](#63-konto-ohne-organisation)); Abbruch, wenn die Person Mitglied einer Organisation ist; braucht keine Datenbank; idempotent |
+| `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last]` | Organisation und eine Person als org-admin (Schritt 7, A20); Abbruch, wenn die Person Betrieb ist (Betrieb und Organisation nie mit demselben Konto); idempotent |
+| `iam-org-bootstrap --file <init.json>` | dasselbe für den Betrieb und alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "operators"?: [ { "email", "first"?, "last"? } ], "organizations"?: [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"? } ] } ] }`, mindestens ein Eintrag, keine Adresse in beiden; nicht zusammen mit den Einzel-Flags |
+| alle zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
 | Einladung (ab 1.5) | neu angelegte Personen ohne Passwort und ohne Identitätsanbieter erhalten von Keycloak eine E-Mail «Passwort festlegen» (`execute-actions-email`, `UPDATE_PASSWORD`, gültig 7 Tage, `--invite-days <1–30>`, optional `--client-id <client> [--redirect-uri <url>]`). `--no-email`: keine; `--resend`: auch an bestehende Personen ohne Passwort (z. B. nach Abbruch oder eingerichtetem SMTP). Scheitert der Versand (kein SMTP), meldet der Lauf das und endet mit 0. Am Schluss die Zeilen `Einladung gesendet an: …` bzw. `Einladung NICHT gesendet an: …`. `--initial-password` ist die Alternative ohne SMTP (dann keine Einladung; nicht zusammen mit `--resend`, `--invite-days`, `--client-id`, `--redirect-uri`) |
 | `iam-reset --keycloak` | im Realm alle Organisationen samt ihrer Identitätsanbieter (`entra-NNN`, `entra-app-<alias>`) und alle Personen löschen; Service-Account-Benutzer der Clients, Realm, Clients, Scopes, übrige Anbieter und Einstellungen bleiben (sie gehören dem Realm-Modul) |
 | `iam-reset --database [--keep-table <name> …]` | als Migrationsrolle alle Tabellen im Schema der App leeren (`TRUNCATE … RESTART IDENTITY CASCADE`) ausser `schema_migrations` und `--keep-table`; Struktur, Rollen, Policies bleiben. Abbruch, wenn CASCADE eine ausgenommene Tabelle mitleeren würde |
@@ -243,7 +244,7 @@ den Realm.
 
 | Was | Soll |
 |---|---|
-| Realm-Rolle `platform-admin` | Plattform-Administration über alle Mandanten; vergibt nur eine Keycloak-Administration bzw. `iam-org-bootstrap` |
+| Realm-Rolle `platform-admin` | Plattform-Administration über alle Mandanten, ohne Mitgliedschaft und ohne Rechte in einer Organisation ([6.3](#63-konto-ohne-organisation)); vergibt nur eine Keycloak-Administration bzw. `iam-org-bootstrap --operator`, nie an Mitglieder einer Organisation |
 | Rollen des Modells | **nicht in Keycloak** (D6): keine Client-Rollen an `<produkt>-platform`, keine Gruppe `/orgs`, keine Rollengruppen, kein Mapper für Rollen. Rollen sind Tupel in der Datenbank der App ([7.4](#74-tupel)) |
 | Gruppen | nur aus Entra ID der Organisation: je Entra-Anbieter ein IdP-Mapper `entra-groups` (`oidc-user-attribute-idp-mapper`, Claim `groups` → Attribut `entra_groups`, Sync-Modus `FORCE`), angelegt von der App mit dem Anbieter ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)); Attribut `entra_groups` im User-Profile des Realms (nur Admin, mehrwertig). Die App legt keine Keycloak-Gruppen an. Ohne Entra gibt es keine Gruppen |
 
@@ -283,18 +284,21 @@ Systemclients + `KEYCLOAK_SYSTEM_CLIENTS` + Heuristik). Clients ohne
 - **Bindung an die Keycloak-ID**: `app.resolve_tenant(alias, kc_org_id, name, create)` (SECURITY DEFINER) liefert den
   Mandanten nur, wenn die ID passt; eine leere `kc_org_id` wird beim ersten Kontakt gebunden. Eine neue Organisation
   mit dem Alias einer gelöschten erhält so nie deren Daten. Organisationen werden **gesperrt statt gelöscht**.
-- **Anlage just in time** (`TENANT_AUTO_PROVISION=true`): beim ersten Zugriff einer **Person**. Maschinen-Clients
-  legen nie einen Mandanten an.
+- **Anlage nur ausdrücklich** (ab iam 3.0): «Organisation erstellen» im Konto ([6.3](#63-konto-ohne-organisation)),
+  Plattform-Administration (`POST /v1/platform/organizations`) oder `iam-org-bootstrap`. `TENANT_AUTO_PROVISION=true`
+  (Anlage beim ersten Zugriff einer Person) gibt es nur noch für Entwicklung und Tests; in Produktion ist es ein Fehler
+  der Konfiguration. Maschinen-Clients legen nie einen Mandanten an.
 - **Gesperrt** (`suspended`): keine Anmeldung, keine API-Zugriffe (403 «Organisation nicht verfügbar»), der Worker
   ruht. Sperren wirkt in Keycloak (Organisation deaktiviert) und in der App zugleich; scheitert ein Schritt, wird der
-  andere zurückgenommen. Die eigene Organisation lässt sich nicht sperren.
+  andere zurückgenommen.
 - **Personen in mehreren Organisationen**: Die Anmeldung fordert `organization:*` an, das Token trägt alle
   Organisationen der Person. Je Anfrage gilt **genau eine**: Header `X-Tenant` (muss im Token stehen, sonst 403), sonst
   die Vorgabe der Sitzung, sonst bei nur einer diese; bei mehreren ohne Wahl 400 mit der Liste der **eigenen**
   Organisationen.
-- Plattform-Administration: Realm-Rolle `platform-admin`, nur Personen, eigene Endpunkte `/v1/platform/…`, umgeht RLS
-  nie stillschweigend (arbeitet im Kontext des Zielmandanten), jede Aktion im Audit des Zielmandanten mit
-  `platformAdmin` und `actorTenant`. Auch die Plattform-Administration braucht eine eigene Organisation zum Anmelden.
+- Plattform-Administration: Realm-Rolle `platform-admin`, nur Personen, eigene Endpunkte `/v1/platform/…`, **ohne
+  Mitgliedschaft** in einer Organisation ([6.3](#63-konto-ohne-organisation)). Umgeht RLS nie stillschweigend (arbeitet
+  im Kontext des Zielmandanten); jede Aktion steht im Audit des Zielmandanten mit `platformAdmin` und zusätzlich im
+  Protokoll der Plattform (`platform_audit_log`, Akteur = Konto).
 
 ## 5. Anmeldung der Oberfläche (BFF)
 
@@ -371,6 +375,42 @@ kommen aus Tupeln.
 | Spiegel | `principal` je Mandant (eigene ID je Mandant, `UNIQUE (tenant_id, kind, subject)`), Name/E-Mail/`last_seen_at` aktualisieren; bei Maschinen-Clients zusätzlich `last_scopes`; Principal eines Clients entsteht spätestens mit der Freigabe (A18) |
 | Austritt | `removed_at` gesetzt: Token gilt nur, wenn **nach** `removed_at` ausgestellt (`iat`), sonst 403 «Kein Mitglied mehr» |
 | Zwischenspeicher | Mandant (Alias + Keycloak-ID) 60 s, Principal 5 min, Tupel bis zur nächsten `acl_version`; alle Schlüssel enthalten den Mandanten; `forget…` nach Sperren, Entzug, Entfernen |
+
+### 6.3 Konto ohne Organisation
+
+Ab iam 3.0 kennt jede Route einen **Kontext**; der Resolver wählt ihn, die Route erklärt, welche sie annimmt
+(`config: { iam: { contexts: [...] } }`, Standard `tenant`; Routen unter `/v1/platform/` Standard `platform`).
+
+| Kontext | Wer | Bedingung | Datenbank |
+|---|---|---|---|
+| `tenant` | Mitglied einer Organisation (Person oder Maschinen-Client) | Organisation im Token, Wahl nach [Kapitel 4](#4-mandanten); Rechte aus Tupeln | RLS mit `app.tenant_id()` |
+| `account` | jede angemeldete **Person**, auch ohne Organisation | gültiges Token; nie Maschinen-Clients, nie Zugriffe über den MCP-Dienst (403 «Nur für Personen») | kein Mandant; nur über SECURITY-DEFINER-Funktionen |
+| `platform` | Person mit der Realm-Rolle `PLATFORM_ADMIN_ROLE` | wie `account`, dazu die Realm-Rolle (sonst 403 `platform-admin-only`); Mitgliedschaft unnötig | Funktionen der Plattform, Arbeit im Kontext des Zielmandanten |
+
+Regeln:
+
+- Routen mit `tenant` und `account` (z. B. `GET /v1/authz/catalog`) laufen mit Organisation im Token als `tenant`,
+  sonst als `account`. Routen nur mit `tenant` antworten ohne Organisation mit 403 `no-organization`.
+- `platform-admin` gibt **in einer Organisation keine Rechte**: Ist die Person dort Mitglied, gelten genau ihre Tupel.
+  `org-admin` vergibt und entzieht nur `/v1/platform/…` (auch nicht `POST /v1/access` mit der Realm-Rolle).
+- Konto: Tabelle `account` (`id`, `subject` eindeutig, `email`, `display_name`, `created_at`, `last_seen_at`,
+  `orgs_created`), ohne `tenant_id`, für die Laufzeit nicht lesbar (Funktionen `app.account_touch`,
+  `app.account_reserve_org`, `app.account_release_org`). Bewusst nicht mit `principal` verknüpft: Mandanten können
+  dieselbe Person nicht über eine gemeinsame Kennung verbinden.
+- Protokoll der Plattform: `platform_audit_log`, eine Hash-Kette (Aufbau wie `audit_log`, `org_id` statt `tenant_id`),
+  nur anhängen über `app.platform_audit()`. Darin: Registrieren, Organisation selbst erstellt und jede Aktion der
+  Plattform-Administration (zusätzlich zum Audit des Zielmandanten).
+- Endpunkte (Modul `account`):
+
+| Endpunkt | Kontext | Soll |
+|---|---|---|
+| `GET /v1/account` | `account` | Konto (`id`, `subject`, Name, E-Mail, `emailVerified`), `platformAdmin`, Organisationen aus dem Token mit Name und Status, `selfService` |
+| `POST /v1/account/organizations` | `account` | nur mit `SELF_SERVICE_ORGS`, bestätigter E-Mail (403 `email-unverified`), freiem (409 `alias-taken`) und nicht reserviertem Alias (`RESERVED_ALIASES` und das Produkt, 422), höchstens `SELF_SERVICE_ORG_LIMIT` je Konto (409 `org-limit`). Organisation in Keycloak **ohne Domäne**, Person als Mitglied, dann in einer Transaktion Mandant, Principal, Tupel `org-admin` an org, Freigabestufe 2, Audit `tenant.provisioned` (`selfService`) und `organization.self_created` (Plattform). Scheitert ein Schritt: Organisation in Keycloak gelöscht, Reservierung frei. Danach erneuert `/auth/switch` das Token |
+| `POST /v1/signup` | öffentlich | nur mit `SELF_SERVICE_SIGNUP`; Antwort immer 202 `signup-received` (Mindestdauer wie Einladen). Ohne Konto: Konto ohne Passwort mit `VERIFY_EMAIL` und `UPDATE_PASSWORD`, E-Mail von Keycloak; bestehendes Konto oder Domäne mit «Nur Entra»: nichts (Protokoll `account.signup_ignored`). Rate-Limit je IP |
+
+- Die Registrierung im Realm bleibt aus (`registrationAllowed = false`): Konten legt nur die Plattform an.
+- `GET /v1/admin/status` bleibt Kontext `tenant`; die Oberfläche fragt die Plattform-Administration über
+  `GET /v1/account` ab.
 
 ## 7. Rechtemodell
 
@@ -1400,9 +1440,13 @@ Nur Umgebungsvariablen; Geheimnisse auch als `…_FILE`.
 | `OIDC_SCOPES` | `openid profile email organization` | |
 | `OIDC_PERSON_CLIENT_IDS` | BFF + MCP | `azp`, deren Tokens als Person gelten |
 | `TENANT_CLAIM` | `organization` | |
-| `TENANT_AUTO_PROVISION` | `true` | |
+| `TENANT_AUTO_PROVISION` | `false` | nur Entwicklung und Tests; in Produktion verboten |
 | `GROUPS_CLAIM` | `groups` | Gruppen aus Entra ID (Objekt-IDs) als Subjekte `group:<entra-object-id>` |
-| `PLATFORM_ADMIN_ROLE` | `platform-admin` | |
+| `PLATFORM_ADMIN_ROLE` | `platform-admin` | Plattform-Administration ohne Organisation ([6.3](#63-konto-ohne-organisation)) |
+| `SELF_SERVICE_SIGNUP` | `false` | `POST /v1/signup`; braucht die Verwaltung |
+| `SELF_SERVICE_ORGS` | `false` | `POST /v1/account/organizations`; braucht die Verwaltung |
+| `SELF_SERVICE_ORG_LIMIT` | `3` | eigene Organisationen je Konto (1–100) |
+| `RESERVED_ALIASES` | `admin,…,www` | Aliasse, die niemand selbst erstellt (dazu das Produkt) |
 | `KEYCLOAK_MGMT_CLIENT_ID` | — | `<produkt>-admin`; leer = Verwaltung aus |
 | `KEYCLOAK_MGMT_PRIVATE_KEY` (geheim) | — | nur API |
 | `KEYCLOAK_MGMT_URL` | aus Issuer | Admin-API, falls abweichend |

@@ -7,6 +7,8 @@ export const iamKeys = {
   me: ['iam', 'me'] as const,
   catalog: (locale: string) => ['iam', 'catalog', locale] as const,
   adminStatus: ['iam', 'admin', 'status'] as const,
+  /** `GET /v1/account` (bleibt beim Wechsel der Organisation gültig, gehört aber zur Person). */
+  account: ['iam', 'account'] as const,
   members: (alias: string | null) => ['iam', 'admin', 'members', alias ?? '_own'] as const,
   clients: (alias: string | null) => ['iam', 'admin', 'clients', alias ?? '_own'] as const,
   entra: (alias: string | null) => ['iam', 'admin', 'entra', alias ?? '_own'] as const,

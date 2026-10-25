@@ -20,7 +20,7 @@ import type { AdminService, Scope } from '../admin.ts';
 import { consentPath, handoverPath } from '../entra.ts';
 import type { EntraService } from '../entra.ts';
 import { forbidden, HttpError } from '../errors.ts';
-import { DateTime, Deleted, Nullable, personOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, Deleted, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG = 'Verwaltung: Anmeldung über Microsoft Entra ID';
 const OFF_DETAIL = 'Die Verwaltung von Organisationen und Mitgliedern ist in dieser Instanz nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID). Bis dahin in der Keycloak-Konsole verwalten.';
@@ -143,8 +143,7 @@ export const entraModule: IamModule = {
       return { alias: p.tenantAlias, actor: p, platform: false, source: req.source, correlationId: req.id };
     };
     const platform = (req: FastifyRequest, alias = ''): Scope => {
-      const p = personOf(req);
-      if (!p.platformAdmin) throw forbidden(`Nur für die Plattform-Administration (Realm-Rolle ${iam.cfg.tenancy.platformAdminRole}).`);
+      const p = platformOf(req, iam.cfg.tenancy.platformAdminRole);
       on();
       return { alias, actor: p, platform: true, source: req.source, correlationId: req.id };
     };

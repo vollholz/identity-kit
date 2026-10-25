@@ -11,7 +11,7 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { containers, type IamConfig, type Me, type Member, type RoleInfo } from '../src/index.ts';
 import { MemberList, MembersScreen } from '../src/pages/index.ts';
-import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -553,7 +553,7 @@ describe('Clients, Freigabestufe, Orte, niemand gibt mehr, als er hat', () => {
   });
 
   it('ohne features.access keine Spalte «Orte»; in der Plattformansicht auch nicht (nur Rollen an der Organisation)', async () => {
-    const api = mockIamApi({ 'GET /v1/admin/status': () => json({ ...STATUS, platformAdmin: true }), 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [{ ...CARLA, places: 3 }] }) });
+    const api = mockIamApi({ 'GET /v1/admin/status': () => json(STATUS), 'GET /v1/account': () => json(accountInfo({ platformAdmin: true })), 'GET /v1/admin/members': () => json({ items: [ANNA] }), 'GET /v1/platform/organizations/muster/members': () => json({ items: [{ ...CARLA, places: 3 }] }) });
     vi.stubGlobal('fetch', api.fetch);
     const { unmount } = render(<StaticIam me={ADMIN_ME} config={{ features: { access: false } }}>{own()}</StaticIam>);
     const table = await screen.findByRole('table', { name: /^Mitglieder/ });

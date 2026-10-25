@@ -7,7 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ICON_NAMES, iamFetch, IamProvider, orgName, tenantName, useIam, type IamProviderProps } from '../src/index.ts';
-import { json, ME, mockIamApi, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, json, ME, mockIamApi, type MockHandler } from '../src/testing/index.tsx';
 
 let assign: ReturnType<typeof vi.fn>;
 beforeEach(() => { assign = vi.fn(); vi.stubGlobal('location', { ...window.location, pathname: '/', search: '', assign, reload: vi.fn() }); });
@@ -44,11 +44,13 @@ describe('Organisation wechseln', () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('ohne Organisation im Konto: Hinweis an die Plattform-Administration; Marke der App', async () => {
+  it('ohne Organisation im Konto: Konto mit Hinweis auf eine Einladung; Marke der App', async () => {
     setup({ 'GET /auth/me': () => json({ ...ME, tenant: null, organizations: [], organizationNames: {}, tenantError: null }) }, { brand: <span>Marke Notizen</span> });
-    expect(await screen.findByText(/keine Organisation zugeordnet/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Dein Konto' })).toBeInTheDocument();
+    expect(screen.getByText(/noch keine Organisation zugeordnet\. Sobald dich eine Organisation einlädt/)).toBeInTheDocument();
     expect(screen.getByText('Marke Notizen')).toBeInTheDocument();
-    expect(screen.getByText('Du gehörst mehreren Organisationen an. In welcher möchtest du arbeiten?')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Organisation erstellen' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Organisationen verwalten' })).toBeNull();
   });
 });
 
@@ -202,4 +204,48 @@ describe('Name der Organisation (0.3.1)', () => {
 
 it('Symbole layers, plug und inbox im Satz des Pakets (0.3.1)', () => {
   expect(ICON_NAMES).toEqual(expect.arrayContaining(['layers', 'plug', 'inbox']));
+});
+
+describe('Konto ohne Organisation (Spezifikation 6.3)', () => {
+  const none = { 'GET /auth/me': () => json({ ...ME, tenant: null, organizations: [], organizationNames: {}, selectedOrganization: null, tenantError: null }) };
+
+  it('Plattform-Administration ohne Organisation: Organisationen im eigenen Rahmen, ohne X-Tenant', async () => {
+    vi.stubGlobal('location', { ...window.location, pathname: '/verwalten/organisationen', search: '', assign, reload: vi.fn() });
+    window.history.replaceState(null, '', '/verwalten/organisationen');
+    const { api } = setup({
+      ...none,
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true, organizations: [] })),
+      'GET /v1/platform/organizations': () => json({ items: [{ id: 'kc-m', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: [], tenant: null }] }),
+    });
+    expect(await screen.findByRole('link', { name: 'Muster GmbH' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zum Konto' })).toBeInTheDocument();
+    expect(screen.queryByText('App')).toBeNull();
+    const req = api.calls.find(r => new URL(r.url).pathname === '/v1/platform/organizations')!;
+    expect(req.headers.get('X-Tenant')).toBeNull();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('ohne Plattform-Rolle führt derselbe Pfad zum Konto, nicht zur Plattform', async () => {
+    vi.stubGlobal('location', { ...window.location, pathname: '/verwalten/organisationen', search: '', assign, reload: vi.fn() });
+    window.history.replaceState(null, '', '/verwalten/organisationen');
+    setup({ ...none, 'GET /v1/account': () => json(accountInfo({ organizations: [] })) });
+    expect(await screen.findByRole('heading', { name: 'Recht fehlt' })).toBeInTheDocument();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('eigene Organisation erstellen: danach Wechsel hinein (erneuert das Token)', async () => {
+    const { api } = setup({
+      ...none,
+      'GET /v1/account': () => json(accountInfo({ organizations: [], selfService: { signup: false, createOrganization: true, organizationLimit: 3 } })),
+      'POST /v1/account/organizations': async req => json(await req.json(), 201),
+      'POST /auth/switch': () => json({ redirect: '/' }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Organisation erstellen' }));
+    await userEvent.type(screen.getByLabelText('Name'), 'Start-up GmbH');
+    expect(screen.getByLabelText('Alias')).toHaveValue('start-up-gmbh');
+    await userEvent.click(within(screen.getByRole('form', { name: 'Organisation erstellen' })).getByRole('button', { name: 'Organisation erstellen' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/'));
+    const posts = api.calls.filter(r => r.method === 'POST').map(r => new URL(r.url).pathname);
+    expect(posts).toEqual(['/v1/account/organizations', '/auth/switch']);
+  });
 });

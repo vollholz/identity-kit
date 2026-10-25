@@ -89,10 +89,15 @@ export function IAM_VARS(product: string): VarSpec[] {
     { name: 'OIDC_SCOPES', kind: 'string', group: 'Anmeldung (Keycloak)', default: 'openid profile email organization', description: 'Scopes bei der Anmeldung. `organization` liefert die Organisationen (als `organization:*`).' },
 
     { name: 'TENANT_CLAIM', kind: 'string', group: 'Mandanten und Rollen', default: 'organization', description: 'Claim mit den Organisationen (Liste von Aliassen oder Objekt mit Aliassen als Schlüssel).' },
-    { name: 'TENANT_AUTO_PROVISION', kind: 'bool', group: 'Mandanten und Rollen', default: 'true', description: 'Unbekannte Organisation beim ersten Zugriff einer Person als Mandant anlegen (Maschinen-Clients nie).' },
+    { name: 'TENANT_AUTO_PROVISION', kind: 'bool', group: 'Mandanten und Rollen', default: 'false', description: 'Nur Entwicklung und Tests: unbekannte Organisation beim ersten Zugriff einer Person als Mandant anlegen (Maschinen-Clients nie). Sonst entstehen Mandanten nur ausdrücklich (Organisation erstellen, Plattform-Administration, `iam-org-bootstrap`). In Produktion nicht erlaubt.' },
     { name: 'OIDC_PERSON_CLIENT_IDS', kind: 'list', group: 'Mandanten und Rollen', default: '', description: 'Clients (`azp`), deren Tokens als Person gelten. Leer = `OIDC_BFF_CLIENT_ID` und `MCP_CLIENT_ID`. Tokens aller anderen Clients gelten als Maschinen-Client (Freigabe je Mandant, Scopes).' },
     { name: 'GROUPS_CLAIM', kind: 'string', group: 'Mandanten und Rollen', default: 'groups', description: 'Claim mit den Objekt-IDs der Gruppen aus Microsoft Entra ID (Subjekte `group:<id>`).' },
-    { name: 'PLATFORM_ADMIN_ROLE', kind: 'string', group: 'Mandanten und Rollen', default: 'platform-admin', description: 'Realm-Rolle für die Plattform-Administration über alle Mandanten.' },
+    { name: 'PLATFORM_ADMIN_ROLE', kind: 'string', group: 'Mandanten und Rollen', default: 'platform-admin', description: 'Realm-Rolle für die Plattform-Administration über alle Mandanten. Braucht keine Mitgliedschaft in einer Organisation und gibt in einer Organisation keine Rechte.' },
+
+    { name: 'SELF_SERVICE_SIGNUP', kind: 'bool', group: 'Konto und Selbstregistrierung', default: 'false', description: 'Personen ohne Konto registrieren sich mit ihrer E-Mail (`POST /v1/signup`). Braucht die Verwaltung (`KEYCLOAK_MGMT_CLIENT_ID`).' },
+    { name: 'SELF_SERVICE_ORGS', kind: 'bool', group: 'Konto und Selbstregistrierung', default: 'false', description: 'Angemeldete Personen mit bestätigter E-Mail erstellen eigene Organisationen (`POST /v1/me/organizations`) und werden dort org-admin. Braucht die Verwaltung.' },
+    { name: 'SELF_SERVICE_ORG_LIMIT', kind: 'int', group: 'Konto und Selbstregistrierung', default: '3', description: 'Höchstzahl selbst erstellter Organisationen je Konto (1 bis 100).' },
+    { name: 'RESERVED_ALIASES', kind: 'list', group: 'Konto und Selbstregistrierung', default: 'admin,administrator,api,app,auth,help,hilfe,mail,ops,platform,plattform,root,security,signup,support,system,www', description: 'Aliasse, die niemand selbst erstellen kann (zusätzlich das Produkt). Die Plattform-Administration darf sie vergeben.' },
 
     { name: 'KEYCLOAK_MGMT_CLIENT_ID', kind: 'string', group: 'Verwaltung von Organisationen und Mitgliedern', default: '', description: `Vertraulicher Client mit Service Account (\`${p}-admin\`). Ohne Angabe ist die Verwaltung von Organisationen, Mitgliedern und Rollen abgeschaltet.` },
     { name: 'KEYCLOAK_MGMT_PRIVATE_KEY', kind: 'string', group: 'Verwaltung von Organisationen und Mitgliedern', secret: true, fileAllowed: true, description: 'Privater Schlüssel (PEM, PKCS#8, EC P-256 oder RSA) für `private_key_jwt` des Verwaltungs-Clients. Hat Vorrang vor dem Geheimnis.' },
@@ -140,6 +145,8 @@ export interface IamConfig {
   db: { url: string; adminUrl: string | null; workerUrl: string; poolMax: number; statementTimeoutMs: number; ssl: 'disable' | 'require' | 'verify-full' };
   oidc: { issuer: string; apiAudience: string; mcpAudience: string; clockToleranceSec: number; bffClientId: string; bffClientSecret: string | null; bffPrivateKey: string | null; scopes: string };
   tenancy: { claim: string; autoProvision: boolean; personClients: string[]; groupsClaim: string; platformAdminRole: string };
+  /** Konto ohne Organisation (Kap. 6.3): Registrieren und Organisationen selbst erstellen. */
+  selfService: { signup: boolean; orgs: boolean; orgLimit: number; reservedAliases: string[] };
   m2m: { dpopMode: 'off' | 'optional' | 'required-for-clients' | 'required'; dpopMaxAgeSec: number; mtlsHeader: string | null };
   /** Verwaltung über die Keycloak-Admin-API; `clientId` null = abgeschaltet. */
   mgmt: { clientId: string | null; privateKey: string | null; clientSecret: string | null; adminUrl: string | null; inviteLifespanSec: number; inviteMinMs: number; timeoutMs: number };
@@ -226,6 +233,8 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
   }
   if (raw.ENTRA_UI_PATH !== undefined && (!/^\/[\w~.-]+(\/[\w~.-]+)*\/?$/.test(raw.ENTRA_UI_PATH) || raw.ENTRA_UI_PATH.split('/').some(x => x === '.' || x === '..'))) errors.push('ENTRA_UI_PATH: Pfad der Oberfläche wie /verwalten/anmeldung');
   if (raw.ENTRA_IDP_SLOTS && /^\d+$/.test(raw.ENTRA_IDP_SLOTS) && (n('ENTRA_IDP_SLOTS') < 1 || n('ENTRA_IDP_SLOTS') > 250)) errors.push('ENTRA_IDP_SLOTS: 1 bis 250');
+  for (const k of ['SELF_SERVICE_SIGNUP', 'SELF_SERVICE_ORGS']) if (needs('api') && /^(true|1)$/i.test(raw[k] ?? '') && !raw.KEYCLOAK_MGMT_CLIENT_ID) errors.push(`${k}=true: KEYCLOAK_MGMT_CLIENT_ID fehlt – Konten und Organisationen legt die Plattform über die Verwaltung in Keycloak an`);
+  if (raw.SELF_SERVICE_ORG_LIMIT && /^\d+$/.test(raw.SELF_SERVICE_ORG_LIMIT) && (n('SELF_SERVICE_ORG_LIMIT') < 1 || n('SELF_SERVICE_ORG_LIMIT') > 100)) errors.push('SELF_SERVICE_ORG_LIMIT: 1 bis 100');
   if (needs('worker') && raw.KEYCLOAK_SYNC_CLIENT_ID && !raw.KEYCLOAK_SYNC_PRIVATE_KEY && !raw.KEYCLOAK_SYNC_CLIENT_SECRET) errors.push('KEYCLOAK_SYNC_CLIENT_ID gesetzt: KEYCLOAK_SYNC_PRIVATE_KEY oder KEYCLOAK_SYNC_CLIENT_SECRET (bzw. _FILE) fehlt');
   if (raw.RATE_LIMIT_NAMESPACE && !/^[A-Za-z0-9_.-]{1,64}$/.test(raw.RATE_LIMIT_NAMESPACE.trim())) errors.push('RATE_LIMIT_NAMESPACE: Buchstaben, Ziffern, _, - und ., höchstens 64 Zeichen');
   try { const ms = parseDuration(raw.MEMBER_SYNC_INTERVAL ?? '1h'); if (ms > 0 && ms < 60_000) errors.push('MEMBER_SYNC_INTERVAL: mindestens 1m oder 0 (aus)'); } catch { /* bereits gemeldet */ }
@@ -237,6 +246,7 @@ export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | nul
     if (raw.PUBLIC_BASE_URL && !raw.PUBLIC_BASE_URL.startsWith('https://')) errors.push('PUBLIC_BASE_URL muss in Produktion mit https:// beginnen');
     if (raw.OIDC_ISSUER_URL && !raw.OIDC_ISSUER_URL.startsWith('https://')) errors.push('OIDC_ISSUER_URL muss in Produktion mit https:// beginnen');
     if (raw.DPOP_MODE === 'off') errors.push('DPOP_MODE=off ist in Produktion nicht erlaubt');
+    if (/^(true|1)$/i.test(raw.TENANT_AUTO_PROVISION ?? '')) errors.push('TENANT_AUTO_PROVISION=true ist in Produktion nicht erlaubt (Mandanten entstehen nur ausdrücklich)');
   }
   return errors;
 }
@@ -259,6 +269,7 @@ export function iamConfig(raw: RawVars, mode: Mode): IamConfig {
     db: { url: s('DATABASE_URL'), adminUrl: opt('DATABASE_ADMIN_URL'), workerUrl: opt('DATABASE_WORKER_URL') ?? s('DATABASE_URL'), poolMax: n('DATABASE_POOL_MAX'), statementTimeoutMs: d('DATABASE_STATEMENT_TIMEOUT'), ssl: s('DATABASE_SSL') as IamConfig['db']['ssl'] },
     oidc: { issuer: s('OIDC_ISSUER_URL').replace(/\/$/, ''), apiAudience: s('OIDC_API_AUDIENCE'), mcpAudience: s('OIDC_MCP_AUDIENCE'), clockToleranceSec: Math.round(d('OIDC_CLOCK_TOLERANCE') / 1000), bffClientId: s('OIDC_BFF_CLIENT_ID'), bffClientSecret: opt('OIDC_BFF_CLIENT_SECRET'), bffPrivateKey: opt('OIDC_BFF_PRIVATE_KEY'), scopes: s('OIDC_SCOPES') },
     tenancy: { claim: s('TENANT_CLAIM'), autoProvision: b('TENANT_AUTO_PROVISION'), personClients: list('OIDC_PERSON_CLIENT_IDS'), groupsClaim: s('GROUPS_CLAIM'), platformAdminRole: s('PLATFORM_ADMIN_ROLE') },
+    selfService: { signup: b('SELF_SERVICE_SIGNUP'), orgs: b('SELF_SERVICE_ORGS'), orgLimit: n('SELF_SERVICE_ORG_LIMIT'), reservedAliases: list('RESERVED_ALIASES').map(x => x.toLowerCase()) },
     m2m: { dpopMode: s('DPOP_MODE') as IamConfig['m2m']['dpopMode'], dpopMaxAgeSec: Math.round(d('DPOP_MAX_AGE') / 1000), mtlsHeader: opt('MTLS_HEADER') },
     mgmt: { clientId: opt('KEYCLOAK_MGMT_CLIENT_ID'), privateKey: opt('KEYCLOAK_MGMT_PRIVATE_KEY'), clientSecret: opt('KEYCLOAK_MGMT_CLIENT_SECRET'), adminUrl: opt('KEYCLOAK_MGMT_URL')?.replace(/\/$/, '') ?? null, inviteLifespanSec: Math.round(d('KEYCLOAK_MGMT_INVITE_LIFESPAN') / 1000), inviteMinMs: d('KEYCLOAK_MGMT_INVITE_MIN_TIME'), timeoutMs: d('KEYCLOAK_MGMT_TIMEOUT') },
     entra: { clientId: opt('ENTRA_CLIENT_ID'), clientSecret: opt('ENTRA_CLIENT_SECRET'), slots: n('ENTRA_IDP_SLOTS'), timeoutMs: d('ENTRA_TIMEOUT'), uiPath: s('ENTRA_UI_PATH').replace(/\/+$/, '') },

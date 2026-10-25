@@ -19,19 +19,20 @@ import { useSubjectAccess } from '../access/api.ts';
 import { untilText } from '../access/BreakGlass.tsx';
 import { OpenPlace, usePlaceName } from '../access/places.tsx';
 import { AccessError } from '../access/shared.tsx';
+import { useAccount } from '../account.ts';
 import { clientApi, memberApi, useAdminStatus, useEntra, useMembers } from '../admin.ts';
-import { useAccessFeature, useAuthz } from '../authz.ts';
+import { useAccessFeature, useAuthz, useAuthzCatalog } from '../authz.ts';
 import { authLink } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
 import type { EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Level, Member, RoleInfo } from '../contract.ts';
 import { fmtDate, fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
-import { ADMIN_ROLE as ADMIN, type Permission } from '../permissions.ts';
+import { ADMIN_ROLE as ADMIN, ORG_TYPE, type Permission } from '../permissions.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { RightsOverview, roleSummary } from '../rights/RightsOverview.tsx';
 import { RoleCompare, RoleMatrix } from '../rights/RoleMatrix.tsx';
 import { containers, includedIn } from '../roles.ts';
-import { useIam } from '../session.tsx';
+import { useIam, useIamMaybe } from '../session.tsx';
 import { listAnd, t, tn } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { useIamUi } from '../ui/context.tsx';
@@ -135,12 +136,19 @@ interface ListCtx {
 /** Tabelle der Mitglieder (Personen und Clients) mit Einladen, Freigeben, Rollen, Freigabestufe und Entfernen. */
 export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgProp, inviting: invitingOuter, onInviting, granting: grantingOuter, onGranting }: MemberListProps) {
   const alias = aliasProp ?? null;
-  const { me, orgName } = useIam();
-  const status = useAdminStatus();
-  const roles = useMemo(() => status.data?.roles ?? [], [status.data]);
+  // Plattform-Administration auch ohne Organisation: dann ohne Sitzung eines Mandanten, die Person aus dem Konto
+  const session = useIamMaybe();
+  const account = useAccount(!session).data;
+  // Rollen an der Organisation aus dem Katalog des Modells (gleich in jeder Organisation, auch ohne Organisation lesbar)
+  const catalog = useAuthzCatalog();
+  const roles = useMemo(() => {
+    const atOrg = catalog.data?.types.find(x => x.key === ORG_TYPE)?.roles ?? [];
+    return (catalog.data?.roles ?? []).filter(r => atOrg.includes(r.key));
+  }, [catalog.data]);
+  const me = session?.me ?? null;
   const ctx: ListCtx = {
-    alias, orgLabel: orgProp ?? orgName, roles, platform, self: me.person.subject,
-    own: platform ? null : new Set(me.permissions), ownClearance: platform ? 2 : me.clearance,
+    alias, orgLabel: orgProp ?? session?.orgName ?? '', roles, platform, self: me?.person.subject ?? account?.account.subject ?? '',
+    own: platform || !me ? null : new Set(me.permissions), ownClearance: platform || !me ? 2 : me.clearance,
   };
   const q = useMembers(alias);
   const { Button, Icon, Menu, Table, toast } = useIamUi();
@@ -270,7 +278,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
           {rows.length ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t('iam.members.reset')}</Button> : null}</> : null}
       </div>
       {permFilter ? <p className="iam-muted iam-small iam-member-acl">{t('iam.members.byRightNote', { perm: authz.permLabel(permFilter as Permission) })}</p> : null}
-      {q.isPending || status.isPending ? <SkeletonRows rows={4} cols={6} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.length ? (
+      {q.isPending || catalog.isPending ? <SkeletonRows rows={4} cols={6} /> : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : !q.data.length ? (
         <Empty icon="users" title={t('iam.members.none.title')} action={<Button variant="primary" onClick={() => setInviting(true)}>{addLabel}</Button>}>{t(connected ? (platform ? 'iam.members.noneAdd.platform' : 'iam.members.noneAdd.text') : platform ? 'iam.members.none.platform' : 'iam.members.none.text', { org: orgLabel })}</Empty>
       ) : !rows.length ? (
         <Empty title={t('iam.members.noHits.title')} action={<Button onClick={resetFilters}>{t('iam.members.reset')}</Button>}>{needle && !roleFilter && !permFilter && !kindFilter ? t('iam.members.noHits.text', { q: filter }) : t('iam.members.noHits.filters')}</Empty>

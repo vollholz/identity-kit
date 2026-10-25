@@ -1,13 +1,14 @@
 /**
  * Testseite der Sitzung: IamProvider gegen die Nachbildung des Vertrags (mockIamApi). `?view=` wählt den Zustand:
  * `choose` (mehrere Organisationen ohne Wahl), `unavailable` (Organisation des Tabs nicht mehr verfügbar), `loggedout`
- * (öffentliche Abmeldeseite), `expired` (401 einer Anfrage), sonst angemeldet.
+ * (öffentliche Abmeldeseite), `expired` (401 einer Anfrage), `account` (ohne Organisation, Plattform-Administration,
+ * eigene Organisation erstellen), `signup` (öffentlich «Konto erstellen»), sonst angemeldet.
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../src/styles.css';
 import { iamFetch, IamProvider, useIam } from '../../../src/index.ts';
-import { json, ME, mockIamApi } from '../../../src/testing/index.tsx';
+import { accountInfo, json, ME, mockIamApi } from '../../../src/testing/index.tsx';
 import './page.css';
 
 const view = new URLSearchParams(location.search).get('view') ?? '';
@@ -16,8 +17,14 @@ else sessionStorage.removeItem('iam.tab.org');
 
 const me = view === 'choose' ? { ...ME, tenant: null, selectedOrganization: null, tenantError: null }
   : view === 'unavailable' ? { ...ME, tenant: null, tenantError: 'Du wurdest aus dieser Organisation entfernt. Bitte melde dich neu an.' }
+  : view === 'account' ? { ...ME, tenant: null, organizations: [], organizationNames: {}, selectedOrganization: null, tenantError: null }
   : ME;
-const api = mockIamApi({ 'GET /v1/notes': () => json({ title: 'Nicht angemeldet', status: 401 }, 401) }, { me });
+const api = mockIamApi({
+  'GET /v1/notes': () => json({ title: 'Nicht angemeldet', status: 401 }, 401),
+  'GET /v1/account': () => json(accountInfo(view === 'account' ? { platformAdmin: true, organizations: [], selfService: { signup: true, createOrganization: true, organizationLimit: 3 } } : {})),
+  'POST /v1/account/organizations': async req => json(await req.json(), 201),
+  'POST /v1/signup': () => json({ result: 'signup-received' }, 202),
+}, { me });
 window.fetch = api.fetch;
 
 function App() {
@@ -34,6 +41,6 @@ function App() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <IamProvider product="Notizen" paths={view === 'loggedout' ? { loggedOut: location.pathname } : undefined}><App /></IamProvider>
+    <IamProvider product="Notizen" features={{ signup: true }} paths={view === 'loggedout' ? { loggedOut: location.pathname } : view === 'signup' ? { signup: location.pathname } : undefined}><App /></IamProvider>
   </StrictMode>,
 );

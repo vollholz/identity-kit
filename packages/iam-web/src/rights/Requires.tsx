@@ -3,7 +3,7 @@
  * selbst wird dann nicht gezeichnet und fragt nichts ab.
  */
 import type { ReactNode } from 'react';
-import { useAdminStatus } from '../admin.ts';
+import { useAccount } from '../account.ts';
 import { PLATFORM_ADMIN, type Permission } from '../permissions.ts';
 import { useIam } from '../session.tsx';
 import { Loading } from '../ui/states.tsx';
@@ -28,11 +28,11 @@ export function Requires({ perm, title, icon, somewhere = true, children }: Requ
 }
 
 /**
- * Guard für die Plattform-Administration: `platformAdmin` aus GET /v1/admin/status (Realm-Rolle, kein Recht des
- * Katalogs). Solange der Status lädt, ein Ladezustand; bei einem Fehler wie ohne Plattform-Administration.
+ * Guard für die Plattform-Administration: `platformAdmin` aus GET /v1/account (Realm-Rolle, kein Recht des Katalogs;
+ * auch ohne Organisation). Solange das Konto lädt, ein Ladezustand; bei einem Fehler wie ohne Plattform-Administration.
  */
 export function RequiresPlatformAdmin({ title, icon, children }: { title: string; icon: string; children: ReactNode }) {
-  const status = useAdminStatus();
-  if (status.isPending) return <Loading />;
-  return status.data?.platformAdmin ? <>{children}</> : <NoPermission perm={PLATFORM_ADMIN} icon={icon} title={title} />;
+  const account = useAccount();
+  if (account.isPending) return <Loading />;
+  return account.data?.platformAdmin ? <>{children}</> : <NoPermission perm={PLATFORM_ADMIN} icon={icon} title={title} />;
 }

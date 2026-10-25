@@ -25,7 +25,8 @@ test('Standardwerte mit dem Namen des Produkts', () => {
   assert.equal(c.oidc.bffClientId, 'notes-platform');
   assert.deepEqual(c.mcp.hostClients, ['notes-mcp-cli']);
   assert.equal(c.mcp.clientId, 'notes-mcp');
-  assert.deepEqual([c.tenancy.claim, c.tenancy.groupsClaim, c.tenancy.platformAdminRole, c.tenancy.autoProvision], ['organization', 'groups', 'platform-admin', true]);
+  assert.deepEqual([c.tenancy.claim, c.tenancy.groupsClaim, c.tenancy.platformAdminRole, c.tenancy.autoProvision], ['organization', 'groups', 'platform-admin', false]);
+  assert.deepEqual([c.selfService.signup, c.selfService.orgs, c.selfService.orgLimit, c.selfService.reservedAliases.includes('platform')], [false, false, 3, true]);
   assert.deepEqual([c.m2m.dpopMode, c.m2m.dpopMaxAgeSec, c.m2m.mtlsHeader], ['required-for-clients', 300, null]);
   assert.deepEqual([c.session.ttlMs, c.session.idleMs], [8 * 3_600_000, 3_600_000]);
   assert.deepEqual([c.mgmt.clientId, c.mgmt.inviteLifespanSec, c.mgmt.inviteMinMs, c.memberSync.intervalMs], [null, 72 * 3600, 2000, 3_600_000]);

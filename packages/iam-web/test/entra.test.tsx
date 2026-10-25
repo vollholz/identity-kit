@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iamRoutes, makeIamRoutes, type EntraConnection, type IamConfig, type Me, type Member } from '../src/index.ts';
 import { EntraConsentReturn, EntraScreen, EntraTestReturn, MembersScreen, OrganizationScreen } from '../src/pages/index.ts';
 import { authLink, isConsentUrl } from '../src/client.ts';
-import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
@@ -317,7 +317,7 @@ describe('Anmeldung (Microsoft Entra ID)', () => {
     ]);
     const org = { id: 'kc-muster', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: [], tenant: null };
     const routes = {
-      'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, roles: CATALOG.roles }),
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
       'GET /v1/platform/organizations/muster': () => json(org), 'GET /v1/platform/organizations/muster/members': () => json({ items: [] }),
       'GET /v1/platform/organizations/muster/entra': () => json({ enabled: true, reason: null, connection: null }),
     };

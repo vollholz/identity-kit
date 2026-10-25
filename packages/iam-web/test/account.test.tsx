@@ -7,7 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountMenu, AdminHead, OrgName, Requires, RequiresPlatformAdmin, useOrgSwitchItems, type Me } from '../src/index.ts';
-import { json, ME, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, json, ME, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
 
@@ -41,8 +41,8 @@ describe('Guards für Verwalten-Seiten', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Ordner der Organisation' })).toBeInTheDocument();
   });
 
-  it('Plattform-Administration nach /v1/admin/status (Realm-Rolle, kein Recht des Katalogs)', async () => {
-    const status = (platformAdmin: boolean) => ({ 'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin, canManageMembers: true, rolesManageable: true, roles: [] }) });
+  it('Plattform-Administration nach /v1/account (Realm-Rolle, kein Recht des Katalogs; auch ohne Organisation)', async () => {
+    const status = (platformAdmin: boolean) => ({ 'GET /v1/account': () => json(accountInfo({ platformAdmin })) });
     setup(<RequiresPlatformAdmin title="Organisationen" icon="building"><p>Alle Organisationen</p></RequiresPlatformAdmin>, {}, status(false));
     expect(screen.getByText('Wird geladen …')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: 'Organisationen' })).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe('Guards für Verwalten-Seiten', () => {
 
   it('Plattform-Administration vorhanden: die Seite', async () => {
     setup(<RequiresPlatformAdmin title="Organisationen" icon="building"><p>Alle Organisationen</p></RequiresPlatformAdmin>, {}, {
-      'GET /v1/admin/status': () => json({ enabled: true, reason: null, organization: 'demo', platformAdmin: true, canManageMembers: true, rolesManageable: true, roles: [] }),
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
     });
     expect(await screen.findByText('Alle Organisationen')).toBeInTheDocument();
   });

@@ -119,6 +119,19 @@ function unavailableOrg(me: Me): { alias: string; name: string } | null {
 /** Öffentliche Seiten der Entra-Freigabe: aus `./pages` nachgeladen, damit der Kern klein bleibt. */
 const HandoverPage = lazy(() => import('./pages/index.ts').then(m => ({ default: m.EntraHandoverPage })));
 const HandoverReturn = lazy(() => import('./pages/index.ts').then(m => ({ default: m.EntraHandoverReturn })));
+/** Ohne Organisation (Kap. 6.3): Konto, Plattform-Administration, Registrieren – ebenfalls nachgeladen. */
+const AccountHome = lazy(() => import('./pages/index.ts').then(m => ({ default: m.AccountHome })));
+const PlatformShell = lazy(() => import('./pages/index.ts').then(m => ({ default: m.PlatformShell })));
+const SignupPage = lazy(() => import('./pages/index.ts').then(m => ({ default: m.SignupPage })));
+
+/** Seite der Plattform-Administration, die auch ohne Organisation läuft, oder null. */
+function platformRoute(config: IamConfig, pathname: string): 'organizations' | 'organization' | 'entraConsent' | null {
+  if (config.features.platform === false) return null;
+  const o = config.paths.organizations;
+  if (pathname === o || pathname === `${o}/`) return 'organizations';
+  if (pathname.startsWith(`${o}/`)) return 'organization';
+  return config.features.entra && pathname === `${config.paths.entra}/zustimmung` ? 'entraConsent' : null;
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const config = useIamConfig();
@@ -126,6 +139,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   // Öffentliche Seite nach dem Abmelden (post_logout_redirect_uri): ohne /auth/me, damit sie nicht gleich zur Anmeldung weiterleitet
   const [loggedOut] = useState(() => window.location.pathname === config.paths.loggedOut);
+  // «Konto erstellen»: öffentlich, ohne Sitzung (nur mit features.signup)
+  const [signup] = useState(() => !!config.features.signup && window.location.pathname === config.paths.signup);
+  const pathname = config.router.usePathname();
   // Link an die Entra-Administration und seine Rückkehr: öffentlich, ohne Sitzung (nur mit features.entra)
   // Das Token der Freigabe sofort aus der Adresse nehmen (vor dem Nachladen, vor Telemetrie und Weiterleitungen); auf
   // …/freigabe auch dann, wenn die Seite nicht erkannt ist (features.entra fehlt, anderer Pfad)
@@ -135,7 +151,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return { page, token };
   });
   const meQ = useQuery({
-    queryKey: iamKeys.me, queryFn: () => fetchMe(qc, config), enabled: !loggedOut && !entraPublic,
+    queryKey: iamKeys.me, queryFn: () => fetchMe(qc, config), enabled: !loggedOut && !entraPublic && !signup,
     retry: (n, e) => !(e instanceof ApiError && e.status === 401) && n < 2, refetchOnWindowFocus: true, staleTime: 60_000,
   });
   const [expired, setExpired] = useState(false);
@@ -183,6 +199,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<IamSession | null>(() => (meQ.data ? makeSession(meQ.data, switchOrg, logout) : null), [meQ.data, switchOrg, logout]);
 
   if (loggedOut) return <LoggedOut />;
+  if (signup) return <PublicPageBoundary><Suspense fallback={<div className="iam-gate"><Loading /></div>}><SignupPage /></Suspense></PublicPageBoundary>;
   if (entraPublic) {
     return (
       <PublicPageBoundary>
@@ -217,14 +234,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     );
   }
   if (!me.tenant) {
+    // Ohne Organisation im Tab (keine, mehrere ohne Wahl): Konto mit Auswahl, eigener Organisation und – mit der
+    // Realm-Rolle – der Plattform-Administration, die auch ohne Organisation arbeitet (Kap. 6.3)
+    const platform = platformRoute(config, pathname);
     return (
-      <Gate title={t('iam.org.choose')} text={me.tenantError ?? t('iam.org.choose.text')}>
-        <div className="iam-org-list" role="group" aria-label={t('iam.org.choose')}>
-          {me.organizations.map(o => <Button key={o} icon="building" onClick={() => void switchOrg(o)}>{orgName(me, o)}</Button>)}
-          {!me.organizations.length ? <p className="iam-muted">{t('iam.org.none')}</p> : null}
-        </div>
-        <button type="button" className="iam-linkbtn" onClick={() => void logout()}>{t('iam.session.logout')}</button>
-      </Gate>
+      <Suspense fallback={<div className="iam-gate"><Loading /></div>}>
+        {platform ? <PlatformShell route={platform} logout={logout} /> : <AccountHome me={me} switchOrg={switchOrg} logout={logout} />}
+      </Suspense>
     );
   }
   return (
@@ -244,12 +260,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
 /** «Du bist abgemeldet»: öffentlich, ändert nichts; erneute Anmeldung erst auf Klick. */
 export function LoggedOut() {
-  const { product, paths } = useIamConfig();
+  const { product, paths, features } = useIamConfig();
   const { Button } = useIamUi();
   useEffect(() => { if (product) document.title = t('iam.loggedOut.docTitle', { product }); }, [product]);
   return (
     <Gate title={t('iam.loggedOut.title')} text={t('iam.loggedOut.text')}>
       <Button variant="primary" href={loginUrl(paths.home)}>{t('iam.session.login')}</Button>
+      {features.signup ? <a className="iam-linkbtn" href={paths.signup}>{t('iam.loggedOut.signup')}</a> : null}
     </Gate>
   );
 }

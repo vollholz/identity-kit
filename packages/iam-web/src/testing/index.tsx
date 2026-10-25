@@ -8,7 +8,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
 import { DEFAULT_PATHS, IamConfigProvider, type IamConfig, type IamResources } from '../config.tsx';
-import type { AuthzCatalog, Me, ResourceRef } from '../contract.ts';
+import type { AccountInfo, AuthzCatalog, Me, ResourceRef } from '../contract.ts';
 import { historyRouter } from '../router.tsx';
 import { StaticSession } from '../session.tsx';
 import { configureTexts, type IamLocale, type IamTexts } from '../texts/index.ts';
@@ -51,6 +51,13 @@ export function StaticIam({ me, config, components, queryClient, locale = 'de', 
 export type MockHandler = (req: Request) => Response | Promise<Response>;
 
 /** JSON-Antwort; ab 400 als application/problem+json. */
+/** Antwort von `GET /v1/account` (Konto der Person aus `ME`); `platformAdmin` für die Plattform-Administration. */
+export const accountInfo = (over: Partial<AccountInfo> = {}): AccountInfo => ({
+  account: { id: 'acc-1', subject: ME.person.subject, name: ME.person.name ?? '', email: ME.person.email, emailVerified: true },
+  platformAdmin: false, organizations: ME.organizations.map(alias => ({ alias, name: ME.organizationNames[alias] ?? alias, status: 'active' })),
+  selfService: { signup: false, createOrganization: false, organizationLimit: 3 }, ...over,
+});
+
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
   new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'content-type': status >= 400 ? 'application/problem+json' : 'application/json', ...headers } });
 
@@ -70,6 +77,7 @@ export function mockIamApi(routes: Record<string, MockHandler> = {}, o: { me?: M
   const all: Record<string, MockHandler> = {
     'GET /auth/me': () => json(o.me ?? ME),
     'GET /v1/authz/catalog': () => json(catalog),
+    'GET /v1/account': () => json(accountInfo()),
     ...routes,
   };
   const calls: Request[] = [];

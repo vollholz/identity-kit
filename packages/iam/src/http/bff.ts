@@ -123,7 +123,8 @@ export const bffModule: IamModule = {
         schema: schema('POST', '/auth/switch', {
           tags: [TAG_UI], summary: 'Organisation wechseln (Vorgabe der Sitzung)', security: [],
           description: 'JSON oder Formular. CSRF-Token im Header `X-CSRF-Token` oder Feld `csrf`. Setzt nur die Vorgabe der Sitzung für Anfragen ohne `X-Tenant` '
-            + '(die Oberfläche führt die Organisation je Tab und sendet sie als `X-Tenant`; andere Tabs bleiben in ihrer Organisation). Nur Organisationen der Sitzung; '
+            + '(die Oberfläche führt die Organisation je Tab und sendet sie als `X-Tenant`; andere Tabs bleiben in ihrer Organisation). Nur Organisationen der Sitzung '
+            + '(fehlt sie, wird das Token einmal erneuert, z. B. nach «Organisation erstellen»); '
             + 'ist sie nicht im aktuellen Token, folgt eine neue Anmeldung (Rückfall). Antwort mit `Accept: application/json` `{ redirect }`, sonst 303.',
           body: Type.Object({ org: Type.String({ maxLength: 63 }), returnTo: Type.Optional(Type.String({ maxLength: 2048 })), csrf: Type.Optional(Type.String({ maxLength: 256 })) }),
           response: { 200: Type.Object({ redirect: Type.String() }) },
@@ -135,6 +136,12 @@ export const bffModule: IamModule = {
         if (!s) throw new HttpError(401, 'Nicht angemeldet', 'Anmeldung über /auth/login.');
         if (!bff.csrfOk(req.headers['x-csrf-token'] ?? csrf, s.csrf)) throw csrfMissing();
         const alias = orgAlias(org)!;
+        // Nicht in der Sitzung: einmal das Token erneuern (z. B. gerade selbst erstellt oder eingeladen), dann entscheidet das neue Token
+        if (!s.data.orgs.includes(alias)) {
+          const renewed = await bff.renew(s);
+          if (!renewed) throw new HttpError(401, 'Nicht angemeldet', 'Anmeldung über /auth/login.');
+          s.data = renewed;
+        }
         if (!s.data.orgs.includes(alias)) throw new HttpError(403, 'Organisation nicht erlaubt', `Deine Sitzung hat keinen Zugang zu «${alias}».`);
         // Rückfall, wenn die Organisation nicht im aktuellen Token steht: neue Anmeldung mit Vorwahl (bei bestehender Keycloak-Sitzung ohne Rückfrage)
         const target = await bff.switchOrg(s, alias) ? safeReturnTo(returnTo) : await bff.beginLogin(reply, returnTo, alias);

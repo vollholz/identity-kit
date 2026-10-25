@@ -126,7 +126,7 @@ describe('Maschinen-Clients: Freigabe je Mandant', { skip }, () => {
     assert.equal((await call(tok.paula!, 'GET', '/v1/platform/organizations/GLOBEX/clients')).status, 422, 'Alias nur klein (Schema)');
     assert.deepEqual(ok(await call(tok.globex!, 'GET', '/v1/admin/clients')).items.map((c: { clientId: string }) => c.clientId), ['bot']);
     const a = (await auditOf('globex', 'client.granted')).at(-1)!;
-    assert.deepEqual([a.actor_name, a.data.platformAdmin, a.data.actorTenant], ['Paula Plattform', true, 'ops']);
+    assert.deepEqual([a.actor_name, a.data.platformAdmin, a.data.actorTenant], ['Paula Plattform', true, undefined]);
     const before = ok(await call(tok.paula!, 'GET', '/v1/platform/organizations/globex/clients')).items[0];
     assert.deepEqual([before.lastUsedAt, before.lastScopes], [null, null], 'noch nie benutzt');
     ok(await call(await client('globex', 'bot'), 'GET', '/v1/me'));

@@ -10,7 +10,7 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeIamRoutes, tanstackParam, type Me, type Member, type Organization } from '../src/index.ts';
 import { OrganizationPage, OrganizationScreen, OrganizationsScreen } from '../src/pages/index.ts';
-import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
+import { accountInfo, CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
 
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
@@ -28,7 +28,7 @@ function setup(ui: ReactElement, routes: Record<string, MockHandler>, o: { path?
   return { ...api, ...render(<StaticIam me={o.me}>{ui}</StaticIam>) };
 }
 const detail = (org: Organization, extra: Record<string, MockHandler> = {}) => ({
-  'GET /v1/admin/status': () => json(PLATFORM),
+  'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
   [`GET /v1/platform/organizations/${org.alias}`]: () => json(org),
   [`GET /v1/platform/organizations/${org.alias}/members`]: () => json({ items: [CARLA] }),
   [`GET /v1/platform/organizations/${org.alias}/clients`]: () => json({ items: [] }),
@@ -37,7 +37,7 @@ const detail = (org: Organization, extra: Record<string, MockHandler> = {}) => (
 
 describe('Organisationen (Plattform-Administration)', () => {
   it('ohne Plattform-Administration dieselbe Seite «Recht fehlt» wie bei fehlenden Rechten, Technik nur im title', async () => {
-    const { calls } = setup(<OrganizationsScreen />, { 'GET /v1/admin/status': () => json(STATUS) });
+    const { calls } = setup(<OrganizationsScreen />, {});
     expect(await screen.findByRole('heading', { name: 'Recht fehlt' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Organisationen' })).toBeInTheDocument();
     const p = screen.getByText(/^Dafür braucht es die Plattform-Administration\./);
@@ -49,7 +49,7 @@ describe('Organisationen (Plattform-Administration)', () => {
 
   it('Liste: Spalte «Plattform», Status «deaktiviert» (Keycloak) und «gesperrt» (Plattform), gestapelt mit Beschriftung; Zeile öffnet das Detail', async () => {
     setup(<OrganizationsScreen />, {
-      'GET /v1/admin/status': () => json(PLATFORM),
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
       'GET /v1/platform/organizations': () => json({ items: [ORG, { ...DEMO_ORG, enabled: false, tenant: { ...ORG.tenant!, status: 'suspended' } }, { ...ORG, id: 'kc-neu', alias: 'neu', name: 'Neu AG', tenant: null }] }),
     });
     const table = await screen.findByRole('table', { name: 'Organisationen' });
@@ -69,7 +69,7 @@ describe('Organisationen (Plattform-Administration)', () => {
 
   it('«Organisation anlegen» prüft beim Absenden (Fokus aufs Feld), schlägt den Alias vor und öffnet danach das Detail', async () => {
     const { calls } = setup(<OrganizationsScreen />, {
-      'GET /v1/admin/status': () => json(PLATFORM),
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true })),
       'GET /v1/platform/organizations': () => json({ items: [ORG] }),
       'POST /v1/platform/organizations': () => json({ ...ORG, id: 'kc-zuerich', alias: 'zuerich-ag', name: 'Zürich AG', domains: ['zuerich.example', 'zh.example'], tenant: null }, 201),
     });
@@ -122,15 +122,14 @@ describe('Organisationen (Plattform-Administration)', () => {
     expect((await screen.findByText(/Du bearbeitest/)).closest('[role=note]')).toHaveTextContent('Du bearbeitest «Muster GmbH» (angemeldet in «Demo AG»).');
   });
 
-  it('die eigene Organisation lässt sich nicht sperren – Knopf gesperrt mit Grund statt ausgeblendet', async () => {
+  it('die eigene Organisation lässt sich sperren wie jede andere (die Plattform arbeitet ohne Organisation)', async () => {
     setup(<OrganizationScreen />, detail(DEMO_ORG), { path: '/verwalten/organisationen/demo' });
     const lock = await screen.findByRole('button', { name: 'Sperren' });
     expect(screen.queryByText(/Du bearbeitest/)).toBeNull();
     expect(screen.getByText('deine Organisation')).toBeInTheDocument();
-    expect(lock).toHaveAttribute('aria-disabled', 'true');
-    expect(lock).toHaveAccessibleDescription('Die Organisation, in der du angemeldet bist, kannst du nicht sperren.');
+    expect(lock).not.toHaveAttribute('aria-disabled');
     await userEvent.click(lock);
-    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
   });
 
   it('sperren mit Grund (Fokus auf «Abbrechen»), entsperren; noch nie benutzt: keine Maschinen-Clients', async () => {

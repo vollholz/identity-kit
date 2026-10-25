@@ -14,7 +14,7 @@ import type { Level, RegisteredPermission } from '../model.ts';
 import type { Tx } from '../db.ts';
 import { HttpError } from '../errors.ts';
 import type { Iam } from '../iam.ts';
-import type { Principal } from '../principal.ts';
+import type { Account, Principal } from '../principal.ts';
 import type { ResourceRef } from '../resources.ts';
 import { accessModule } from './access.ts';
 import { accountModule } from './account.ts';
@@ -66,8 +66,22 @@ export interface IamPluginOptions {
 
 type Perm = RegisteredPermission;
 
+/**
+ * Kontext einer Route (Spezifikation Kap. 6.3): `tenant` – Mitglied einer Organisation, Rechte aus Tupeln (Standard);
+ * `account` – jede angemeldete Person, auch ohne Organisation; `platform` – Realm-Rolle der Plattform-Administration,
+ * ohne Mitgliedschaft. Erklärt mit `config: { iam: { contexts: [...] } }` an der Route.
+ */
+export type IamContext = 'tenant' | 'account' | 'platform';
+
 declare module 'fastify' {
+  interface FastifyContextConfig {
+    iam?: { contexts?: IamContext[] };
+  }
   interface FastifyRequest {
+    /** Konto der Person in den Kontexten `account` und `platform`, sonst null. */
+    account: Account | null;
+    /** Konto oder 401. */
+    requireAccount(): Account;
     /** Angemeldeter Principal oder null (Pfade ohne Anmeldung). */
     principal: Principal | null;
     /** Herkunft der Anfrage: Oberfläche (Sitzung), API oder MCP-Dienst. */
@@ -122,7 +136,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   const prefix = o.apiPrefix ?? '/v1';
   const typeBase = o.problemTypeBase ?? `${cfg.publicBaseUrl}/probleme/`;
   // Seite der Entra-Administration (Link ohne Sitzung): Schutz über Token, state und PKCE
-  const isPublic = publicMatcher([...(o.publicPaths ?? []), `${prefix}/entra/handover/*`]);
+  const isPublic = publicMatcher([...(o.publicPaths ?? []), `${prefix}/entra/handover/*`, `${prefix}/signup`]);
   const spanAttribute = o.spanAttribute ?? 'iam.tenant';
   const realm = iam.model.product;
   const challenge = { 'WWW-Authenticate': `Bearer realm="${realm}", DPoP algs="ES256 PS256 RS256"` };
@@ -159,6 +173,7 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
 
   // ---------- Anmeldung pro Anfrage (Bearer/DPoP oder Sitzung der Oberfläche)
   app.decorateRequest('principal', null);
+  app.decorateRequest('account', null);
   app.decorateRequest('source', 'api');
   // Tupel einmal je Anfrage (Fähigkeiten über Listen ohne erneutes Laden)
   const access = iam.access as AccessService<string, unknown>;
@@ -199,6 +214,16 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
     if (verified.binding === 'none' && req.source !== 'ui' && (dm === 'required' || (dm === 'required-for-clients' && iam.resolver.kindOf(verified.claims) === 'client'))) {
       throw new HttpError(401, 'Sendergebundenes Token nötig', 'Maschinen-Clients müssen DPoP- oder mTLS-gebundene Tokens verwenden.', invalidToken);
     }
+    // Kontext der Route: ohne Angabe nur Mandant. Konto bzw. Plattform, wenn die Route keinen Mandanten verlangt oder das
+    // Token keine Organisation enthält; dann ohne Principal, ohne Mandant und ohne Tupel.
+    // Routen unter `<prefix>/platform/` gehören der Plattform-Administration, sofern sie nichts anderes erklären
+    const contexts = req.routeOptions.config?.iam?.contexts ?? (req.routeOptions.url?.startsWith(`${prefix}/platform/`) ? ['platform'] : ['tenant']);
+    if ((contexts.includes('account') || contexts.includes('platform')) && !(contexts.includes('tenant') && iam.resolver.hasOrganization(verified.claims))) {
+      const a = await iam.resolver.account(verified);
+      if (!contexts.includes('account') && !a.platformAdmin) throw new HttpError(403, 'Keine Berechtigung', `Nur für die Plattform-Administration (Realm-Rolle ${cfg.tenancy.platformAdminRole}).`, {}, { reason: 'platform-admin-only' });
+      req.account = a;
+      return;
+    }
     const p = await iam.resolver.resolve(verified, typeof req.headers['x-tenant'] === 'string' ? req.headers['x-tenant'] : null);
     if (req.source !== 'ui' && p.clientId && p.clientId === cfg.mcp.clientId) req.source = 'mcp';
     // Stand der Tupel dieser Anfrage: Freigabestufe am Principal, danach `can` und Fähigkeiten ohne erneutes Laden
@@ -213,6 +238,10 @@ async function iamPluginImpl(app: FastifyInstance, o: IamPluginOptions) {
   app.decorateRequest('requirePrincipal', function (this: FastifyRequest) {
     if (!this.principal) throw new HttpError(401, 'Nicht angemeldet', undefined, challenge);
     return this.principal;
+  });
+  app.decorateRequest('requireAccount', function (this: FastifyRequest) {
+    if (!this.account) throw new HttpError(401, 'Nicht angemeldet', undefined, challenge);
+    return this.account;
   });
   app.decorateRequest('tx', function <T>(this: FastifyRequest, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return iam.tx(this.requirePrincipal(), fn);

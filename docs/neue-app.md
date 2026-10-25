@@ -350,7 +350,19 @@ Mit `@vollholz/iam-testkit` 1.3.1 (Spezifikation Kap. 14):
 CI und Image: GitHub Packages mit `GITHUB_TOKEN` und `packages: read`, im Image über ein Build-Secret (nie im Image),
 Vorlagen in [ausrollen.md](ausrollen.md).
 
-## 10. Erste Organisation und Microsoft Entra ID
+## 10. Betrieb, erste Organisation und Microsoft Entra ID
+
+**Konto des Betriebs** (Plattform-Administration, ohne Organisation; ab `@vollholz/iam` 3.0, Spezifikation
+[6.3](spezifikation.md#63-konto-ohne-organisation)):
+
+```sh
+KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+  npx iam-org-bootstrap --operator --email betrieb@example.ch --first Bea --last Betrieb
+```
+
+Das Konto erhält die Realm-Rolle `platform-admin` und gehört keiner Organisation an; nach der Anmeldung zeigt die
+Oberfläche das Konto mit «Organisationen verwalten». Betrieb und Organisation nie mit demselben Konto: wer auch in einer
+Organisation arbeitet, hat dafür ein zweites Konto.
 
 **Erste Organisation** (idempotent; danach verwaltet die Organisations-Administration in der Oberfläche):
 
@@ -358,10 +370,10 @@ Vorlagen in [ausrollen.md](ausrollen.md).
 KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
 DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
   npx iam-org-bootstrap --alias solutions --name "Solutions" \
-  --email anna@example.ch --first Anna --last Admin --platform-admin
+  --email anna@example.ch --first Anna --last Admin
 ```
 
-In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); ab
+In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», keine Realm-Rolle); ab
 `@vollholz/iam` 1.5 erhält die neue Person von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
 nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» und läuft weiter – dann SMTP einrichten und mit `--resend`
 wiederholen oder `--initial-password`). `--no-email` schaltet die Einladung ab. In der
@@ -412,8 +424,9 @@ npx iam-org-bootstrap --file init.json
   "$schema": "./node_modules/@vollholz/iam/schema/init.schema.json",
   "organizations": [
     { "alias": "solutions", "name": "Solutions",
-      "admins": [ { "email": "anna@example.ch", "first": "Anna", "last": "Admin", "platformAdmin": true } ] }
-  ]
+      "admins": [ { "email": "anna@example.ch", "first": "Anna", "last": "Admin" } ] }
+  ],
+  "operators": [ { "email": "betrieb@example.ch", "first": "Bea", "last": "Betrieb" } ]
 }
 ```
 

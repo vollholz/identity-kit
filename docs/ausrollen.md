@@ -64,3 +64,24 @@ Versionen je Paket (semantisch); brechende Änderungen mit Migrationshinweis in 
 OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen; «Release» setzt dann das Tag
 `<modul>-v<version>`. Die App bezieht das Modul über
 `source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.
+
+## Umstieg auf `@vollholz/iam` 3.0 und `@vollholz/iam-web` 2.0
+
+Brechende Änderungen (Konto ohne Organisation, Spezifikation [6.3](spezifikation.md#63-konto-ohne-organisation)):
+
+- **Plattform-Administration ohne Organisation:** `platform-admin` braucht keine Mitgliedschaft mehr und gibt in einer
+  Organisation keine Rechte (auch nicht `org-admin` über `POST /v1/access`). Betrieb und Organisation mit getrennten
+  Konten: `iam-org-bootstrap --operator --email …` bzw. `operators` in `init.json`; `--platform-admin` und
+  `platformAdmin` je Admin entfallen (Abbruch bzw. Fehler im Schema).
+- **Protokoll:** Aktionen der Plattform stehen zusätzlich in `platform_audit_log` (Migration `iam_017_account.sql`);
+  `actorTenant` entfällt in den Daten des Audits.
+- **`TENANT_AUTO_PROVISION`:** Standard `false`, in Produktion ein Fehler der Konfiguration. Tests und lokale
+  Entwicklung setzen es ausdrücklich, wenn sie Mandanten über das Token anlegen.
+- **Neue Variablen** der App-Konfiguration (Obermenge von `IAM_VARS`): `SELF_SERVICE_SIGNUP`, `SELF_SERVICE_ORGS`,
+  `SELF_SERVICE_ORG_LIMIT`, `RESERVED_ALIASES` (`selfService` in `IamConfig`).
+- **Neue Routen** im Modul `account`: `GET /v1/account`, `POST /v1/account/organizations`, öffentlich `POST /v1/signup`
+  (in die Prüfung auf Mandantentrennung der App aufnehmen). Eigene Routen ohne Organisation mit
+  `config: { iam: { contexts: ['account'] } }`.
+- **Oberfläche:** Ohne Organisation zeigt die Sitzung das Konto (wählen, eigene Organisation erstellen, Plattform);
+  `RequiresPlatformAdmin` und die Navigation lesen `GET /v1/account`; neuer Pfad `paths.signup` und Schalter
+  `features.signup`. Testhilfe `mockIamApi` liefert `GET /v1/account` (`accountInfo()`).

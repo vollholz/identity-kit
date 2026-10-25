@@ -3,7 +3,7 @@ export { HttpError, notFound, forbidden, conflict, invalid, problemBody } from '
 export { box, unbox, Sealer, primaryKey, keyById, validateKeyring, NoEncryptionKeyError, type MasterKey, type Keyring } from './crypto.ts';
 export { createPool, withTx, withTenant, setContext, schemaName, type Db, type Tx, type DbContext } from './db.ts';
 export { MemoryReplayStore, PgReplayStore, pgRateLimitStore, purgeSharedState, type ReplayStore } from './state.ts';
-export { pgAudit, type AuditPort, type AuditEntry, type Actor, type Source } from './audit.ts';
+export { pgAudit, withPlatformAudit, writePlatformAudit, type AuditPort, type AuditEntry, type Actor, type PlatformAuditEntry, type Source } from './audit.ts';
 export { LOCKS, lockKey } from './locks.ts';
 export {
   migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR,
@@ -18,7 +18,7 @@ export {
 export { OidcProvider, TokenVerifier, parseClientCert, normalizeHtu, type VerifiedToken, type VerifyOptions } from './tokens.ts';
 export {
   PrincipalResolver, orgsFromClaims, orgAlias, asciiLower, ALIAS_PATTERN, isServiceAccount, isClient, groupsFromClaims, clientNotGranted,
-  type Principal,
+  type Account, type Principal,
 } from './principal.ts';
 export {
   AccessService, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
@@ -29,9 +29,9 @@ export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, 
 export { checkRoles, checkRoleChange, activeAdmins, lastAdminGuard, setOrgRoles, setClearance, type Acting } from './rules.ts';
 export { flatResources, flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
 export { createIam, readinessChecks, resourceProblems, type Iam, type IamOptions, type IamEvents } from './iam.ts';
-export { iamPlugin, need, needsToken, requestPath, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
+export { iamPlugin, need, needsToken, requestPath, type IamContext, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
 export { problem, problemResponses, registerProblemSchemas, registerErrorHandler, PROBLEM_SCHEMAS } from './http/problems.ts';
-export { IAM_API_TAGS, routeSchema, personOf, optionalBodies, encodeCursor, decodeCursor, likePattern, etag, ifMatchVersion, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
+export { IAM_API_TAGS, routeSchema, personOf, platformActor, platformOf, optionalBodies, encodeCursor, decodeCursor, likePattern, etag, ifMatchVersion, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';
 export { authzCatalogSchema } from './http/account.ts';
 export { breakGlassAllowed } from './http/break-glass.ts';
 export { listClients, type ClientOut } from './http/clients.ts';
@@ -48,5 +48,5 @@ export { DpopSigner, wantsNonce } from './mcp/dpop.ts';
 export { TokenExchanger, type ExchangedToken } from './mcp/exchange.ts';
 export { ApiClient, ApiError, type CallOptions } from './mcp/api.ts';
 export { McpAuth, registerMcpAuth, exchangeScopes, type McpAuthOptions, type McpAuthorized, type McpOrg, type McpMe, type McpRequest } from './mcp/auth.ts';
-export { InitFileSchema, initFileErrors, INVITE_LIFESPAN_SEC, inviteErrors, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult } from './bootstrap.ts';
+export { InitFileSchema, initFileErrors, INVITE_LIFESPAN_SEC, inviteErrors, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OperatorBootstrapOptions, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult } from './bootstrap.ts';
 export { isServiceAccountUser, MIGRATION_TABLES, resetDatabase, resetKeycloak, type DatabaseResetOptions, type DatabaseResetResult, type KeycloakResetResult, type ResetOptions } from './reset.ts';

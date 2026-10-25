@@ -101,7 +101,9 @@ if (!env.KEYCLOAK_TF_URL) fail('KEYCLOAK_TF_URL fehlt');
 const realm = realmFromEnv(env, fail);
 if (a['keycloak-only'] && env.DATABASE_ADMIN_URL) fail('--keycloak-only nicht zusammen mit DATABASE_ADMIN_URL');
 // null = ausdrücklich nur Keycloak, undefined = Probelauf ohne Datenbank
-const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] || a.operator ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
+// Nur Betrieb (--operator oder eine Datei ohne Organisationen) braucht keine Datenbank der App
+const operatorsOnly = a.operator || (!!file && !(file.organizations ?? []).length);
+const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] || operatorsOnly ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
 const kc = keycloakFromEnv(env, fail);
 const common = {
   database: typeof dbUrl === 'string' ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm) } : dbUrl,

@@ -70,6 +70,14 @@ describe('Ersteinrichtung einer Organisation', () => {
     await orgBootstrap(admin(fake), { alias: 'kunde', email: 'karl@kunde.example', operatorRole: 'platform-admin', database: null });
     await assert.rejects(operatorBootstrap(admin(fake), { email: 'karl@kunde.example', platformAdminRole: 'platform-admin' }), /Mitglied von kunde/);
     assert.equal(fake.realmRoleMappings.get(fake.byEmail('karl@kunde.example')!.id)?.size ?? 0, 0);
+    // geerbt (Gruppe oder zusammengesetzte Rolle) zählt wie direkt zugewiesen
+    const geerbt = fake.user('gerd', { email: 'gerd@betrieb.example' });
+    fake.inheritedRealmRoles.set(geerbt.id, new Set(['platform-admin']));
+    await assert.rejects(orgBootstrap(admin(fake), { alias: 'kunde', email: 'gerd@betrieb.example', operatorRole: 'platform-admin', database: null }), /Betrieb und Organisation nie mit demselben Konto/);
+    assert.ok(!fake.orgMembers.get([...fake.orgs.values()].find(o => o.alias === 'kunde')!.id)!.has(geerbt.id), 'nicht Mitglied geworden');
+    const n2 = fake.calls.filter(c => !c.startsWith('GET ')).length;
+    await operatorBootstrap(admin(fake), { email: 'gerd@betrieb.example', platformAdminRole: 'platform-admin' });
+    assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, n2, 'geerbte Rolle nicht nochmals zuweisen');
   });
 
   describe('mit Datenbank der App (A20)', { skip }, () => {
@@ -386,6 +394,16 @@ describe('Ersteinrichtung einer Organisation', () => {
       assert.deepEqual(rows.map(x => x.email), ['dora@datei.example', 'emil@datei.example']);
       assert.ok(fake.realmRoleMappings.get(fake.byEmail('otto@betrieb.example')!.id)?.has('platform-admin'));
       for (const m of ['dora@datei.example', 'emil@datei.example']) assert.ok(!fake.realmRoleMappings.get(fake.byEmail(m)!.id)?.size, m);
+
+      // nur Betrieb: ohne Datenbank der App, die Datei enthält keine Organisation
+      const ops = join(dirname(file), 'ops.json');
+      writeFileSync(ops, JSON.stringify({ operators: [{ email: 'olaf@betrieb.example' }] }));
+      const opsRun = await run(['--file', ops], { DATABASE_ADMIN_URL: '' });
+      assert.equal(opsRun.code, 0, opsRun.err);
+      assert.ok(fake.realmRoleMappings.get(fake.byEmail('olaf@betrieb.example')!.id)?.has('platform-admin'));
+      // mit Organisationen bleibt die Datenbank Pflicht
+      const mixed = await run(['--file', file], { DATABASE_ADMIN_URL: '' });
+      assert.deepEqual([mixed.code, /DATABASE_ADMIN_URL fehlt/.test(mixed.err)], [64, true]);
 
       const n = fake.calls.length;
       const bad = join(dirname(file), 'bad.json');

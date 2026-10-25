@@ -294,10 +294,12 @@ async function ensurePerson(kc: KeycloakAdmin, email: string, o: Pick<OrgBootstr
   return { userId: await kc.createUser({ username: email, email, emailVerified: true, enabled: true, firstName: o.firstName, lastName: o.lastName, requiredActions: ['UPDATE_PASSWORD'] }), created: true };
 }
 
-/** Hat die Person die Realm-Rolle des Betriebs (direkt zugewiesen)? */
+/**
+ * Hat die Person die Realm-Rolle des Betriebs – auch geerbt über eine Gruppe oder eine zusammengesetzte Rolle? Das Token
+ * enthält sie dann ebenso; die direkte Zuweisung allein genügte nicht für die Trennung von Betrieb und Organisation.
+ */
 async function isOperator(kc: KeycloakAdmin, userId: string, role: string | null): Promise<boolean> {
-  if (!role) return false;
-  return ((await kc.call<{ name: string }[]>('GET', `/users/${seg(userId)}/role-mappings/realm`)).data ?? []).some(x => x.name === role);
+  return !!role && (await kc.realmRoles(userId)).includes(role);
 }
 
 /**

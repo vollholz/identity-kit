@@ -84,6 +84,8 @@ describe('Versionen', () => {
     assert.equal(versionProblem('@vollholz/iam', '2.0.0'), null);
     assert.match(versionProblem('@vollholz/iam', '^2.0.0')!, /exakte Version/);
     assert.match(versionProblem('@vollholz/iam', '1.5.0')!, /älter als 2\.0\.0/);
+    assert.match(versionProblem('@vollholz/iam', '99.0.0')!, /neuer als die Hauptversion.*iam-testkit aktualisieren/);
+    assert.equal(versionProblem('@vollholz/iam', `${CURRENT['@vollholz/iam'].split('.')[0]}.99.0`), null, 'neuere Neben-Version derselben Hauptversion');
     const pkg = (p: string) => JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', p, 'package.json'), 'utf8')).version;
     const mod = (m: string) => readFileSync(join(import.meta.dirname, '..', '..', '..', 'modules', m, 'VERSION'), 'utf8').trim();
     assert.deepEqual(CURRENT, {
@@ -210,6 +212,14 @@ describe('Ebene Realm', () => {
     assert.deepEqual(failed(await realmChecks(reader(d), { product: 'notes' })), []);
     const off = { ...manifest, realm: { ...manifest.realm, entra: false } };
     assert.match(failed(await realmChecks(reader(realmData()), { product: 'notes', manifest: off })).join('\n'), /obwohl realm\.entra aus ist/);
+    // Manifest ohne realm: Standards (alles aus) statt der losen Prüfung ohne Manifest
+    const { realm: _r, ...bare } = manifest;
+    const f = failed(await realmChecks(reader(d), { product: 'notes', manifest: bare })).join('\n');
+    assert.match(f, /notes-import: nicht aus dem Modul/);
+    assert.match(f, /entra-app-demo: Identity Provider, obwohl realm\.entra aus ist/);
+    // MCP im Manifest an: beide MCP-Clients Pflicht
+    const mcp = { ...manifest, realm: { ...manifest.realm, mcp: true } };
+    assert.match(failed(await realmChecks(reader(realmData()), { product: 'notes', manifest: mcp })).join('\n'), /notes-mcp fehlt[\s\S]*notes-mcp-cli fehlt|notes-mcp-cli fehlt/);
     const missing = { ...manifest, realm: { ...manifest.realm, machineClients: { ...manifest.realm!.machineClients, 'notes-neu': { organizations: ['demo'] } } } };
     assert.match(failed(await realmChecks(reader(realmData()), { product: 'notes', manifest: missing })).join('\n'), /notes-neu: im Manifest, fehlt im Realm/);
   });

@@ -41,6 +41,8 @@ export function versionProblem(part: Part, version: string): string | null {
   if (!/^\d+\.\d+\.\d+$/.test(version)) return `${part}: «${version}» ist keine exakte Version (x.y.z, ohne ^ oder ~)`;
   const min = MINIMUM[part];
   if (compareVersions(version, min.version) < 0) return `${part} ${version} ist älter als ${min.version} (${min.reason})`;
+  // Eine neuere Hauptversion kennt dieses Test-Kit nicht: ihren Vertrag kann es nicht prüfen
+  if (parse(version)[0] > parse(CURRENT[part])[0]) return `${part} ${version} ist neuer als die Hauptversion, die dieses Test-Kit kennt (${CURRENT[part]}): @vollholz/iam-testkit aktualisieren`;
   return null;
 }
 

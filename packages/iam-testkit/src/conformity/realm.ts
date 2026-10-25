@@ -109,9 +109,12 @@ export async function realmChecks(kc: AdminReader, o: RealmOptions): Promise<Fin
   // Clients
   const clients = await kc.get<ClientRep[]>(`${R}/clients?max=1000`);
   const p = o.product;
-  const r = o.manifest?.realm;
+  // Mit Manifest gelten seine Standards auch ohne Feld realm (alles aus); ohne Manifest nur die Grenzen des Moduls
+  const r = o.manifest ? (o.manifest.realm ?? {}) : undefined;
   const own = ['platform', 'api', 'admin', 'sync', 'iac'].map(s => `${p}-${s}`);
   if (r ? r.mcp : true) own.push(`${p}-mcp`, `${p}-mcp-cli`);
+  // Pflicht: die festen Clients, mit realm.mcp im Manifest auch die beiden MCP-Clients
+  const required = own.filter(c => r?.mcp || (!c.endsWith('-mcp') && !c.endsWith('-mcp-cli')));
   const declared = r ? Object.keys(r.machineClients ?? {}) : null;
   const unexpected: string[] = [], auth: string[] = [];
   for (const c of clients) {
@@ -125,7 +128,7 @@ export async function realmChecks(kc: AdminReader, o: RealmOptions): Promise<Fin
     if (!c.publicClient && !c.bearerOnly && c.clientAuthenticatorType !== 'client-jwt') auth.push(`${c.clientId}: Anmeldung «${c.clientAuthenticatorType}» statt private_key_jwt (client-jwt)`);
   }
   for (const c of declared ?? []) if (!clients.some(x => x.clientId === c)) unexpected.push(`${c}: im Manifest, fehlt im Realm (Workflow «Keycloak» ausführen)`);
-  for (const c of own.filter(c => !c.endsWith('-mcp') && !c.endsWith('-mcp-cli'))) if (!clients.some(x => x.clientId === c)) unexpected.push(`${c} fehlt`);
+  for (const c of required) if (!clients.some(x => x.clientId === c)) unexpected.push(`${c} fehlt`);
   out.push(finding({ ...kit, check: 'Nur Clients aus dem Modul', source: 'identity-kit · product-realm; Maschinen-Clients: identity.app.json › realm.machineClients' }, unexpected));
   out.push(finding({ ...kit, check: 'Keine Client-Geheimnisse, keine Passwort-Anmeldung', source: 'identity-kit · Spezifikation 1 (Grundsatz 6)' }, auth));
 

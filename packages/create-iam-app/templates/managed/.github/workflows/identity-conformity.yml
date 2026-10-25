@@ -1,0 +1,82 @@
+# {{MARK}}
+#
+# Konformität mit dem Identity-Kit (iam-conformity-test, Spezifikation 14.1):
+#   pull_request, push auf main: Ebene Repository – Manifest, verwaltete Dateien unverändert, Versionen im
+#       unterstützten Fenster, Modell und platform.json. Ohne Geheimnisse; Tabelle in der Zusammenfassung des Laufs.
+#   «Run workflow» mit live: zusätzlich Realm (Admin-API, nur lesend, als <produkt>-iac) und Datenbank (als
+#       Besitzer-Rolle, Secret CONFORMITY_DATABASE_URL; nur wenn gesetzt und die Datenbank vom Runner erreichbar ist).
+#       Nach Freigabe im Environment «production». Den Realm prüft zusätzlich der Betreiber jede Nacht zentral.
+name: Konformität Identity-Kit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: Auch Realm und Datenbank prüfen
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-conformity-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  repo:
+    name: Repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@vollholz"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npx iam-conformity-test --markdown "$GITHUB_STEP_SUMMARY"
+
+  live:
+    name: Realm und Datenbank
+    needs: [repo]
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production # Pflicht-Reviewer
+    permissions:
+      contents: read
+      packages: read
+    env:
+      KEYCLOAK_IAC_PRIVATE_KEY: ${{ secrets.KEYCLOAK_IAC_PRIVATE_KEY }}
+      CONFORMITY_DATABASE_URL: ${{ secrets.CONFORMITY_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@vollholz"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: iam-conformity-test (Realm, Datenbank)
+        run: |
+          levels=(--realm)
+          if [ -n "$CONFORMITY_DATABASE_URL" ]; then levels+=(--db); else echo "::notice::Datenbank nicht geprüft: Secret CONFORMITY_DATABASE_URL fehlt"; fi
+          npx iam-conformity-test --no-repo "${levels[@]}" --markdown "$GITHUB_STEP_SUMMARY"

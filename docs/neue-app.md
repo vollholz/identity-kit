@@ -1,126 +1,107 @@
-# Neue App mit dem Identity-Kit in 10 Schritten
+# Neue App mit dem Identity-Kit
 
 Für Entwickler:innen, die eine **neue** App an eine Keycloak-Instanz anbinden (in den Beispielen `https://id.example.ch`):
 Anmeldung, Organisationen als Mandanten, Rechte, Verwaltung und Datenbank-Schutz kommen aus dem Baukasten, die App
 liefert nur ihr Modell (Rechte, Rollen, Orte), ihre Ressourcen und ihr Aussehen. Die Beispiele nutzen das Produkt `notes`; überall
 `notes` durch den technischen Namen der App ersetzen: Kleinbuchstaben, Ziffern und `-`, 3–32 Zeichen, vorn ein
-Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master` (so prüfen es beide Realm-Module).
+Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master`.
 
 Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Detail der Leitfaden
 [`packages/iam/docs/backend.md`](../packages/iam/docs/backend.md).
 
+**Woher kommt was?** Jede Vorgabe gehört zu einer Zone ([Spezifikation 1.2](spezifikation.md#12-zonen-fest-einstellbar-app-eigen)):
+
+| Zone | Wo | Wer ändert |
+|---|---|---|
+| **Fest** | Realm-Modul, Pakete `@vollholz/*`, verwaltete Dateien (Kopf «Verwaltet von identity-kit», `.identity-kit.lock`) | nur das Kit (neue Version, dann `create-iam-app sync`) |
+| **Einstellbar** | `identity.app.json` | die App, per Pull Request |
+| **App-eigen** | Modell, Ressourcen, Policies, Oberfläche, Texte | die App, innerhalb der Prüfregeln |
+
+`npx iam-conformity-test` zeigt jederzeit, ob die App den Vertrag einhält – mit Zone und Herkunft jeder Prüfung.
+
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 2.0.0 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 2.1.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 1.2.1 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests) | 1.3.1 | GitHub Packages |
-| `product-realm` (OpenTofu) | 2.0.0 | Git-Tag `product-realm-v2.0.0` |
-| `product-realm-bootstrap` (OpenTofu) | 0.1.1 | Git-Tag `product-realm-bootstrap-v0.1.1` |
+| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 1.4.0 | GitHub Packages |
+| `@vollholz/create-iam-app` (Gerüst) | 0.1.0 | GitHub Packages |
+| `product-realm` (OpenTofu) | 2.0.0 | Git-Tag `product-realm-v2.0.0` (im Gerüst eingesetzt) |
+| `product-realm-bootstrap` (OpenTofu) | 0.1.1 | Git-Tag `product-realm-bootstrap-v0.1.1` (im Gerüst eingesetzt) |
 
 ---
 
 ## 1. Zugänge
 
-- **Pakete** `@vollholz/*` (npm, öffentlich auf GitHub Packages): `.npmrc` der App (ohne Token, versioniert) mit
-  `@vollholz:registry=https://npm.pkg.github.com`, Versionen exakt pinnen (`npm i -E …`). Zum Installieren genügt ein
-  beliebiges GitHub-Konto mit einem Token (classic, nur `read:packages`); in GitHub Actions `GITHUB_TOKEN`. Keine
-  Mitgliedschaft in `vollholz` nötig. Bezug in CI, Image und lokal: [ausrollen.md](ausrollen.md).
-- **Realm-Module** (OpenTofu) als Git-Quelle mit Tag:
-  `git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>`.
-- **Keycloak-Instanz** ab 26.8 mit Organisationen; ihr Betreiber richtet die Zugänge aus Schritt 2 ein.
+- **Pakete** `@vollholz/*` (npm, öffentlich auf GitHub Packages): Zum Installieren genügt ein beliebiges GitHub-Konto
+  mit einem Token (classic, nur `read:packages`); in GitHub Actions `GITHUB_TOKEN`. Keine Mitgliedschaft in `vollholz`
+  nötig. Bezug in CI, Image und lokal: [ausrollen.md](ausrollen.md).
+- **Keycloak-Instanz** ab 26.8 mit Organisationen; ihr Betreiber richtet die Zugänge aus Schritt 3 ein.
 
 Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in identity-kit, Details in
 [ausrollen.md](ausrollen.md#ohne-zugang-sessions-unveröffentlichter-stand).
 
-## 2. Realm anlegen (einmalig, als Code)
+## 2. Gerüst anlegen
 
-Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.
-Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-keycloak-instanz), Modul
-[product-realm-bootstrap](../modules/product-realm-bootstrap/README.md). Beteiligt sind die App und der Betreiber der
-Keycloak-Instanz:
+Im Repository der App (einmalig):
 
-1. **Schlüsselpaar für `notes-tofu`** erzeugt die App selbst (EC P-256, `kid` = JWK-Thumbprint nach RFC 7638); der
-   private Teil bleibt lokal bei der App:
-
-   ```sh
-   openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out notes-tofu.pem
-   node -e '
-     const c = require("node:crypto"), fs = require("node:fs");
-     const { kty, crv, x, y } = c.createPublicKey(fs.readFileSync("notes-tofu.pem")).export({ format: "jwk" });
-     const kid = c.createHash("sha256").update(JSON.stringify({ crv, kty, x, y })).digest("base64url");
-     console.log(JSON.stringify({ keys: [{ kty, crv, x, y, kid, alg: "ES256", use: "sig" }] }, null, 2));
-   ' > notes-tofu.json
-   ```
-
-2. **Beim Betreiber:** Die App gibt nur den öffentlichen Schlüssel `notes-tofu.json` ab. Der Betreiber legt im Realm
-   `master` den Service Account `notes-tofu` an: nur Rolle `create-realm`, Anmeldung mit `private_key_jwt` (ES256)
-   und diesem Schlüssel.
-3. **App-Repository:** Schlüsselpaar für `notes-iac` wie oben erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json`
-   versionieren, privat in die lokale `.env` und als CI-Secret `KEYCLOAK_IAC_PRIVATE_KEY`. Dann
-   `infra/keycloak/bootstrap/main.tf` (eigener State-Key) **lokal** als `notes-tofu` anwenden. Es legt den Realm `notes`
-   und den IaC-Client `notes-iac` an.
-
-   ```hcl
-   provider "keycloak" {
-     url             = var.keycloak_url   # z. B. https://id.example.ch
-     base_path       = var.keycloak_base_path
-     jwt_signing_alg = "ES256"   # Anmeldung nur aus der Umgebung: KEYCLOAK_REALM=master, KEYCLOAK_CLIENT_ID=notes-tofu, KEYCLOAK_JWT_SIGNING_KEY
-   }
-
-   module "bootstrap" {
-     source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.1"
-
-     product  = "notes"
-     iac_jwks = file("${path.module}/../keys/notes-iac.json")
-   }
-   ```
-
-   Der Schlüssel von `notes-tofu` bleibt lokal (nur Bootstrap und Neuaufbau), **nie als CI-Secret**: `create-realm`
-   gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt, und erlaubt beliebige weitere
-   Realms.
-4. **Beim Betreiber:** Der IaC-Client `notes-iac` erhält im Realm `notes` die Rolle `realm-management/realm-admin`
-   (das darf nur ein Server-Admin, nicht `create-realm`). Ab dann verwaltet die App ihren Realm mit `notes-iac`
-   (Schritt 3).
-
-## 3. Realm einrichten
-
-Modul [product-realm](../modules/product-realm/README.md) mit dem IaC-Client `notes-iac`. Es legt Clients
-(`notes-platform`, `notes-api`, `notes-admin`, `notes-sync`), Scopes aus dem Modell, Texte und Richtlinien an – **keine**
-Rollen, keine Rollengruppen: Rollen stehen nur in der Datenbank der App (Spezifikation [3.5](spezifikation.md#35-rollen-und-gruppen)).
-Schlüsselpaare für `platform`, `admin` und `sync` wie in Schritt 2 erzeugen (`infra/keycloak/keys/notes-<client>.json`).
-Minimales `infra/keycloak/main.tf` (Provider, Backend und Verschlüsselung des States wie im README des Moduls):
-
-```hcl
-import {
-  to = module.realm.keycloak_realm.this   # den Realm hat product-realm-bootstrap angelegt
-  id = "notes"
-}
-
-module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v2.0.0"
-
-  product         = "notes"
-  display_name    = "Notes"
-  public_base_url = "https://notes.example.ch"
-  keycloak_url    = var.keycloak_url   # dieselbe Instanz wie im Provider, z. B. https://id.example.ch
-  catalog         = jsondecode(file("${path.module}/platform.json"))   # nur Scopes, aus dem Modell (Schritt 4)
-  jwks            = { for c in ["platform", "admin", "sync"] : c => file("${path.module}/keys/notes-${c}.json") }
-
-  entra = true   # Anmeldung über Microsoft Entra ID der Kunden (Schritt 10); ohne ENTRA_CLIENT_ID
-}
-
-output "issuer" { value = module.realm.issuer }   # = OIDC_ISSUER_URL
+```sh
+echo '@vollholz:registry=https://npm.pkg.github.com' > .npmrc
+npx @vollholz/create-iam-app init --product notes --name Notes --url https://notes.example.ch \
+    --keycloak https://id.example.ch --entra --admin anna@example.ch --org solutions --org-name "Solutions" \
+    --state-bucket notes-tofu-state --state-region nbg1 --state-endpoint https://nbg1.your-objectstorage.com
+npm install
+npx create-iam-app keys
 ```
 
-Angewendet wird per eigenem Workflow `.github/workflows/keycloak.yml` als `notes-iac`, nicht von Hand: ein Pull
-Request prüft nur (fmt, validate, tflint, Tests); ein Push auf `main` (oder «Run workflow» mit `apply`) läuft
-Plan → Freigabe (Environment `production`) → Apply genau dieses Plans → Kontrollplan, der «No changes» zeigen muss.
-Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan` gehen auch lokal. Weitere Schalter
-(`smtp`, `m2m`, `mcp`, Texte) und Maschinen-Clients als Code (`machine_clients`, statt in der Konsole): README des Moduls.
+Das legt an:
 
-Secrets des Workflows: `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE` und die Zugangsdaten des
-State-Backends, mit `smtp` zusätzlich `SMTP_PASSWORD`. `platform.json` schreibt ein kleines Skript der App aus
-`model.platformJson()` (Schritt 4).
+- `identity.app.json` – das Manifest: alle Einstellungen der App an einer Stelle (Schalter `realm.entra`, `m2m`,
+  `mcp`, `smtp`, Maschinen-Clients, State-Backend, erste Admins). Schema mit allen Feldern:
+  `node_modules/@vollholz/iam-testkit/schema/identity-app.schema.json`.
+- verwaltete Dateien: `infra/keycloak/*.tf`, `kc.sh`, `platform.ts`, `bootstrap/main.tf`, die Workflows `keycloak.yml`
+  und `identity-conformity.yml`, `docs/identity-kit.md`; ihre Prüfsummen in `.identity-kit.lock`. Sie lesen ihre Werte
+  aus dem Manifest – **nie von Hand ändern**; eine Änderung meldet der Konformitätstest.
+- Dateien der App (nur wenn sie fehlen): Modell `src/authz/model.ts` (Stufe «einfach»), `infra/keycloak/platform.json`,
+  `db/migrations/`, `.nvmrc`, in `package.json` die Pakete des Kits und die Skripte `identity:*`.
+- `keys`: Schlüsselpaare (EC P-256). Öffentlich nach `infra/keycloak/keys/notes-<client>.json` (versionieren), privat
+  nach `~/.identity/notes/` (0600). `notes-tofu.json` liegt nur dort: es geht an den Betreiber.
+
+Prüfen: `npx iam-conformity-test` (ohne Geheimnisse; läuft auch in jedem Pull Request).
+
+## 3. Realm anlegen (einmalig, beim Betreiber und lokal)
+
+Keycloak wird vollständig als Code geführt, auch beim Anlegen. Spezifikation
+[Kap. 2](spezifikation.md#2-anbindung-an-die-keycloak-instanz).
+
+1. **Beim Betreiber:** Die App gibt nur den öffentlichen Schlüssel `~/.identity/notes/notes-tofu.json` ab (Pull Request
+   im Repository des Betreibers). Der Betreiber legt im Realm `master` den Service Account `notes-tofu` an: nur Rolle
+   `create-realm`, `private_key_jwt` mit diesem Schlüssel.
+2. **Lokal:** privaten Schlüssel als `KEYCLOAK_TF_PRIVATE_KEY_B64` (Base64 des PEM) in die `.env` im Hauptcheckout, dazu
+   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TF_STATE_PASSPHRASE`; dann
+
+   ```sh
+   infra/keycloak/kc.sh bootstrap init && infra/keycloak/kc.sh bootstrap apply
+   ```
+
+   legt den Realm `notes` und den IaC-Client `notes-iac` an. Der Schlüssel von `notes-tofu` bleibt lokal, **nie als
+   CI-Secret**: `create-realm` gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt.
+3. **Beim Betreiber:** `notes-iac` erhält im Realm `notes` die Rolle `realm-management/realm-admin`.
+
+## 3a. Realm einrichten (Workflow «Keycloak»)
+
+Das Modul [product-realm](../modules/product-realm/README.md) legt Clients (`notes-platform`, `notes-api`,
+`notes-admin`, `notes-sync`), Scopes aus dem Modell, Texte und Richtlinien an – **keine** Rollen: Rollen stehen nur in
+der Datenbank der App (Spezifikation [3.5](spezifikation.md#35-rollen-und-gruppen)). Welche Schalter an sind, steht im
+Manifest; der Aufruf (`infra/keycloak/main.tf`) ist verwaltet.
+
+Secrets im Environment `production` des Repositorys: `KEYCLOAK_IAC_PRIVATE_KEY` (PEM aus `~/.identity/notes/notes-iac.pem`),
+`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TF_STATE_PASSPHRASE`, mit SMTP `SMTP_PASSWORD`. Ein Pull Request prüft nur; ein Push
+auf `main` läuft Plan → Freigabe → Apply genau dieses Plans → Kontrollplan «No changes». Die Aktion `abgleich` meldet
+Änderungen von Hand. Lokal: `infra/keycloak/kc.sh init` und `kc.sh plan`.
+
+Eine Einstellung ändern (z. B. MCP einschalten, einen Maschinen-Client hinzufügen): nur `identity.app.json` ändern
+(dazu ggf. den öffentlichen Schlüssel in `infra/keycloak/keys/`), Pull Request, Workflow «Keycloak». Ausgabe `issuer`
+= `OIDC_ISSUER_URL`.
 
 ## 4. Modell und Ressourcen
 
@@ -157,8 +138,8 @@ export const model = defineModel({
   nicht auf; nur um Reihenfolge, Beschreibung oder `resources` zu bestimmen, nennt sie eines ohne Label und Gruppe
   (z. B. `'access:admin': {}`, ebenso `{ key: 'access' }` unter `groups`).
 - Stufe «einfach»: `types` weglassen; dann gibt es nur Rollen an der Organisation und kein Panel «Zugriff».
-- `model.platformJson()` ergibt `infra/keycloak/platform.json` (nur Scopes, Schritt 3); nach jeder Änderung neu
-  schreiben.
+- `model.platformJson()` ergibt `infra/keycloak/platform.json` (nur Scopes): nach jeder Änderung
+  `npm run identity:platform-json`; der Konformitätstest prüft, dass die Datei aktuell ist.
 - Ressourcen (`ResourceModel`, Spezifikation [7.7](spezifikation.md#77-resourcemodel-der-app)): Kette, Existenz und bei
   Bedarf Vertraulichkeit und Zuständigkeit (`edges`). Kette `org → folder → note`:
 
@@ -242,7 +223,7 @@ for (const w of iamWarnings(cfg, 'api')) log.warn(w);
 |---|---|
 | `NODE_ENV` | `production` in Betrieb (strengere Prüfungen) |
 | `PUBLIC_BASE_URL` | Adresse der App (Pflicht in Produktion, https) |
-| `OIDC_ISSUER_URL` | Ausgabe `issuer` aus Schritt 3 (Pflicht) |
+| `OIDC_ISSUER_URL` | Ausgabe `issuer` aus Schritt 3a (Pflicht) |
 | `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` | Schritt 5 |
 | `OIDC_BFF_PRIVATE_KEY` (oder `OIDC_BFF_CLIENT_SECRET`) | Anmeldung der Oberfläche über `notes-platform` (Pflicht in Produktion) |
 | `SESSION_SECRET` | Signatur der Sitzungs-Cookies, je Schlüssel mindestens 32 Zeichen (Pflicht in Produktion) |
@@ -336,7 +317,12 @@ createRoot(root).render(
 
 ## 9. Tests, CI und Image
 
-Mit `@vollholz/iam-testkit` 1.3.1 (Spezifikation Kap. 14):
+Mit `@vollholz/iam-testkit` 1.4.0 (Spezifikation Kap. 14):
+
+- **Konformität:** `npx iam-conformity-test` – Repository in jedem Pull Request (Workflow «Konformität
+  Identity-Kit», verwaltet), Datenbank nach den Migrationen (`--db --no-repo`), Realm auf Anforderung (`--realm`);
+  zentral prüft der Betreiber die Realms jede Nacht. Bericht mit Zone und Herkunft je Prüfung
+  (Spezifikation [14.1](spezifikation.md#141-konformitätstest-iam-conformity-test)).
 
 - **Wegwerf-Datenbank** je Testdatei: `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })`.
 - **Modell:** `checkModel(model)` und `checkCatalog(<Antwort von GET /v1/authz/catalog>)` ergeben keine Fehler;
@@ -352,22 +338,25 @@ Vorlagen in [ausrollen.md](ausrollen.md).
 
 ## 10. Erste Organisation und Microsoft Entra ID
 
-**Erste Organisation** (idempotent; danach verwaltet die Organisations-Administration in der Oberfläche):
+**Erste Organisation** aus dem Manifest (`organizations`, idempotent; danach verwaltet die Organisations-Administration
+in der Oberfläche), nach den Migrationen:
 
 ```sh
-KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+KEYCLOAK_TF_REALM=notes KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
 DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
-  npx iam-org-bootstrap --alias solutions --name "Solutions" \
-  --email anna@example.ch --first Anna --last Admin --platform-admin
+  npm run identity:first-org          # = npx iam-org-bootstrap --manifest identity.app.json
 ```
 
-In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», Realm-Rolle `platform-admin`); ab
-`@vollholz/iam` 1.5 erhält die neue Person von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
-nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» und läuft weiter – dann SMTP einrichten und mit `--resend`
-wiederholen oder `--initial-password`). `--no-email` schaltet die Einladung ab. In der
-Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal, das Tupel `org-admin` an der
-Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). Rollen stehen nicht mehr in Keycloak (Spezifikation
-[9.1](spezifikation.md#91-regeln)).
+In Keycloak entstehen Organisation und Konto (Pflichtaktion «Passwort festlegen», mit `platformAdmin` die Realm-Rolle
+`platform-admin`); die neue Person erhält von Keycloak eine E-Mail «Passwort festlegen» (gültig 7 Tage; SMTP im Realm
+nötig, sonst meldet der Lauf «Einladung NICHT gesendet an: …» – dann SMTP einrichten und mit `--resend` wiederholen
+oder `--initial-password`). In der Datenbank der App schreibt das Skript mit der Migrationsrolle Mandant, Principal,
+das Tupel `org-admin` an der Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). **Ohne `DATABASE_ADMIN_URL`
+bricht es ab** (ab `@vollholz/iam` 2.1): sonst entstünde eine Organisation ohne Admin. Nur Keycloak geht ausdrücklich
+mit `--keycloak-only`.
+
+Danach `npx iam-conformity-test --db --no-repo` (mit `DATABASE_ADMIN_URL`): Die Prüfung «Jede Organisation hat einen
+org-admin» muss grün sein.
 
 **Entra ID: beim Betreiber nichts.** Keine Entra-App der Plattform, `ENTRA_CLIENT_ID` bleibt leer. Jede
 Kunden-Organisation verbindet sich selbst mit einer **eigenen App-Registrierung** in ihrem Tenant: unter Verwalten ›
@@ -375,7 +364,7 @@ Anmeldung «Eigene App verbinden» oder über den Link «Credentials eintragen»
 Anleitung (Umleitungs-URI `<OIDC_ISSUER_URL>/broker/entra-app-<alias>/endpoint`, Berechtigungen `User.Read` delegiert,
 `Organization.Read.All`, `User.Read.All`, `Application.Read.All`, `GroupMember.Read.All` (Gruppen in Freigaben) als
 Anwendung mit Administratorzustimmung,
-geheimer Clientschlüssel). Voraussetzungen der App: `entra = true` im Realm (Schritt 3), `ENCRYPTION_KEYS`,
+geheimer Clientschlüssel). Voraussetzungen der App: `realm.entra: true` im Manifest (Schritt 2), `ENCRYPTION_KEYS`,
 Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 [backend.md › Betrieb](../packages/iam/docs/backend.md#8-betrieb).
 
@@ -401,7 +390,7 @@ npx iam-org-bootstrap --file init.json
   Accounts der Clients bleiben.
 - `--confirm` muss dem Realm entsprechen. Die Zeile `audit {"action":"platform.reset", …}` der Ausgabe ist der
   Nachweis (das Audit-Protokoll der App ist danach leer).
-- `init.json` (Format `node_modules/@vollholz/iam/schema/init.schema.json`), je Organisation alle Admins wie Schritt 10
+- `--manifest identity.app.json` oder `init.json` (Format `node_modules/@vollholz/iam/schema/init.schema.json`), je Organisation alle Admins wie Schritt 10
   (Konto, Mitgliedschaft, `org-admin`, Freigabestufe 2, Einladung per E-Mail an neue Konten), idempotent, mit
   `--dry-run` als Probelauf. Nach dem Zurücksetzen sind alle Konten neu: ohne Einladung (bis 1.4) konnte sich niemand
   anmelden. Die Zeilen `Einladung gesendet an: …` / `Einladung NICHT gesendet an: …` gehören in die Zusammenfassung des
@@ -421,14 +410,21 @@ npx iam-org-bootstrap --file init.json
 
 ## Fertig, wenn
 
-- [ ] `npm ci` und `tofu init` laufen lokal und in der CI.
+- [ ] `npx iam-conformity-test --all` ohne Fehler (Repository, Datenbank, Realm); jede Ausnahme in `identity.app.json` begründet.
+- [ ] `npm ci` und `infra/keycloak/kc.sh init` laufen lokal und in der CI; `.identity-kit.lock` versioniert.
 - [ ] `notes-iac` hat beim Betreiber `realm-admin` im Realm `notes`; `notes-tofu`-Schlüssel nur lokal.
-- [ ] Realm per Workflow «Keycloak» der App eingerichtet; der Kontrollplan zeigt «No changes».
-- [ ] `platform.json` aus `model.platformJson()` stimmt mit dem Modell überein.
+- [ ] Realm per Workflow «Keycloak» eingerichtet; der Kontrollplan zeigt «No changes».
 - [ ] Migrationen laufen als `notes_owner`, IAM vor App; die Laufzeit nutzt `notes_runtime` (ohne BYPASSRLS).
 - [ ] `loadIamConfig` ohne Fehler in `production`; `iamWarnings` leer oder bewusst akzeptiert; `ENTRA_CLIENT_ID` leer.
 - [ ] Fastify mit `removeAdditional: false`, `@fastify/rate-limit`, Swagger vor dem Plugin; `/readyz` mit `readinessChecks`.
 - [ ] Oberfläche: Anmeldung, Auswahl der Organisation, Verwalten-Seiten «Zugang» erreichbar, Farben über `--iam-*`.
-- [ ] Tests: Katalog, RLS-Prüfungen und Isolations-Durchlauf grün (jede Route geprüft oder begründet ausgenommen).
-- [ ] Erste Organisation mit org-admin angelegt; Anmeldung und Einladung einer zweiten Person funktionieren.
+- [ ] Tests: Isolations-Durchlauf grün (jede Route geprüft oder begründet ausgenommen).
+- [ ] Erste Organisation mit org-admin angelegt (`npm run identity:first-org`); Anmeldung und Einladung einer zweiten Person funktionieren.
 - [ ] Eine Test-Organisation hat sich mit einer eigenen Entra-App verbunden und die Testanmeldung bestanden.
+- [ ] Der Betreiber hat das Produkt in seine nächtliche Konformitätsprüfung aufgenommen.
+
+## Upgrade
+
+Pakete `@vollholz/*` erhöhen (Renovate), `npx @vollholz/create-iam-app@<version> sync` für die verwalteten Dateien,
+dann `npx iam-conformity-test`. Ausserhalb des unterstützten Fensters (aktuelle und vorherige Hauptversion,
+Spezifikation [15.5](spezifikation.md#155-unterstützte-versionen)) meldet der Test einen Fehler.

@@ -34,9 +34,9 @@ describe('Ersteinrichtung einer Organisation', () => {
     for (const m of [/Alias/, /E-Mail/]) assert.match(e, m);
   });
 
-  test('ohne Datenbank: Organisation, Person, Mitgliedschaft und Realm-Rolle, keine Gruppen; zweiter Lauf ändert nichts', async () => {
+  test('nur Keycloak (database: null): Organisation, Person, Mitgliedschaft und Realm-Rolle, keine Gruppen; zweiter Lauf ändert nichts', async () => {
     const fake = new KeycloakFake();
-    const r = await orgBootstrap(admin(fake), { alias: 'Demo', name: 'Demo AG', email: 'Anna@Demo.example', firstName: 'Anna', lastName: 'Admin', platformAdminRole: 'platform-admin' });
+    const r = await orgBootstrap(admin(fake), { alias: 'Demo', name: 'Demo AG', email: 'Anna@Demo.example', firstName: 'Anna', lastName: 'Admin', platformAdminRole: 'platform-admin', database: null });
     const org = [...fake.orgs.values()][0]!;
     assert.deepEqual([org.alias, org.name, org.domains], ['demo', 'Demo AG', [{ name: 'demo.invalid', verified: false }]]);
     assert.equal(fake.groups.size, 0, 'keine Rollengruppen (A21)');
@@ -44,13 +44,13 @@ describe('Ersteinrichtung einer Organisation', () => {
     assert.deepEqual([u.username, u.password, u.requiredActions, fake.orgMembers.get(org.id)!.has(u.id)], ['anna@demo.example', false, ['UPDATE_PASSWORD'], true]);
     assert.deepEqual([...fake.realmRoleMappings.get(u.id)!], ['platform-admin']);
     assert.deepEqual([r.orgId, r.userId, r.passwordFile, r.tenantId], [org.id, u.id, null, null]);
-    assert.ok(r.steps.some(x => /Ohne Datenbank/.test(x)));
+    assert.ok(r.steps.some(x => /^Nur Keycloak/.test(x)));
 
     const writes = () => fake.calls.filter(c => !c.startsWith('GET ')).length;
     const before = writes();
-    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', platformAdminRole: 'platform-admin' });
+    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', platformAdminRole: 'platform-admin', database: null });
     assert.equal(writes(), before, 'idempotent');
-    assert.deepEqual(again.steps.filter(x => !/Ohne Datenbank/.test(x)), ['Organisation demo vorhanden', 'Person anna@demo.example vorhanden', 'Fertig.']);
+    assert.deepEqual(again.steps.filter(x => !/^Nur Keycloak/.test(x)), ['Organisation demo vorhanden', 'Person anna@demo.example vorhanden', 'Fertig.']);
   });
 
   describe('mit Datenbank der App (A20)', { skip }, () => {
@@ -105,21 +105,21 @@ describe('Ersteinrichtung einer Organisation', () => {
     const fake = new KeycloakFake();
     const secretDir = join(dir, 'geheim');
     const log: string[] = [];
-    const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', initialPassword: { realm: 'notes', secretDir }, log: m => log.push(m) });
+    const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', initialPassword: { realm: 'notes', secretDir }, log: m => log.push(m), database: null });
     const pw = readFileSync(r.passwordFile!, 'utf8').trim();
     assert.equal(r.passwordFile, join(secretDir, 'initial-password-notes-anna@demo.example.txt'));
     assert.match(pw, /^.{20}$/);
     assert.deepEqual([statSync(r.passwordFile!).mode & 0o777, statSync(secretDir).mode & 0o777], [0o600, 0o700]);
     assert.ok(!log.join('\n').includes(pw), 'Passwort nie ausgegeben');
     assert.equal(fake.byEmail('anna@demo.example')!.password, true);
-    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', initialPassword: { realm: 'notes', secretDir } });
+    const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', initialPassword: { realm: 'notes', secretDir }, database: null });
     assert.ok(again.steps.includes('anna@demo.example hat schon ein Passwort – nichts geändert'));
     assert.equal(readFileSync(r.passwordFile!, 'utf8').trim(), pw, 'Datei unverändert');
   });
 
   test('Passwortdatei sicher: Verzeichnis für andere offen, Datei oder Link schon da, Fehler beim Setzen → keine Datei; Realm im Namen bereinigt', async () => {
     const fake = new KeycloakFake();
-    const run = (secretDir: string, email = 'ben@demo.example', realm = 'notes') => orgBootstrap(admin(fake), { alias: 'demo', email, initialPassword: { realm, secretDir } });
+    const run = (secretDir: string, email = 'ben@demo.example', realm = 'notes') => orgBootstrap(admin(fake), { alias: 'demo', email, initialPassword: { realm, secretDir }, database: null });
     const open = join(dir, 'offen');
     mkdirSync(open, { mode: 0o755 }); chmodSync(open, 0o755);
     await assert.rejects(run(open), /für andere zugänglich/);
@@ -145,7 +145,7 @@ describe('Ersteinrichtung einer Organisation', () => {
     const fake = new KeycloakFake();
     const eva = fake.user('eva', { email: 'eva@demo.example', password: false });
     fake.links.set(eva.id, new Map([['entra-001', { userId: 'oid-eva', userName: 'eva@demo.example' }]]));
-    const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', initialPassword: { realm: 'notes', secretDir: join(dir, 'eva') } });
+    const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', initialPassword: { realm: 'notes', secretDir: join(dir, 'eva') }, database: null });
     assert.ok(r.steps.includes('eva@demo.example meldet sich über einen Identitätsanbieter an – kein Passwort gesetzt'));
     assert.deepEqual([eva.password, r.passwordFile], [false, null]);
   });
@@ -156,14 +156,14 @@ describe('Ersteinrichtung einer Organisation', () => {
     test('neue Person: Einladung mit UPDATE_PASSWORD, 7 Tage; zweiter Lauf sendet nicht erneut, --resend schon', async () => {
       const fake = new KeycloakFake();
       fake.smtp = true;
-      const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'Anna@Demo.example' });
+      const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'Anna@Demo.example', database: null });
       const u = fake.byEmail('anna@demo.example')!;
       assert.deepEqual([r.invitation, r.email], ['sent', 'anna@demo.example']);
       assert.deepEqual(mails(fake).map(m => [m.userId, m.actions, new URLSearchParams(m.query).get('lifespan')]), [[u.id, ['UPDATE_PASSWORD'], String(7 * 24 * 3600)]]);
       assert.ok(r.steps.includes('anna@demo.example: Einladung «Passwort festlegen» gesendet (gültig 7 Tage)'), r.steps.join('\n'));
-      const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example' });
+      const again = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', database: null });
       assert.deepEqual([again.invitation, mails(fake).length], [null, 1], 'idempotent');
-      const resend = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', resend: true, invite: { lifespanSec: 3600, clientId: 'notes-web', redirectUri: 'https://notes.example/' } });
+      const resend = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', resend: true, invite: { lifespanSec: 3600, clientId: 'notes-web', redirectUri: 'https://notes.example/' }, database: null });
       assert.equal(resend.invitation, 'sent');
       const q = new URLSearchParams(mails(fake)[1]!.query);
       assert.deepEqual([q.get('lifespan'), q.get('client_id'), q.get('redirect_uri')], ['3600', 'notes-web', 'https://notes.example/']);
@@ -175,8 +175,8 @@ describe('Ersteinrichtung einer Organisation', () => {
       fake.user('ben', { email: 'ben@demo.example', password: true });
       const eva = fake.user('eva', { email: 'eva@demo.example', password: false });
       fake.links.set(eva.id, new Map([['entra-001', { userId: 'oid-eva', userName: 'eva@demo.example' }]]));
-      const ben = await orgBootstrap(admin(fake), { alias: 'demo', email: 'ben@demo.example', resend: true });
-      const e = await orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', resend: true });
+      const ben = await orgBootstrap(admin(fake), { alias: 'demo', email: 'ben@demo.example', resend: true, database: null });
+      const e = await orgBootstrap(admin(fake), { alias: 'demo', email: 'eva@demo.example', resend: true, database: null });
       assert.deepEqual([ben.invitation, e.invitation, mails(fake).length], [null, null, 0]);
       assert.ok(ben.steps.includes('ben@demo.example hat schon ein Passwort – keine Einladung'));
       assert.ok(e.steps.includes('eva@demo.example meldet sich über einen Identitätsanbieter an – keine Einladung'));
@@ -184,13 +184,13 @@ describe('Ersteinrichtung einer Organisation', () => {
 
     test('ohne SMTP: klare Meldung, Lauf geht weiter; sendEmail: false und initialPassword senden nicht; Probelauf meldet nur', async () => {
       const fake = new KeycloakFake();
-      const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example' });
+      const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'anna@demo.example', database: null });
       assert.equal(r.invitation, 'failed');
       assert.ok(r.steps.some(x => /Einladung NICHT gesendet.*SMTP/.test(x)), r.steps.join('\n'));
       assert.equal(r.steps.at(-1), 'Fertig.');
       fake.smtp = true;
-      const off = await orgBootstrap(admin(fake), { alias: 'demo', email: 'ben@demo.example', sendEmail: false });
-      const pw = await orgBootstrap(admin(fake), { alias: 'demo', email: 'cleo@demo.example', initialPassword: { realm: 'notes', secretDir: join(dir, 'cleo') } });
+      const off = await orgBootstrap(admin(fake), { alias: 'demo', email: 'ben@demo.example', sendEmail: false, database: null });
+      const pw = await orgBootstrap(admin(fake), { alias: 'demo', email: 'cleo@demo.example', initialPassword: { realm: 'notes', secretDir: join(dir, 'cleo') }, database: null });
       assert.deepEqual([off.invitation, pw.invitation, mails(fake).length], [null, null, 0]);
       const dry = await orgBootstrap(admin(fake), { alias: 'probe', email: 'dora@demo.example', dryRun: true });
       assert.ok(dry.steps.includes('dora@demo.example: Einladung «Passwort festlegen» würde gesendet'), dry.steps.join('\n'));
@@ -211,12 +211,21 @@ describe('Ersteinrichtung einer Organisation', () => {
       await assert.rejects(orgBootstrap(admin(new KeycloakFake()), { alias: 'demo', email: 'a@demo.example', invite: { lifespanSec: -1 } }), /Gültigkeit/);
     });
 
+    test('ohne Angabe der Datenbank Abbruch vor jeder Änderung; nur Keycloak nur ausdrücklich (database: null)', async () => {
+      const fake = new KeycloakFake();
+      await assert.rejects(orgBootstrap(admin(fake), { alias: 'demo', email: 'a@demo.example' }), /Datenbank fehlt.*org-admin/);
+      assert.equal(fake.byEmail('a@demo.example'), null, 'nichts angelegt');
+      const r = await orgBootstrap(admin(fake), { alias: 'demo', email: 'a@demo.example', database: null });
+      assert.ok(r.steps.some(s => s.startsWith('Nur Keycloak (ausdrücklich)')));
+      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [{ alias: 'b', admins: [{ email: 'z@b.example' }] }] }, { platformAdminRole: 'platform-admin' }), /Datenbank fehlt/);
+    });
+
     test('--file: Einladung je neuem Admin, Ergebnis nennt die Adressen', async () => {
       const fake = new KeycloakFake();
       fake.smtp = true;
-      const r = await orgBootstrapFile(admin(fake), { organizations: [{ alias: 'a', admins: [{ email: 'x@a.example' }, { email: 'y@a.example' }] }] }, { platformAdminRole: 'platform-admin' });
+      const r = await orgBootstrapFile(admin(fake), { organizations: [{ alias: 'a', admins: [{ email: 'x@a.example' }, { email: 'y@a.example' }] }] }, { platformAdminRole: 'platform-admin', database: null });
       assert.deepEqual(r.map(x => [x.email, x.invitation]), [['x@a.example', 'sent'], ['y@a.example', 'sent']]);
-      const off = await orgBootstrapFile(admin(fake), { organizations: [{ alias: 'b', admins: [{ email: 'z@b.example' }] }] }, { platformAdminRole: 'platform-admin', sendEmail: false });
+      const off = await orgBootstrapFile(admin(fake), { organizations: [{ alias: 'b', admins: [{ email: 'z@b.example' }] }] }, { platformAdminRole: 'platform-admin', database: null, sendEmail: false });
       assert.deepEqual([off[0]!.invitation, mails(fake).length], [null, 2]);
     });
   });
@@ -251,7 +260,7 @@ describe('Ersteinrichtung einer Organisation', () => {
       const fake = new KeycloakFake();
       await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', dryRun: true });
       assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, 0, 'Probelauf schreibt nichts');
-      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin' });
+      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: null });
       const org = (alias: string) => [...fake.orgs.values()].find(o => o.alias === alias)!;
       assert.deepEqual([...fake.orgs.values()].map(o => [o.alias, o.name]).sort(), [['muster', 'muster'], ['solutions', 'Solutions']]);
       const anna = fake.byEmail('anna@solutions.example')!, ben = fake.byEmail('ben@solutions.example')!, cleo = fake.byEmail('cleo@muster.example')!;
@@ -259,9 +268,9 @@ describe('Ersteinrichtung einer Organisation', () => {
       assert.deepEqual([...fake.orgMembers.get(org('muster').id)!], [cleo.id]);
       assert.deepEqual([fake.realmRoleMappings.get(anna.id)?.size, fake.realmRoleMappings.get(ben.id)?.size ?? 0], [1, 0]);
       const writes = fake.calls.filter(c => !c.startsWith('GET ')).length;
-      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin' });
+      await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: null });
       assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, writes, 'idempotent');
-      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin' }), /organizations/);
+      await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin', database: null }), /organizations/);
     });
 
     test('mit Datenbank: je Admin org-admin an org und Freigabestufe 2', { skip }, async () => {
@@ -361,6 +370,36 @@ describe('Ersteinrichtung einer Organisation', () => {
         [['--file', file, '--platform-admin'], /nicht zusammen mit --platform-admin/],
         [['--file', bad], /ungültig[\s\S]*\/organizations\/0\/admins/],
         [['--file', join(dirname(file), 'fehlt.json')], /fehlt\.json/],
+      ] as [string[], RegExp][]) {
+        const x = await run(args);
+        assert.equal(x.code, 64, x.err);
+        assert.match(x.err, m);
+      }
+      assert.equal(fake.calls.length, n, 'nichts angelegt');
+    });
+
+    test('--manifest: Organisationen aus identity.app.json (übrige Felder unbeachtet); --keycloak-only nur ausdrücklich', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'iam-manifest-'));
+      const manifest = join(dir, 'identity.app.json');
+      writeFileSync(manifest, JSON.stringify({ product: 'notes', realm: { entra: true }, organizations: [{ alias: 'manifest', admins: [{ email: 'mia@manifest.example' }] }] }));
+      const r = await run(['--manifest', manifest]);
+      assert.equal(r.code, 0, r.err);
+      const rows = (await t.inspect.query("SELECT p.email FROM notes.principal p JOIN notes.tenant x ON x.id = p.tenant_id JOIN notes.authz_tuple a ON a.subject = 'user:' || p.id WHERE x.alias = 'manifest' AND a.relation = 'org-admin'")).rows;
+      assert.deepEqual(rows.map(x => x.email), ['mia@manifest.example']);
+
+      const only = await run(['--alias', 'nurkc', '--email', 'kim@nurkc.example', '--keycloak-only'], { DATABASE_ADMIN_URL: '' });
+      assert.equal(only.code, 0, only.err);
+      assert.match(only.out, /Nur Keycloak \(ausdrücklich\)/);
+      assert.equal((await t.inspect.query("SELECT 1 FROM notes.tenant WHERE alias = 'nurkc'")).rowCount, 0);
+
+      const n = fake.calls.length;
+      const noOrgs = join(dir, 'ohne.json');
+      writeFileSync(noOrgs, JSON.stringify({ product: 'notes' }));
+      for (const [args, m] of [
+        [['--manifest', noOrgs], /\/organizations: fehlt/],
+        [['--manifest', manifest, '--file', manifest], /--file nicht zusammen mit --manifest/],
+        [['--manifest', manifest, '--email', 'a@b.ch'], /--manifest nicht zusammen mit --email/],
+        [['--alias', 'x', '--email', 'a@b.ch', '--keycloak-only'], /--keycloak-only nicht zusammen mit DATABASE_ADMIN_URL/],
       ] as [string[], RegExp][]) {
         const x = await run(args);
         assert.equal(x.code, 64, x.err);

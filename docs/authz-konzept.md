@@ -373,7 +373,7 @@ Das Panel und die Endpunkte sind dieselben; die App deklariert nur mehr oder wen
 | `packages/iam-testkit/src` | `model.ts` (Prüfung des Modells: Rollen je Ort, `access:admin`-Regel, Scopes), `access.ts` (Standardfälle: Rolle am Ort, Vererbung, Ablauf, Klassifizierung, Scope-Grenze, nie-mehr-als-ich) | `claims.ts` (keine Rollengruppen), `catalog.ts` → `model.ts`, `rls.ts` (Policies auf `authz_tuple`) | – |
 | `modules/product-realm` | – | `clients.tf` (keine Client-Rollen, keine Gruppe `/orgs`, kein `groups`-Mapper für Rollen), `admin.tf` (keine Gruppenrechte), `variables.tf` (`catalog.scopes` bleibt, `catalog.roles` entfällt), Tests | – |
 | `docs` | `authz-konzept.md` (dieses) | `spezifikation.md` Kap. 3.5, 3.7, 7, 8, 9, 10, 11, 12.1, 14; `neue-app.md` Schritte 3, 4, 7, 8 | – |
-| `templates/create-iam-app` | Gerüst mit `authz/model.ts` einfachster Stufe | – | – |
+| `packages/create-iam-app` | Gerüst mit `authz/model.ts` einfachster Stufe, Manifest `identity.app.json`, Lock-Datei | – | – |
 
 ### 6.2 App
 

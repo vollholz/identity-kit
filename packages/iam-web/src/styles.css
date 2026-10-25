@@ -1,7 +1,6 @@
 /*
- * @vollholz/iam-web – Stylesheet der Bausteine (docs/entwurf.md › Theming). Die Regeln stammen aus vollholz/assets
- * (`web/src/styles/{base,app}.css`), mit Klassen `iam-*` und Variablen `--iam-*`, damit eine App mit gleichen Tokens
- * gleich aussieht.
+ * @vollholz/iam-web – Stylesheet der Bausteine, mit Klassen `iam-*` und Variablen `--iam-*`: Eine App bildet ihre Tokens
+ * auf die Variablen ab und sieht damit gleich aus.
  *
  * Die Vorgaben der Variablen und die Grundregeln stehen in der Ebene «iam» und unter :where (Spezifität 0): Jede Regel
  * der App ausserhalb einer Ebene geht vor, gleich welche Reihenfolge, Spezifität oder Systemfarbe; die App setzt die
@@ -38,7 +37,7 @@
     }
   }
 
-  /* Grundlage wie in Assets: Rahmen in der Breite enthalten; Bedienelemente übernehmen Schrift und Farbe; Fokus sichtbar */
+  /* Grundlage: Rahmen in der Breite enthalten; Bedienelemente übernehmen Schrift und Farbe; Fokus sichtbar */
   :where([class^="iam-"], [class*=" iam-"]), :where([class^="iam-"], [class*=" iam-"]) :where(*, *::before, *::after) { box-sizing: border-box }
   :where(.iam-btn, .iam-iconbtn, .iam-linkbtn, .iam-menu-i, .iam-pi, .iam-toast button, .iam-crumbs button, .iam-seg button, .iam-rights-wb, .iam-rm-tg, .iam-entra-hit) { font: inherit; color: inherit; cursor: pointer }
   :where(.iam-search input, .iam-inp, .iam-tbl thead th button) { font: inherit; color: inherit }
@@ -50,7 +49,7 @@
 
 /* Bausteine (ohne Ebene: Klassen gehen Element-Regeln der App wie a, h1, button vor; die App überschreibt sie mit
    gleicher oder höherer Spezifität nach diesem Stylesheet) */
-/* Seitengerüst der Verwalten-Seiten (Assets .body, .int; .pb am Ende, nach .iam-mh) */
+/* Seitengerüst der Verwalten-Seiten (.pb am Ende, nach .iam-mh) */
 .iam-body{flex:1;min-height:0;overflow:auto;position:relative}
 .iam-int{padding:22px;display:flex;flex-direction:column;gap:28px}
 .iam-ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -258,11 +257,11 @@ a.iam-btn,a.iam-iconbtn,a.iam-pill{text-decoration:none}
 @keyframes iam-slide{from{transform:translateX(24px);opacity:.4}to{transform:none;opacity:1}}
 @keyframes iam-up{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
 
-/* aus Assets features/admin/admin.css: Einträge im Menü */
+/* Einträge im Menü */
 .iam-menu-i.iam-danger{color:var(--iam-bad)}
 .iam-menu-i[disabled]{opacity:.45;cursor:not-allowed}
 
-/* Rechte-Bausteine: Rechte-Übersicht, Rollenmatrix, «Meine Rollen und Rechte», Kontomenü (aus Assets base.css, app.css) */
+/* Rechte-Bausteine: Rechte-Übersicht, Rollenmatrix, «Meine Rollen und Rechte», Kontomenü */
 .iam-seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--iam-surface-2);border:1px solid var(--iam-line)}
 .iam-seg button{border:0;background:none;padding:5px 10px;border-radius:6px;color:var(--iam-text-2);font-weight:500;font-size:13px}
 .iam-seg button.iam-on{background:var(--iam-surface);color:var(--iam-text);box-shadow:0 1px 2px rgba(0,0,0,.08),0 0 0 1px var(--iam-line)}
@@ -389,7 +388,7 @@ details.iam-more.iam-card.iam-pad{gap:0}
 }
 
 
-/* Verwalten-Seiten Mitglieder und Rollen (aus Assets base.css, app.css, features/admin/admin.css) */
+/* Verwalten-Seiten Mitglieder und Rollen */
 .iam-toolbar{display:flex;align-items:center;gap:8px;padding:12px 22px;flex-wrap:wrap;border-bottom:1px solid var(--iam-line)}
 .iam-st-ok{background:var(--iam-ok-soft);color:var(--iam-ok)}
 .iam-st-warn{background:var(--iam-warn-soft);color:var(--iam-warn)}
@@ -526,7 +525,7 @@ span.iam-rp-ctl .iam-ico{width:14px;height:14px;stroke-width:2.4;color:var(--iam
 @media (forced-colors: active){
   .iam-nav-i.iam-on{outline:1px solid CanvasText}
 }
-/* Maschinen-Clients und Organisationen (aus Assets base.css, app.css, features/admin/admin.css) */
+/* Maschinen-Clients und Organisationen */
 .iam-field{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center}
 .iam-field label{font-size:13px;color:var(--iam-text-2)}
 .iam-field input{height:34px;border:1px solid var(--iam-line-2);border-radius:7px;padding:0 10px;background:var(--iam-surface);width:100%;min-width:0;text-align:left;outline:0}
@@ -554,7 +553,7 @@ tbody tr.iam-static:hover td{background:none}
 .iam-org-tbl td.iam-chev{width:40px;color:var(--iam-text-3)}
 .iam-org-context .iam-ico{flex:0 0 auto}
 .iam-client-scopes .iam-ico{flex:none;width:12px;height:12px;color:var(--iam-text-3);transform:translateY(1px)}
-/* Anmeldung über Microsoft Entra ID (aus Assets base.css, features/admin/admin.css) */
+/* Anmeldung über Microsoft Entra ID */
 .iam-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 14px;font-size:13px;margin:0;align-items:baseline}
 .iam-kv dt{color:var(--iam-text-2)}
 .iam-kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
@@ -587,7 +586,7 @@ label.iam-chk{display:flex;gap:8px;align-items:center}
 .iam-handover-form{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
 .iam-handover-form .iam-form{grid-template-columns:minmax(0,1fr);width:100%}
 .iam-handover-form .iam-form .iam-hint{grid-column:1}
-/* Verwalten › Zugriff (Assets base.css, app.css, features/acl/acl.css) */
+/* Verwalten › Zugriff */
 .iam-field .iam-inp{width:100%;height:34px}
 .iam-pickbtn.iam-inp{text-align:left;cursor:pointer;justify-content:space-between}
 .iam-inp[aria-invalid="true"]{border-color:var(--iam-bad)}

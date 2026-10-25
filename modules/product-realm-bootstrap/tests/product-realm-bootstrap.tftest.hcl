@@ -59,14 +59,12 @@ run "product_master" {
   expect_failures = [var.product]
 }
 
-run "product_project_suite" {
+run "product_beliebiger_name" {
   command = plan
 
   variables {
-    product = "project-suite"
+    product = "plattform"
   }
-
-  expect_failures = [var.product]
 }
 
 run "jwks_ohne_kid" {

@@ -20,7 +20,7 @@ export type IamRouteId = 'members' | 'entra' | 'entraConsent' | 'entraTest' | 'o
 export interface IamRoute {
   id: IamRouteId;
   /**
-   * Aus `paths` (Standard wie vollholz/assets). Parameter in der Schreibweise des Routers der App (`param` von
+   * Aus `paths`. Parameter in der Schreibweise des Routers der App (`param` von
    * `makeIamRoutes`; Standard React Router `:alias`, TanStack Router `$alias`). Die Seite liest ihn selbst aus dem Pfad.
    */
   path: string;

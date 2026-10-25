@@ -2,7 +2,7 @@
  * Menü-Button nach ARIA-Muster «Menu Button» (Vertrag für `components.Menu`): Pfeiltasten, Pos1/Ende, Esc, Fokus zurück
  * zum Button. Einträge sind Buttons mit role="menuitem" (bzw. menuitemradio); `children` erhält `close`.
  * `fixed`: Menü schwebt über allem (z. B. in Tabellen mit Scrollbereich), rechtsbündig am Button, unterhalb oder –
- * wenn dort kein Platz ist – oberhalb. Herkunft: vollholz/assets `web/src/ui/MenuButton.tsx`.
+ * wenn dort kein Platz ist – oberhalb.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { buttonClass } from './Button.tsx';

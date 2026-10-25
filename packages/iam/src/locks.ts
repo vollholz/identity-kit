@@ -1,7 +1,7 @@
 /**
  * Sperren in PostgreSQL (Advisory-Locks) als Vertrag: Alle Instanzen einer App – auch alte und neue Version während
  * eines Deploys, auch App-Code ausserhalb des Pakets – müssen für dieselbe Sache dieselbe Sperre nehmen. Die Werte
- * stammen aus Assets und ändern sich nie (Test in test/locks.test.ts).
+ * ändern sich nie (Test in test/locks.test.ts).
  *
  * - Zahlen: Sperren über die ganze Datenbank (`pg_advisory_lock(n)`, Sitzung).
  * - Texte: Sperren je Sache in der Transaktion (`pg_advisory_xact_lock(hashtextextended(<text>, 0))`).
@@ -18,8 +18,8 @@ export const LOCKS = {
 /** Schlüssel der Sperren je Sache (Text für `hashtextextended`). */
 export const lockKey = {
   /**
-   * Audit-Kette eines Mandanten (Trigger app.audit_chain). Dieselbe Sperre nimmt in Assets die Folgenummer der Outbox
-   * (app.outbox_sequence, Migration 044): Ereignis und Audit-Eintrag entstehen meist in derselben Transaktion; zwei
+   * Audit-Kette eines Mandanten (Trigger app.audit_chain). Dieselbe Sperre soll eine App für eine eigene
+   * Folgenummer (z. B. einer Outbox) nehmen: Ereignis und Audit-Eintrag entstehen meist in derselben Transaktion; zwei
    * verschiedene Sperren in wechselnder Reihenfolge könnten sich verklemmen.
    */
   // Klein wie `NEW.tenant_id::text` im Trigger; sonst ergäbe eine UUID in Grossbuchstaben eine andere Sperre

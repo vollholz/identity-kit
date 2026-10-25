@@ -2,7 +2,7 @@
 # Schritt 4), einmalig bzw. beim Neuaufbau. Aufgerufen als Service Account <produkt>-tofu im Realm master (nur
 # create-realm, verwaltet von vollholz/identity). Danach weist vollholz/identity (products.<produkt>.grant_realm_admin)
 # <produkt>-iac realm-management/realm-admin zu, und alles Weitere verwaltet das Modul product-realm als <produkt>-iac.
-# Herausgelöst aus vollholz/assets infra/keycloak/bootstrap (3a148ae); Aufruf: README.md.
+# Aufruf: README.md.
 #
 # Der Realm gehört inhaltlich product-realm; hier wird er nur angelegt (alle Einstellungen ignoriert). Backend,
 # State-Verschlüsselung (eigener State-Key) und Provider-Anmeldung gehören dem Aufrufer.

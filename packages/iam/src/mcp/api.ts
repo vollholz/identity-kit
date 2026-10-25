@@ -1,5 +1,5 @@
 /**
- * Schlanker Client für die REST-API der App (aus Assets `mcp/api.ts`). Der MCP-Dienst greift ausschliesslich hierüber auf Daten zu –
+ * Schlanker Client für die REST-API der App. Der MCP-Dienst greift ausschliesslich hierüber auf Daten zu –
  * RLS, Rollen ∩ Scopes ∩ ACL und Audit (Quelle «mcp», erkannt am Client im getauschten Token) gelten unverändert.
  *
  * Das API-Token ist an den Schlüssel des MCP-Dienstes gebunden: jeder Aufruf sendet `Authorization: DPoP …` und

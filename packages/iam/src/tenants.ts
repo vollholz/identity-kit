@@ -1,6 +1,5 @@
 /**
- * Mandanten verwalten: auflisten, anlegen, sperren, entsperren, an eine andere Keycloak-Organisation hängen (aus Assets
- * `ops/tenants.ts`). Genutzt von Betriebsskripten (`org-bootstrap`) und der Plattform-Administration der API (Module
+ * Mandanten verwalten: auflisten, anlegen, sperren, entsperren, an eine andere Keycloak-Organisation hängen. Genutzt von Betriebsskripten (`org-bootstrap`) und der Plattform-Administration der API (Module
  * `admin` und `clients`, nur platform-admin). Fachdaten löschen (`purgeTenantData`) bleibt in der App, weil nur sie
  * ihre Tabellen kennt (Entwurf 7.1).
  *

@@ -7,8 +7,8 @@ variable "product" {
   }
   # product ist ohne var.realm zugleich der Realm-Name
   validation {
-    condition     = !contains(["master", "project-suite"], var.product)
-    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master, nicht project-suite)."
+    condition     = var.product != "master"
+    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master)."
   }
 }
 
@@ -17,8 +17,8 @@ variable "realm" {
   type        = string
   default     = null
   validation {
-    condition     = var.realm == null || !contains(["master", "project-suite"], coalesce(var.realm, "-"))
-    error_message = "Das Produkt braucht einen eigenen Realm (nicht master, nicht project-suite)."
+    condition     = var.realm == null || coalesce(var.realm, "-") != "master"
+    error_message = "Das Produkt braucht einen eigenen Realm (nicht master)."
   }
 }
 

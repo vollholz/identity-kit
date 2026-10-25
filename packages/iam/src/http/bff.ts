@@ -1,6 +1,6 @@
 /**
- * Modul `bff`: Anmeldung der Oberfläche unter `/auth/*` (aus Assets `modules/auth/index.ts`, ohne die Auslieferung der
- * Oberfläche, die in der App bleibt). Aktiv, wenn `createIam` ein `Bff` gebaut hat (`OIDC_BFF_CLIENT_ID` mit Secret
+ * Modul `bff`: Anmeldung der Oberfläche unter `/auth/*` (ohne die Auslieferung der Oberfläche, die in der
+ * App bleibt). Aktiv, wenn `createIam` ein `Bff` gebaut hat (`OIDC_BFF_CLIENT_ID` mit Secret
  * oder Schlüssel, `SESSION_SECRET`).
  */
 import { Type } from '@sinclair/typebox';

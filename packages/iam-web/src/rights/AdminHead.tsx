@@ -1,6 +1,6 @@
 /**
- * Kopf der Verwalten-Seiten: Pfad (Produkt › Verwalten › …), Symbol, Titel, Untertitel, Hauptaktion. Herkunft:
- * vollholz/assets `web/src/ui/AdminHead.tsx`; Links über den Router-Adapter.
+ * Kopf der Verwalten-Seiten: Pfad (Produkt › Verwalten › …), Symbol, Titel, Untertitel, Hauptaktion. Links über
+ * den Router-Adapter.
  */
 import type { ReactNode } from 'react';
 import { useIamConfig } from '../config.tsx';

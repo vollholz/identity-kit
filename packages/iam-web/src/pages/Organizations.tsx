@@ -2,8 +2,8 @@
  * Verwalten › Organisationen (nur Plattform-Administration, Spezifikation 9.5): Organisationen in Keycloak anlegen,
  * umbenennen, Domänen pflegen, sperren und entsperren sowie Mitglieder (inklusive org-admin und Maschinen-Clients) jeder
  * Organisation verwalten. Die Detailansicht sagt, welche Organisation bearbeitet wird und in welcher die Person
- * angemeldet ist; Kopfzeile und Kontomenü zeigen die eigene. Herkunft: vollholz/assets
- * `web/src/features/admin/Organizations.tsx`. Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)».
+ * angemeldet ist; Kopfzeile und Kontomenü zeigen die eigene.
+ * Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)».
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';

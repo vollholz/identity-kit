@@ -1,5 +1,5 @@
 /**
- * Migrationen: Runner (wie Assets `db/migrate.ts`) und die SQL-Migrationen des IAM (Spezifikation Kap. 10, 15.3).
+ * Migrationen: Runner und die SQL-Migrationen des IAM (Spezifikation Kap. 10, 15.3).
  *
  * - Jede Migration läuft in einer Transaktion (`lock_timeout` 10 s: wartet sie länger auf eine Sperre, bricht sie ab, statt
  *   den laufenden Betrieb hinter sich anzustauen), danach `app.secure_tenant_tables()`; geschützt durch eine Advisory-Lock
@@ -12,15 +12,15 @@
  * - Relationen und Typen der Tupel (CHECK-Bedingungen von `authz_tuple`) hängen am Modell der App und ändern sich mit
  *   ihm. Sie stehen deshalb nicht in einer Migration, sondern werden nach den IAM-Migrationen abgeglichen
  *   (`syncModelChecks`): ein neuer Typ oder eine neue Rolle braucht keine eigene Migration und bricht keine Prüfsumme.
- * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat (Assets bis 049, mit `adopted.map` bis 053), trägt die
+ * - Übernahme (`adopted`): Eine App, die die Objekte schon aus eigenen Migrationen hat trägt die
  *   IAM-Migrationen bis IAM_BASELINE als angewendet ein, ohne sie auszuführen – nur wenn ihre Vorbedingungen erfüllt
  *   sind (in derselben Transaktion), sonst bricht der Runner ab und trägt nichts ein. Die IAM-Migrationen laufen dann
  *   direkt nach der Marke der App (`after`), spätere Migrationen der App danach; so dürfen auch diese spätere
  *   IAM-Migrationen voraussetzen.
  * - Übernahme späterer IAM-Migrationen (`adopted.map`): Hat die App auch Entsprechungen nach der Grundlage schon
- *   angewendet (Assets 051–053 = iam_010–012), nennt sie die Zuordnung. Diese IAM-Migrationen werden dann ebenfalls nur
+ *   angewendet (z. B. `051_…` = `iam_010_…`), nennt sie die Zuordnung. Diese IAM-Migrationen werden dann ebenfalls nur
  *   eingetragen – wenn die Migration der App angewendet ist und die Objekte bestehen, sonst Abbruch. `after` ist dann
- *   die letzte dieser Migrationen der App (Assets: `053_acl_unique.sql`), damit sie auch in einer frischen Datenbank
+ *   die letzte dieser Migrationen der App, damit sie auch in einer frischen Datenbank
  *   vor der Übernahme laufen.
  */
 import { createHash } from 'node:crypto';
@@ -84,28 +84,21 @@ export interface IamMigrationOptions {
   /** Modell der App (Typen und Relationen für die CHECKs von `authz_tuple`); Standard nur `org` mit `org-admin`. */
   model?: ModelChecksInput | Pick<Model, 'types' | 'allRelations'>;
   /**
-   * Objekte bestehen schon aus Migrationen der App (Assets: bis `049_tenant_roles.sql`): IAM-Migrationen bis
+   * Objekte bestehen schon aus Migrationen der App: IAM-Migrationen bis
    * `IAM_BASELINE` nur eintragen, wenn `after` angewendet ist und die Objekte geschützt vorhanden sind.
    */
   adopted?: {
     after: string;
     /**
      * Migrationen der App, die IAM-Migrationen nach der Grundlage entsprechen (Name der App → Name im IAM); diese werden
-     * nur eingetragen. Assets: `{ '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
-     * '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' }`
-     * mit `after: '053_acl_unique.sql'` (`ASSETS_ADOPTION`).
+     * nur eingetragen, z. B. `{ '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql' }`; `after` ist dann
+     * die letzte dieser Migrationen der App.
      */
     map?: Record<string, string>;
   };
 }
 
-/** Übernahme für Assets: alles bis 053, ausgeführt werden nur iam_009 und neuere (Entwurf 6.4). */
-export const ASSETS_ADOPTION = {
-  after: '053_acl_unique.sql',
-  map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql', '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },
-} as const satisfies NonNullable<IamMigrationOptions['adopted']>;
-
-/** Letzte IAM-Migration, die dem Stand von Assets nach Migration 049 entspricht (Übernahme). */
+/** Letzte IAM-Migration der Grundlage, die `adopted` ohne Zuordnung übernimmt. */
 export const IAM_BASELINE = 'iam_008_entra.sql';
 
 /** Längste Wartezeit einer Migration auf eine Sperre (Tabellen im Betrieb). */
@@ -226,7 +219,7 @@ export async function syncModelChecks(c: pg.ClientBase, schema: string, model?: 
   return out;
 }
 
-/** Tabellen und Funktionen, die die Übernahme voraussetzt (Stand Assets 049). */
+/** Tabellen und Funktionen, die die Übernahme voraussetzt (Stand von `IAM_BASELINE`). */
 const BASELINE_TABLES = ['tenant', 'principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'session', 'replay_guard', 'rate_limit', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent'];
 /** Mandantentabellen darunter: RLS mit FORCE und Policy tenant_isolation. */
 const BASELINE_TENANT_TABLES = ['principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent'];

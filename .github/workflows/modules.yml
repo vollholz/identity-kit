@@ -3,7 +3,6 @@
 #             Typprüfung der Hilfsskripte – ohne Keycloak
 #   Keycloak  modules/test/keycloak.sh gegen Keycloak 26.8.1 im Docker: frische Anlage mit allen und
 #             ohne Schalter, zweiter Plan «No changes». Wegwerf-Instanz, Testschlüssel, keine Geheimnisse.
-# Versionen wie Assets (.github/workflows/keycloak.yml).
 name: Module
 
 on:

@@ -82,7 +82,7 @@ resource "keycloak_realm_client_policy_profile_policy" "confidential" {
   }
 }
 
-# DPoP-Pflicht nur über die positive Markierung: eine Bedingung «alle ausser …» sperrte in Assets das Ändern des BFF-Clients
+# DPoP-Pflicht nur über die positive Markierung: eine Bedingung «alle ausser …» sperrte das Ändern des BFF-Clients
 resource "keycloak_realm_client_policy_profile_policy" "m2m_dpop" {
   count       = var.m2m ? 1 : 0
   realm_id    = local.realm

@@ -1,11 +1,11 @@
 /**
- * Konfiguration des IAM aus Umgebungsvariablen (Spezifikation Kap. 13; aus Assets `config/env.ts`).
+ * Konfiguration des IAM aus Umgebungsvariablen (Spezifikation Kap. 13).
  *
  * Jede Variable ist einmal beschrieben (Typ, Standard, Pflicht, geheim). Daraus entstehen die geprüfte, typisierte
  * Konfiguration beim Start (fehlende oder ungültige Werte brechen mit allen Meldungen zugleich ab) und die Liste für die
  * Doku der App (`IAM_VARS`). Standardwerte mit dem Namen des Produkts (`<produkt>-api` …) setzt `product` ein.
  *
- * Eine App mit eigener Variablenliste (Assets) liest die Werte selbst (`readVars` mit ihrer Liste) und ruft dann
+ * Eine App mit eigener Variablenliste liest die Werte selbst (`readVars` mit ihrer Liste) und ruft dann
  * `iamConfigErrors` und `iamConfig` mit denselben Rohwerten auf; Namen und Bedeutung der Variablen sind dieselben.
  */
 import { readFileSync } from 'node:fs';
@@ -206,7 +206,7 @@ export function parseEncryptionKeys(v: string): { id: string; key: Buffer }[] {
   return keys;
 }
 
-/** Prüfungen über mehrere Variablen (nach `readVars`); Meldungen wie in Assets. */
+/** Prüfungen über mehrere Variablen (nach `readVars`). */
 export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | null): string[] {
   const errors: string[] = [];
   const needs = (...s: Service[]) => service === null || s.includes(service);

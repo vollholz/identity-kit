@@ -1,5 +1,5 @@
 # Service Accounts des Produkts für die Admin-API des Realms (Spezifikation 3.7; Rechte so knapp, wie Keycloak 26 es
-# zulässt – live geprüft mit 26.6 in Assets):
+# zulässt – live geprüft mit 26.6):
 #   <produkt>-admin  Verwaltung (API): Organisationen nur über realm-management/manage-realm; Benutzer und Gruppen über
 #                    feingranulare Admin-Rechte v2 (keine Rollen-Zuweisung, keine Clients); Identitätsanbieter für
 #                    Entra ID über manage-identity-providers (entra.tf, nur mit var.entra)

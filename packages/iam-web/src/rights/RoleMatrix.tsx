@@ -3,7 +3,7 @@
  * Zuordnung und Labels aus dem Katalog; die Rollen übergibt der Aufrufer, gezeigt in der Reihenfolge des Rollendialogs
  * (`groupRoles`), mit Trennlinie zwischen den Rollengruppen. Jede Gruppe aufklappbar (je Recht ✓ / –). Ohne waagrechtes
  * Scrollen bis auf Handybreite: Rollen als senkrechte Spaltenköpfe, «teilweise» als Zahl. `RoleCompare`: eingeklappt als
- * «Rollen vergleichen». Herkunft: vollholz/assets `web/src/ui/RoleMatrix.tsx`.
+ * «Rollen vergleichen».
  */
 import { Fragment, useState } from 'react';
 import { useAuthz } from '../authz.ts';

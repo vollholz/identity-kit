@@ -1,6 +1,5 @@
 /**
- * Nachgebildete Microsoft-Endpunkte für die Entra-Anbindung von `@vollholz/iam` (`src/graph.ts`, aus Assets
- * test/platform/entra-fake.ts) als `fetch`-Ersatz: OpenID-Konfiguration je Tenant (Tenant-ID oder verifizierte Domain),
+ * Nachgebildete Microsoft-Endpunkte für die Entra-Anbindung von `@vollholz/iam` (`src/graph.ts`) als `fetch`-Ersatz: OpenID-Konfiguration je Tenant (Tenant-ID oder verifizierte Domain),
  * Token mit Client Credentials (nur nach Zustimmung, richtiges Geheimnis) und Graph `/organization` und `/users` (Filter
  * nach UPN oder mail, `$search` mit ConsistencyLevel: eventual). Verhalten wie Microsoft, soweit die Plattform es nutzt:
  * unbekannter Tenant → 400, ohne Zustimmung AADSTS7000229/65001, falsches Geheimnis AADSTS7000215. Zustimmung mit

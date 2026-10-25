@@ -44,7 +44,7 @@ async function serviceAccount(token: string, realm: string, clientId: string): P
 
 switch (cmd) {
   case 'keys': {
-    // EC P-256, kid = JWK-Thumbprint (RFC 7638) wie secrets.sh in Assets
+    // EC P-256, kid = JWK-Thumbprint (RFC 7638)
     const [dir, ...clients] = args;
     mkdirSync(dir!, { recursive: true });
     for (const c of clients) {

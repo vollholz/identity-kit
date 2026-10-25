@@ -2,7 +2,7 @@
  * Verwaltung (Spezifikation 9.2, 9.6): Status mit `platformAdmin`, Mitglieder (Personen und Clients), Rollen an der
  * Organisation, Freigabestufe und Maschinen-Clients. Die Aufrufe gibt es zweimal: für die eigene Organisation
  * (`/v1/admin/…`) und für eine beliebige Organisation der Plattform-Administration (`/v1/platform/organizations/{alias}/…`,
- * `alias`); die Oberfläche nutzt für beide dieselben Hooks. Herkunft: vollholz/assets `web/src/api/admin.ts`.
+ * `alias`); die Oberfläche nutzt für beide dieselben Hooks.
  */
 import { useQuery } from '@tanstack/react-query';
 import { iamFetch } from './client.ts';

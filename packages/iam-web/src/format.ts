@@ -1,5 +1,5 @@
 /**
- * Formatierung nach der Sprache der Texte (`intlLocale`: Deutsch als de-CH). Herkunft: vollholz/assets `web/src/ui/format.ts`.
+ * Formatierung nach der Sprache der Texte (`intlLocale`: Deutsch als de-CH).
  */
 import { intlLocale, t } from './texts/index.ts';
 

@@ -6,7 +6,7 @@ export { MemoryReplayStore, PgReplayStore, pgRateLimitStore, purgeSharedState, t
 export { pgAudit, type AuditPort, type AuditEntry, type Actor, type Source } from './audit.ts';
 export { LOCKS, lockKey } from './locks.ts';
 export {
-  migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR, ASSETS_ADOPTION,
+  migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR,
   type Migration, type MigrationSource, type MigrationResult, type IamMigrationOptions, type Adoption, type ModelChecksInput,
 } from './migrations.ts';
 export { schemaSnapshot, diffSnapshots, IAM_TABLES, IAM_FUNCTIONS, type SchemaSnapshot } from './schema.ts';

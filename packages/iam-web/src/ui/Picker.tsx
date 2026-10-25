@@ -1,6 +1,6 @@
 /**
  * Auswahl-Popover: Suchfeld, Liste mit Pfeiltasten (Combobox/Listbox), Einfach- oder Mehrfachauswahl. Einträge fest
- * (`items`) oder vom Server nachgeladen (`load`). Herkunft: vollholz/assets `web/src/ui/Picker.tsx`.
+ * (`items`) oder vom Server nachgeladen (`load`).
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';

@@ -1,6 +1,6 @@
 /**
  * Routen-Guards (Spezifikation 11.2): Seiten mit Rechtebedarf zeigen ohne Recht «Recht fehlt» statt eines 403. Die Seite
- * selbst wird dann nicht gezeichnet und fragt nichts ab. Herkunft: `requires()` in vollholz/assets `web/src/router.tsx`.
+ * selbst wird dann nicht gezeichnet und fragt nichts ab.
  */
 import type { ReactNode } from 'react';
 import { useAdminStatus } from '../admin.ts';

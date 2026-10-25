@@ -10,7 +10,6 @@
  * - anderer Mandant im Tab → Cache leeren (ausser /auth/me), nichts aus der vorigen Organisation weiterzeigen
  * - Sitzung abgelaufen (401) → Dialog «Erneut anmelden», ungespeicherte Eingaben bleiben sichtbar
  * - Abmelden entfernt die Organisation des Tabs; persönliche Daten der App über `onLogout`
- * Herkunft: vollholz/assets `web/src/auth/session.tsx`.
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Component, createContext, Fragment, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';

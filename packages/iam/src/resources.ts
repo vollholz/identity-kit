@@ -23,7 +23,7 @@ export interface ResourceModel<S = unknown> {
   chain(state: S, ref: ResourceRef, hint?: string | null): ResourceRef[];
   /** Gibt es die Ressource im Mandanten (volle Sicht)? Sonst 404 bei /v1/access. */
   exists(tx: pg.ClientBase, ref: ResourceRef): Promise<boolean>;
-  /** Hinweise für viele Ressourcen (Assets: Typ je Objekt), Schlüssel `<type>:<id>`. */
+  /** Hinweise für viele Ressourcen (z. B. Typ je Objekt), Schlüssel `<type>:<id>`. */
   hints?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, string>>;
   /** Pflicht bei classified-Typen: Stufe je Ressource, Schlüssel `<type>:<id>` (volle Sicht). */
   classification?(tx: pg.ClientBase, refs: ResourceRef[]): Promise<Map<string, Level>>;
@@ -43,7 +43,7 @@ export interface ResourceModel<S = unknown> {
     /** Zugehörigkeit der Ressourcen $1; Spalten `id uuid`, `unit_id uuid`, `grants text` ('read' | 'edit'), `label text`. */
     belongs?: string;
     /**
-     * Zuständige Personen der Ressourcen $1 aus Fachdaten (Kit 1.1; Assets: Attribut «Verantwortlich» der Art user);
+     * Zuständige Personen der Ressourcen $1 aus Fachdaten (Kit 1.1; z. B. ein Feld «Verantwortlich»);
      * Spalten `id uuid` (Ressource), `principal_id uuid` (`principal.id` einer Person; zählt nur, solange sie im
      * Mandanten aktiv ist, d. h. `kind = 'user'` und nicht entfernt), `grants text`
      * ('read' | 'edit' | 'none'), `label text` (Name der Fachbeziehung, erscheint in «Warum?»), optional `type text`.

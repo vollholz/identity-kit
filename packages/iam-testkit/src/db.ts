@@ -11,11 +11,11 @@ import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 
 export interface TestDatabaseOptions<R> {
-  /** Präfix der Datenbanknamen, z. B. `assets_test_` (Kleinbuchstaben, endet mit `_`). */
+  /** Präfix der Datenbanknamen, z. B. `notes_test_` (Kleinbuchstaben, endet mit `_`). */
   prefix: string;
-  /** Besitzer-Rolle der Datenbank, z. B. `assets_owner`. */
+  /** Besitzer-Rolle der Datenbank, z. B. `notes_owner`. */
   owner: string;
-  /** Rollen mit CONNECT auf die Datenbank, z. B. `['assets_app', 'assets_sched']`. */
+  /** Rollen mit CONNECT auf die Datenbank, z. B. `['notes_app', 'notes_sched']`. */
   connect: string[];
   /** Migrationen der App als Besitzer ausführen; `dir` aus `create({ migrationsDir })`. */
   migrate(adminUrl: string, dir?: string): Promise<unknown>;

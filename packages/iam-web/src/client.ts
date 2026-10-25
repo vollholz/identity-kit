@@ -1,5 +1,5 @@
 /**
- * HTTP-Client des Vertrags (Spezifikation 5.2, 11.1). Herkunft: vollholz/assets `web/src/api/client.ts`.
+ * HTTP-Client des Vertrags (Spezifikation 5.2, 11.1).
  * - Sitzungs-Cookie (same-origin), `X-CSRF-Token` automatisch bei schreibenden Aufrufen
  * - Organisation des Tabs als `X-Tenant` bei jeder Anfrage: Die Sitzung gilt für alle Tabs, die Organisation nicht; ohne
  *   Header nähme der Server die Vorgabe der Sitzung, die ein anderer Tab inzwischen geändert haben kann
@@ -55,7 +55,7 @@ export const origin: string = typeof window !== 'undefined' && window.location?.
 
 /**
  * `If-Match` aus der Version (`W/"<version>"`) oder unverändert aus einem ETag einer GET-Antwort
- * (`W/"<version>-<zugriff>"`, Spezifikation 7.1). Der Server vergleicht nur die Version (Assets: `ifMatchVersion`).
+ * (`W/"<version>-<zugriff>"`, Spezifikation 7.1). Der Server vergleicht nur die Version.
  */
 export const ifMatch = (versionOrEtag: number | string): Record<string, string> =>
   ({ 'If-Match': typeof versionOrEtag === 'number' ? `W/"${versionOrEtag}"` : versionOrEtag });

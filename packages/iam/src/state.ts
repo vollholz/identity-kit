@@ -1,5 +1,5 @@
 /**
- * Geteilter, kurzlebiger Zustand für mehrere Instanzen (SHARED_STATE; aus Assets `core/shared-state.ts`):
+ * Geteilter, kurzlebiger Zustand für mehrere Instanzen (SHARED_STATE):
  * - Replay-Schutz für DPoP-Proofs und Logout-Tokens (jeder `jti` höchstens einmal),
  * - Zähler des Rate-Limits (@fastify/rate-limit, eigener Store).
  *

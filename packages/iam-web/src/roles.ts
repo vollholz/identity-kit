@@ -1,7 +1,6 @@
 /**
  * Enthaltensein von Rollen (aus den Rechten abgeleitet, nicht fest verdrahtet): Rolle A enthält B, wenn die Rechte von B
- * eine echte Teilmenge der Rechte von A sind. Rollen ohne Rechte enthält keine. Herkunft: vollholz/assets
- * `web/src/features/admin/roles.ts`.
+ * eine echte Teilmenge der Rechte von A sind. Rollen ohne Rechte enthält keine.
  */
 
 interface RoleRights { key: string; permissions: readonly string[] }

@@ -1,5 +1,5 @@
 /**
- * Datenbankzugriff (aus Assets `db/pool.ts`). Jede fachliche Arbeit läuft in einer Transaktion mit gesetztem
+ * Datenbankzugriff. Jede fachliche Arbeit läuft in einer Transaktion mit gesetztem
  * Mandantenkontext; ohne Kontext liefert RLS keine Zeilen. Es gibt bewusst keinen Weg, Abfragen ohne Kontext auf
  * Mandantentabellen auszuführen (ausser über die SECURITY-DEFINER-Funktionen der Migrationen).
  */
@@ -32,7 +32,7 @@ export interface DbContext {
   tenantId: string;
   principalId?: string | null;
   /**
-   * Weitere Einstellungen der App für dieselbe Transaktion (Assets: Lesesicht `app.read_all`, `app.read_types`).
+   * Weitere Einstellungen der App für dieselbe Transaktion (z. B. eigene Einstellungen `app.*`).
    * Namen `app.<name>`; `app.tenant_id` und `app.principal_id` setzt nur das Paket.
    */
   settings?: Record<string, string>;

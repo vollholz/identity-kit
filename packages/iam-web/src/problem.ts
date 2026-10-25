@@ -1,7 +1,6 @@
 /**
  * Fehler der API (application/problem+json, RFC 9457) in verständlicher Form. `ApiError` ist die einzige Fehlerklasse
  * für Aufrufe an den Vertrag; Apps übernehmen sie aus dem Paket, damit `instanceof ApiError` überall gilt.
- * Herkunft: vollholz/assets `web/src/api/problem.ts`.
  */
 import type { ProblemDetails } from './contract.ts';
 import { t, type IamTextKey } from './texts/index.ts';

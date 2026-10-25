@@ -101,23 +101,27 @@ CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT TO notes_app USI
   app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id, app.read_relations())));
 ```
 
-**Übernahme bestehender Objekte** (App mit eigenen IAM-Tabellen, z. B. Assets): `adopted` trägt die IAM-Migrationen bis
-`IAM_BASELINE` und die zugeordneten späteren nur ein, nach geprüften Vorbedingungen (sonst Abbruch ohne Eintrag). Für
-Assets mit 051–053:
+**Übernahme bestehender Objekte** (nur für eine App, die die IAM-Tabellen schon aus eigenen Migrationen hat; eine neue
+App braucht das nicht): `adopted` trägt die IAM-Migrationen bis `IAM_BASELINE` und die zugeordneten späteren nur ein,
+nach geprüften Vorbedingungen (sonst Abbruch ohne Eintrag). Beispiel einer App, deren Migrationen 051–053 den
+IAM-Migrationen 010–012 entsprechen:
 
 ```ts
-import { ASSETS_ADOPTION } from '@vollholz/iam';
-
 await migrate(cfg.db.adminUrl!, [
   dirMigrations('db/migrations'),
-  iamMigrations({ product: 'assets', model, adopted: ASSETS_ADOPTION }),
-  // = { after: '053_acl_unique.sql', map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
-  //     '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' } }
+  iamMigrations({
+    product: 'notes', model,
+    adopted: {
+      after: '053_acl_unique.sql',
+      map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql',
+             '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },
+    },
+  }),
 ]);
 ```
 
-Die IAM-Migrationen laufen direkt nach `after`; ausgeführt werden nur `iam_009` und neuere IAM-Migrationen (`iam_013`
-bis `iam_015`).
+Die IAM-Migrationen laufen direkt nach `after`; ausgeführt werden nur die IAM-Migrationen nach der Grundlage, die
+nicht zugeordnet sind.
 
 ## 5. API
 

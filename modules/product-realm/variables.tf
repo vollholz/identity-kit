@@ -1,7 +1,7 @@
 # ---------- Produkt und Adressen
 
 variable "product" {
-  description = "Technischer Name des Produkts (<produkt>, z. B. assets). Daraus folgen alle Namen: Clients <produkt>-platform, -api, -admin, -sync, -mcp, -mcp-cli, Richtlinien <produkt>-code-flow …, Attribute <produkt>.platform und <produkt>.m2m."
+  description = "Technischer Name des Produkts (<produkt>, z. B. notes). Daraus folgen alle Namen: Clients <produkt>-platform, -api, -admin, -sync, -mcp, -mcp-cli, Richtlinien <produkt>-code-flow …, Attribute <produkt>.platform und <produkt>.m2m."
   type        = string
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", var.product))
@@ -9,8 +9,8 @@ variable "product" {
   }
   # product ist ohne var.realm zugleich der Realm-Name
   validation {
-    condition     = !contains(["master", "project-suite"], var.product)
-    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master, nicht project-suite)."
+    condition     = var.product != "master"
+    error_message = "Das Produkt braucht einen eigenen Realm (product nicht master)."
   }
 }
 
@@ -19,13 +19,13 @@ variable "realm" {
   type        = string
   default     = null
   validation {
-    condition     = var.realm == null || !contains(["master", "project-suite"], coalesce(var.realm, "-"))
-    error_message = "Das Produkt braucht einen eigenen Realm (nicht master, nicht project-suite)."
+    condition     = var.realm == null || coalesce(var.realm, "-") != "master"
+    error_message = "Das Produkt braucht einen eigenen Realm (nicht master)."
   }
 }
 
 variable "display_name" {
-  description = "Anzeigename des Produkts (<Produkt>, z. B. «Assets»): Realm, Theme, Texte, Namen der Clients, SMTP-Absender."
+  description = "Anzeigename des Produkts (<Produkt>, z. B. «Notes»): Realm, Theme, Texte, Namen der Clients, SMTP-Absender."
   type        = string
   validation {
     condition     = trimspace(var.display_name) != ""
@@ -34,7 +34,7 @@ variable "display_name" {
 }
 
 variable "public_base_url" {
-  description = "Adresse der Oberfläche (PUBLIC_BASE_URL der App), z. B. https://assets.project-suite.ch."
+  description = "Adresse der Oberfläche (PUBLIC_BASE_URL der App), z. B. https://notes.example.ch."
   type        = string
   validation {
     condition     = can(regex("^https?://[^/]+(/.*)?$", var.public_base_url))
@@ -43,13 +43,16 @@ variable "public_base_url" {
 }
 
 variable "keycloak_url" {
-  description = "Adresse der Keycloak-Instanz ohne Basispfad (für Issuer und die Admin-API der Hilfsskripte)."
+  description = "Adresse der Keycloak-Instanz ohne Basispfad (für Issuer und die Admin-API der Hilfsskripte), z. B. https://id.example.ch; dieselbe wie im Provider."
   type        = string
-  default     = "https://identity.project-suite.ch"
+  validation {
+    condition     = can(regex("^https?://[^/]+$", trimsuffix(var.keycloak_url, "/")))
+    error_message = "keycloak_url: http(s)-Adresse ohne Pfad (Basispfad in keycloak_base_path)."
+  }
 }
 
 variable "keycloak_base_path" {
-  description = "Basispfad der Instanz (leer: identity.project-suite.ch hat keinen relativen Pfad)."
+  description = "Basispfad der Instanz, z. B. /auth (leer: kein relativer Pfad, Standard ab Keycloak 17)."
   type        = string
   default     = ""
 }
@@ -80,7 +83,7 @@ variable "jwks" {
     condition     = length(setsubtract(["platform", "admin", "sync"], keys(var.jwks))) == 0 && length(setsubtract(keys(var.jwks), ["platform", "admin", "sync", "mcp"])) == 0
     error_message = "jwks braucht genau die Schlüssel platform, admin, sync und optional mcp."
   }
-  # Genau ein EC-P-256-Schlüssel mit kid, ohne privaten Teil (wie test/infra-keycloak.test.ts in Assets)
+  # Genau ein EC-P-256-Schlüssel mit kid, ohne privaten Teil
   validation {
     condition = alltrue([for v in values(var.jwks) : try(
       length(jsondecode(v).keys) == 1 &&

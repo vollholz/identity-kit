@@ -3,7 +3,6 @@
  * Kurzbeschreibung, ganze Beschreibung als title), Rollen an Orten mit Ort und Ablauf (`GET /v1/access?subject=me`,
  * Pfeil zum Ort), Freigabestufe (mit laufendem Break-Glass), die Rechte-Übersicht für mich (Status `role`/`place`/`scope`)
  * und eingeklappt «Rollen vergleichen» mit den eigenen Rollen hervorgehoben.
- * Herkunft: vollholz/assets `web/src/shell/MyRights.tsx`.
  */
 import { useMyAccess } from '../access/api.ts';
 import { untilText, useBreakGlass } from '../access/BreakGlass.tsx';

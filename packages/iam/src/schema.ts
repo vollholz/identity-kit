@@ -2,11 +2,11 @@
  * Abzug der Datenbankobjekte des IAM (Entwurf Kap. 6.4): Tabellen mit Besitzer, Spalten, Bedingungen, Indizes,
  * Policies, Triggern, RLS und Rechten; Sequenzen mit Besitzer und Rechten; Funktionen mit Besitzer, Rumpf,
  * SECURITY DEFINER, Einstellungen und Rechten; Rechte der Schemas und Standardrechte. Spalten nach Namen (nicht nach
- * Position), Rechte sortiert. Für den Gleichheitstest mit Assets und für Apps, die ihre Übernahme selbst prüfen.
+ * Position), Rechte sortiert. Für Apps, die ihre Übernahme selbst prüfen.
  */
 import type pg from 'pg';
 
-/** Tabellen des IAM (Stand Assets 049). */
+/** Tabellen des IAM (Stand von `IAM_BASELINE`). */
 export const IAM_TABLES = ['tenant', 'principal', 'acl_entry', 'tenant_role', 'member_invitation', 'client_grant', 'session', 'replay_guard', 'rate_limit', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent', 'entra_consent_link'];
 /** Funktionen des IAM im Schema `app`. */
 export const IAM_FUNCTIONS = ['tenant_id', 'principal_id', 'secure_tenant_tables', 'resolve_tenant', 'bump_acl_version', 'audit_hash', 'audit_chain', 'suspended_tenants', 'platform_tenants', 'set_tenant_status', 'entra_login_alias', 'entra_free_slot', 'entra_domains_taken'];

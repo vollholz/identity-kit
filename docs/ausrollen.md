@@ -17,8 +17,8 @@ permissions:
   packages: read
 env:
   NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # auf Jobebene: auch npm audit signatures fragt die Registry
-  # Reicht GITHUB_TOKEN in einem Repository ausserhalb von vollholz nicht (403), ein Token (classic) eines Kontos der
-  # App mit nur read:packages als Secret nehmen: NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+  # Reicht GITHUB_TOKEN in einem Repository ausserhalb von vollholz nicht (403): ein persönliches Token (classic) mit
+  # nur read:packages als Secret nehmen (kein Maschinenkonto nötig): NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
 steps:
   - uses: actions/setup-node@v7.0.0
     with:

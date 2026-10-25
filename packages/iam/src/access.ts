@@ -7,7 +7,7 @@
  *    `read` ergibt das Leserecht des Typs, `edit` Lese- und Schreibrecht. units(p) = Einheiten mit Tupel `member`
  *    eines Subjekts von p und transitiv alle darunter (Tiefe ≤ 16).
  *    Dazu Zuständigkeit über Personen aus Fachdaten (`edges.persons`, Kit 1.1): Die Person p steht mit grants ≠ none
- *    an ref (Assets: Attribut «Verantwortlich»); `read` bzw. `edit` wie oben. Nur Personen, nie Gruppen oder Clients.
+ *    an ref (z. B. ein Feld «Verantwortlich»); `read` bzw. `edit` wie oben. Nur Personen, nie Gruppen oder Clients.
  * 3. Klassifizierung (Typen mit `classified`): classification(ref) ≤ clearance(p).
  * 4. Besitz (Typen mit `owner`): Tupel `owner` eines Subjekts von p an ref.
  * 5. Scope (nur scopeBound): perm ∈ permissionsForScopes(p.scopes), für jeden Weg.
@@ -345,7 +345,7 @@ export class AccessService<P extends string = string, S = unknown> {
     return new Set(rows.filter(r => r.grants === 'read' || r.grants === 'edit').map(r => `${r.type ?? '*'}:${r.grants}`));
   }
 
-  /** Hinweis zur Kette (Assets: Typ eines Objekts), falls die App ihn nicht mitgibt. */
+  /** Hinweis zur Kette (z. B. Typ eines Objekts), falls die App ihn nicht mitgibt. */
   async hint(tenantId: string, ref: ResourceRef): Promise<string | null> {
     const h = this.resources?.hints;
     if (!h || !ref.id) return null;

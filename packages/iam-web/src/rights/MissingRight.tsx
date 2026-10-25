@@ -4,7 +4,7 @@
  * dürfen und das Recht enthalten, `place`). Scheitert es an der Vertraulichkeit (`classification` über der eigenen
  * Freigabestufe), Stufe und eigene Freigabestufe. Kompakt als Satz unter einer Aktion oder als ganze Seite «Recht fehlt»
  * (auch für die Guards). Der Schlüssel erscheint nur als technischer Zusatz (title). Statt eines Rechts kann die
- * Plattform-Administration fehlen (`PLATFORM_ADMIN`). Herkunft: vollholz/assets `web/src/ui/MissingRight.tsx`.
+ * Plattform-Administration fehlen (`PLATFORM_ADMIN`).
  */
 import type { ReactNode } from 'react';
 import { useAuthz, type Authz } from '../authz.ts';

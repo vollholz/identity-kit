@@ -1,4 +1,4 @@
-/** Lade-, Leer- und Fehlerzustände – überall gleich aussehend und verständlich. Herkunft: vollholz/assets `web/src/ui/states.tsx`. */
+/** Lade-, Leer- und Fehlerzustände – überall gleich aussehend und verständlich. */
 import type { ReactNode } from 'react';
 import { describeError, fieldErrorText } from '../problem.ts';
 import { t } from '../texts/index.ts';

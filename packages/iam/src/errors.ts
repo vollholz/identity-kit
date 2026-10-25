@@ -1,7 +1,6 @@
 /**
- * Fachliche HTTP-Fehler, ausgegeben als application/problem+json (RFC 9457; aus Assets `http/errors.ts`).
- * Texte de, Du-Form. Eine App mit eigener Fehlerbehandlung erkennt `HttpError` aus diesem Paket (Assets exportiert in
- * Phase 2 diese Klasse, damit es nur eine gibt).
+ * Fachliche HTTP-Fehler, ausgegeben als application/problem+json (RFC 9457).
+ * Texte de, Du-Form. Eine App mit eigener Fehlerbehandlung erkennt `HttpError` aus diesem Paket.
  */
 export class HttpError extends Error {
   readonly status: number;

@@ -2,7 +2,7 @@
   "name": "identity-kit",
   "private": true,
   "type": "module",
-  "description": "Baukasten für Anmeldung und Rechte der Apps auf identity.project-suite.ch",
+  "description": "Baukasten für Anmeldung und Rechte (authn, authz) von Apps mit Keycloak",
   "engines": { "node": ">=24" },
   "workspaces": ["packages/*"],
   "scripts": {

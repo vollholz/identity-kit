@@ -1,5 +1,5 @@
 /**
- * Backend for Frontend (Spezifikation Kap. 6.2; aus Assets `modules/auth/bff.ts`): Anmeldung der Oberfläche über
+ * Backend for Frontend (Spezifikation Kap. 6.2): Anmeldung der Oberfläche über
  * Keycloak (Code-Flow mit PKCE S256, state, nonce). Tokens verlassen den Server nie; der Browser erhält nur ein
  * signiertes, HttpOnly-Cookie mit einer zufälligen Sitzungs-ID (256 Bit). In `<schema>.session` liegt deren Hash, der
  * Inhalt (Tokens, Person, Organisationen) ist mit AES-256-GCM verschlüsselt. Als `SessionBridge` liefert die Klasse dem

@@ -1,6 +1,6 @@
 /**
  * Nachgebildete Keycloak-Admin-API (Organisationen, Benutzer, Gruppen) als `fetch`-Ersatz für die Verwaltung des
- * Baukastens (Spezifikation Kap. 9). Herkunft: vollholz/assets `test/platform/keycloak-fake.ts`.
+ * Baukastens (Spezifikation Kap. 9).
  * Verhalten wie Keycloak 26.6, soweit die Verwaltung es nutzt (live geprüft): Organisationsmitglieder, Gruppenpfade,
  * E-Mail-Versand scheitert ohne SMTP mit 500, Konten ohne Passwort, 409 bei doppelten Werten, `invite-existing-user`
  * mit 400 (Konto gesperrt, ohne E-Mail, unbekannt) bzw. 409 (schon Mitglied) vor dem Versand, Mitglied hinzufügen mit

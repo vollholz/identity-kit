@@ -43,11 +43,11 @@ resource "keycloak_realm" "this" {
 
   admin_permissions_enabled = true
 
-  # Theme «identity» der Identity-Plattform (vollholz/identity) für Login, Konto und E-Mails; Name = display_name,
-  # Akzent und Claim aus var.theme_texts. Fehlt das Theme auf dem Server, nimmt Keycloak das Standard-Theme.
-  login_theme   = "identity"
-  account_theme = "identity"
-  email_theme   = "identity"
+  # Theme für Login, Konto und E-Mails (var.theme, auf dem Server installiert); Name = display_name, weitere Werte aus
+  # var.theme_texts. Ohne var.theme das Standard-Theme von Keycloak.
+  login_theme   = var.theme
+  account_theme = var.theme
+  email_theme   = var.theme
 
   internationalization {
     supported_locales = var.supported_locales

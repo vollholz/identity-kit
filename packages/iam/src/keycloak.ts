@@ -1,6 +1,5 @@
 /**
- * Zugang zur Keycloak-Admin-API für die Verwaltung von Organisationen, Mitgliedern und Rollen (Spezifikation Kap. 9;
- * aus Assets `modules/admin/keycloak.ts`).
+ * Zugang zur Keycloak-Admin-API für die Verwaltung von Organisationen, Mitgliedern und Rollen (Spezifikation Kap. 9).
  *
  * Anmeldung als eigener vertraulicher Client mit Service Account (KEYCLOAK_MGMT_CLIENT_ID, im Worker
  * KEYCLOAK_SYNC_CLIENT_ID) im Realm der Plattform, bevorzugt mit `private_key_jwt` (RFC 7523), sonst mit

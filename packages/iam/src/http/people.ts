@@ -1,12 +1,12 @@
 /**
- * Modul `people`: Personenverzeichnis des Mandanten (Spezifikation Kap. 9.2; aus Assets `modules/catalog/people.ts`):
+ * Modul `people`: Personenverzeichnis des Mandanten (Spezifikation Kap. 9.2):
  * Personen (und auf Wunsch Maschinen-Clients) aus `<schema>.principal`. Quelle sind die Anmeldungen (principal.ts) und
  * der Abgleich mit Keycloak (sync.ts), der Mitglieder schon vor der ersten Anmeldung bringt (`lastSeenAt` dann `null`);
  * aus der Organisation entfernte Personen fehlen in der Liste, bleiben aber einzeln lesbar (Werte der App verweisen
  * darauf). Mandantentrennung über RLS. Vertrag der Oberflächen-Bausteine (`@vollholz/iam-web`).
  *
  * Recht: irgendwo (`needSomewhere`) eines der Rechte aus der Option `people.permissions` – Standard die Fachrechte des
- * Lese-Scopes `<produkt>:read` und `access:admin` (Assets: `object:read`). Wer Daten der App liest, muss die Namen dazu
+ * Lese-Scopes `<produkt>:read` und `access:admin`. Wer Daten der App liest, muss die Namen dazu
  * auflösen und für eigene Änderungen Personen auswählen können; `tenant:read` allein öffnet das Verzeichnis nicht.
  *
  * Datenschutz (Datenminimierung): Name und ID sehen alle mit dem Recht. Die E-Mail-Adresse sehen angemeldete Personen

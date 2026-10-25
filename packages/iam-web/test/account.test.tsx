@@ -1,6 +1,6 @@
 /**
  * Rechte sichtbar machen: Guards für Verwalten-Seiten, Seitenkopf, Kontomenü und «Meine Rollen und Rechte», Organisation
- * in Kopfzeile und Befehlspalette. Aus vollholz/assets `web/src/shell/rights.test.tsx`, produktneutral (Notiz-App).
+ * in Kopfzeile und Befehlspalette. Beispiel: Notiz-App.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

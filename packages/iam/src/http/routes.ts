@@ -1,6 +1,6 @@
 /**
- * Gemeinsames der Module: Kontext, überschreibbare OpenAPI-Texte (Entwurf 13.4) und Schemabausteine wie in Assets
- * `http/route-kit.ts`. Die Standardtexte des Pakets sind produktneutral; die App ersetzt Tags, Zusammenfassungen,
+ * Gemeinsames der Module: Kontext, überschreibbare OpenAPI-Texte (Entwurf 13.4) und Schemabausteine. Die
+ * Standardtexte des Pakets sind produktneutral; die App ersetzt Tags, Zusammenfassungen,
  * Beschreibungen und Beschreibungen einzelner Felder, damit ihre OpenAPI-Beschreibung gleich bleibt.
  */
 import { Type, type TSchema } from '@sinclair/typebox';

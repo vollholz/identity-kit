@@ -2,7 +2,7 @@
  * Personenverzeichnis (docs/entwurf.md 1.8, Spezifikation 9.2 `GET /v1/people`): Suche für Auswahlen und Auflösung von
  * Principal-IDs zu Namen. Die Standard-Umsetzung ruft `/v1/people` auf; eine App mit eigenem Verzeichnis ersetzt sie
  * über `people`. `<PersonName>` sammelt die Einzelabfragen eines Augenblicks (z. B. einer Tabelle) zu einem Aufruf mit
- * höchstens 100 IDs; Suchtreffer füllen denselben Zwischenspeicher. Herkunft: vollholz/assets `web/src/api/people.ts`.
+ * höchstens 100 IDs; Suchtreffer füllen denselben Zwischenspeicher.
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';

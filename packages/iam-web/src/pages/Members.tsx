@@ -5,7 +5,7 @@
  * freigeben, Rollen setzen (Dialog mit Rechte-Übersicht und Rollenmatrix), Freigabestufe setzen, über «⋯» entfernen bzw.
  * die Freigabe entziehen, Einladung erneut senden oder zurückziehen. Dieselbe Liste nutzt die Plattform-Administration
  * für eine beliebige Organisation (`alias`). Mit Entra ID verbunden (nur mit `features.entra`): «Person hinzufügen» sucht
- * im Verzeichnis der Organisation. Herkunft: vollholz/assets `web/src/features/admin/Members.tsx`.
+ * im Verzeichnis der Organisation.
  *
  * - Je Zeile höchstens «Rollen» (bei Organisations-Admins «Ansehen») und das Menü «Mehr zu <Name>», damit alle Zeilen
  *   gleich hoch bleiben. Was die API ablehnen würde, steht gesperrt mit Grund, statt zu fehlen oder erst beim
@@ -515,7 +515,7 @@ function RoleView({ member, roles }: { member: Member; roles: RoleInfo[] }) {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * Vorgabe beim Einladen: `inviteRoles` der App (nur Rollen, die es gibt und die ich vergeben darf), sonst die Rolle mit
- * den wenigsten Rechten ausser org-admin (Notiz-App und Assets: Leser:in); bei Gleichstand gilt die Reihenfolge des Katalogs.
+ * den wenigsten Rechten ausser org-admin (z. B. Leser:in); bei Gleichstand gilt die Reihenfolge des Katalogs.
  */
 function defaultRoles(ctx: ListCtx, configured: string[] | undefined): string[] {
   const allowed = (r: RoleInfo) => (ctx.platform || !r.adminOnly) && !exceeding(r, ctx.own).length;

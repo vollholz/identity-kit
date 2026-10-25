@@ -1,8 +1,10 @@
-# Konzept: Berechtigungen als Beziehungen (ReBAC) für identity-kit und Assets
+# Konzept: Berechtigungen als Beziehungen (ReBAC) für identity-kit
 
 Stand 2026-10-23, Entwurf. Greenfield: kein Migrationspfad, bestehende Realms und Daten dürfen neu entstehen.
-Grundlage: Inventar der drei Repositories (Abschnitt 8), Spezifikation Kap. 7–12, Assets `src/platform/authz/*`,
-`db/migrations`, `web/src`.
+Grundlage: Inventar (Abschnitt 8), Spezifikation Kap. 7–12.
+
+Die Beispiele verwenden die App `notes` («Notes») in der Stufe «komplex» (5.4): Schemas, Typen und Objekte mit
+Freigaben, Zuständigkeit und Klassifizierung. Was dort app-spezifisch ist, legt jede App selbst fest.
 
 ## Inhalt
 
@@ -10,8 +12,8 @@ Grundlage: Inventar der drei Repositories (Abschnitt 8), Spezifikation Kap. 7–
 2. [Validierung der bisherigen Aussagen](#2-validierung-der-bisherigen-aussagen)
 3. [Das Modell](#3-das-modell)
 4. [Architektur](#4-architektur)
-5. [Assets: Modell und Oberfläche](#5-assets-modell-und-oberfläche)
-6. [Was in den drei Repositories entsteht, ändert, entfällt](#6-was-in-den-drei-repositories-entsteht-ändert-entfällt)
+5. [Beispiel-App: Modell und Oberfläche](#5-beispiel-app-modell-und-oberfläche)
+6. [Was entsteht, ändert, entfällt](#6-was-entsteht-ändert-entfällt)
 7. [Umsetzungsplan](#7-umsetzungsplan)
 8. [Inventar (Ist)](#8-inventar-ist)
 9. [Bewusst nicht gebaut](#9-bewusst-nicht-gebaut)
@@ -43,7 +45,7 @@ Drei Fragen an die Engine, alle in SQL beantwortbar:
 
 | Aussage | Befund |
 |---|---|
-| OpenFGA als Engine, in `identity` betrieben, ein Store je Produkt | **Verworfen.** Für ein EA-Werkzeug ist List/Filter die entscheidende Frage (Suche, Reports, Graph über Zehntausende Objekte, heute 13 Report-Routen + 10 View-Routen mit `needSomewhere('object:read')`). OpenFGA beantwortet Check gut, List/Filter nur über `ListObjects` oder Doppelbuchführung. Die Mandantentrennung liegt ohnehin zwingend in RLS. Ein externer Dienst würde zwei Wahrheiten (App-DB und FGA), Outbox, HA und Backup verlangen, ohne dass eine App davon etwas gewinnt. Die bestehende Architektur (Lesesicht aus Session-Einstellungen + RESTRICTIVE-Policies) ist bereits das richtige Muster und wird beibehalten. |
+| OpenFGA als Engine, beim Betreiber der Keycloak-Instanz betrieben, ein Store je Produkt | **Verworfen.** Für Apps mit vielen Objekten ist List/Filter die entscheidende Frage (Suche, Reports, Graph über Zehntausende Objekte, heute 13 Report-Routen + 10 View-Routen mit `needSomewhere('object:read')`). OpenFGA beantwortet Check gut, List/Filter nur über `ListObjects` oder Doppelbuchführung. Die Mandantentrennung liegt ohnehin zwingend in RLS. Ein externer Dienst würde zwei Wahrheiten (App-DB und FGA), Outbox, HA und Backup verlangen, ohne dass eine App davon etwas gewinnt. Die bestehende Architektur (Lesesicht aus Session-Einstellungen + RESTRICTIVE-Policies) ist bereits das richtige Muster und wird beibehalten. |
 | Keycloak = «wer», Engine = «was»; Rollen nicht im Token | **Bleibt.** Rollen, Freigaben und Client-Freigaben werden Tupel in der App-Datenbank; Keycloak hält nur Realm, Organisationen, Mitgliedschaft, Clients, Scopes, `platform-admin`. Rollengruppen `/orgs/<alias>/<rolle>` und Client-Rollen entfallen. |
 | Scopes schneiden nur, geben nichts; MCP-Agent nie mehr als die Person | **Bleibt** (heute schon so, `access.ts:91-106`). |
 | Gemeinsame Bibliothek, App bringt eigenes Modell; drei Stufen einfach/mittel/komplex | **Bleibt**, umgesetzt als `defineModel()` im Baukasten. |
@@ -56,8 +58,8 @@ Drei Fragen an die Engine, alle in SQL beantwortbar:
 |---|---|---|
 | 1 Alles ist eine Beziehung; Rolle = Beziehung an einem Ort | Richtig und tragfähig. Rolle org-weit = Tupel an `org`, Rolle im Bereich = dasselbe Tupel an Schema, Typ oder Organisationseinheit. Ersetzt heutige drei Konzepte (Rolle, `grant`, «Rechte einer Rolle im Bereich» = n grants). | Keine. |
 | 2 Rechte deklarativ aus Beziehungen | Richtig. Die DSL bleibt bewusst klein: Vereinigung direkter Beziehungen plus Vererbung über genau benannte Kanten (`parent->`, `owned_by->`). Keine Ausschlüsse, keine Schnittmengen in der DSL. | DSL in TypeScript (`defineModel`), nicht als eigene Sprache. |
-| 3 Metamodell sagt, welche Beziehungen zählen | Richtig und der eigentliche Gewinn für Assets. Heute: `reference_type` je Schema mit `name`/`inverse_name`, keine Semantik. | `reference_type` erhält `grants` (`none` \| `read` \| `edit`) und `inherits_scope` (Kante, über die Zuständigkeit weitergereicht wird, z. B. «übergeordnete Einheit»). |
-| 4 Vertraulichkeit als Klassifizierung, von keiner Beziehung übersteuert; dazu höchstens `blocked` | Klassifizierung: richtig, günstig (eine Spalte, eine Policy). Attributgruppen gibt es in Assets nicht (nur `position`). `blocked`: **weglassen**. Jede Ausnahme macht «Wer hat Zugriff?» und die Lesesicht wieder zweiteilig, und der einzige echte Fall («X soll dieses eine Objekt nicht sehen») wird mit Klassifizierung oder Zuständigkeit gelöst. | Klassifizierung am Objekt (und am Typ als Vorgabe), Freigabestufe je Principal. Attributgruppen nicht Teil des Vorhabens. |
+| 3 Metamodell sagt, welche Beziehungen zählen | Richtig und der eigentliche Gewinn für die Beispiel-App. Heute: `reference_type` je Schema mit `name`/`inverse_name`, keine Semantik. | `reference_type` erhält `grants` (`none` \| `read` \| `edit`) und `inherits_scope` (Kante, über die Zuständigkeit weitergereicht wird, z. B. «übergeordnete Einheit»). |
+| 4 Vertraulichkeit als Klassifizierung, von keiner Beziehung übersteuert; dazu höchstens `blocked` | Klassifizierung: richtig, günstig (eine Spalte, eine Policy). Attributgruppen gibt es in der Beispiel-App nicht (nur `position`). `blocked`: **weglassen**. Jede Ausnahme macht «Wer hat Zugriff?» und die Lesesicht wieder zweiteilig, und der einzige echte Fall («X soll dieses eine Objekt nicht sehen») wird mit Klassifizierung oder Zuständigkeit gelöst. | Klassifizierung am Objekt (und am Typ als Vorgabe), Freigabestufe je Principal. Attributgruppen nicht Teil des Vorhabens. |
 | 5 Scopes schränken nur ein; Programm mit Admin-Rolle nicht ausgenommen | Richtig, heute schon so. | Keine. |
 | 6 Organisation harte Grenze (RLS), Admins nicht ausgenommen, Break-Glass | Richtig. Ohne Verbote und Beschränkungen gibt es nur eine Sache, an der ein org-admin scheitern kann: die Klassifizierung. Break-Glass ist deshalb nur **eine** Funktion: Freigabestufe zeitlich begrenzt auf die höchste Stufe heben, mit Begründung, im Protokoll, mit Banner. | Keine weitere Ausnahme. |
 | Engine in Postgres: Tupel-Tabelle + materialisierte Mitgliedschaften + `EXISTS` + Konsistenzmarke | Richtig. Materialisierung aber nicht als Tabelle, sondern **je Anfrage**: die Menge der Subjekte (ich, meine Gruppen, meine Organisationseinheiten transitiv) und die Menge der lesbaren Container werden einmal berechnet und als Session-Einstellungen gesetzt, wie heute `app.read_types`. Konsistenzmarke = `tenant.acl_version` (Trigger auf der Tupel-Tabelle), wie heute. | Keine materialisierte Tabelle (kein Refresh-Problem, keine Stale-Daten). |
@@ -75,7 +77,7 @@ Drei Fragen an die Engine, alle in SQL beantwortbar:
 | **Freigabe** | Ein Eintrag «Wer – Rolle – Ort», optional mit Ablaufdatum | «Anna ist Bearbeiterin am Schema IT bis 31.12.» |
 | **Zuständigkeit** | Rechte, die aus Fachdaten folgen: Objekt gehört zu Einheit, Person ist Mitglied der Einheit | «Mitglieder der Abteilung X lesen alles, was der Abteilung gehört» |
 | **Vertraulichkeit** | Stufe am Objekt (intern, vertraulich, streng vertraulich); Freigabestufe je Person | «Streng vertraulich sehen nur Personen mit Freigabestufe 2» |
-| **Scope** | Obergrenze im Token für Programme, MCP, Assistent | `assets:read` |
+| **Scope** | Obergrenze im Token für Programme, MCP, Assistent | `notes:read` |
 | **Recht** | Was eine Aktion verlangt, Schlüssel `<bereich>:<verb>` | `object:write` |
 
 Entfallen: «Zugriffsregel», «Verbieten», «Beschränken auf», «eigene Rolle», «Principal», «Gruppe» als Verwaltungsbegriff.
@@ -108,13 +110,13 @@ Fachliche Kanten («Objekt n42 gehört zu ou-42», «ou-42 ist Teil von ou-1») 
 
 ```ts
 export const model = defineModel({
-  product: 'assets',
+  product: 'notes',
   roles: {                       // Rollen = Beziehungsnamen, mit Label und Beschreibung (wie heute ROLES)
     'org-admin': { label: 'Organisations-Admin', permissions: '*' },
     'schema-admin': { … }, 'integration-admin': { … }, reviewer: { … }, editor: { … }, viewer: { … }, auditor: { … },
   },
   permissions: { 'object:read': { label, group, description }, … },   // wie heute
-  scopes: { 'assets:read': ['object:read', …], … },                   // wie heute
+  scopes: { 'notes:read': ['object:read', …], … },                    // wie heute
   types: {
     org:        { roles: '*' },                                        // jede Rolle darf hier hängen
     schema:     { parent: 'org',    roles: ['schema-admin', 'editor', 'viewer', 'reviewer'] },
@@ -169,11 +171,11 @@ USING (
   AND (
     app.read_all()
     OR type_id = ANY (app.read_types())
-    OR EXISTS (SELECT 1 FROM assets.authz_tuple t WHERE t.tenant_id = object.tenant_id AND t.object_type = 'object'
+    OR EXISTS (SELECT 1 FROM notes.authz_tuple t WHERE t.tenant_id = object.tenant_id AND t.object_type = 'object'
                AND t.object_id = object.id AND t.subject = ANY (app.subjects())
                AND t.relation = ANY (app.read_relations())          -- nur Rollen, die object:read enthalten, nie 'member'
                AND (t.expires_at IS NULL OR t.expires_at > now()))
-    OR EXISTS (SELECT 1 FROM assets.object_reference r JOIN assets.reference_type rt ON …
+    OR EXISTS (SELECT 1 FROM notes.object_reference r JOIN notes.reference_type rt ON …
                WHERE r.from_id = object.id AND rt.grants <> 'none' AND r.to_id = ANY (app.read_units()))
   )
 )
@@ -205,11 +207,11 @@ Zeilen der Mitgliederliste mit Art «Client». Client-Rollen in Keycloak entfall
 
 | Ebene | Verantwortung | Repository |
 |---|---|---|
-| Identität | Realm, Organisationen, Mitgliedschaft, Clients, Scopes, Entra, `platform-admin` | `identity` (Betrieb, unverändert), `identity-kit/modules/product-realm` (vereinfacht) |
+| Identität | Realm, Organisationen, Mitgliedschaft, Clients, Scopes, Entra, `platform-admin` | Betreiber der Keycloak-Instanz (unverändert), `identity-kit/modules/product-realm` (vereinfacht) |
 | Engine | Tupel-Tabelle, `defineModel`, Subjekte, Lesesicht-Einstellungen, `can`/`need`/`explain`/`whoHasAccess`, Verwaltung (Freigaben, Mitglieder, Clients), Klassifizierung, Break-Glass, Audit | `identity-kit/packages/iam` |
 | Oberfläche | Freigabe-Panel, «Wer hat Zugriff?», «Warum?», Mitglieder mit Rolle und Ort, Klassifizierungs-Badge, Break-Glass-Banner, «Meine Rechte» | `identity-kit/packages/iam-web` |
 | Tests | Modellprüfung, RLS-Prüfung, Isolation, Konformität | `identity-kit/packages/iam-testkit` |
-| App | Modell (`authz/model.ts`), Kanten (`parent`, `parent_id`, Referenztypen), RLS-Policies, Felder in den Views | `assets` |
+| App | Modell (`authz/model.ts`), Kanten (`parent`, `parent_id`, Referenztypen), RLS-Policies, Felder in den Views | Repository der App |
 
 ### 4.2 Schnittstelle des Baukastens zur App
 
@@ -217,7 +219,7 @@ Zeilen der Mitgliederliste mit Art «Client». Client-Rollen in Keycloak entfall
 |---|---|
 | `defineCatalog({permissions, groups, roles, scopes, resources, capabilities, mcpTools})` | `defineModel({…, types})` – gleiche Teile plus `types` (Kette, Rollen je Ort, `scope`, `classified`, `owner`, `leaf`) |
 | `ResourceModel {chain, exists, hints, dbContext, load, version}` | `ResourceModel {chain, exists, hints, edges}`; `dbContext` berechnet der Baukasten selbst aus dem Modell; `edges` liefert die rekursive Zuständigkeit (SQL-Fragment der App) |
-| `req.need`, `req.needSomewhere`, `req.can`, `req.capabilities`, `req.tx` | **unverändert** (114 + 39 + 20 + 10 Aufrufstellen in Assets bleiben) |
+| `req.need`, `req.needSomewhere`, `req.can`, `req.capabilities`, `req.tx` | **unverändert** (bestehende Aufrufstellen in den Apps bleiben) |
 | `GET /v1/acl`, `POST /v1/acl`, `DELETE /v1/acl/:id`, `GET /v1/acl/effective` | `GET /v1/access?type=&id=` (wer hat Zugriff, mit Herkunft), `POST /v1/access` (Freigabe), `DELETE /v1/access/:id`, `GET /v1/access/explain?type=&id=&permission=&subject=` |
 | `GET/POST/PATCH/DELETE /v1/roles` (eigene Rollen) | entfällt |
 | `PUT /v1/admin/members/:id/roles` (Keycloak-Gruppen) | `PUT /v1/admin/members/:id/roles` (Tupel an `org`); gleiche Antwort |
@@ -252,16 +254,16 @@ nur Keycloak-Gruppen und entfällt). Der Baukasten legt je Entra-IdP einen Mappe
 Entra-Tokens (Objekt-IDs) in das Benutzerattribut `entra_groups` übernimmt (Sync-Modus `FORCE`), und am Client
 `<p>-platform` einen Mapper Benutzerattribut → Claim `groups`. Subjekt `group:<entra-object-id>`; Anzeigename im
 Panel über die bestehende Graph-Anbindung (`EntraGraph`). Ohne Entra gibt es keine Gruppen: Freigaben gehen an Personen,
-Clients, «Alle Mitglieder» oder – in Assets – an Organisationseinheiten (Mitglieder).
+Clients, «Alle Mitglieder» oder – in der Beispiel-App – an Organisationseinheiten (Mitglieder).
 
-Repository `identity`: **keine Änderung** (betreibt Keycloak, kennt kein Produkt).
+Betreiber der Keycloak-Instanz: **keine Änderung** (betreibt Keycloak, kennt kein Produkt).
 
 ### 4.5 Wirkungszeiten
 
 Freigabe, Rolle, Klassifizierung, Freigabestufe, Break-Glass: sofort auf allen Instanzen (Datenbank, Version im Cache).
 Gruppen aus Entra: mit dem nächsten Token (≤ 5 min). Entfernen einer Person: ≤ 5 min (wie heute).
 
-## 5. Assets: Modell und Oberfläche
+## 5. Beispiel-App: Modell und Oberfläche
 
 ### 5.1 Modell
 
@@ -285,7 +287,7 @@ Zuständigkeit: Jeder Referenztyp im Schema trägt zwei Schalter, sichtbar als S
 Zuständig für ein Objekt (typisch: Organisationseinheit, Team, Standort) ist, wer ein Tupel `member` daran hat – Person
 oder Entra-Gruppe. Das ist dieselbe Freigabe-Oberfläche mit der Rolle «Mitglied».
 
-Entfernt aus Assets: `acl_entry`, `tenant_role`, `client_grant`, `hiddenObjects()` und alle `hidden`-Filter
+Entfernt aus der Beispiel-App: `acl_entry`, `tenant_role`, `client_grant`, `hiddenObjects()` und alle `hidden`-Filter
 (`objects.ts`, `structure.ts`, `reports/filter.ts`, `integrations/visibility.ts`, `catalog/unique.ts`), Seite «Zugriff»,
 Seite «Rollen», Simulator, `AclHint`, `report.shared` / `saved_view.shared` (werden Tupel `org:members viewer`).
 
@@ -302,7 +304,7 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
   Abteilung X (Gruppe)   Mitglied         Zuständigkeit: gehört zu «Abt X» –            →
   Peter Meier            Leser            Schema «IT»                      –            →
   Alle Mitglieder        Leser            Organisation                     –            →
-  sync-1 (Client)        Bearbeiter       Organisation · Scope assets:read –            →
+  sync-1 (Client)        Bearbeiter       Organisation · Scope notes:read  –            →
 
   Warum sehe ich das?  →  «Du liest dieses Objekt über die Rolle Leser:in am Schema IT.»
 ```
@@ -333,9 +335,9 @@ Zugriff auf «Server srv-042»                                   [Freigeben]
 Muster bleiben: Hauptaktion im Seitenkopf, nicht Erlaubtes gesperrt mit Grund, 404 für Unsichtbares, kein waagrechtes
 Scrollen bei 390 px, hell/dunkel, axe ohne serious/critical.
 
-### 5.3 Neue Konzepte im EA-Modell (Entscheid 2026-10-23)
+### 5.3 Neue Konzepte im Modell der Beispiel-App (Entscheid 2026-10-23)
 
-Alle vier werden eingeführt – **in Assets**, als Bestandteile des EA-Katalogs. Der Baukasten kennt davon nur das
+Alle vier führt die Beispiel-App ein – **in der App**, als Bestandteile ihres Katalogs. Der Baukasten kennt davon nur das
 Generische (Klassifizierungsstufe, Freigabestufe, Ressource mit Mitgliedern, Vererbung über `edges`); andere Apps
 beantworten «woher kommen Kanten und Zuständigkeit» mit ihren eigenen Tabellen oder gar nicht (5.4).
 
@@ -346,7 +348,7 @@ beantworten «woher kommen Kanten und Zuständigkeit» mit ihren eigenen Tabelle
 | **Attributgruppen** | Tabelle `attribute_group` je Typ (`name`, `position`, `classification`), `attribute_def.group_id`; Gruppe «Allgemein» implizit | Attribute einer Gruppe über der eigenen Freigabestufe fehlen in API, MCP, Reports, Export und sind nicht schreibbar; Oberfläche zeigt die Gruppe als Abschnitt mit Schloss |
 | **Klassifizierung** | Wie 3.5, zusätzlich Stufe je Attributgruppe | Objekt-Policy (RLS) und Attribut-Maskierung (App) |
 
-Kein separates Personen-Objekt: Das Attribut `user` (Principal) bleibt der Anker. Personen als EA-Objekte
+Kein separates Personen-Objekt: Das Attribut `user` (Principal) bleibt der Anker. Personen als Fachobjekte
 (Rolleninhaber, Stellen) wären ein eigenes Vorhaben.
 
 ### 5.4 Stufen für andere Apps
@@ -355,11 +357,11 @@ Kein separates Personen-Objekt: Das Attribut `user` (Principal) bleibt der Anker
 |---|---|---|
 | einfach | nur `org` mit 2–3 Rollen | Mitglieder, Meine Rechte |
 | mittel | Kette `org → bereich → ding` | zusätzlich «Zugriff» an Bereichen |
-| komplex (Assets) | Blatt-Freigaben, Zuständigkeit, Klassifizierung | alles |
+| komplex (Beispiel-App) | Blatt-Freigaben, Zuständigkeit, Klassifizierung | alles |
 
 Das Panel und die Endpunkte sind dieselben; die App deklariert nur mehr oder weniger `types`.
 
-## 6. Was in den drei Repositories entsteht, ändert, entfällt
+## 6. Was entsteht, ändert, entfällt
 
 ### 6.1 identity-kit
 
@@ -373,27 +375,26 @@ Das Panel und die Endpunkte sind dieselben; die App deklariert nur mehr oder wen
 | `docs` | `authz-konzept.md` (dieses) | `spezifikation.md` Kap. 3.5, 3.7, 7, 8, 9, 10, 11, 12.1, 14; `neue-app.md` Schritte 3, 4, 7, 8 | – |
 | `templates/create-iam-app` | Gerüst mit `authz/model.ts` einfachster Stufe | – | – |
 
-### 6.2 assets
+### 6.2 App
 
 | Bereich | Entsteht | Ändert | Entfällt |
 |---|---|---|---|
-| `src/platform/authz` | `model.ts` (5.1) | `resources.ts` (Kette + `edges` für Zuständigkeit), `capabilities.ts` (+ `object.access`, `object.classify`, `view.access`, `report.access`) | `catalog.ts`, `permissions.ts` (geht in `model.ts` auf), `ROLES`-Export nach Keycloak |
-| `db/migrations` | `classification` an `object` und `object_type`; `grants`, `inherits_scope` an `reference_type`; Policies neu (3.4) für `object`, `object_version`, `object_reference`, `object_comment*`, `object_attachment`, `report`, `dashboard*`, `saved_view*`; `authz_tuple` via Baukasten | greenfield: Migrationen neu nummerieren | `acl_entry`, `tenant_role`, `client_grant`, `shared`-Spalten |
-| `src/platform/modules` | – | `catalog/objects.ts` (ohne `hiddenObjects`, `readable`, `visibility`; Klassifizierung setzen), `catalog/structure.ts` (ohne hidden-Zähler, Referenztyp-Felder), `reports/filter.ts`, `reports/index.ts`, `views/index.ts` (Sichtbarkeit über RLS statt `owner_id OR shared`), `integrations/visibility.ts`, `catalog/unique.ts`, `discussion/shared.ts`, `webhooks/events.ts` (`access.changed` statt `acl.changed`), `mcp/tools.ts` (unverändert, Rechte aus `/v1/me`) | – |
-| `web/src` | `features/access/*` (App-Adapter für `AccessSheet`: Öffnen je Ressource), Feld und Badge Vertraulichkeit | `ObjectDrawer`, `RowMenus`, `TypeView`, `SchemaEditor` (Referenztyp-Sätze, Vorgabe-Stufe, Zugriff), `ConnectionView`, Credentials, `ViewBar` (SaveDialog), `DashboardView`, `ReportEditor`, `DashboardList`, `Rail.tsx`, `router.tsx`, `Audit.tsx` (Filter), `auth/*` | `auth/iam.tsx` (ACL-Ressourcenwahl), Routen `/verwalten/zugriff`, `/verwalten/rollen`, `/verwalten/maschinen-clients` |
-| `scripts` | – | `keycloak-setup.ts` (keine Rollen/Gruppen), `seed:demo` (Tupel, eine Organisationseinheit, Klassifizierungen), `openapi-export.ts` | – |
-| `test` | `access.test.ts` (Rolle am Ort, Zuständigkeit, Klassifizierung, Ablauf, Panel-Endpunkte, nie-mehr-als-ich), `break-glass.test.ts` | `rls.test.ts` (Allowlists), `tenant-isolation.test.ts` (neue Routen), `catalog.test.ts`, `graph.test.ts`, `reports.test.ts`, `views.test.ts`, `multi-org.test.ts`, `capabilities.test.ts`, `authz.test.ts`, `iam-catalog.test.ts`, E2E (Freigabe am Objekt, Zuständigkeit, Klassifizierung) | `acl-grants.test.ts`, `acl-write-path.test.ts`, `roles.test.ts`, `integrations-visibility.test.ts` (Teile) |
-| `docs` | – | `zielarchitektur.md` (Abschnitt Rollen/Rechte/ACL neu, veraltete Tabellen raus), `oberflaeche.md` (Routen, Bereiche), `api.md`, `mcp.md`, `konzepte/rollen-und-rechte*.md` (als abgelöst markieren) | – |
-| `infra/keycloak` | – | Modulaufruf ohne `catalog.roles`; `platform.json` nur Scopes | – |
+| Rechte | `authz/model.ts` (5.1) | `resources.ts` (Kette + `edges` für Zuständigkeit), Capabilities (+ `object.access`, `object.classify`, `view.access`, `report.access`) | eigener Katalog (geht in `model.ts` auf), Export der Rollen nach Keycloak |
+| Datenbank | `classification` an Objekt und Typ; `grants`, `inherits_scope` an Referenztypen; Policies neu (3.4) für alle Fachtabellen mit Lesesicht; `authz_tuple` via Baukasten | greenfield: Migrationen neu nummerieren | `acl_entry`, `tenant_role`, `client_grant`, `shared`-Spalten |
+| Backend | – | Listen, Suche, Reports, Ansichten ohne App-seitige Filter verborgener Objekte (Sichtbarkeit über RLS statt `owner_id OR shared`), Klassifizierung setzen, Referenztyp-Felder, Webhook-Ereignis `access.changed` statt `acl.changed`, MCP-Werkzeuge unverändert (Rechte aus `/v1/me`) | – |
+| Oberfläche | App-Adapter für `AccessSheet` (Öffnen je Ressource), Feld und Badge Vertraulichkeit | alle Stellen aus 5.2, Routen und Navigation, Protokoll-Filter | ACL-Ressourcenwahl, Routen `/verwalten/zugriff`, `/verwalten/rollen`, `/verwalten/maschinen-clients` |
+| Skripte | – | Einrichtungsskript (keine Rollen/Gruppen), Demo-Daten (Tupel, eine Organisationseinheit, Klassifizierungen) | – |
+| Tests | Zugriff (Rolle am Ort, Zuständigkeit, Klassifizierung, Ablauf, Panel-Endpunkte, nie-mehr-als-ich), Break-Glass | RLS (Allowlists), Isolation (neue Routen), Fachtests, E2E (Freigabe am Objekt, Zuständigkeit, Klassifizierung) | Tests der ACL und eigenen Rollen |
+| Realm | – | Modulaufruf ohne `catalog.roles`; `platform.json` nur Scopes | – |
 
-### 6.3 identity
+### 6.3 Keycloak-Instanz
 
-Keine Änderung. README-Satz: «Rechte der Apps liegen in der App-Datenbank (identity-kit); Keycloak hält nur Identität,
-Organisationen, Clients und Scopes.»
+Keine Änderung beim Betreiber: Rechte der Apps liegen in der App-Datenbank (identity-kit); Keycloak hält nur
+Identität, Organisationen, Clients und Scopes.
 
 ## 7. Umsetzungsplan
 
-Reihenfolge so, dass jeder Schritt für sich prüfbar ist (`npm run check` grün) und Assets erst umgestellt wird, wenn der
+Reihenfolge so, dass jeder Schritt für sich prüfbar ist (`npm run check` grün) und eine App erst umgestellt wird, wenn der
 Baukasten steht. Grösse: S ≤ 1 Tag, M 2–3 Tage, L ≥ 4 Tage.
 
 | # | Paket | Repo | Inhalt | Grösse | Abnahme |
@@ -406,15 +407,11 @@ Baukasten steht. Grösse: S ≤ 1 Tag, M 2–3 Tage, L ≥ 4 Tage.
 | 5 | Testkit | identity-kit/iam-testkit | `model.ts`, `access.ts`, `claims.ts`, `rls.ts` anpassen | S | Kit-Tests grün |
 | 6 | Oberfläche Baukasten | identity-kit/iam-web | `AccessSheet`, `GrantDialog`, `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`; `Members` neu; `rights/*`; alte Seiten entfernen; Texte de/en; vitest + Playwright + axe | L | Tests der Seiten, E2E gegen Testapp |
 | 7 | Release | identity-kit | Versionen `iam 1.0.0`, `iam-web 1.0.0`, `iam-testkit 1.0.0`, Modul `v1.0.0` (Breaking) | S | `release.yml` |
-| 8 | Assets Backend | assets | `authz/model.ts`, `resources.ts`, Migrationen (greenfield neu), Policies, `hidden*` entfernen, Views/Reports über Tupel, Klassifizierung setzen, Referenztyp-Felder, Webhook-Ereignis, Seed, keycloak-setup | L | `npm run check`; `rls`, `tenant-isolation`, `access`, `reports`, `graph`, `views`, `catalog` grün |
-| 9 | Assets Oberfläche | assets | Adapter `features/access`, alle Stellen aus 5.2, Routen und Rail, Audit-Filter, Texte | L | Webapp-Tests, E2E (Freigabe am Objekt, Zuständigkeit, Klassifizierung, Break-Glass), axe |
-| 9a | Standardschema «Organisation» | assets | Objekttyp Organisationseinheit, Referenz «übergeordnete Einheit», Attribute «Verantwortlich» und «Gehört zu» mit `grants`; Anlage beim Provisionieren einer Organisation; Seed | S | Test: neue Organisation hat das Schema; Zuständigkeit greift |
-| 9b | Attributgruppen | assets | `attribute_group`, `group_id`, Stufe je Gruppe; Maskierung in Objekt-Antworten, MCP, Reports, Export; Schema-Editor (Gruppen anlegen, Attribute zuordnen, Stufe); Objekt-Drawer (Abschnitte, Schloss) | M | Tests Maskierung je Stufe, Schreibschutz, Oberfläche |
-| 10 | Doku Assets | assets | `zielarchitektur.md`, `oberflaeche.md`, `api.md`, `mcp.md`, Konzepte ablösen, README-Formel | S | Review |
-| 11 | identity | identity | README-Satz | S | – |
+| 8 | App Backend | App | `authz/model.ts`, `resources.ts`, Migrationen (greenfield neu), Policies, App-seitige Filter verborgener Objekte entfernen, Ansichten/Reports über Tupel, Klassifizierung setzen, Referenztyp-Felder, Webhook-Ereignis, Demo-Daten, Einrichtungsskript | L | `npm run check`; RLS, Isolation, Zugriff und Fachtests grün |
+| 9 | App Oberfläche | App | Adapter für `AccessSheet`, alle Stellen aus 5.2, Routen und Navigation, Protokoll-Filter, Texte | L | Webapp-Tests, E2E (Freigabe am Objekt, Zuständigkeit, Klassifizierung, Break-Glass), axe |
 
-Abhängigkeiten: 1 → 2 → 3 → 6; 4 und 5 parallel zu 3; 8 nach 7; 9, 9a nach 8; 9b nach 9. Pakete 1–3 können in einem Branch von
-`identity-kit` laufen, 8–9 in einem Branch von `assets`, der die lokal gepackten Pakete nutzt
+Abhängigkeiten: 1 → 2 → 3 → 6; 4 und 5 parallel zu 3; 8 nach 7; 9 nach 8. Pakete 1–3 können in einem Branch von
+`identity-kit` laufen, 8–9 in einem Branch der App, der die lokal gepackten Pakete nutzt
 (`scripts/local-registry.ts`).
 
 Jedes Paket: eigener Commit je abgeschlossenem Teil, Tests im selben Commit, kein Paket beginnt vor grünem Vorgänger.
@@ -429,14 +426,11 @@ Kurzfassung der Analyse vom 2026-10-23; Details in den Dateien selbst.
 | Rollen | Keycloak-Gruppen `/orgs/<alias>/<rolle>` und Client-Rollen von `<p>-platform`; `principal.ts:rolesFromClaims`; eigene Rollen `c-*` in `tenant_role` |
 | Freigaben | `acl_entry` (grant/restrict/deny, Principal user/group/role/client), `http/acl.ts`, Simulator `/v1/acl/effective` |
 | Lesesicht | Session-Einstellungen `app.read_all`, `app.read_types`; RESTRICTIVE-Policies auf `object`, `object_version`, `object_reference`, Kommentare, Anhänge; Objekt-Verbote App-seitig (`hiddenObjects()`, 10+ Stellen) |
-| Aufrufstellen in Assets | `req.need` 114, `req.needSomewhere` 39, `access.decide` 20, `access.can` 17, `capabilitiesFor` 10 – bleiben unverändert |
-| Katalog Assets | 32 Rechte, 7 Rollen, 17 Scopes, 22 MCP-Werkzeuge, 6 Ressourcentypen |
-| Datenmodell Assets | keine Organisationseinheiten, kein Eigentümer am Objekt, keine Attributgruppen, keine Klassifizierung; Referenzen = `ref`-Attribute mit `reference_type` (name/inverse_name); Personen = `principal`, Attributart `user` |
 | Ansichten/Reports | `owner_id` + `shared` (boolean = ganze Organisation), kein Panel |
 | Oberfläche | Kit-Seiten Mitglieder, Rollen, Zugriff (+AddEntry, Check), Maschinen-Clients, Organisationen, Entra; lokal `AclHint` an Schema und Verbindung, Share-Schalter an View/Dashboard/Report |
 | Realm-Modul | Client-Rollen aus `var.catalog.roles`, Gruppe `/orgs`, Mapper `groups`, FGAP auf Users und Groups |
-| Tests | Kit 31 Testdateien; Assets u. a. `acl-grants` 13, `acl-write-path` 6, `rls` 17, `tenant-isolation` 7, `catalog` 15, `graph` 5, `reports` 15, `roles` 7, `multi-org` 12 |
-| identity | Compose: Caddy, Keycloak 26.8, PostgreSQL 17; kennt kein Produkt |
+| Tests | Kit 31 Testdateien |
+| Keycloak-Instanz | Keycloak 26.8; der Betreiber kennt kein Produkt |
 
 ## 9. Bewusst nicht gebaut
 
@@ -445,9 +439,9 @@ Kurzfassung der Analyse vom 2026-10-23; Details in den Dateien selbst.
 | OpenFGA / SpiceDB | kein Gewinn bei List/Filter, zweite Wahrheit, Betrieb | ja, hinter derselben API, falls eine App Check-Last jenseits von Postgres braucht |
 | Verbote, Beschränkungen, `blocked` | brechen «Wer hat Zugriff?» und die Lesesicht; Klassifizierung und Zuständigkeit decken die Fälle | nein, bewusst |
 | Eigene Rollen der Organisation | «Rolle am Ort» + Freigaben ersetzen den Bedarf; Rollensatz bleibt klein (E4) | ja, als App-Modellerweiterung |
-| Personen als EA-Objekte (Stellen, Rolleninhaber) | Attribut `user` bleibt der Anker | ja |
+| Personen als Fachobjekte (Stellen, Rolleninhaber) | Attribut `user` bleibt der Anker | ja |
 | Folgen-Vorschau beim Ändern («12 mehr, 30 weniger») | teuer (Vorher/Nachher-Mengen), UX-Nutzen erst mit Zuständigkeit im Alltag belegt | ja, Panel zeigt Folgen nachher |
 | Zugriff anfragen, Genehmigung, Rezertifizierung, verborgene Nachbarn im Graph | Workflow-Produkt für sich; verborgene Platzhalter geben Existenz preis | ja |
 | SCIM | Keycloak 26 ohne SCIM-Server; Entra-Gruppen kommen über den IdP-Mapper | – |
 | Maschinen-Clients in der App anlegen | unverändert Kap. 12.1 (Keycloak-Konsole nach Vorlage) | – |
-| Neue Rechte, neue Scopes, neue MCP-Werkzeuge | Rechte- und Scope-Katalog von Assets bleibt wie heute | – |
+| Neue Rechte, neue Scopes, neue MCP-Werkzeuge | Rechte- und Scope-Katalog der App bleibt wie heute | – |

@@ -33,20 +33,20 @@ describe('Organisation je Tab', () => {
   });
 
   it('übernimmt einen früheren Schlüssel einmal und löscht ihn', async () => {
-    sessionStorage.setItem('assets.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'muster', name: 'Muster GmbH' }));
+    sessionStorage.setItem('app.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'muster', name: 'Muster GmbH' }));
     const m = await load();
-    m.adoptLegacyTabOrg('assets.tab.org');
+    m.adoptLegacyTabOrg('app.tab.org');
     expect(m.readTabOrg()).toEqual({ sub: 'sub-anna', alias: 'muster', name: 'Muster GmbH' });
-    expect(sessionStorage.getItem('assets.tab.org')).toBeNull();
+    expect(sessionStorage.getItem('app.tab.org')).toBeNull();
   });
 
   it('überschreibt beim Übernehmen keine neuere Wahl', async () => {
-    sessionStorage.setItem('assets.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'alt' }));
+    sessionStorage.setItem('app.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'alt' }));
     sessionStorage.setItem('iam.tab.org', JSON.stringify({ sub: 'sub-anna', alias: 'neu' }));
     const m = await load();
-    m.adoptLegacyTabOrg('assets.tab.org');
+    m.adoptLegacyTabOrg('app.tab.org');
     expect(m.readTabOrg()?.alias).toBe('neu');
-    expect(sessionStorage.getItem('assets.tab.org')).toBeNull();
+    expect(sessionStorage.getItem('app.tab.org')).toBeNull();
     m.adoptLegacyTabOrg(undefined);
     expect(m.readTabOrg()?.alias).toBe('neu');
   });
@@ -55,7 +55,7 @@ describe('Organisation je Tab', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('gesperrt'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('gesperrt'); });
     const m = await load();
-    m.adoptLegacyTabOrg('assets.tab.org');
+    m.adoptLegacyTabOrg('app.tab.org');
     expect(m.readTabOrg()).toBeNull();
     m.writeTabOrg({ sub: 'sub-anna', alias: 'demo' });
     expect(m.readTabOrg()).toEqual({ sub: 'sub-anna', alias: 'demo' });

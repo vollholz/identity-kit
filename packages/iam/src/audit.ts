@@ -1,5 +1,5 @@
 /**
- * Audit-Schnittstelle (Entwurf Kap. 5.2; aus Assets `core/audit.ts`). Alle Einträge des IAM laufen über einen
+ * Audit-Schnittstelle (Entwurf Kap. 5.2). Alle Einträge des IAM laufen über einen
  * `AuditPort`, in derselben Transaktion wie die Änderung; `pgAudit` schreibt in `<schema>.audit_log` (iam_007, Hash-Kette
  * per Trigger) mit dem Mandanten aus dem Kontext der Transaktion.
  */
@@ -26,7 +26,7 @@ export interface AuditPort {
   write(tx: pg.ClientBase, who: Actor, e: AuditEntry): Promise<void>;
 }
 
-/** Audit in `<schema>.audit_log` wie Assets. */
+/** Audit in `<schema>.audit_log`. */
 export function pgAudit(o: { schema: string }): AuditPort {
   const table = `${schemaName(o.schema)}.audit_log`;
   return {

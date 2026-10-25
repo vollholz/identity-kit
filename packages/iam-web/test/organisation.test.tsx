@@ -2,7 +2,6 @@
  * Organisation je Tab (Spezifikation 11.1): zwei Tabs an einer Sitzung, je mit eigenem sessionStorage und eigenen
  * Modulinstanzen (wie zwei Browser-Tabs), gegen einen nachgebildeten BFF mit Vorgabe der Sitzung. Dazu: Hinweis, wenn
  * die Organisation des Tabs nicht mehr verfügbar ist, Cache bei anderem Mandanten, andere Person im selben Tab.
- * Aus vollholz/assets `web/src/auth/organisation.test.tsx`.
  */
 import { QueryClient, useQuery } from '@tanstack/react-query';
 import { act, render, waitFor, within } from '@testing-library/react';

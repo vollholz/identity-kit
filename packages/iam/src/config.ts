@@ -1,11 +1,11 @@
 /**
- * Konfiguration des IAM aus Umgebungsvariablen (Spezifikation Kap. 13; aus Assets `config/env.ts`).
+ * Konfiguration des IAM aus Umgebungsvariablen (Spezifikation Kap. 13).
  *
  * Jede Variable ist einmal beschrieben (Typ, Standard, Pflicht, geheim). Daraus entstehen die geprüfte, typisierte
  * Konfiguration beim Start (fehlende oder ungültige Werte brechen mit allen Meldungen zugleich ab) und die Liste für die
  * Doku der App (`IAM_VARS`). Standardwerte mit dem Namen des Produkts (`<produkt>-api` …) setzt `product` ein.
  *
- * Eine App mit eigener Variablenliste (Assets) liest die Werte selbst (`readVars` mit ihrer Liste) und ruft dann
+ * Eine App mit eigener Variablenliste liest die Werte selbst (`readVars` mit ihrer Liste) und ruft dann
  * `iamConfigErrors` und `iamConfig` mit denselben Rohwerten auf; Namen und Bedeutung der Variablen sind dieselben.
  */
 import { readFileSync } from 'node:fs';
@@ -79,7 +79,7 @@ export function IAM_VARS(product: string): VarSpec[] {
     { name: 'DATABASE_STATEMENT_TIMEOUT', kind: 'duration', group: 'Datenbank', default: '30s', description: 'Abbruch langer SQL-Anweisungen.' },
     { name: 'DATABASE_SSL', kind: 'enum', group: 'Datenbank', values: ['disable', 'require', 'verify-full'], default: 'disable', description: 'TLS zur Datenbank. In Produktion `verify-full`.' },
 
-    { name: 'OIDC_ISSUER_URL', kind: 'url', group: 'Anmeldung (Keycloak)', required: true, description: 'Issuer des Realms. Endpunkte werden über Discovery ermittelt.', example: `https://identity.project-suite.ch/realms/${p}` },
+    { name: 'OIDC_ISSUER_URL', kind: 'url', group: 'Anmeldung (Keycloak)', required: true, description: 'Issuer des Realms. Endpunkte werden über Discovery ermittelt.', example: `https://id.example.ch/realms/${p}` },
     { name: 'OIDC_API_AUDIENCE', kind: 'string', group: 'Anmeldung (Keycloak)', default: `${p}-api`, description: 'Erwartete Zielgruppe (`aud`) für Tokens der REST-API.' },
     { name: 'OIDC_MCP_AUDIENCE', kind: 'string', group: 'Anmeldung (Keycloak)', default: `${p}-mcp`, description: 'Erwartete Zielgruppe für Tokens des MCP-Dienstes.' },
     { name: 'OIDC_CLOCK_TOLERANCE', kind: 'duration', group: 'Anmeldung (Keycloak)', default: '30s', description: 'Toleranz für Uhrzeitabweichungen bei `exp`, `nbf`, `iat`.' },
@@ -206,7 +206,7 @@ export function parseEncryptionKeys(v: string): { id: string; key: Buffer }[] {
   return keys;
 }
 
-/** Prüfungen über mehrere Variablen (nach `readVars`); Meldungen wie in Assets. */
+/** Prüfungen über mehrere Variablen (nach `readVars`). */
 export function iamConfigErrors(raw: RawVars, mode: Mode, service: Service | null): string[] {
   const errors: string[] = [];
   const needs = (...s: Service[]) => service === null || s.includes(service);

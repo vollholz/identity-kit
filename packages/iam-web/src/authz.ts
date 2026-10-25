@@ -2,7 +2,6 @@
  * Rechtekatalog für die Oberfläche (Spezifikation 7.3, 11.2): Labels der Rechte, Rollen, Scopes, Orte (`types`) und
  * Stufen der Vertraulichkeit aus GET /v1/authz/catalog (in der Sprache der Texte, `Accept-Language`). Keine eigenen
  * Listen oder Labels. Solange der Katalog lädt, liefern die Helfer den Schlüssel bzw. leere Listen, nie einen Fehler.
- * Herkunft: vollholz/assets `web/src/auth/authz.ts`.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';

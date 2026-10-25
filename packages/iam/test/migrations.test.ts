@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { ASSETS_ADOPTION, IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
+import { IAM_BASELINE, iamMigrations, migrate, migration, render, type MigrationSource } from '../src/migrations.ts';
 import { diffSnapshots, schemaSnapshot } from '../src/schema.ts';
 import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
@@ -18,31 +18,31 @@ describe('IAM-Migrationen: Parameter', () => {
   /**
    * Veröffentlichte IAM-Migrationen sind unveränderlich: Ihre Prüfsumme steht in jeder angewendeten Datenbank (auch bei
    * Übernahme). Schon eine geänderte Kommentarzeile bräche jeden Deploy mit «nach dem Ausführen geändert». Änderungen
-   * gehören in eine neue Migration; die Liste wird nur um neue Dateien ergänzt (gerendert wie für Assets).
+   * gehören in eine neue Migration; die Liste wird nur um neue Dateien ergänzt (gerendert für `notes`).
    */
-  test('Prüfsummen veröffentlichter IAM-Migrationen unverändert (Assets: schema assets)', () => {
+  test('Prüfsummen veröffentlichter IAM-Migrationen unverändert', () => {
     const pinned: Record<string, string> = {
-  'iam_001_core.sql': '3182ce0a8c8d351d5fe55b462c5b3916108b915903495fe147927b38e94fcd81',
-  'iam_002_tenant.sql': 'eb3c1fb24d89299bfaacb9e4fa147ab1e7611a34b1f0600543936ad939c68cca',
-  'iam_003_principal.sql': '4d72c82cdf6d0a8ae8ba94942507d3bcbdad1b1c89a071b4444e40f5938e7959',
-  'iam_004_access.sql': '7e5db8bc1732cdf41fb13b5a685a29bb844beaac34b03aab17ac5181731f892c',
-  'iam_005_members.sql': 'af1388c50f87ce3e32bc27163aea5e2f016fb7ad4d0dcf5b1808901f4e8b9eb3',
-  'iam_006_session.sql': 'f987e1bf80ea41ecac74bc33c468d0a5c2571abe48f38bf02799bdd292e42ede',
-  'iam_007_audit.sql': '7f737522d971b57d86845856c1f84d3dac612eef4366976c07df205de1595946',
-  'iam_008_entra.sql': 'a258ea7f90d797eb3d08a876ad440e436a43d81d8dbaa118c9ec71798583d8cb',
-  'iam_009_tenant_role_key.sql': 'a7159742d5a051e4cb6a60100f813162451674206008484228840db223ec59f8',
-  'iam_010_revoke_public_execute.sql': '253c88ed8266b93342e1bd1c36c3a8019ec25d48c130f99d8a9c819f67dc8967',
-  'iam_011_resolve_tenant_strict.sql': '7522b78dbae92a4355975a01927e27739cee1aa83c6c054aeced07c70344b556',
-  'iam_012_acl_unique.sql': 'c39f849caeeb7fd8bc33188d052bad51d0d764b6fc3d5bb7a175044b117ff442',
-  'iam_013_entra_consent_link.sql': 'b61dd7827c1efd3a4cba80b126eac93645ec930abbe9b27eeb8676f8faea3fb9',
-  'iam_014_entra_own_app.sql': '4cf838b2aee77a309fe78d6528e2506d7ce1a1e928537478b796ef5ab8f9efe4',
-  'iam_015_authz.sql': '742337a726016c7582ed36b4a9c085065ec291fa1ddff6c5d1784ab73fac8bc2',
-  'iam_016_person_scope.sql': '0cd628e620cd8a119d24be651e291d05de6828608a7c34a90141420528f1296a',
+  'iam_001_core.sql': 'edcd4dea97370589c9e3d38cf311ee4aecd4bed1b8d531658375f0e93c2c5298',
+  'iam_002_tenant.sql': 'f2fae5b3b1bc22ea275ddc9aab8eac6d3c5d72737f9d19e82c7dd2d0208f5552',
+  'iam_003_principal.sql': 'ce00e980dd65a5b31671dbc93fa4ac22d0990e6b8f654e3e38cf62c765a65e25',
+  'iam_004_access.sql': 'b07a22e4c7579a41d05e5b4277fbef9170e8abde65943c6655e747a3ba557990',
+  'iam_005_members.sql': '9adc165203bb652c6f520eb8c37cb605d2c679c5b2d8ab4029967a5e6950677f',
+  'iam_006_session.sql': '71917caddb293fd9f32ea59169ee2e5f5c58ba3619292ab24d3f08f14b29fa5d',
+  'iam_007_audit.sql': 'd16541bc55129ec4eafbaecb18be3901394cb5724a5cd4a12ed3e66eacdd4a4a',
+  'iam_008_entra.sql': 'fe5161963216d70f133852f7a97e8685b00b2c184c2bba6f7e3f4fb7ef688c6f',
+  'iam_009_tenant_role_key.sql': '23be7629e1b61dbda5ea63d0ec8de5d3e6ef25e31d3f61abd0380ddbe14283fb',
+  'iam_010_revoke_public_execute.sql': '0c9fd8514bc3cd387d2716302d114b1bd3b6a6f2c5bb7b62b387d1263f9b0f81',
+  'iam_011_resolve_tenant_strict.sql': '4096b1e01b48880655808eb03612c589b703a9ad6ee2669a74022eb0a7d4b00e',
+  'iam_012_acl_unique.sql': '1ffec0eab8fbfd500a3f5815ae51c44d133596369c4db2db5f63a675ec80cea1',
+  'iam_013_entra_consent_link.sql': '60066235d13e7891c15d002f70af87993aca706010bf1bfcc96d4eb6831cf2bd',
+  'iam_014_entra_own_app.sql': 'dc7ec8bcbbbf5fc06da8ffe3d5ad67a030b047458c66e3c492e74d3779ad9997',
+  'iam_015_authz.sql': 'bdd7d4c74ae77053d60e7dacec2287f37b03b31abbe14577dc8e038f125bdf40',
+  'iam_016_person_scope.sql': 'a6e82cebe810b9f1a32328ccf4bb20c38be89f24add4a919d78cd12b2b430123',
     };
-    const now = new Map(iamMigrations({ product: 'assets', schema: 'assets' }).migrations.map(m => [m.name, m.checksum]));
+    const now = new Map(iamMigrations({ product: 'notes' }).migrations.map(m => [m.name, m.checksum]));
     for (const [name, sum] of Object.entries(pinned)) {
       assert.ok(now.has(name), `${name} fehlt: veröffentlichte Migrationen nie umbenennen oder löschen`);
-      assert.equal(now.get(name), sum, `${name} wurde geändert. Veröffentlichte IAM-Migrationen sind unveränderlich (Prüfsumme in jeder Datenbank, auch übernommen in Assets): Änderung in eine neue Migration iam_NNN legen.`);
+      assert.equal(now.get(name), sum, `${name} wurde geändert. Veröffentlichte IAM-Migrationen sind unveränderlich (Prüfsumme in jeder Datenbank): Änderung in eine neue Migration iam_NNN legen.`);
     }
     assert.deepEqual([...now.keys()].filter(n => !pinned[n]), [], 'neue Migration: Prüfsumme hier ergänzen');
   });
@@ -53,7 +53,12 @@ describe('IAM-Migrationen: Parameter', () => {
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
     assert.equal(names.at(-1), 'iam_016_person_scope.sql');
-    for (const m of iamMigrations({ product: 'notes' }).migrations) assert.doesNotMatch(m.sql, /\{\{|\}\}|assets/, m.name);
+    // Alles Produktspezifische kommt aus den Platzhaltern: kein fester Name einer App im SQL
+    const beta = iamMigrations({ product: 'beta' }).migrations;
+    for (const [i, m] of iamMigrations({ product: 'alpha' }).migrations.entries()) {
+      assert.doesNotMatch(m.sql, /\{\{|\}\}/, m.name);
+      assert.equal(m.sql.replaceAll('alpha', 'beta'), beta[i]!.sql, m.name);
+    }
   });
 
   test('Schema und Rollen werden eingesetzt; Prüfsummen hängen nicht am Modell', () => {
@@ -179,7 +184,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
 });
 
 describe('Übernahme (adopted)', { skip }, () => {
-  /** Objekte aus «eigenen» Migrationen der App (wie Assets 001–049): die IAM-Migrationen unter anderem Namen, dazu die Marke. */
+  /** Objekte aus «eigenen» Migrationen der App (z. B. 001–049): die IAM-Migrationen unter anderem Namen, dazu die Marke. */
   const own = (product: string): MigrationSource => ({
     name: 'app',
     migrations: [
@@ -288,9 +293,13 @@ describe('iam_012: keine doppelten Zugriffsregeln', { skip }, () => {
   });
 });
 
-describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', { skip }, () => {
-  /** Stand wie Assets bis 053: Grundlage unter eigenem Namen, Marke 049, dann 051–053 = iam_010–012. */
-  const assetsLike = (product = 'notes'): MigrationSource => {
+describe('Übernahme späterer IAM-Migrationen (adopted.map)', { skip }, () => {
+  /** Bestehende App: Grundlage unter eigenem Namen, Marke 049, dann 051–053 = iam_010–012. */
+  const ADOPTION = {
+    after: '053_acl_unique.sql',
+    map: { '051_revoke_public_execute.sql': 'iam_010_revoke_public_execute.sql', '052_resolve_tenant_strict.sql': 'iam_011_resolve_tenant_strict.sql', '053_acl_unique.sql': 'iam_012_acl_unique.sql' },
+  };
+  const existingApp = (product = 'notes'): MigrationSource => {
     const iam = iamMigrations({ product }).migrations;
     const sql = (prefix: string) => iam.find(m => m.name.startsWith(prefix))!.sql;
     return {
@@ -310,23 +319,23 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
   after(async () => { await full?.drop(); });
 
   test('bestehende Datenbank bis 053: iam_001–008 und 010–012 eingetragen, nur iam_009 (und neuere) laufen; Schema wie frische Anlage', async () => {
-    const db = productDb({ iam: false, sources: [assetsLike()] });
+    const db = productDb({ iam: false, sources: [existingApp()] });
     const [old, t] = [await db.create(), await db.create()];
     try {
-      // ohne Zuordnung: iam_012 scheitert am bestehenden Index (der Befund, der die Umstellung von Assets blockierte)
-      await assert.rejects(migrate(old.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
-      const r = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
+      // ohne Zuordnung: iam_012 scheitert am bestehenden Index
+      await assert.rejects(migrate(old.adminUrl, [existingApp(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
+      const r = await migrate(t.adminUrl, [existingApp(), iamMigrations({ product: 'notes', adopted: ADOPTION })]);
       assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql']);
       assert.deepEqual(r.adopted, [...iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name),
         'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
       assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(t.inspect, 'notes')), []);
-      const again = await migrate(t.adminUrl, [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]);
+      const again = await migrate(t.adminUrl, [existingApp(), iamMigrations({ product: 'notes', adopted: ADOPTION })]);
       assert.deepEqual([again.applied, again.adopted], [[], []]);
     } finally { await old.drop(); await t.drop(); }
   });
 
-  test('frische Datenbank wie Assets: App bis 053, dann Übernahme und iam_009; Schema wie frische Anlage', async () => {
-    const db = productDb({ iam: false, sources: [assetsLike(), iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })] });
+  test('frische Datenbank: App bis 053, dann Übernahme und iam_009; Schema wie frische Anlage', async () => {
+    const db = productDb({ iam: false, sources: [existingApp(), iamMigrations({ product: 'notes', adopted: ADOPTION })] });
     const f = await db.create();
     try {
       const rows = (await f.inspect.query<{ name: string }>("SELECT name FROM public.schema_migrations WHERE name LIKE 'iam_%' ORDER BY name")).rows.map(r => r.name);
@@ -335,13 +344,13 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
     } finally { await f.drop(); }
   });
 
-  /** Assets-Stand mit veränderter Migration 051, 052 oder 053 (unvollständig nachgebaut): Übernahme bricht ab. */
+  /** Bestehende App mit veränderter Migration 051, 052 oder 053 (unvollständig nachgebaut): Übernahme bricht ab. */
   const broken = async (file: string, edit: (sql: string) => string, message: RegExp) => {
-    const base = assetsLike();
+    const base = existingApp();
     const src = { ...base, migrations: base.migrations.map(m => (m.name === file ? migration(m.name, edit(m.sql)) : m)) };
     const b = await productDb({ iam: false, sources: [src] }).create();
     try {
-      await assert.rejects(migrate(b.adminUrl, [src, iamMigrations({ product: 'notes', adopted: ASSETS_ADOPTION })]), (e: Error) => { assert.match(e.message, message); return true; });
+      await assert.rejects(migrate(b.adminUrl, [src, iamMigrations({ product: 'notes', adopted: ADOPTION })]), (e: Error) => { assert.match(e.message, message); return true; });
       assert.equal((await b.inspect.query("SELECT count(*)::int AS n FROM public.schema_migrations WHERE name LIKE 'iam_%'")).rows[0].n, 0, file);
       // die Probe von resolve_tenant hinterlässt nichts
       assert.equal((await b.inspect.query("SELECT count(*)::int AS n FROM notes.tenant WHERE alias LIKE 'iamprobe-%'")).rows[0].n, 0);
@@ -354,17 +363,17 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map, Assets bis 053)', {
     await broken('053_acl_unique.sql', sql => sql.replace(/ NULLS NOT DISTINCT;/, ';'), /acl_entry_unique entspricht nicht iam_012/);
     await broken('052_resolve_tenant_strict.sql', sql => sql.replace(/ {4}IF v_kc IS DISTINCT FROM p_kc_org_id THEN RETURN NULL; END IF;\n/, ''), /bindet die Organisations-ID eines anderen Mandanten/);
     await broken('052_resolve_tenant_strict.sql', sql => sql.replace("ON CONFLICT DO NOTHING", ''), /app\.resolve_tenant: .*duplicate key|legt einen Mandanten mit der Organisations-ID/);
-    // Stand vor iam_011 (Funktion aus iam_005 bzw. Assets vor 052): 052 ändert nichts
+    // Stand vor iam_011 (Funktion aus iam_005 bzw. App vor 052): 052 ändert nichts
     await broken('052_resolve_tenant_strict.sql', () => 'SELECT 1;', /app\.resolve_tenant (findet einen Mandanten über einen ungültigen Alias|legt einen Mandanten mit der Organisations-ID|bindet die Organisations-ID)/);
   });
 
   test('Zuordnung ohne angewendete Migration der App oder ohne Objekte: Abbruch, nichts eingetragen', async () => {
-    const base = assetsLike();
+    const base = existingApp();
     // 053 fehlt als Migration, die Marke after ist 052: Zuordnung verlangt 053
     const short = productDb({ iam: false, sources: [{ ...base, migrations: base.migrations.slice(0, -1) }] });
     const s = await short.create();
     try {
-      await assert.rejects(migrate(s.adminUrl, [iamMigrations({ product: 'notes', adopted: { ...ASSETS_ADOPTION, after: '052_resolve_tenant_strict.sql' } })]), (e: Error) => {
+      await assert.rejects(migrate(s.adminUrl, [iamMigrations({ product: 'notes', adopted: { ...ADOPTION, after: '052_resolve_tenant_strict.sql' } })]), (e: Error) => {
         assert.match(e.message, /Migration 053_acl_unique\.sql \(für iam_012_acl_unique\.sql\) ist nicht angewendet/);
         assert.match(e.message, /iam_012_acl_unique\.sql: eindeutiger Index notes\.acl_entry_unique fehlt/);
         return true;

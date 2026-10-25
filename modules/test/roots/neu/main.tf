@@ -24,6 +24,7 @@ module "realm" {
   catalog = {
     scopes = ["${var.product}:read", "notes:write"]
   }
+  theme = "beispiel"
   theme_texts = {
     de = { themeAccent = "#0D6B5B", themeClaim = "Alles an einem Ort." }
     en = { themeAccent = "#0D6B5B", themeClaim = "All in one place." }

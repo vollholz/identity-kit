@@ -20,7 +20,7 @@ export interface AdminApi {
   raw<T>(method: string, path: string, body?: unknown): Promise<{ status: number; data: T }>;
 }
 
-/** url: Adresse der Instanz mit Basispfad (z. B. https://identity.project-suite.ch) */
+/** url: Adresse der Instanz mit Basispfad (z. B. https://id.example.ch) */
 export async function adminApi(url: string, realm: string, clientId: string): Promise<AdminApi> {
   const base = url.replace(/\/$/, '');
   const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');

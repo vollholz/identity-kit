@@ -1,6 +1,6 @@
 /**
  * Hilfen für den Keycloak-Nachweis (keycloak.sh) gegen eine lokale Wegwerf-Instanz. Übernimmt, was in Produktion
- * vollholz/identity als Server-Admin erledigt (Spezifikation Kap. 2, Schritte 1, 2, 5), und erzeugt Testschlüssel.
+ * der Betreiber der Instanz als Server-Admin erledigt (Spezifikation Kap. 2, Schritte 1, 2, 5), und erzeugt Testschlüssel.
  * Anmeldung als Admin des Realms master mit Passwort – nur hier, nur gegen die lokale Instanz.
  *
  *   node kc.ts keys <verzeichnis> <client> …           Schlüsselpaare: <client>.json (JWKS, öffentlich), <client>.pem
@@ -44,7 +44,7 @@ async function serviceAccount(token: string, realm: string, clientId: string): P
 
 switch (cmd) {
   case 'keys': {
-    // EC P-256, kid = JWK-Thumbprint (RFC 7638) wie secrets.sh in Assets
+    // EC P-256, kid = JWK-Thumbprint (RFC 7638)
     const [dir, ...clients] = args;
     mkdirSync(dir!, { recursive: true });
     for (const c of clients) {
@@ -64,7 +64,7 @@ switch (cmd) {
     throw new Error('Keycloak antwortet nicht');
   }
   case 'product-tofu': {
-    // Wie vollholz/identity infra/keycloak/products.tf: Client <produkt>-tofu im Realm master, nur create-realm
+    // Wie beim Betreiber: Client <produkt>-tofu im Realm master, nur create-realm
     const [product, jwksFile] = args;
     const token = await adminToken();
     await api(token, 'POST', '/master/clients', {
@@ -82,7 +82,7 @@ switch (cmd) {
     break;
   }
   case 'grant-realm-admin': {
-    // Wie products.<produkt>.grant_realm_admin in vollholz/identity
+    // Wie beim Betreiber: realm-admin für <produkt>-iac
     const [realm, clientId] = args;
     const token = await adminToken();
     const sa = await serviceAccount(token, realm!, clientId!);

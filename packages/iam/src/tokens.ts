@@ -1,6 +1,6 @@
 /**
  * Prüfung von Access Tokens aus Keycloak (JWT) inkl. sendergebundener Tokens: DPoP (RFC 9449) und mTLS-gebundene
- * Tokens (RFC 8705). Spezifikation Kap. 6.1; aus Assets `auth/tokens.ts`.
+ * Tokens (RFC 8705). Spezifikation Kap. 6.1.
  */
 import { createHash, X509Certificate } from 'node:crypto';
 import { calculateJwkThumbprint, createRemoteJWKSet, decodeProtectedHeader, importJWK, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';

@@ -2,8 +2,7 @@
  * Rollendialog: Ansehen ohne Formular (Rollen als Karten, Rechte-Übersicht, «Rollen vergleichen» eingeklappt), kompakte
  * Rollenauswahl (eine Zeile je Rolle, Beschreibung ungekürzt, «in … enthalten» als Markierung, Organisations-Admin als
  * eine Zeile, Gruppen aus `roleGroups`), Rechte-Übersicht mit «+ n Rechte, − m Rechte», Bestätigung kritischer
- * Änderungen. Aus vollholz/assets `web/src/features/admin/roles-dialog.test.tsx` und den Fällen zum Rollendialog in
- * `features/admin.test.tsx`, produktneutral (Notiz-App).
+ * Änderungen. Beispiel: Notiz-App.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

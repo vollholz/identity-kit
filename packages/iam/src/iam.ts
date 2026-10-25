@@ -21,7 +21,7 @@ import { MemoryReplayStore, PgReplayStore, type ReplayStore } from './state.ts';
 import { OidcProvider, TokenVerifier } from './tokens.ts';
 import { TupleStore } from './tuples.ts';
 
-/** Ereignis zu einer IAM-Änderung in derselben Transaktion (Assets: Outbox `access.changed`). */
+/** Ereignis zu einer IAM-Änderung in derselben Transaktion (z. B. für eine Outbox der App). */
 export type IamEvents = (tx: Tx, type: string, subject: string | null, data: Record<string, unknown>) => Promise<void>;
 
 export interface IamOptions<P extends string = string, S = unknown> {

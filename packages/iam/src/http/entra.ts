@@ -1,6 +1,5 @@
 /**
- * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (Spezifikation Kap. 9.4; aus Assets
- * `modules/admin/index.ts`, Teil «Entra»). Die Regeln setzen `EntraService` (entra.ts) und `AdminService.addFromEntra`
+ * Modul `entra`: Anmeldung über Microsoft Entra ID je Organisation (Spezifikation Kap. 9.4). Die Regeln setzen `EntraService` (entra.ts) und `AdminService.addFromEntra`
  * (admin.ts) durch.
  *
  * - /v1/admin/entra…                               eigene Organisation (Recht `members:admin`, nur Personen)

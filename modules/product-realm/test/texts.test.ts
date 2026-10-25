@@ -1,5 +1,5 @@
 // Texte des Baukastens (texts/): Du-Form, gleiche Schlüssel, Platzhalter und HTML-Tags wie der Keycloak-Standard
-// (26.8.1). Übernommen aus vollholz/assets test/infra-keycloak.test.ts; bei jedem Keycloak-Update die Quelldateien
+// (26.8.1). Bei jedem Keycloak-Update die Quelldateien
 // (*.source.json) mit der neuen Version vergleichen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

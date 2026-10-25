@@ -1,7 +1,8 @@
 # @vollholz/iam-testkit
 
-Tests für Apps mit dem Baukasten (Spezifikation Kap. 14). Herkunft: vollholz/assets `test/platform/harness.ts`,
-`keycloak-fake.ts`, `rls.test.ts`, `tenant-isolation.test.ts`.
+Tests für Apps mit dem Baukasten (Spezifikation Kap. 14): Testdatenbanken, nachgebildeter Identity Provider, Keycloak-
+und Entra-Fakes, Prüfungen von Modell und RLS sowie ein Gerüst für den Isolations-Durchlauf. Produktneutral; die
+Beispiele nutzen die Notiz-App `notes`.
 
 | Baustein | Inhalt |
 |---|---|
@@ -32,6 +33,7 @@ test('RLS', async () => {
 
 ## Änderungen
 
+- **1.3.1:** Lizenz Apache-2.0, Doku ohne App-Bezug; keine Änderung am Code.
 - **1.3.0:** `checkModel` (M5) lässt an `org` eine Rollenliste zu: `org-admin` enthalten, nur Rollen des Modells, keine Doppelten (vorher: alle Rollen).
 - **1.2.0:** `checkModel` prüft `types[].membersRole` (M13: nur bei Typen mit `owner`, am Typ zulässig, keine Rechte nur von `org-admin`).
 - **1.1.0:** `personCases` (Standardfälle der Zuständigkeit über Personen aus Fachdaten je Typ mit `scope`);

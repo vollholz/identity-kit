@@ -1,5 +1,5 @@
 /**
- * Symbole der Bausteine (24er-Raster, Linien), aus vollholz/assets `web/src/ui/icons.ts`. Eine App mit eigenen Symbolen
+ * Symbole der Bausteine (24er-Raster, Linien). Eine App mit eigenen Symbolen
  * ersetzt sie über `components.Icon` und muss diese Namen kennen (`IamIconName`).
  */
 export const ICONS = {

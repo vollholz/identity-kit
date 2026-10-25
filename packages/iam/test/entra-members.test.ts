@@ -1,6 +1,6 @@
 /**
- * Modul `entra`: Personen aus Microsoft Entra ID vorab hinzufügen (aus Assets test/platform/entra-members.test.ts,
- * produktneutral mit der Beispiel-App «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
+ * Modul `entra`: Personen aus Microsoft Entra ID vorab hinzufügen (Beispiel-App
+ * «notes») gegen Wegwerf-Datenbank, Mock-IdP, den `KeycloakFake` des Test-Kits und
  * das nachgebildete Microsoft (`EntraFake` des Test-Kits).
  * Schwerpunkte: Suche nur im eigenen Tenant und ohne Hinweis auf andere Organisationen, Person in Graph neu gelesen
  * (Regel notLinkable), Konto ohne Passwort bzw. bestehendes Konto, Verknüpfung über die Objekt-ID (409 bei fremder
@@ -81,7 +81,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     oid.dora = ms.user(contoso, 'dora@demo.example', { displayName: 'Dora Fehler', givenName: 'Dora' }).id;
 
     const base = { KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests', KEYCLOAK_MGMT_INVITE_MIN_TIME: '0' };
-    // Wie Assets: unbekannte Felder im Body ablehnen (422) statt still entfernen (Einstellung der App); Optionen der Routen
+    // Unbekannte Felder im Body ablehnen (422) statt still entfernen (Einstellung der App); Optionen der Routen
     // für @fastify/rate-limit festhalten (das Plugin registriert die App)
     app = await notesApp({
       db: t.runtime, issuer: idp.issuer, env: { ...base, ...ENTRA }, keycloakFetch: kc.fetch, entraFetch: ms.fetch, entraRetryMs: [0],

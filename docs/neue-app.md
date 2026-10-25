@@ -1,122 +1,84 @@
 # Neue App mit dem Identity-Kit in 10 Schritten
 
-Für Entwickler:innen, die eine **neue** App an die Identity-Plattform (**https://identity.project-suite.ch**) anbinden:
+Für Entwickler:innen, die eine **neue** App an eine Keycloak-Instanz anbinden (in den Beispielen `https://id.example.ch`):
 Anmeldung, Organisationen als Mandanten, Rechte, Verwaltung und Datenbank-Schutz kommen aus dem Baukasten, die App
 liefert nur ihr Modell (Rechte, Rollen, Orte), ihre Ressourcen und ihr Aussehen. Die Beispiele nutzen das Produkt `notes`; überall
 `notes` durch den technischen Namen der App ersetzen: Kleinbuchstaben, Ziffern und `-`, 3–32 Zeichen, vorn ein
-Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master` oder `project-suite` (so prüfen es beide Realm-Module).
+Buchstabe, hinten ein Buchstabe oder eine Ziffer, nicht `master` (so prüfen es beide Realm-Module).
 
-Referenz für jeden Schritt ist **vollholz/assets** (läuft vollständig auf dem Baukasten); die Pfade unten zeigen auf
-dessen Dateien. Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Detail der Leitfaden
+Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Detail der Leitfaden
 [`packages/iam/docs/backend.md`](../packages/iam/docs/backend.md).
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 1.5.0 | GitHub Packages |
-| `@vollholz/iam-web` (Oberfläche) | 1.2.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests) | 1.3.0 | GitHub Packages |
-| `product-realm` (OpenTofu) | 1.0.0 | Git-Tag `product-realm-v1.0.0` |
-| `product-realm-bootstrap` (OpenTofu) | 0.1.0 | Git-Tag `product-realm-bootstrap-v0.1.0` |
+| `@vollholz/iam` (Backend) | 2.0.0 | GitHub Packages |
+| `@vollholz/iam-web` (Oberfläche) | 1.2.1 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests) | 1.3.1 | GitHub Packages |
+| `product-realm` (OpenTofu) | 2.0.0 | Git-Tag `product-realm-v2.0.0` |
+| `product-realm-bootstrap` (OpenTofu) | 0.1.1 | Git-Tag `product-realm-bootstrap-v0.1.1` |
 
 ---
 
 ## 1. Zugänge
 
-Das Repository und die Pakete sind nicht öffentlich.
-
-- **Mitglied der Organisation `vollholz`** auf GitHub (Leserecht auf vollholz/identity-kit).
-- **Pakete für die App freigeben**, je Paket (`iam`, `iam-web`, `iam-testkit`): *Package settings › Manage Actions
-  access › Add repository* mit dem Repository der App (Rolle Read). Ohne diesen Schritt scheitert `npm ci` in GitHub
-  Actions mit 403/404, obwohl `GITHUB_TOKEN` gesetzt ist.
-- **Lokal** ein persönliches Token (classic) mit `read:packages` in die eigene `~/.npmrc`:
-  `//npm.pkg.github.com/:_authToken=<token>`.
-- **`.npmrc` der App** (ohne Token, versioniert): `@vollholz:registry=https://npm.pkg.github.com`. Versionen exakt
-  pinnen (`npm i -E …`).
-- **Module in GitHub Actions** (`tofu init` holt `git::https://github.com/vollholz/identity-kit.git`): `GITHUB_TOKEN`
-  gilt nur für das eigene Repository. Lese-Deploy-Key einrichten (Schlüsselpaar `ssh-keygen -t ed25519`, öffentlich als
-  Deploy key in identity-kit **ohne** Schreibrecht, privat als Secret `IDENTITY_KIT_DEPLOY_KEY` der App) und vor
-  `tofu init` ein Skript wie in Assets aufrufen, das die HTTPS-Adresse auf SSH mit diesem Schlüssel umleitet und danach
-  wieder entfernt.
+- **Pakete** `@vollholz/*` (npm): `.npmrc` der App (ohne Token, versioniert) mit der Registry der Pakete, Versionen
+  exakt pinnen (`npm i -E …`). Bezug in CI, Image und lokal: [ausrollen.md](ausrollen.md).
+- **Realm-Module** (OpenTofu) als Git-Quelle mit Tag:
+  `git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>`.
+- **Keycloak-Instanz** ab 26.8 mit Organisationen; ihr Betreiber richtet die Zugänge aus Schritt 2 ein.
 
 Ohne Registry (z. B. in einer Session): `node scripts/local-registry.ts` in identity-kit, Details in
 [ausrollen.md](ausrollen.md#ohne-zugang-sessions-unveröffentlichter-stand).
 
-> Assets: `.npmrc`, `.github/scripts/identity-kit-access.sh`, `docs/einrichtung.md` › Zugang zu vollholz/identity-kit,
-> `.github/workflows/keycloak.yml`.
-
-### Repository ausserhalb von `vollholz`
-
-Liegt die App in einer anderen GitHub-Organisation oder bei einem anderen Anbieter (GitLab, Bitbucket, Azure DevOps),
-ändert sich nur der Zugang zum Kit; die App spricht mit `identity.project-suite.ch` wie jede andere.
-
-| Zugang | In `vollholz` | Ausserhalb |
-|---|---|---|
-| Doku und Code lesen | Mitglied der Organisation | *Outside collaborator* mit Read auf vollholz/identity-kit |
-| Pakete in der CI | *Manage Actions access* (gilt nur für Repositories in `vollholz`) | Maschinenkonto mit Leserecht auf den drei Paketen, dessen Token (classic) mit nur `read:packages` als Secret `NODE_AUTH_TOKEN` der CI; `.npmrc` unverändert |
-| Pakete lokal | eigenes Token (classic) mit `read:packages` | gleich (Outside collaborator oder Maschinenkonto) |
-| Realm-Module in der CI | Lese-Deploy-Key, Skript wie in Assets | gleich: der Deploy-Key gilt für das Repository, nicht für die Organisation. Ausserhalb von GitHub Actions die Umleitung aus `assets/.github/scripts/identity-kit-access.sh` (`git config url.<ssh>.insteadOf <https>` mit festem Host-Schlüssel von github.com) in die eigene CI übernehmen |
-| PRs in vollholz/identity (Schritt 2) | eigener PR | als *Outside collaborator* mit Read auf vollholz/identity (PR aus einem Fork) – oder nur den öffentlichen Schlüssel `keys/<name>-tofu.json` an die Plattform-Administration geben, die die beiden PRs stellt. Der private Teil bleibt immer bei der App |
-
-Je App ein eigener Deploy-Key und ein eigenes Maschinen-Token, damit sich ein Zugang einzeln widerrufen lässt.
-
 ## 2. Realm anlegen (einmalig, als Code)
 
 Keycloak wird vollständig als Code geführt, auch beim Anlegen: niemand legt etwas von Hand in der Konsole an.
-Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-identity-plattform), Modul
-[product-realm-bootstrap](../modules/product-realm-bootstrap/README.md); Ablauf auf der Plattform-Seite in
-vollholz/identity `infra/keycloak/products.tf` und `docs/betrieb.md` › Neues Produkt (Stand vollholz/identity#6). Zwei Repositories sind beteiligt:
+Spezifikation [Kap. 2](spezifikation.md#2-anbindung-an-die-keycloak-instanz), Modul
+[product-realm-bootstrap](../modules/product-realm-bootstrap/README.md). Beteiligt sind die App und der Betreiber der
+Keycloak-Instanz:
 
-1. **Schlüsselpaar für `notes-tofu`** erzeugt die App selbst, z. B. in einem eigenen Checkout von vollholz/identity:
-   `deploy/scripts/secrets.sh client-key notes-tofu KEYCLOAK_TF_PRIVATE_KEY_B64`. Den öffentlichen Teil legt das Skript
-   als `infra/keycloak/keys/notes-tofu.json` ab, den privaten in die `.env` dieses Checkouts; von dort gehört er in die
-   lokale `.env` der App. Er verlässt die App nie.
-2. **PR der App in vollholz/identity**, nur mit `infra/keycloak/keys/notes-tofu.json` und dem Eintrag in
-   `infra/keycloak/production.tfvars` › `products` (die CI dort prüft, dass unter `keys/` nur öffentliche
-   ES256-Schlüssel liegen):
+1. **Schlüsselpaar für `notes-tofu`** erzeugt die App selbst (EC P-256, `kid` = JWK-Thumbprint nach RFC 7638); der
+   private Teil bleibt lokal bei der App:
 
-   ```hcl
-   products = {
-     # …
-     notes = {
-       realm             = "notes"
-       iac_client_id     = "notes-iac"
-       grant_realm_admin = false
-     }
-   }
+   ```sh
+   openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out notes-tofu.pem
+   node -e '
+     const c = require("node:crypto"), fs = require("node:fs");
+     const { kty, crv, x, y } = c.createPublicKey(fs.readFileSync("notes-tofu.pem")).export({ format: "jwk" });
+     const kid = c.createHash("sha256").update(JSON.stringify({ crv, kty, x, y })).digest("base64url");
+     console.log(JSON.stringify({ keys: [{ kty, crv, x, y, kid, alg: "ES256", use: "sig" }] }, null, 2));
+   ' > notes-tofu.json
    ```
 
-   Nach dem Merge wendet der Workflow «Keycloak» an (Plan → Freigabe → Apply → Kontrollplan). Ergebnis: Service
-   Account `notes-tofu` im Realm `master`, nur mit `create-realm`, Anmeldung mit `private_key_jwt`.
-3. **App-Repository:** Schlüsselpaar für `notes-iac` erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json` (ein
-   EC-P-256-JWK mit `kid`) versionieren, privat in die lokale `.env` und als GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY`.
-   Dann `infra/keycloak/bootstrap/main.tf` (eigener State-Key) **lokal** als `notes-tofu` anwenden:
-   `kc.sh bootstrap init && kc.sh bootstrap apply`. Es legt den Realm `notes` und den IaC-Client `notes-iac` an.
+2. **Beim Betreiber:** Die App gibt nur den öffentlichen Schlüssel `notes-tofu.json` ab. Der Betreiber legt im Realm
+   `master` den Service Account `notes-tofu` an: nur Rolle `create-realm`, Anmeldung mit `private_key_jwt` (ES256)
+   und diesem Schlüssel.
+3. **App-Repository:** Schlüsselpaar für `notes-iac` wie oben erzeugen; öffentlich als `infra/keycloak/keys/notes-iac.json`
+   versionieren, privat in die lokale `.env` und als CI-Secret `KEYCLOAK_IAC_PRIVATE_KEY`. Dann
+   `infra/keycloak/bootstrap/main.tf` (eigener State-Key) **lokal** als `notes-tofu` anwenden. Es legt den Realm `notes`
+   und den IaC-Client `notes-iac` an.
 
    ```hcl
    provider "keycloak" {
-     url             = var.keycloak_url
+     url             = var.keycloak_url   # z. B. https://id.example.ch
      base_path       = var.keycloak_base_path
      jwt_signing_alg = "ES256"   # Anmeldung nur aus der Umgebung: KEYCLOAK_REALM=master, KEYCLOAK_CLIENT_ID=notes-tofu, KEYCLOAK_JWT_SIGNING_KEY
    }
 
    module "bootstrap" {
-     source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.0"
+     source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.1"
 
      product  = "notes"
      iac_jwks = file("${path.module}/../keys/notes-iac.json")
    }
    ```
 
-   Der Schlüssel von `notes-tofu` bleibt lokal (nur Bootstrap und Neuaufbau), **nie als GitHub-Secret oder in
-   Actions**: `create-realm` gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt, und
-   erlaubt beliebige weitere Realms (vollholz/identity `docs/betrieb.md` › Bewusste Restrisiken).
-4. **Zweiter PR in vollholz/identity:** im Eintrag `notes` `grant_realm_admin = true`; der Workflow «Keycloak» weist danach
-   `notes-iac` die Rolle `realm-management/realm-admin` im Realm `notes` zu. Ab dann verwaltet die App ihren Realm mit
-   `notes-iac` (Schritt 3).
-
-> Assets: `infra/keycloak/bootstrap/main.tf`, `infra/keycloak/kc.sh` (`bootstrap …` meldet sich als `assets-tofu` mit
-> `KEYCLOAK_TF_PRIVATE_KEY_B64` aus der `.env` an), `docs/produktion.md` › Keycloak-Anbindung; in vollholz/identity
-> der Eintrag `assets` in `production.tfvars` und `keys/assets-tofu.json`.
+   Der Schlüssel von `notes-tofu` bleibt lokal (nur Bootstrap und Neuaufbau), **nie als CI-Secret**: `create-realm`
+   gibt dem Ersteller dauerhaft fast alle Admin-Rollen an jedem Realm, den er anlegt, und erlaubt beliebige weitere
+   Realms.
+4. **Beim Betreiber:** Der IaC-Client `notes-iac` erhält im Realm `notes` die Rolle `realm-management/realm-admin`
+   (das darf nur ein Server-Admin, nicht `create-realm`). Ab dann verwaltet die App ihren Realm mit `notes-iac`
+   (Schritt 3).
 
 ## 3. Realm einrichten
 
@@ -133,11 +95,12 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v1.0.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v2.0.0"
 
   product         = "notes"
   display_name    = "Notes"
-  public_base_url = "https://notes.project-suite.ch"
+  public_base_url = "https://notes.example.ch"
+  keycloak_url    = var.keycloak_url   # dieselbe Instanz wie im Provider, z. B. https://id.example.ch
   catalog         = jsondecode(file("${path.module}/platform.json"))   # nur Scopes, aus dem Modell (Schritt 4)
   jwks            = { for c in ["platform", "admin", "sync"] : c => file("${path.module}/keys/notes-${c}.json") }
 
@@ -153,10 +116,9 @@ Plan → Freigabe (Environment `production`) → Apply genau dieses Plans → Ko
 Die Aktion `abgleich` meldet Änderungen von Hand. `kc.sh init` und `kc.sh plan` gehen auch lokal. Weitere Schalter
 (`smtp`, `m2m`, `mcp`, Texte) und Maschinen-Clients als Code (`machine_clients`, statt in der Konsole): README des Moduls.
 
-> Assets: `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `infra/keycloak/platform.ts` (schreibt
-> `platform.json` aus `model.platformJson()`), `.github/workflows/keycloak.yml` (Vorlage für den Workflow, mit den Secrets
-> `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
-> `IDENTITY_KIT_DEPLOY_KEY`, mit `smtp` zusätzlich `SMTP_PASSWORD`).
+Secrets des Workflows: `KEYCLOAK_IAC_PRIVATE_KEY`, `KEYCLOAK_TF_URL`, `TF_STATE_PASSPHRASE` und die Zugangsdaten des
+State-Backends, mit `smtp` zusätzlich `SMTP_PASSWORD`. `platform.json` schreibt ein kleines Skript der App aus
+`model.platformJson()` (Schritt 4).
 
 ## 4. Modell und Ressourcen
 
@@ -231,8 +193,6 @@ CREATE POLICY note_delete ON notes.note AS RESTRICTIVE FOR DELETE USING (
 
 - Nur Typen direkt unter der Organisation: `flatResources({ tables: { folder: 'notes.folder' } })`.
 
-> Assets: `src/authz/model.ts`, `src/authz/resources.ts` (mit Zuständigkeit und Vertraulichkeit).
-
 ## 5. Datenbank und Migrationen
 
 Rollen nach Spezifikation [10.1](spezifikation.md#101-rollen) mit der Vorlage aus dem Paket (als Superuser, idempotent):
@@ -261,10 +221,8 @@ await migrate(process.env.DATABASE_ADMIN_URL!, [
 ```
 
 Die umgekehrte Reihenfolge mit `adopted` gilt nur für
-Apps, die IAM-Tabellen schon aus eigenen Migrationen haben (Assets), nicht für eine neue App. Veröffentlichte Migrationen
+Apps, die IAM-Tabellen schon aus eigenen Migrationen haben, nicht für eine neue App. Veröffentlichte Migrationen
 nie ändern: Die Prüfsumme steht in jeder Datenbank, Änderungen gehören in eine neue Datei.
-
-> Assets: `db/bootstrap.sql`, `src/platform/db/migrate.ts`, `scripts/db-migrate.ts` (mit Übernahme, darum dort App vor IAM).
 
 ## 6. Konfiguration
 
@@ -292,8 +250,6 @@ for (const w of iamWarnings(cfg, 'api')) log.warn(w);
 | `ENTRA_CLIENT_ID` | **leer lassen**: Kunden verbinden ihre eigene App (Schritt 10) |
 
 Die übrigen (`OIDC_BFF_CLIENT_ID`, `OIDC_API_AUDIENCE` …) haben Standardwerte nach dem Produktnamen, passend zum Realm.
-
-> Assets: `src/platform/config/env.ts`, `docs/konfiguration.md`.
 
 ## 7. Backend
 
@@ -338,9 +294,6 @@ app.get('/v1/notes', { preHandler: req => req.needSomewhere('note:read') }, asyn
 - Mehrere Instanzen: `SHARED_STATE=postgres` (Standard) teilt den Replay-Schutz in `createIam`; das Rate-Limit-Plugin
   braucht dafür ausdrücklich `store: pgRateLimitStore(…)` wie oben, sonst zählt jede Instanz für sich.
 
-> Assets: `src/platform/http/app.ts` (`createIam` mit `model`, `iamPlugin`), `src/platform/worker/member-sync.ts`,
-> `src/platform/main/worker.ts`.
-
 ## 8. Frontend
 
 React 19 mit `@tanstack/react-query` 5; `@vollholz/iam-web` ab 1.0.0, Server an derselben Herkunft (`/auth/*`, `/v1/…`).
@@ -379,11 +332,9 @@ createRoot(root).render(
 - In der App: `useIam()` (`me` mit `permissions`, `somewhere`, `clearance`, `can`, `orgName`, `switchOrg` …),
   `<Can perm>`, `useResourceCan()`.
 
-> Assets: `web/src/main.tsx`, `web/src/features/access/*` (Adapter für `AccessSheet`), `web/src/styles/iam.css`.
-
 ## 9. Tests, CI und Image
 
-Mit `@vollholz/iam-testkit` 1.3.0 (Spezifikation Kap. 14):
+Mit `@vollholz/iam-testkit` 1.3.1 (Spezifikation Kap. 14):
 
 - **Wegwerf-Datenbank** je Testdatei: `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })`.
 - **Modell:** `checkModel(model)` und `checkCatalog(<Antwort von GET /v1/authz/catalog>)` ergeben keine Fehler;
@@ -397,15 +348,12 @@ Mit `@vollholz/iam-testkit` 1.3.0 (Spezifikation Kap. 14):
 CI und Image: GitHub Packages mit `GITHUB_TOKEN` und `packages: read`, im Image über ein Build-Secret (nie im Image),
 Vorlagen in [ausrollen.md](ausrollen.md).
 
-> Assets: `test/platform/tenant-isolation.test.ts`, `rls.test.ts`, `iam-catalog.test.ts`, `harness.ts`;
-> `.github/workflows/ci.yml`, `Dockerfile`.
-
 ## 10. Erste Organisation und Microsoft Entra ID
 
 **Erste Organisation** (idempotent; danach verwaltet die Organisations-Administration in der Oberfläche):
 
 ```sh
-KEYCLOAK_TF_URL=https://identity.project-suite.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
 DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes \
   npx iam-org-bootstrap --alias solutions --name "Solutions" \
   --email anna@example.ch --first Anna --last Admin --platform-admin
@@ -429,9 +377,6 @@ geheimer Clientschlüssel). Voraussetzungen der App: `entra = true` im Realm (Sc
 Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 [backend.md › Betrieb](../packages/iam/docs/backend.md#8-betrieb).
 
-> Assets: `docs/einrichtung.md` › Microsoft Entra ID › Organisation (Kunden-IT, im eigenen Tenant),
-> `docs/konzepte/entra-id.md`.
-
 ## Zurücksetzen und neu aufsetzen
 
 Ab `@vollholz/iam` 1.4.0 lässt sich eine App automatisiert vollständig zurücksetzen und frisch aufsetzen, etwa für
@@ -440,7 +385,7 @@ Secrets). Realm, Clients, Scopes und Einstellungen gehören weiter dem Realm-Mod
 Datenbank den Migrationen.
 
 ```sh
-export KEYCLOAK_TF_URL=https://identity.project-suite.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
+export KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVATE_KEY_B64=… \
        DATABASE_ADMIN_URL=postgres://notes_owner:…@…/notes
 npx iam-reset --keycloak --database --confirm notes --dry-run     # zeigt nur, was gelöscht würde
 npx iam-reset --keycloak --database --confirm notes [--keep-table <tabelle> …]
@@ -474,8 +419,8 @@ npx iam-org-bootstrap --file init.json
 
 ## Fertig, wenn
 
-- [ ] `npm ci` läuft lokal und in GitHub Actions (Pakete für das Repository freigegeben, Deploy-Key für die Module).
-- [ ] Eintrag `notes` in vollholz/identity mit `grant_realm_admin = true`; `notes-tofu`-Schlüssel nur lokal.
+- [ ] `npm ci` und `tofu init` laufen lokal und in der CI.
+- [ ] `notes-iac` hat beim Betreiber `realm-admin` im Realm `notes`; `notes-tofu`-Schlüssel nur lokal.
 - [ ] Realm per Workflow «Keycloak» der App eingerichtet; der Kontrollplan zeigt «No changes».
 - [ ] `platform.json` aus `model.platformJson()` stimmt mit dem Modell überein.
 - [ ] Migrationen laufen als `notes_owner`, IAM vor App; die Laufzeit nutzt `notes_runtime` (ohne BYPASSRLS).

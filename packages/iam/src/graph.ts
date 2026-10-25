@@ -1,6 +1,5 @@
 /**
- * Zugang zu Microsoft Entra ID und Microsoft Graph für die Anmeldung je Organisation (Spezifikation Kap. 9.4; aus Assets
- * `modules/admin/graph.ts`).
+ * Zugang zu Microsoft Entra ID und Microsoft Graph für die Anmeldung je Organisation (Spezifikation Kap. 9.4).
  *
  * Eine mandantenfähige App der Plattform (ENTRA_CLIENT_ID) meldet sich je Kunden-Tenant mit Client Credentials an
  * (`/{tid}/oauth2/v2.0/token`, Scope `https://graph.microsoft.com/.default`). Das klappt erst, wenn eine Administration

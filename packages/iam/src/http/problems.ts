@@ -1,6 +1,6 @@
 /**
- * Fehler als application/problem+json (RFC 9457) und ihre Schemas für die OpenAPI-Beschreibung (aus Assets
- * `http/app.ts`). Jede Route unter dem API-Präfix erhält die üblichen Fehlerantworten, ohne eigene Angaben zu
+ * Fehler als application/problem+json (RFC 9457) und ihre Schemas für die OpenAPI-Beschreibung. Jede
+ * Route unter dem API-Präfix erhält die üblichen Fehlerantworten, ohne eigene Angaben zu
  * überschreiben.
  */
 import { Type } from '@sinclair/typebox';

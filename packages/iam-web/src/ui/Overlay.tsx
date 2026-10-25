@@ -1,6 +1,6 @@
 /**
  * Modale Ebenen (Dialog, seitliches Blatt, Rückfrage) mit Fokusfalle, Esc zum Schliessen und Rückgabe des Fokus,
- * gerendert per Portal in document.body. Herkunft: vollholz/assets `web/src/ui/Overlay.tsx`.
+ * gerendert per Portal in document.body.
  */
 import { useEffect, useId, useRef, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';

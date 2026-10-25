@@ -1,7 +1,7 @@
 /**
  * Anmeldung über Microsoft Entra ID (Spezifikation 9.4, nur mit `features.entra`): Status, Verbinden (Navigation zu
  * Microsoft), Rückkehr, Testanmeldung, «Nur Entra» mit Bestätigung der Liste, Trennen; «Person hinzufügen» aus dem
- * Verzeichnis. Aus vollholz/assets `web/src/features/admin/entra.test.tsx` und `entra-add.test.tsx`, produktneutral.
+ * Verzeichnis.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

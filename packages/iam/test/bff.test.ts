@@ -1,6 +1,5 @@
 /**
- * Anmeldung der Oberfläche (Modul `bff`; aus Assets test/platform/bff.test.ts, produktneutral mit der Beispiel-App
- * «notes») gegen einen Mock-IdP mit Authorization-, Token- und End-Session-Endpunkt. Der Test spielt den Browser:
+ * Anmeldung der Oberfläche (Modul `bff`; Beispiel-App «notes») gegen einen Mock-IdP mit Authorization-, Token- und End-Session-Endpunkt. Der Test spielt den Browser:
  * /auth/login → Keycloak → /auth/callback → Sitzungs-Cookie. Die Auslieferung der Oberfläche (CSP) bleibt in der App.
  */
 import assert from 'node:assert/strict';

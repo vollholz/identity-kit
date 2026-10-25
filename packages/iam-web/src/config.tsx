@@ -20,7 +20,7 @@ export interface IamPaths {
   organizations: string;
 }
 
-/** Standardpfade wie in vollholz/assets; `loggedOut` ist im Realm als post_logout_redirect_uri eingetragen (5.1). */
+/** Standardpfade; `loggedOut` ist im Realm als post_logout_redirect_uri eingetragen (5.1). */
 export const DEFAULT_PATHS: IamPaths = {
   home: '/',
   loggedOut: '/abgemeldet',

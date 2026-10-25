@@ -1,7 +1,7 @@
 /**
  * Texte des Baukastens auf Deutsch (Quelle und Standard): Du-Form, Schweizer Rechtschreibung (ss statt ß), Begriffe nach
- * Spezifikation 7.2 (Rolle, Ort, Freigabe, Zuständigkeit, Vertraulichkeit, Scope, Recht, Organisation). Wortlaut wie in vollholz/assets, damit Apps nach
- * der Umstellung gleich aussehen. Platzhalter `{name}`; Mehrzahl mit `…_one`/`…_other`.
+ * Spezifikation 7.2 (Rolle, Ort, Freigabe, Zuständigkeit, Vertraulichkeit, Scope, Recht, Organisation).
+ * Platzhalter `{name}`; Mehrzahl mit `…_one`/`…_other`.
  */
 export const de = {
   'iam.error.0': 'Keine Verbindung zum Server',

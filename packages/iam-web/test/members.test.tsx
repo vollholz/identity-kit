@@ -2,8 +2,8 @@
  * Mitglieder: Liste von Personen und Clients (Art, Status, Rollen, Freigabestufe, «+n Orte», Filter nach Name, Art, Rolle
  * und Recht, Sortierung, einzeilige Aktionen mit Menü «Mehr», gesperrte Aktionen mit Grund), Einladen mit Rollen, Client
  * freigeben, Freigabestufe setzen, niemand gibt mehr, als er hat, Rückfragen mit Organisation und Folgen, abgeschaltete
- * Verwaltung, Enthaltensein aus den Rechten. Aus vollholz/assets `web/src/features/admin.test.tsx` (Mitglieder und Rollen) und
- * `features/admin/members.test.tsx`, produktneutral (Notiz-App).
+ * Verwaltung, Enthaltensein aus den Rechten. Beispiel:
+ * Notiz-App.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

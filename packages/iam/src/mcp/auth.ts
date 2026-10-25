@@ -1,5 +1,5 @@
 /**
- * Anmeldung im MCP-Dienst der App (Spezifikation 12.2, Entwurf 13.5; aus Assets `mcp/server.ts`), ohne MCP-SDK: Der
+ * Anmeldung im MCP-Dienst der App (Spezifikation 12.2, Entwurf 13.5), ohne MCP-SDK: Der
  * Dienst baut Server und Werkzeuge selbst und ruft je Anfrage `authorize` auf.
  *
  * Ablauf je Anfrage

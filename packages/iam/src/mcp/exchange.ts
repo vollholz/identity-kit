@@ -1,5 +1,5 @@
 /**
- * Token Exchange (RFC 8693, aus Assets `mcp/exchange.ts`): Das Token des MCP-Hosts (Zielgruppe `<produkt>-mcp`) wird bei
+ * Token Exchange (RFC 8693): Das Token des MCP-Hosts (Zielgruppe `<produkt>-mcp`) wird bei
  * Keycloak gegen ein Token für die REST-API (Zielgruppe `<produkt>-api`) getauscht. Der MCP-Dienst meldet sich dabei als vertraulicher Client
  * an (Geheimnis per client_secret_basic oder private_key_jwt nach RFC 7523).
  *

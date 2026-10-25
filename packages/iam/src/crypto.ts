@@ -1,12 +1,12 @@
 /**
- * Verschlüsselung mit den Hauptschlüsseln aus ENCRYPTION_KEYS (aus Assets `core/crypto.ts`, `modules/auth/sealer.ts`).
+ * Verschlüsselung mit den Hauptschlüsseln aus ENCRYPTION_KEYS.
  *
  * - AES-256-GCM. Der erste Schlüssel verschlüsselt, alle Schlüssel entschlüsseln (Rotation: neuen Schlüssel vorne
  *   eintragen, Bestand neu verschlüsseln, danach den alten entfernen).
  * - Zusatzdaten (AAD) binden jedes Chiffrat an seinen Zweck und seine Zeile (Sitzung: Sitzungs-ID), damit ein
  *   umkopierter Wert nicht entschlüsselt werden kann.
  * - `box`/`unbox`: Rohformat `IV (12) | Tag (16) | Chiffrat`. `Sealer`: Version (1) | Länge Schlüssel-ID (1) |
- *   Schlüssel-ID | Rohformat – das Format der Sitzungen und des Anmeldezustands in Assets, gespeicherte Werte bleiben lesbar.
+ *   Schlüssel-ID | Rohformat (Sitzungen und Anmeldezustand).
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 

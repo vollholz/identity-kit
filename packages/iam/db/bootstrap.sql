@@ -1,4 +1,4 @@
--- Einmalige Einrichtung der Datenbank-Rollen einer App (Spezifikation Kap. 10.1; aus Assets db/bootstrap.sql).
+-- Einmalige Einrichtung der Datenbank-Rollen einer App (Spezifikation Kap. 10.1).
 -- Als Superuser bzw. Datenbank-Admin ausführen. Idempotent. Name und Passwörter über psql-Variablen:
 --   psql "$SUPERUSER_URL" -v p=<produkt> -v db=<datenbank> -v owner_pw=... -v runtime_pw=... -v worker_pw=... \
 --     -f node_modules/@vollholz/iam/db/bootstrap.sql

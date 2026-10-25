@@ -1,7 +1,7 @@
 /**
  * Verwalten › Anmeldung (Microsoft Entra ID, Spezifikation 9.4, KANN): die Organisation mit ihrem Entra-Tenant verbinden
  * (Self-Service der Organisations-Administration). Dieselbe Ansicht nutzt die Plattform-Administration für eine
- * beliebige Organisation (`alias`). Nur mit `features.entra`. Herkunft: vollholz/assets `web/src/features/admin/EntraLogin.tsx`.
+ * beliebige Organisation (`alias`). Nur mit `features.entra`.
  *
  * Drei Schritte, damit sich niemand aussperrt:
  * 1. Verbinden: Verzeichnis-ID oder Domäne → Zustimmung bei Microsoft (Navigation, kein Popup) → Rückkehr auf

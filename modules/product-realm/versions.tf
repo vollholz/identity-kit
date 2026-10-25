@@ -1,6 +1,5 @@
-# Modul product-realm: Realm einer App auf der Identity-Plattform (identity.project-suite.ch, vollholz/identity) nach
-# Spezifikation Kap. 3. Herausgelöst aus vollholz/assets infra/keycloak (3a148ae); Aufruf, Eingaben und Umstellung einer
-# bestehenden App: README.md.
+# Modul product-realm: Realm einer App auf einer Keycloak-Instanz nach Spezifikation Kap. 3. Aufruf, Eingaben und
+# Umstellung: README.md.
 #
 # Backend, State-Verschlüsselung und Provider-Anmeldung gehören dem Aufrufer (infra/keycloak der App, kc.sh). Das Modul
 # braucht beim Plan und Apply Node 24 (scripts/*.ts) und den privaten Schlüssel des IaC-Clients in der Umgebung

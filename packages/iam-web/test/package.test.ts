@@ -35,10 +35,11 @@ describe('Paket', () => {
     expect(readFileSync(join(dist, 'styles.css'), 'utf8')).toMatch(/@layer iam/);
   });
 
-  it('npm pack enthält nur dist, README und package.json', () => {
+  it('npm pack enthält nur dist, README, LICENSE, NOTICE und package.json', () => {
     const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: root, encoding: 'utf8' });
     const files = (JSON.parse(out) as { files: { path: string }[] }[])[0]!.files.map(f => f.path);
-    expect(files.filter(f => !f.startsWith('dist/') && f !== 'README.md' && f !== 'package.json')).toEqual([]);
+    expect(files.filter(f => !f.startsWith('dist/') && !['README.md', 'LICENSE', 'NOTICE', 'package.json'].includes(f))).toEqual([]);
+    expect(files).toEqual(expect.arrayContaining(['LICENSE', 'NOTICE']));
     expect(files).toContain('dist/index.d.ts');
     expect(files).toContain('dist/styles.css');
   });

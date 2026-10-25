@@ -1,5 +1,5 @@
 /**
- * Mandanten verwalten (aus Assets test/platform/ops.test.ts, «Mandant sperren» und «Mandant umhängen»): anlegen,
+ * Mandanten verwalten: anlegen,
  * sperren und entsperren mit Wirkung auf die Anmeldung, an eine andere Keycloak-Organisation hängen (Daten und
  * Personen bleiben, idempotent, protokolliert), Alias nur ASCII klein geschrieben.
  */

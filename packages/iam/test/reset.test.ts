@@ -136,7 +136,7 @@ describe('Datenbank zurücksetzen', { skip }, () => {
         [['--keycloak', '--confirm', 'notes', '--unbekannt'], {}, /--unbekannt/],
         [['--keycloak', '--confirm'], {}, /--confirm/],
         [['--keycloak'], {}, /--confirm notes fehlt/],
-        [['--keycloak', '--database', '--confirm', 'assets'], {}, /entspricht nicht dem Realm notes/],
+        [['--keycloak', '--database', '--confirm', 'fremd'], {}, /entspricht nicht dem Realm notes/],
         [['--keycloak', '--confirm', 'master'], { KEYCLOAK_TF_REALM: 'master' }, /master/],
         [['--keycloak', '--confirm', 'notes', '--keep-table', 'lookup'], {}, /--keep-table nur mit --database/],
         [['--database', '--confirm', 'notes'], { DATABASE_ADMIN_URL: '' }, /DATABASE_ADMIN_URL fehlt/],

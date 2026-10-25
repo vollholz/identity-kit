@@ -1,5 +1,5 @@
 /**
- * Fastify-Plugin des IAM (Entwurf 3.2, 3.3, 13.4; aus Assets `http/app.ts`): Anmeldung je Anfrage (Bearer, DPoP, mTLS,
+ * Fastify-Plugin des IAM (Entwurf 3.2, 3.3, 13.4): Anmeldung je Anfrage (Bearer, DPoP, mTLS,
  * Sitzung der Oberfläche), Dekorationen der Anfrage, Fehler als problem+json und die Module des Pakets.
  *
  * Nicht gekapselt (`skip-override`): Hooks und Dekorationen wirken auf die ganze App. Die App registriert ihre
@@ -49,7 +49,7 @@ export interface IamPluginOptions {
   problemTypeBase?: string;
   /** Präfix der API (Standard `/v1`): alles darunter braucht ein Token, ausser `publicPaths`. */
   apiPrefix?: string;
-  /** Pfade ohne Anmeldung, `*` am Ende für ein Präfix (Assets: `/v1/openapi.json`, `/v1/docs`, `/v1/docs/*`). */
+  /** Pfade ohne Anmeldung, `*` am Ende für ein Präfix (z. B. `/v1/openapi.json`, `/v1/docs`, `/v1/docs/*`). */
   publicPaths?: string[];
   /** Sitzung der Oberfläche; Standard `iam.bff`, wenn das Modul `bff` aktiv ist. */
   sessions?: SessionBridge;
@@ -57,7 +57,7 @@ export interface IamPluginOptions {
   openapi?: OpenApiOverrides;
   /**
    * Modul `people`: Rechte, von denen eines irgendwo (`needSomewhere`) das Personenverzeichnis öffnet; Standard die
-   * Fachrechte des Lese-Scopes `<produkt>:read` und `access:admin` (Assets: `['object:read']`).
+   * Fachrechte des Lese-Scopes `<produkt>:read` und `access:admin` (z. B. `['note:read']`).
    */
   people?: { permissions?: Perm[] };
   /** Span-Attribut mit dem Alias der Organisation (Standard `iam.tenant`). */

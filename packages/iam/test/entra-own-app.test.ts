@@ -1,6 +1,5 @@
 /**
- * Modul `entra`, Kit 0.3: Verbinden mit einer eigenen App der Organisation in ihrem Tenant (Spezifikation 9.4; aus
- * Assets #22 «Eigene App»). Ohne App der Plattform (ENTRA_CLIENT_ID fehlt), mit ENCRYPTION_KEYS. Gegen
+ * Modul `entra`, Kit 0.3: Verbinden mit einer eigenen App der Organisation in ihrem Tenant (Spezifikation 9.4). Ohne App der Plattform (ENTRA_CLIENT_ID fehlt), mit ENCRYPTION_KEYS. Gegen
  * Wegwerf-Datenbank, Mock-IdP, `KeycloakFake` und `EntraFake` (App-Registrierungen je Tenant).
  * Schwerpunkte: Prüfung bei Microsoft vor dem Speichern (falsches Geheimnis, App eines anderen Tenants, fehlende
  * Berechtigung, abgelaufen), Geheimnis nur verschlüsselt (nie in Antwort oder Protokoll), Anbieter `entra-app-<alias>`,

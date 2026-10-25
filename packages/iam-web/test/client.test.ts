@@ -10,7 +10,7 @@ import { json, mockFetch } from './utils.ts';
 
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken(null); setTenant(null); });
 
-/** Eigener Client einer App (wie Assets: openapi-fetch) mit der Middleware des Pakets. */
+/** Eigener Client einer App (z. B. openapi-fetch) mit der Middleware des Pakets. */
 function appClient() {
   const api = createClient<paths>({ baseUrl: window.location.origin, fetch: (req: Request) => globalThis.fetch(req) });
   api.use(iamMiddleware);

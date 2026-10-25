@@ -1,6 +1,6 @@
 /**
- * Anmeldung und Dekorationen des Plugins über HTTP (aus Assets test/platform/auth.test.ts, produktneutral mit der
- * Beispiel-App «notes»): 401/403/400 als problem+json, Rollen aus Tupeln der gewählten Organisation (nie aus dem Token), DPoP (Schema, Replay,
+ * Anmeldung und Dekorationen des Plugins über HTTP (Beispiel-App
+ * «notes»): 401/403/400 als problem+json, Rollen aus Tupeln der gewählten Organisation (nie aus dem Token), DPoP (Schema, Replay,
  * DPOP_MODE), mTLS, nur Access Tokens, kodierte Pfade, ASCII-Aliasse, Sitzung mit CSRF, Herkunft `mcp`, Cookies mit
  * SESSION_SECRET, Span-Attribut, `need` als preHandler, `can` und Fähigkeiten, `readinessChecks`.
  */
@@ -22,7 +22,7 @@ import { notesModel } from './support/models.ts';
 
 const skip = await skipDb();
 
-/** Selbstsigniertes Client-Zertifikat (P-256) aus Assets, nur für Tests. */
+/** Selbstsigniertes Client-Zertifikat (P-256), nur für Tests. */
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
 MIIBkTCCATegAwIBAgIUVAra84SoY/XHw8mEbYjqxOzH48kwCgYIKoZIzj0EAwIw
 HTEbMBkGA1UEAwwSYXNzZXRzLXRlc3QtY2xpZW50MCAXDTI2MTAyMTEzMDMwMloY
@@ -318,7 +318,7 @@ describe('Anmeldung über HTTP (Plugin)', { skip }, () => {
         return attrs;
       };
       assert.deepEqual(await seen(n), { 'iam.tenant': 'acme' });
-      assert.deepEqual(await seen(await build({ plugin: { spanAttribute: 'assets.tenant' } })), { 'assets.tenant': 'acme' });
+      assert.deepEqual(await seen(await build({ plugin: { spanAttribute: 'app.tenant' } })), { 'app.tenant': 'acme' });
     } finally { context.disable(); }
   });
 

@@ -3,7 +3,7 @@
 Oberfläche (React) für Apps mit dem IAM-Baukasten: Sitzung und Organisation je Tab, Rechte-Bausteine, Kontomenü, die
 Bausteine «Zugriff» an jedem Ort der App (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit und Break-Glass
 sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
-Entscheide: [docs/entwurf.md](docs/entwurf.md). Herkunft: vollholz/assets `web/src`, produktneutral.
+Entscheide: [docs/entwurf.md](docs/entwurf.md). Produktneutral: keine Annahmen über eine bestimmte App.
 
 Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt sie aus ihren Design-Tokens. Alle Texte
 (`iam.*`, de und en) lassen sich überschreiben.
@@ -14,7 +14,7 @@ Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt 
 [docs/ausrollen.md](../../docs/ausrollen.md). Version exakt pinnen:
 
 ```bash
-npm i -E @vollholz/iam-web@1.2.0
+npm i -E @vollholz/iam-web@1.2.1
 ```
 
 Voraussetzungen der App: `react` und `react-dom` 19, `@tanstack/react-query` 5 (Peer-Abhängigkeiten), ein Server mit
@@ -37,7 +37,7 @@ import '@vollholz/iam-web/styles.css';
 
 createRoot(root).render(
   <QueryClientProvider client={queryClient}>
-    <IamProvider product="Notizen" router={router} features={{ entra: false }} resources={resources}>
+    <IamProvider product="Notes" router={router} features={{ entra: false }} resources={resources}>
       <App />
     </IamProvider>
   </QueryClientProvider>,
@@ -55,14 +55,14 @@ Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 |---|---|
 | `product`, `brand` | Name und Marke auf Auswahl- und Abmeldeseite |
 | `router` | Router-Adapter (unten); Standard: History-API |
-| `paths` | Pfade der Seiten; Standard wie Assets (`/verwalten/mitglieder` …). `paths.entra` muss zu den Redirect-URIs der Entra-App und `ENTRA_*` des Servers passen |
+| `paths` | Pfade der Seiten; Standard `/verwalten/mitglieder` …. `paths.entra` muss zu den Redirect-URIs der Entra-App und `ENTRA_*` des Servers passen |
 | `features` | `access` (Freigaben an Orten: «+n Orte», Rollen an Orten; Standard: das Modell hat Typen ausser `org`), `entra` (Standard aus), `platform` (Standard an) |
 | `components` | eigene Grundkomponenten (`Button`, `Dialog`, `Menu`, `Table`, `Icon`, `toast`) |
 | `roleGroups`, `inviteRoles` | Darstellung der Rollen, Vorgabe beim Einladen |
 | `resources`, `people` | Orte der App (Namen, Sprung) und Personenverzeichnis (unten) |
 | `texts`, `locale` | eigene Texte je Sprache, z. B. `{ de: { 'iam.access.timing': '…' } }` |
 | `onTenant`, `onLogout` | Rückmeldungen für persönliche Einstellungen der App |
-| `legacyTabKey` | früherer Schlüssel der Organisation je Tab (einmal übernommen) |
+| `legacyTabKey` | früherer Schlüssel der Organisation je Tab, z. B. `app.tab.org` (einmal übernommen) |
 
 ## Routen und Navigation
 
@@ -197,11 +197,12 @@ render(<StaticIam me={{ roles: ['viewer'], permissions: ['tenant:read', 'note:re
 `permissions`); `mockIamApi` beantwortet `/auth/me` und den Katalog selbst und zeichnet alle Aufrufe auf (`calls`).
 `CATALOG` ist ein Modell mit der Kette org → folder → note (Blatt, Vertraulichkeit, Besitz).
 
-## Umstellung von Assets
+## Umstellung einer bestehenden App
 
-Der Weg steht in [docs/entwurf.md](docs/entwurf.md) Kap. 8 (eigener PR in vollholz/assets, Paket gepinnt, Abnahme
+Der Weg steht in [docs/entwurf.md](docs/entwurf.md) Kap. 8 (eigener PR in der App, Paket gepinnt, Abnahme
 per Screenshot-Vergleich). Seit dem Entwurf dazugekommen:
 
+- 1.2.1: Lizenz Apache-2.0, Doku ohne App-Bezug; keine Änderung am Code.
 - 1.2.0: «Für alle Mitglieder» vergibt `types[].membersRole` (D10) statt fest `viewer`; ohne Feld (Server < 1.2) gilt `viewer`, falls am Typ zulässig. Server `@vollholz/iam` 1.2.
 - 1.1.0: `AccessEntry.via` und `Explain.reasons[].via` mit `data` (zuständig als Person über Fachdaten, Feld `data`);
   «Zugriff» zeigt «zuständig über «…»» ohne Menü, «Warum?» den Weg. Server `@vollholz/iam` 1.1.
@@ -212,7 +213,7 @@ per Screenshot-Vergleich). Seit dem Entwurf dazugekommen:
   `rulesNote`, `effective` entfällt).
 - `entraConsentHosts` nur für nationale Clouds; Standard `login.microsoftonline.com`.
 - TanStack Router: `makeIamRoutes(…, { param: tanstackParam })`.
-- Bekannte Unterschiede, die Assets mitnimmt: Auswahl im Dialog über dem Overlay (in Assets liegt sie darunter),
+- Bekannte Unterschiede zu einer bisherigen eigenen Umsetzung: Auswahl im Dialog über dem Overlay (statt darunter),
   Person- und Organisationswechsel leeren Abfragen und Mutationen der App, «Einladung erneut senden» nur mit E-Mail,
   Anmeldelinks und Zustimmung nur an erlaubte Adressen.
 

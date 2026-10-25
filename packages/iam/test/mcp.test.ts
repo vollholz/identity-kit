@@ -1,5 +1,5 @@
 /**
- * MCP-Dienst der App (aus Assets test/platform/mcp.test.ts und mcp-dpop.test.ts, ohne MCP-SDK und Werkzeuge – die baut
+ * MCP-Dienst der App (ohne MCP-SDK und Werkzeuge – die baut
  * die App): DPoP-Schlüssel und Proofs, Token Exchange mit Nonce und Bindung, API-Aufrufe mit Proof und Nonce, und
  * `McpAuth` gegen die Beispiel-App «notes» über HTTP (Wegwerf-Datenbank, Mock-IdP mit Token Exchange). Schwerpunkte:
  * Challenge nach RFC 9728, nur Hosts aus MCP_HOST_CLIENT_IDS, gebundene Tokens abgewiesen, Organisation über X-Tenant

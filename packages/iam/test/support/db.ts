@@ -3,7 +3,7 @@
  * Produkt, Migrationen des IAM (und optional weitere Quellen).
  *
  * Verbindungen laufen als Superuser mit gesetzter Rolle (`options=-c role=<rolle>`): So braucht es keine Passwörter, und
- * bestehende Rollen (z. B. von Assets im lokalen PostgreSQL) bleiben unverändert. RLS gilt für die gesetzte Rolle
+ * bestehende Rollen (z. B. einer App im lokalen PostgreSQL) bleiben unverändert. RLS gilt für die gesetzte Rolle
  * (`current_user`), nicht für den Superuser der Sitzung.
  * Umgebung wie das Test-Kit: `TEST_POSTGRES_URL` oder `POSTGRES_SUPERUSER_PASSWORD` (+ `POSTGRES_PORT`, Standard 5433).
  */

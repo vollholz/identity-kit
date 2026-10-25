@@ -17,7 +17,7 @@ resource "keycloak_realm" "this" {
 
 # IaC-Client im Realm: Service Account, private_key_jwt (öffentlicher Schlüssel var.iac_jwks, privater in .env
 # KEYCLOAK_IAC_PRIVATE_KEY_B64 bzw. GitHub-Secret KEYCLOAK_IAC_PRIVATE_KEY). Die Rolle realm-admin vergibt
-# vollholz/identity als Server-Admin; create-realm darf sie nicht vergeben.
+# der Betreiber der Instanz als Server-Admin; create-realm darf sie nicht vergeben.
 resource "keycloak_openid_client" "iac" {
   realm_id                              = keycloak_realm.this.id
   client_id                             = coalesce(var.iac_client_id, "${var.product}-iac")

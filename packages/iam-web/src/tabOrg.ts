@@ -3,7 +3,7 @@
  * erhalten. Mit der Person (`sub`): Nach einer Anmeldung als andere Person im selben Tab gilt die frühere Wahl nicht
  * (`tabOrgFor`). Mit dem Namen, damit der Hinweis «nicht mehr verfügbar» die Organisation auch dann nennt, wenn sie nicht
  * mehr im Token steht. Ohne Speicher (gesperrt, privates Fenster) gilt die Wahl bis zum Neuladen.
- * Herkunft: vollholz/assets `web/src/auth/tabOrg.ts` (dort Schlüssel `assets.tab.org`, übernommen über `legacyKey`).
+ * Eine App mit eigenem früherem Schlüssel übernimmt dessen Wert einmalig über `legacyKey`.
  */
 export interface TabOrg { sub: string; alias: string; name?: string }
 

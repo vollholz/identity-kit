@@ -106,7 +106,7 @@ export async function publicSchemaProblems(db: Query, o: { schemas: string[] }):
   return out;
 }
 
-/** Rollen mit diesem Präfix (z. B. `assets_`) dürfen weder Superuser sein noch RLS umgehen. */
+/** Rollen mit diesem Präfix (z. B. `notes_`) dürfen weder Superuser sein noch RLS umgehen. */
 export async function bypassRoleProblems(db: Query, o: { rolePrefix: string }): Promise<string[]> {
   const rows = (await db.query<{ rolname: string; rolbypassrls: boolean; rolsuper: boolean }>(
     `SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE starts_with(rolname, $1) ORDER BY 1`, [o.rolePrefix])).rows;

@@ -1,10 +1,10 @@
-/** Kurze Rückmeldungen unten in der Mitte (role=status), optional mit Aktion. Herkunft: vollholz/assets `web/src/ui/Toasts.tsx`. */
+/** Kurze Rückmeldungen unten in der Mitte (role=status), optional mit Aktion. */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { describeError } from '../problem.ts';
 import { t } from '../texts/index.ts';
 
 export interface ToastOptions { action?: { label: string; run: () => void }; tone?: 'info' | 'error'; ms?: number }
-/** Schnittstelle für `components.toast` (gleich wie in Assets). */
+/** Schnittstelle für `components.toast`. */
 export interface ToastApi {
   show(text: string, opts?: ToastOptions): void;
   error(e: unknown, prefix?: string): void;

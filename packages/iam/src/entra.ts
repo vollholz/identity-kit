@@ -1,5 +1,5 @@
 /**
- * Anmeldung über Microsoft Entra ID je Organisation (Spezifikation Kap. 9.4; aus Assets `modules/admin/entra.ts`).
+ * Anmeldung über Microsoft Entra ID je Organisation (Spezifikation Kap. 9.4).
  *
  * Eine org-admin (oder die Plattform-Administration im Auftrag) verbindet die Organisation selbst mit ihrem Entra-Tenant,
  * in zwei Stufen, damit sich niemand aussperrt:
@@ -24,12 +24,12 @@
  * - Eine org-admin kann sich nicht selbst aussperren: Liegt ihre Adresse in einer gebundenen Domäne, muss ihr Konto
  *   verknüpfbar sein, bevor «Nur Entra» gilt.
  * - Rückkehrpfade der Oberfläche aus ENTRA_UI_PATH (`<pfad>/zustimmung`, `<pfad>/test`, passend zu `paths.entra` in
- *   `@vollholz/iam-web`); der Status nennt beide (Assets: fest eingebaut).
+ *   `@vollholz/iam-web`); der Status nennt beide.
  *
  * Personen vorab hinzufügen: `search` sucht Personen im Tenant der Organisation; hinzufügen, verknüpfen und einladen
  * macht `AdminService.addFromEntra` mit `connectionOf`, `graphFor`, `linkAccount` und `removeFirstFactor`.
  *
- * Eigene App (Kit 0.3, `connectApp`; aus Assets #22): Statt der App der Plattform trägt die Organisation Tenant,
+ * Eigene App (Kit 0.3, `connectApp`): Statt der App der Plattform trägt die Organisation Tenant,
  * Anwendungs-ID und Geheimnis einer App aus ihrem eigenen Tenant ein – auch ohne ENTRA_CLIENT_ID. Kein Nachweis über
  * eine Admin-Zustimmung: Ein Token der App im Tenant belegt die erteilten Anwendungsberechtigungen, die Registrierung
  * im Tenant (`GET /applications`, nur im Heimat-Tenant der App) belegt, dass die App dem Tenant gehört – nicht einem

@@ -15,7 +15,7 @@
  * Darstellung: «Darf n von m» mit Satz, Gruppen aus dem Katalog mit Zählung, je Recht Status `role` (erlaubt über Rolle
  * an der Organisation), `place` (nur an einzelnen Orten), `scope` (fehlt im Scope) oder `missing` und «Warum?». Ab 10
  * Rechten Umschalter «Alle / Erlaubt / Fehlt» und Suche. Organisations-Admin als ein Satz «Alle Rechte.», Liste erst auf
- * «Rechte anzeigen». Herkunft: vollholz/assets `web/src/ui/RightsOverview.tsx`.
+ * «Rechte anzeigen».
  */
 import { createElement, useId, useState, type ReactNode } from 'react';
 import { useAuthz, type Authz } from '../authz.ts';

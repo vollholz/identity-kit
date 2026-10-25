@@ -2,7 +2,6 @@
  * Kontomenü (Spezifikation 11.1, 11.2): Person, Organisation und Rollen, «Meine Rollen und Rechte», Organisation
  * wechseln (für diesen Tab, ohne neue Anmeldung) und Abmelden; Menü-Button nach ARIA-Muster «Menu Button». Die App
  * liefert das Symbol des Knopfs (`avatar`) und eigene Einträge (`extraItems`, Buttons mit role="menuitem").
- * Herkunft: vollholz/assets `web/src/shell/UserMenu.tsx`.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useAuthz } from '../authz.ts';

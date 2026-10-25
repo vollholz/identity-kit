@@ -14,6 +14,7 @@ mock_provider "external" {
 variables {
   product         = "beispiel"
   display_name    = "Beispiel"
+  keycloak_url    = "https://id.example.ch"
   public_base_url = "https://beispiel.example.ch/"
   catalog = {
     scopes = ["beispiel:read", "notes:write"]
@@ -99,7 +100,7 @@ run "ohne_schalter" {
     error_message = "Einladung mit display_name, Theme-Texte je Sprache"
   }
   assert {
-    condition     = output.issuer == "https://identity.project-suite.ch/realms/beispiel" && output.clients.mcp == null
+    condition     = output.issuer == "https://id.example.ch/realms/beispiel" && output.clients.mcp == null
     error_message = "Ausgaben"
   }
 }
@@ -228,14 +229,27 @@ run "product_master" {
   expect_failures = [var.product]
 }
 
-run "product_project_suite" {
+run "product_beliebiger_name" {
   command = plan
 
   variables {
-    product = "project-suite"
+    product = "plattform"
   }
 
-  expect_failures = [var.product]
+  assert {
+    condition     = output.issuer == "https://id.example.ch/realms/plattform"
+    error_message = "Nur master ist gesperrt; jeder andere gültige Name ist ein eigener Realm."
+  }
+}
+
+run "keycloak_url_mit_pfad" {
+  command = plan
+
+  variables {
+    keycloak_url = "https://id.example.ch/auth"
+  }
+
+  expect_failures = [var.keycloak_url]
 }
 
 run "katalog_scope_ungueltig" {
@@ -369,4 +383,26 @@ run "maschinen_client_ohne_organisation" {
   }
 
   expect_failures = [var.machine_clients]
+}
+
+run "theme_standard" {
+  command = plan
+
+  assert {
+    condition     = keycloak_realm.this.login_theme == null && keycloak_realm.this.email_theme == null
+    error_message = "Ohne theme setzt das Modul kein Theme (Standard von Keycloak)."
+  }
+}
+
+run "theme_gesetzt" {
+  command = plan
+
+  variables {
+    theme = "beispiel"
+  }
+
+  assert {
+    condition     = keycloak_realm.this.login_theme == "beispiel" && keycloak_realm.this.account_theme == "beispiel" && keycloak_realm.this.email_theme == "beispiel"
+    error_message = "theme gilt für Login, Konto und E-Mails."
+  }
 }

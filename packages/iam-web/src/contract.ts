@@ -1,7 +1,7 @@
 /**
  * Typen des HTTP-Vertrags (Spezifikation Kap. 5, 7, 9, 11), von Hand gepflegt nach Kap. 9.5–9.7: Das Paket hängt nicht
- * von den erzeugten Typen einer App ab. `test/contract.check.ts` prüft die unveränderten Teile gegen einen Auszug der
- * OpenAPI von vollholz/assets; Zugriff, Mitglieder, Clients, Katalog und Break-Glass folgen allein der Spezifikation,
+ * von den erzeugten Typen einer App ab. `test/contract.check.ts` prüft die unveränderten Teile gegen einen Auszug einer
+ * OpenAPI (`test/fixtures/openapi-iam.json`); Zugriff, Mitglieder, Clients, Katalog und Break-Glass folgen allein der Spezifikation,
  * bis das Backend eine OpenAPI dafür liefert. Schlüssel von Rechten sind `Permission` (ohne Registrierung `string`, mit
  * Registrierung der Typ der App, siehe `permissions.ts`); Rollen, Scopes und Typen sind `string`.
  */

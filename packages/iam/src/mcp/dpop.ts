@@ -1,5 +1,5 @@
 /**
- * DPoP (RFC 9449) auf der Client-Seite des MCP-Dienstes (aus Assets `mcp/dpop.ts`): Der Dienst hält ein eigenes
+ * DPoP (RFC 9449) auf der Client-Seite des MCP-Dienstes: Der Dienst hält ein eigenes
  * Schlüsselpaar (ES256), lässt sich beim Token Exchange daran gebundene API-Tokens ausstellen (`cnf.jkt`) und belegt bei
  * jedem API-Aufruf mit einem frischen Proof (`htm`, `htu`, `ath`, `jti`), dass er den privaten Schlüssel besitzt.
  * Ein abgegriffenes API-Token ist ohne diesen Schlüssel wertlos.

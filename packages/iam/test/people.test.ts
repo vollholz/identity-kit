@@ -1,6 +1,5 @@
 /**
- * Modul `people`: Personenverzeichnis (aus Assets test/platform/people.test.ts, produktneutral mit der Beispiel-App
- * «notes»; Personenattribute bleiben in der App): Liste und Suche nach Name, Sicht auf E-Mail und letzten Zugriff,
+ * Modul `people`: Personenverzeichnis (Beispiel-App «notes»; Personenattribute bleiben in der App): Liste und Suche nach Name, Sicht auf E-Mail und letzten Zugriff,
  * Clients, Cursor, Sammelabfrage `ids`, Mandantentrennung, Recht aus der Option `people.permissions`.
  */
 import assert from 'node:assert/strict';

@@ -1,8 +1,8 @@
 /**
  * Organisationen (Plattform-Administration): «Recht fehlt» ohne Plattform-Administration, Liste mit Status in Keycloak
  * und Plattform, Anlegen mit Prüfung beim Absenden, Detail mit bearbeiteter und eigener Organisation, Angaben ändern,
- * Sperren (eigene Organisation gesperrt mit Grund) und Entsperren. Aus vollholz/assets `web/src/features/admin.test.tsx`
- * (Organisationen), produktneutral (Notiz-App).
+ * Sperren (eigene Organisation gesperrt mit Grund) und Entsperren. Beispiel:
+ * Notiz-App.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';

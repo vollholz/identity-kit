@@ -1,7 +1,6 @@
 # Texte des Baukastens
 
-Realm-Texte, die das Modul mit `standard_texts = true` setzt (localization.tf). Herkunft: vollholz/assets
-`infra/keycloak` (`3a148ae`), Keycloak 26.8.1.
+Realm-Texte, die das Modul mit `standard_texts = true` setzt (localization.tf). Stand: Keycloak 26.8.1.
 
 | Datei | Inhalt |
 |---|---|

@@ -1,6 +1,6 @@
 /**
  * Abgleich der Organisationsmitglieder aus Keycloak ins Personenverzeichnis (`<schema>.principal`; Spezifikation
- * Kap. 9.3; aus Assets `modules/admin/sync.ts` und `worker/member-sync.ts`).
+ * Kap. 9.3).
  *
  * - Zuordnung Organisation ↔ Mandant über den Alias (app.platform_tenants()); Organisationen ohne Mandant und
  *   gesperrte Mandanten werden übersprungen. Hat der Mandant noch keine Organisations-ID, wird sie gebunden

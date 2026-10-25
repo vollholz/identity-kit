@@ -1,6 +1,6 @@
 # Spezifikation: IAM-Baukasten für Apps mit Keycloak
 
-Stand 2026-10-23 · Status: **Entwurf, Vertrag für Authz neu (Kap. 7–11, 14)** · Ort: vollholz/identity-kit
+Stand 2026-10-25 · Status: **Entwurf, Vertrag für Authz neu (Kap. 7–11, 14)** · Ort: vollholz/identity-kit
 
 Diese Spezifikation beschreibt die Identitäts- und Rechteverwaltung (IAM) so, dass ein **neues Produkt** sie
 vollständig übernimmt und an eine Keycloak-Instanz (z. B. `https://id.example.ch`) angehängt wird: eigener Realm, Anmeldung über ein BFF, Keycloak-Organisationen als Mandanten, Rollen an Orten, Freigaben,
@@ -20,7 +20,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 
 ## Inhalt
 
-1. [Überblick](#1-überblick) · [Standard und App-lokal](#11-standard-und-app-lokal)
+1. [Überblick](#1-überblick) · [Standard und App-lokal](#11-standard-und-app-lokal) · [Zonen](#12-zonen-fest-einstellbar-app-eigen)
 2. [Anbindung an die Keycloak-Instanz](#2-anbindung-an-die-keycloak-instanz) · [Kommandozeilen](#21-kommandozeilen)
 3. [Realm des Produkts](#3-realm-des-produkts)
 4. [Mandanten](#4-mandanten)
@@ -33,8 +33,8 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 11. [Oberfläche](#11-oberfläche)
 12. [Maschinen-Clients und MCP](#12-maschinen-clients-und-mcp)
 13. [Konfiguration und Geheimnisse](#13-konfiguration-und-geheimnisse)
-14. [Mandantentrennung und Tests](#14-mandantentrennung-und-tests)
-15. [Baukasten und Ausrollen](#15-baukasten-und-ausrollen)
+14. [Mandantentrennung und Tests](#14-mandantentrennung-und-tests) · [Konformitätstest](#141-konformitätstest-iam-conformity-test)
+15. [Baukasten und Ausrollen](#15-baukasten-und-ausrollen) · [Manifest, Gerüst, Lock-Datei](#154-manifest-gerüst-und-lock-datei) · [Unterstützte Versionen](#155-unterstützte-versionen)
 16. [Abnahme](#16-abnahme)
 17. [Grenzen und Restrisiken](#17-grenzen-und-restrisiken)
 
@@ -94,6 +94,38 @@ Backend, für Personen, Service-Clients, M2M, API und MCP.
 | Texte des Baukastens (de/en, Du-Form): Oberfläche `iam.*`, Anmeldeseiten, Konto und Einladung (`standard_texts` des Realm-Moduls) | **Texte** der App, Labels und Beschreibungen des Katalogs, Theme-Texte der Anmeldeseiten, Übersetzungen weiterer Sprachen |
 | Tests: Isolation über alle Routen, RLS, Lesesicht = `can`, Multi-Org, BFF, Verwaltung, Modellregeln, Entscheidung | Fachtests; Eintrag der Fachrouten in den Isolationstest (automatisch über die Routenliste) |
 
+
+### 1.2 Zonen: Fest, Einstellbar, App-eigen
+
+Jede Vorgabe gehört zu genau **einer** Zone. Die Zone sagt, woher die Vorgabe kommt, wer sie ändern darf und wie eine
+Abweichung auffällt. Was in keiner Zeile «Einstellbar» oder «App-eigen» steht, ist **Fest**.
+
+| Zone | Wer bestimmt | Wo | Ändern | Abweichung fällt auf durch |
+|---|---|---|---|---|
+| **Fest** (Vertrag des Kits) | identity-kit | Realm-Modul, Pakete `@vollholz/*`, verwaltete Dateien in der App ([15.4](#154-manifest-gerüst-und-lock-datei)) | nur mit einer neuen Version des Kits | Konformitätstest (Lock-Datei, Realm, Datenbank), Kontrollplan «No changes» |
+| **Einstellbar** | App | `identity.app.json` (Manifest) | Pull Request der App; Workflow «Keycloak» wendet an | Schema des Manifests; Realm-Prüfung gegen das Manifest |
+| **App-eigen** | App | Modell, Ressourcen, Policies der eigenen Tabellen, Oberfläche, Texte | frei, innerhalb der Prüfregeln (M1–M13, RLS) | `checkModel`, RLS-Prüfungen, Isolations-Durchlauf |
+
+| Fest (Beispiele) | Einstellbar (`identity.app.json`) | App-eigen |
+|---|---|---|
+| Sicherheit des Realms ([3.1](#31-realm-einstellungen)): Lebensdauer der Tokens, Passwort-Richtlinie, Brute-Force, Ereignisse, `organizations_enabled` | `product`, `displayName`, `publicBaseUrl`, `keycloakUrl` | Modell: Rechte, Rollen, Scopes, Typen ([7.3](#73-modell-der-app-definemodel)) |
+| Clients `<produkt>-*` und ihre Anmeldung (`private_key_jwt`), Client-Richtlinien, Mapper | `realm.entra`, `realm.m2m`, `realm.mcp`, `realm.mcpExtraRedirectUris`, `realm.mcpCallbackPort` | Ressourcen (`ResourceModel`) und RLS-Policies der eigenen Tabellen |
+| keine Rollen in Keycloak ausser `platform-admin`; reservierte Rechte, Gruppen und `org-admin` | `realm.smtp` (eigenes Konto), `realm.machineClients` | Fachtabellen, Migrationen der App (nach denen des Kits) |
+| Datenbank: Rollen ohne `BYPASSRLS`, FORCE RLS, Lesesicht, Migrationen des Kits zuerst | `realm.theme`, `realm.themeTexts`, `realm.localization`, `realm.supportedLocales` | Oberfläche: Design-Tokens über `--iam-*`, Komponenten-Hülle |
+| Anmeldung (BFF), Token-Prüfung, Verwaltung, Freigaben, Audit | `state` (Backend des OpenTofu-States), `organizations` (erste Admins) | Texte der App |
+| Standardtexte des Baukastens (`standard_texts`), Realm = Produkt, IaC-Client `<produkt>-iac` | `exceptions` (begründete Abweichungen, siehe unten) | Konfiguration des Betriebs (Kap. 13) innerhalb der Prüfungen von `loadIamConfig` |
+
+Regeln:
+
+- Eine Abweichung von «Fest» ist nur **begründet** im Manifest möglich (`exceptions.files` für eigene Dateien neben den
+  verwalteten, `exceptions.withoutTenant` für Tabellen ohne `tenant_id`, `exceptions.securityDefiner` für
+  SECURITY-DEFINER-Funktionen); jede Ausnahme steht im Bericht des Konformitätstests, eine veraltete ist ein Fehler.
+- Technisch kann eine App alles ändern: `<produkt>-iac` hat `realm-admin`, `<produkt>_owner` besitzt die Datenbank.
+  Verhindern lässt sich das nicht, nur **erkennen** – deshalb prüft der Betreiber der Keycloak-Instanz die Realms
+  aller Apps zusätzlich unabhängig von deren CI ([14.1](#141-konformitätstest-iam-conformity-test)).
+- Eine Einstellung, die eine App braucht und die hier fehlt, wird im Kit ergänzt (neue Version), nicht in der App
+  nachgebaut.
+
 ## 2. Anbindung an die Keycloak-Instanz
 
 Ablauf zwischen dem Betreiber der Keycloak-Instanz und dem Produkt. Modul `modules/product-realm-bootstrap`. Wie der
@@ -145,7 +177,9 @@ Im Backend-Paket `@vollholz/iam` (`npx …`). Anmeldung bei Keycloak mit dem Ser
 | `iam-org-bootstrap --operator --email … [--first] [--last]` | Konto des Betriebs mit der Realm-Rolle `PLATFORM_ADMIN_ROLE`, ohne Organisation ([6.3](#63-konto-ohne-organisation)); Abbruch, wenn die Person Mitglied einer Organisation ist; braucht keine Datenbank; idempotent |
 | `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last]` | Organisation und eine Person als org-admin (Schritt 7, A20); Abbruch, wenn die Person Betrieb ist (Betrieb und Organisation nie mit demselben Konto); idempotent |
 | `iam-org-bootstrap --file <init.json>` | dasselbe für den Betrieb und alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "operators"?: [ { "email", "first"?, "last"? } ], "organizations"?: [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"? } ] } ] }`, mindestens ein Eintrag, keine Adresse in beiden; nicht zusammen mit den Einzel-Flags |
+| `iam-org-bootstrap --manifest identity.app.json` | dasselbe für die Felder `operators` und `organizations` des Manifests der App ([15.4](#154-manifest-gerüst-und-lock-datei)); übrige Felder unbeachtet |
 | alle zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
+| Datenbank Pflicht (ab 2.1) | ohne `DATABASE_ADMIN_URL` Abbruch (ausser `--dry-run` und `--operator`): sonst entstünde eine Organisation ohne `org-admin`. Nur Keycloak ausdrücklich mit `--keycloak-only` (programmatisch `database: null`); Mandant, Tupel und Freigabestufe setzt dann ein eigener Schritt |
 | Einladung (ab 1.5) | neu angelegte Personen ohne Passwort und ohne Identitätsanbieter erhalten von Keycloak eine E-Mail «Passwort festlegen» (`execute-actions-email`, `UPDATE_PASSWORD`, gültig 7 Tage, `--invite-days <1–30>`, optional `--client-id <client> [--redirect-uri <url>]`). `--no-email`: keine; `--resend`: auch an bestehende Personen ohne Passwort (z. B. nach Abbruch oder eingerichtetem SMTP). Scheitert der Versand (kein SMTP), meldet der Lauf das und endet mit 0. Am Schluss die Zeilen `Einladung gesendet an: …` bzw. `Einladung NICHT gesendet an: …`. `--initial-password` ist die Alternative ohne SMTP (dann keine Einladung; nicht zusammen mit `--resend`, `--invite-days`, `--client-id`, `--redirect-uri`) |
 | `iam-reset --keycloak` | im Realm alle Organisationen samt ihrer Identitätsanbieter (`entra-NNN`, `entra-app-<alias>`) und alle Personen löschen; Service-Account-Benutzer der Clients, Realm, Clients, Scopes, übrige Anbieter und Einstellungen bleiben (sie gehören dem Realm-Modul) |
 | `iam-reset --database [--keep-table <name> …]` | als Migrationsrolle alle Tabellen im Schema der App leeren (`TRUNCATE … RESTART IDENTITY CASCADE`) ausser `schema_migrations` und `--keep-table`; Struktur, Rollen, Policies bleiben. Abbruch, wenn CASCADE eine ausgenommene Tabelle mitleeren würde |
@@ -1526,6 +1560,28 @@ Pflichttests (Kit: `packages/*/test`, Konformität über `@vollholz/iam-testkit`
 Für Tests ohne echten Keycloak eine Nachbildung der Admin-API (Test-Kit, `keycloak-fake.ts`); für
 Entwicklung PostgreSQL und Keycloak lokal in Docker mit Demo-Organisationen und Testpersonen.
 
+
+### 14.1 Konformitätstest (`iam-conformity-test`)
+
+Kommandozeile im Test-Kit (`npx iam-conformity-test`). Sie beantwortet für Menschen und CI: **Hält die App den
+Vertrag ein, und woher kommt jede Vorgabe?** Jede Zeile des Berichts nennt Ebene, Prüfung, Zone ([1.2](#12-zonen-fest-einstellbar-app-eigen)),
+Herkunft und Befunde; Ausgabe als Text, `--json` oder Markdown-Tabelle (`--markdown $GITHUB_STEP_SUMMARY`). Exit-Code
+0 konform (Warnungen erlaubt, mit `--strict` nicht), 1 Befunde, 2 Prüfung nicht möglich, 64 Aufruf falsch.
+
+| Ebene | Wann | Prüft |
+|---|---|---|
+| Repository (Standard) | jeder Pull Request, ohne Geheimnisse | Manifest gültig; verwaltete Dateien unverändert (Lock-Datei) und keine eigenen `.tf` daneben ohne Begründung; `@vollholz/*` exakt gepinnt, Backend und Test-Kit vorhanden, Versionen und Realm-Module im unterstützten Fenster ([15.5](#155-unterstützte-versionen)); Modell nach M1–M13, `model.product` = Manifest, `platform.json` = `model.platformJson()`; Einstellungen und Ausnahmen werden angezeigt |
+| Datenbank (`--db`) | nach den Migrationen (Deploy) oder von Hand, als `<produkt>_owner` (`CONFORMITY_DATABASE_URL` bzw. `DATABASE_ADMIN_URL`) | Migrationen des installierten `@vollholz/iam` angewendet; Rollen nach 10.1, ohne `BYPASSRLS`, Laufzeit besitzt keine Objekte; FORCE RLS und `tenant_isolation`; Tabellen mit Rechten nur mit Mandantentrennung oder begründet; Lesesicht; SECURITY DEFINER nur begründet; kein PUBLIC; **jede aktive Organisation hat mindestens einen gültigen `org-admin`** |
+| Realm (`--realm`) | zentral jede Nacht beim Betreiber, in der App auf Anforderung | Einstellungen der Zone «Fest» wie im Modul; nur Clients des Moduls und Maschinen-Clients aus dem Manifest (ohne Manifest: Attribut `<produkt>.m2m`); vertrauliche Clients `private_key_jwt`, keine Passwort-Anmeldung, kein Implicit Flow; keine Realm- oder Client-Rollen ausser `platform-admin`; Identity Provider nur `entra-app-<alias>` und nur mit `realm.entra`; Ereignisse an |
+
+- Der Realm wird nur gelesen (GET der Admin-API, `private_key_jwt`). In der App meldet sich der Test als
+  `<produkt>-iac` an; der Betreiber mit einem eigenen, nur lesenden Service Account im Realm `master`
+  (`--realm --no-repo --product <produkt>`), unabhängig von der CI der App.
+- Der Test ergänzt den Kontrollplan «No changes» des Workflows «Keycloak»: Der Plan erkennt Abweichungen nur an
+  Ressourcen, die der State kennt; der Konformitätstest auch neue Clients, Rollen oder Anbieter von Hand.
+- Die Ausnahmen des Kits (Tabellen ohne `tenant_id`, SECURITY-DEFINER-Funktionen) stehen im Test-Kit, die der App im
+  Manifest.
+
 ## 15. Baukasten und Ausrollen
 
 Der Baukasten liegt in diesem Repository (vollholz/identity-kit). Jede App bindet ihn ein, statt Code zu kopieren.
@@ -1539,7 +1595,8 @@ Der Baukasten liegt in diesem Repository (vollholz/identity-kit). Jede App binde
 | **Backend-Paket** `@vollholz/iam` (Node 24, TypeScript, Fastify-Adapter) | Konfiguration, Token-Prüfung, Principal, BFF, `defineModel`, Tupel, Entscheidung, Lesesicht, `explain`/`whoHasAccess`, Verwaltung (Mitglieder, Clients, Freigaben, Freigabestufe), Break-Glass, Abgleich und Aufräumen (Worker-Job), MCP-Token-Austausch, Audit-Schnittstelle, SQL-Migrationen des IAM | 5–7, 9, 10, 12 |
 | **Frontend-Paket** `@vollholz/iam-web` (React) | Sitzung und `/auth/me`, Organisation je Tab, `useAuthz()`, `useResourceCan()`, `MissingRight`, Routen-Guard, Rechte-Übersicht, Rollenmatrix, «Meine Rechte», `AccessSheet`, `GrantDialog`, `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, Verwalten › Zugang (Mitglieder mit Clients, Anmeldung), Organisationen | 11 |
 | **Test-Kit** `@vollholz/iam-testkit` | Wegwerf-Datenbank, Keycloak-Nachbildung, Testpersonen, Prüfung fremder Clients im Realm, Isolations-Durchlauf über die Routenliste, RLS-Prüfung, Modellprüfung (`checkModel`), Standardfälle der Entscheidung, Konformitätstests des Vertrags (auch für Apps in anderen Sprachen) | 14 |
-| **Vorlage** `create-iam-app` | legt in einer App `infra/keycloak` (Modulaufruf), Modell-Gerüst (`authz/model.ts`, Stufe «einfach»), Migration, Konfiguration, Workflow `keycloak.yml`, Doku-Gerüst (Inventar der Mandantentrennung) an | 2, 15.3 |
+| **Gerüst** `@vollholz/create-iam-app` | legt in einer App das Manifest `identity.app.json`, die verwalteten Dateien (`infra/keycloak` mit Modulaufruf und `kc.sh`, Workflows `keycloak.yml` und `identity-conformity.yml`, `docs/identity-kit.md`) mit Lock-Datei und die Dateien der App (Modell Stufe «einfach», `platform.json`, Migrationsordner) an; `sync` bringt die verwalteten Dateien auf eine neue Version, `keys` erzeugt die Schlüsselpaare | 15.4 |
+| **Konformitätstest** `iam-conformity-test` (im Test-Kit) | Ebenen Repository, Datenbank, Realm mit Zone und Herkunft je Prüfung | 14.1 |
 
 ### 15.2 Schnittstelle zur App
 
@@ -1612,13 +1669,14 @@ app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note
 ### 15.3 Ausrollen
 
 1. **Anbindung** an die Keycloak-Instanz durch deren Betreiber ([Kapitel 2](#2-anbindung-an-die-keycloak-instanz), Schritte 1–2, 5).
-2. `npx create-iam-app` im Repository der App: Gerüst nach 15.1; danach Modell und Ressourcen füllen.
-3. Realm: Bootstrap und `kc.sh apply` mit dem Modul (Schritte 3–6).
+2. `npx @vollholz/create-iam-app init` im Repository der App: Manifest, verwaltete Dateien, Dateien der App
+   ([15.4](#154-manifest-gerüst-und-lock-datei)); `create-iam-app keys` für die Schlüsselpaare; danach Modell und Ressourcen füllen.
+3. Realm: Bootstrap (`kc.sh bootstrap`, lokal) und Workflow «Keycloak» mit dem Modul (Schritte 3–6).
 4. Pakete einbinden (Backend, Frontend), Migration ausführen, Konfiguration und Geheimnisse ([Kapitel 13](#13-konfiguration-und-geheimnisse)).
-5. Erste Organisation mit `iam-org-bootstrap` (im Backend-Paket enthalten): Keycloak und, mit `DATABASE_ADMIN_URL`,
-   Principal, Tupel `org-admin` und Freigabestufe 2 in der Datenbank der App (A20). Zurücksetzen und neu aufsetzen:
-   `iam-reset`, dann `iam-org-bootstrap --file` ([Kommandozeilen](#21-kommandozeilen)).
-6. Abnahme ([Kapitel 16](#16-abnahme)) mit dem Test-Kit.
+5. Erste Organisation mit `iam-org-bootstrap --manifest identity.app.json` (im Backend-Paket enthalten): Keycloak und
+   in der Datenbank der App Principal, Tupel `org-admin` und Freigabestufe 2 (A20; ohne `DATABASE_ADMIN_URL` Abbruch).
+   Zurücksetzen und neu aufsetzen: `iam-reset`, dann `iam-org-bootstrap --manifest` bzw. `--file` ([Kommandozeilen](#21-kommandozeilen)).
+6. Abnahme ([Kapitel 16](#16-abnahme)) mit dem Test-Kit: `npx iam-conformity-test --all` ([14.1](#141-konformitätstest-iam-conformity-test)).
 
 Versionierung und Pflege:
 
@@ -1630,6 +1688,45 @@ Versionierung und Pflege:
 - Das Realm-Modul ist idempotent; ein Update ergibt einen Plan, der vor dem Apply freigegeben wird.
 - Sicherheitsupdates (Keycloak, Abhängigkeiten, Befunde der Mandantentrennung) zuerst im Baukasten, dann in allen
   Apps; der Betreiber der Keycloak-Instanz führt die Liste der angebundenen Apps.
+
+
+### 15.4 Manifest, Gerüst und Lock-Datei
+
+**Manifest `identity.app.json`** (Wurzel des Repositorys der App, JSON Schema `schema/identity-app.schema.json` im
+Test-Kit): die einzige Stelle, an der eine App ihr Setup beschreibt – genau die Zone «Einstellbar»
+([1.2](#12-zonen-fest-einstellbar-app-eigen)). Felder: `product`, `displayName`, `publicBaseUrl`, `keycloakUrl`,
+`realm` (Schalter des Realm-Moduls), `paths` (`model`, `migrations`, `packages`), `database.schema`, `state`
+(S3-Backend; `key`/`bootstrapKey` nur für bestehende Apps mit bisherigem Schlüssel),
+`organizations` (erste Admins), `exceptions`. Unbekannte Felder sind ein Fehler.
+
+**Verwaltete Dateien** schreibt `create-iam-app` aus seinen Vorlagen; sie tragen in den ersten Zeilen den Kopf
+«Verwaltet von identity-kit (create-iam-app x.y.z) – nicht von Hand ändern». Sie enthalten keine Werte der App, sondern
+lesen sie zur Laufzeit aus dem Manifest (`jsondecode(file("…/identity.app.json"))` in OpenTofu, `kc.sh` für Produkt,
+Instanz und State-Backend). Deshalb hängt ihr Inhalt nur von der Version des Kits ab.
+
+| Datei | Inhalt |
+|---|---|
+| `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `outputs.tf` | Aufruf von `product-realm` (Version fest), `import` des Realms, Backend S3, Verschlüsselung von State und Plan |
+| `infra/keycloak/bootstrap/main.tf` | Aufruf von `product-realm-bootstrap` (lokal als `<produkt>-tofu`) |
+| `infra/keycloak/kc.sh`, `infra/keycloak/platform.ts` | OpenTofu mit Anmeldung nur aus der Umgebung; `platform.json` aus dem Modell |
+| `.github/workflows/keycloak.yml` | Prüfen (inkl. Konformität) → Plan → Freigabe → Apply → Kontrollplan; Abgleich |
+| `.github/workflows/identity-conformity.yml` | Konformitätstest je Pull Request; live (Realm, Datenbank) auf Anforderung |
+| `docs/identity-kit.md` | Zonen und verwaltete Dateien für die Entwickler:innen der App |
+
+**Lock-Datei `.identity-kit.lock`** (versioniert): Version von `create-iam-app` (`kit`), eingesetzte Versionen der
+Module (`versions`) und je verwaltete Datei `sha256:` des Inhalts (Zeilenenden normalisiert). Der Konformitätstest
+meldet eine geänderte oder fehlende verwaltete Datei; `create-iam-app sync` schreibt sie neu, eine von Hand geänderte
+nur mit `--force`, eine entfallene löscht es nur unverändert. Dateien der App (Modell, `platform.json`, Migrationen)
+legt `init` nur an, wenn sie fehlen.
+
+### 15.5 Unterstützte Versionen
+
+Unterstützt sind die aktuelle und die vorherige Hauptversion jedes Teils – enger, wo Teile nur zusammen funktionieren
+(Rollen nur in der Datenbank: `@vollholz/iam` ab 2.0 mit `product-realm` ab 2.0). Das Fenster steht im Test-Kit
+(`MINIMUM`, mit Grund) und rückt mit jeder Hauptversion nach; ausserhalb meldet der Konformitätstest einen Fehler, eine
+neuere verfügbare Version als Warnung. Upgrade einer App: Pakete erhöhen (Renovate), dann
+`npx @vollholz/create-iam-app@<version> sync` für die verwalteten Dateien und den Konformitätstest laufen lassen. Jede
+brechende Änderung bringt ihre Prüfung im Konformitätstest mit, damit eine App konkret sieht, was sie anpassen muss.
 
 ## 16. Abnahme
 
@@ -1652,7 +1749,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 | P12 | Oberfläche | `MissingRight`, Routen-Guards, «Meine Rechte», Rollenmatrix, Bausteine aus [11.4](#114-bausteine-und-schnittstelle-zur-app), Verwalten-Seiten nach Muster; Begriffe nach 7.2; 390 px, hell/dunkel, axe |
 | P13 | Maschinen-Clients | DPoP-Pflicht über `<produkt>.m2m`, Freigabe = Tupel an `org` je Mandant, ohne Freigabe 403 |
 | P14 | Isolation | Routen-Durchlauf über alle `/v1`-Routen grün, Inventar der Mandantentrennung vollständig |
-| P15 | Baukasten | App nutzt Modul und Pakete in einer gepinnten Version, ohne Kopien; lokal nur Modell, Ressourcen, Policies, Design-Tokens, Texte; Konformitätstests des Test-Kits grün |
+| P15 | Baukasten | App nutzt Modul und Pakete in einer gepinnten, unterstützten Version, ohne Kopien; Gerüst aus `create-iam-app` mit Lock-Datei, Einstellungen nur in `identity.app.json`; lokal nur Modell, Ressourcen, Policies, Design-Tokens, Texte; `iam-conformity-test --all` ohne Fehler, Ausnahmen begründet |
 
 ## 17. Grenzen und Restrisiken
 

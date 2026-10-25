@@ -1,0 +1,25 @@
+{
+  "name": "@vollholz/create-iam-app",
+  "version": "0.2.0",
+  "description": "Gerüst einer App mit dem Identity-Kit: Manifest identity.app.json, verwaltete Dateien (Realm, Workflows) mit Lock-Datei, Schlüsselpaare",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/vollholz/identity-kit.git", "directory": "packages/create-iam-app" },
+  "engines": { "node": ">=24" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
+  "bin": { "create-iam-app": "dist/bin/create-iam-app.js" },
+  "files": ["dist", "templates", "README.md", "LICENSE", "NOTICE"],
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@vollholz/iam-testkit": "2.0.0"
+  },
+  "devDependencies": {
+    "@vollholz/iam": "3.0.0",
+    "pg": "8.23.1"
+  }
+}

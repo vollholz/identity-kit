@@ -72,7 +72,8 @@ Brechende Änderungen (Konto ohne Organisation, Spezifikation [6.3](spezifikatio
 - **Plattform-Administration ohne Organisation:** `platform-admin` braucht keine Mitgliedschaft mehr und gibt in einer
   Organisation keine Rechte (auch nicht `org-admin` über `POST /v1/access`). Betrieb und Organisation mit getrennten
   Konten: `iam-org-bootstrap --operator --email …` bzw. `operators` in `init.json`; `--platform-admin` und
-  `platformAdmin` je Admin entfallen (Abbruch bzw. Fehler im Schema).
+  `platformAdmin` je Admin entfallen (Abbruch bzw. Fehler im Schema). Im Manifest `identity.app.json` (Test-Kit 2.0)
+  steht der Betrieb unter `operators`; `create-iam-app init --operator <e-mail>` trägt ihn ein.
 - **Protokoll:** Aktionen der Plattform stehen zusätzlich in `platform_audit_log` (Migration `iam_017_account.sql`);
   `actorTenant` entfällt in den Daten des Audits.
 - **`TENANT_AUTO_PROVISION`:** Standard `false`, in Produktion ein Fehler der Konfiguration. Tests und lokale

@@ -9,7 +9,13 @@
  *   npx iam-org-bootstrap --alias solutions --name "Solutions" --email anna@example.ch --first Anna --last Admin \
  *       [--schema <schema>] [--initial-password] [--dry-run]
  *   npx iam-org-bootstrap --file init.json [--schema <schema>] [--initial-password] [--dry-run]
- *   alle: [--no-email | --resend] [--invite-days <tage>] [--client-id <client> [--redirect-uri <url>]]
+ *   npx iam-org-bootstrap --manifest identity.app.json [...]   Betrieb und Organisationen aus dem Manifest der App (Felder operators, organizations)
+ *   alle: [--no-email | --resend] [--invite-days <tage>] [--client-id <client> [--redirect-uri <url>]] [--keycloak-only]
+ *
+ * Ohne DATABASE_ADMIN_URL bricht der Lauf ab (ausser `--dry-run` und `--operator`, der keine Datenbank braucht): sonst
+ * entstünde eine Organisation ohne org-admin.
+ * `--keycloak-only` legt ausdrücklich nur Organisation, Konto und Mitgliedschaft in Keycloak an; Mandant, Tupel
+ * `org-admin` und Freigabestufe setzt dann ein eigener Schritt in der Datenbank der App.
  *
  * `--file`: Betrieb (`operators`) und mehrere Organisationen mit je mehreren Admins (Format `schema/init.schema.json`);
  * nicht zusammen mit `--operator`, `--alias`, `--email`, `--name`, `--domain`, `--first`, `--last`. Betrieb und
@@ -26,7 +32,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { initFileErrors, inviteErrors, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapResult } from '../bootstrap.ts';
+import { initFileErrors, inviteErrors, manifestInitFile, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapResult } from '../bootstrap.ts';
 import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
 const env = process.env;
@@ -36,7 +42,8 @@ try {
   parsed = parseArgs({
     options: {
       alias: { type: 'string' }, name: { type: 'string' }, domain: { type: 'string' }, schema: { type: 'string' },
-      email: { type: 'string' }, first: { type: 'string' }, last: { type: 'string' }, file: { type: 'string' },
+      email: { type: 'string' }, first: { type: 'string' }, last: { type: 'string' }, file: { type: 'string' }, manifest: { type: 'string' },
+      'keycloak-only': { type: 'boolean', default: false },
       operator: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false }, 'initial-password': { type: 'boolean', default: false },
       'no-email': { type: 'boolean', default: false }, resend: { type: 'boolean', default: false },
@@ -60,32 +67,44 @@ const invite = { lifespanSec, clientId: a['client-id'], redirectUri: a['redirect
 if (inviteErrors(invite).length) fail(inviteErrors(invite).join('\n'));
 let file: InitFile | null = null;
 let alias = '', email = '';
-if (a.file !== undefined) {
+if (a.file !== undefined && a.manifest !== undefined) fail('--file nicht zusammen mit --manifest');
+const source = a.file !== undefined ? '--file' : '--manifest';
+if (a.file !== undefined || a.manifest !== undefined) {
   const single = (['alias', 'email', 'name', 'domain', 'first', 'last'] as const).filter(k => a[k] !== undefined).map(k => `--${k}`);
   if (a.operator) single.push('--operator');
-  if (single.length) fail(`--file nicht zusammen mit ${single.join(', ')}`);
+  if (single.length) fail(`${source} nicht zusammen mit ${single.join(', ')}`);
+  const path = (a.file ?? a.manifest)!;
   let data: unknown;
-  try { data = JSON.parse(readFileSync(a.file, 'utf8')); } catch (e) { fail(`--file ${a.file}: ${(e as Error).message}`); }
-  const errors = initFileErrors(data);
-  if (errors.length) fail(`--file ${a.file} ungültig:\n${errors.join('\n')}`);
-  file = data as InitFile;
+  try { data = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { fail(`${source} ${path}: ${(e as Error).message}`); }
+  if (a.file !== undefined) {
+    const errors = initFileErrors(data);
+    if (errors.length) fail(`--file ${path} ungültig:\n${errors.join('\n')}`);
+    file = data as InitFile;
+  } else {
+    const m = manifestInitFile(data);
+    if (m.errors.length) fail(`--manifest ${path} ungültig:\n${m.errors.join('\n')}`);
+    file = m.file;
+  }
 } else if (a.operator) {
   const other = (['alias', 'name', 'domain', 'schema'] as const).filter(k => a[k] !== undefined).map(k => `--${k}`);
+  if (a['keycloak-only']) other.push('--keycloak-only');
   if (other.length) fail(`--operator (Betrieb, ohne Organisation) nicht zusammen mit ${other.join(', ')}`);
   email = (a.email ?? fail('--email fehlt')).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('E-Mail-Adresse ungültig');
 } else {
-  alias = (a.alias ?? fail('--alias fehlt (oder --file, --operator)')).toLowerCase();
+  alias = (a.alias ?? fail('--alias fehlt (oder --file, --manifest, --operator)')).toLowerCase();
   email = (a.email ?? fail('--email fehlt')).toLowerCase();
   const errors = orgBootstrapErrors({ alias, email });
   if (errors.length) fail(errors.join('\n'));
 }
 if (!env.KEYCLOAK_TF_URL) fail('KEYCLOAK_TF_URL fehlt');
 const realm = realmFromEnv(env, fail);
-const dbUrl = env.DATABASE_ADMIN_URL || (a['dry-run'] || a.operator ? null : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App)'));
+if (a['keycloak-only'] && env.DATABASE_ADMIN_URL) fail('--keycloak-only nicht zusammen mit DATABASE_ADMIN_URL');
+// null = ausdrücklich nur Keycloak, undefined = Probelauf ohne Datenbank
+const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] || a.operator ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
 const kc = keycloakFromEnv(env, fail);
 const common = {
-  database: dbUrl ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm) } : null,
+  database: typeof dbUrl === 'string' ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm) } : dbUrl,
   initialPassword: a['initial-password'] ? { realm, secretDir: env.IDENTITY_SECRET_DIR || join(homedir(), '.identity') } : null,
   sendEmail: !a['no-email'], resend: a.resend, invite,
   dryRun: a['dry-run'], log: (m: string) => console.log(m),

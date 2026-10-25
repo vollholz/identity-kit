@@ -15,6 +15,8 @@ Beispiele nutzen die Notiz-App `notes`.
 | `accessCases(model)`, `runAccessCases(cases, decide)` | Standardfälle der Entscheidung je Rolle und Scope (an org, mit und ohne Scope), gegen `can` der App |
 | `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`, `publicExecuteProblems`, `bypassRoleProblems`, `readViewProblems`, `READ_VIEW_FUNCTIONS` | allgemeine RLS-Prüfungen, dazu `authz_tuple` (RLS mit FORCE, Mandantentrennung) und die Funktionen der Lesesicht (vorhanden, `SECURITY INVOKER`, `STABLE`, fester `search_path`, ausführbar für die App); liefern Befunde als Liste |
 | `routeCollector`, `installProbes`, `unreached`, `idSource`, `normalize`, `leaks`, `coverageProblems`, `routesOf`, `openApiPath` | Gerüst für den Isolations-Durchlauf über alle Routen |
+| `iam-conformity-test` (Kommandozeile), `repoChecks`, `dbChecks`, `realmChecks` | Konformitätstest (Spezifikation 14.1): Repository (Manifest, verwaltete Dateien gegen `.identity-kit.lock`, Versionen, Modell, `platform.json`), Datenbank (Migrationen des Kits, Rollen, RLS, Lesesicht, jede Organisation mit `org-admin`), Realm (Einstellungen, Clients, Rollen, Identity Provider; nur lesend). Bericht mit Zone und Herkunft je Prüfung; Text, `--json`, `--markdown` |
+| `ManifestSchema`, `manifestErrors`, `schema/identity-app.schema.json`; `LockSchema`, `fileHash`, `formatLock`; `CURRENT`, `MINIMUM`, `versionProblem` | Manifest `identity.app.json`, Lock-Datei und unterstützte Versionen (Spezifikation 15.4, 15.5) |
 
 ```ts
 import { checkModel, readViewProblems, tenantTableProblems, testDatabases } from '@vollholz/iam-testkit';
@@ -31,7 +33,24 @@ test('RLS', async () => {
 });
 ```
 
+```sh
+npx iam-conformity-test                                   # Repository (jeder Pull Request, ohne Geheimnisse)
+DATABASE_ADMIN_URL=… npx iam-conformity-test --db --no-repo        # nach den Migrationen
+KEYCLOAK_IAC_PRIVATE_KEY=… npx iam-conformity-test --realm --no-repo   # Realm, nur lesend
+npx iam-conformity-test --all --markdown "$GITHUB_STEP_SUMMARY"
+```
+
+Exit-Code 0 konform (Warnungen erlaubt, `--strict` nicht), 1 Befunde, 2 Prüfung nicht möglich, 64 Aufruf falsch.
+Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLOAK_CONFORMITY_CLIENT_ID`,
+`KEYCLOAK_CONFORMITY_PRIVATE_KEY(_B64)`; ohne Angaben `keycloakUrl` des Manifests, Realm und `<produkt>-iac` der App mit
+`KEYCLOAK_IAC_PRIVATE_KEY(_B64)`. Zentral beim Betreiber ohne Manifest: `--realm --no-repo --product <produkt>`.
+
 ## Änderungen
+
+- **1.4.0:** Konformitätstest `iam-conformity-test` mit den Ebenen Repository, Datenbank und Realm (`repoChecks`,
+  `dbChecks`, `realmChecks`, Bericht `formatText`/`formatMarkdown`); Manifest `identity.app.json` (`ManifestSchema`,
+  JSON Schema im Paket), Lock-Datei `.identity-kit.lock` (`LockSchema`, `fileHash`), unterstützte Versionen (`CURRENT`,
+  `MINIMUM`). Neue Abhängigkeit `@sinclair/typebox`.
 
 - **1.3.1:** Lizenz Apache-2.0, Doku ohne App-Bezug; keine Änderung am Code.
 - **1.3.0:** `checkModel` (M5) lässt an `org` eine Rollenliste zu: `org-admin` enthalten, nur Rollen des Modells, keine Doppelten (vorher: alle Rollen).

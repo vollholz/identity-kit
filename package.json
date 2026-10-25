@@ -6,7 +6,7 @@
   "engines": { "node": ">=24" },
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace @vollholz/iam-testkit && npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "check": "npm run typecheck && npm run build && npm test"

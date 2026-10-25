@@ -1,13 +1,18 @@
 {
   "name": "@vollholz/iam-testkit",
-  "version": "1.3.1",
-  "description": "Tests für Apps mit dem IAM-Baukasten: Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, RLS-, Katalog- und Isolationsprüfungen",
+  "version": "1.4.0",
+  "description": "Tests für Apps mit dem IAM-Baukasten: Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, RLS-, Katalog- und Isolationsprüfungen, Konformitätstest (iam-conformity-test)",
   "type": "module",
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/vollholz/identity-kit.git", "directory": "packages/iam-testkit" },
   "engines": { "node": ">=24" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist", "README.md", "LICENSE", "NOTICE"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./schema/identity-app.schema.json": "./schema/identity-app.schema.json",
+    "./package.json": "./package.json"
+  },
+  "bin": { "iam-conformity-test": "dist/bin/conformity-test.js" },
+  "files": ["dist", "schema", "README.md", "LICENSE", "NOTICE"],
   "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -15,6 +20,7 @@
     "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
   },
   "dependencies": {
+    "@sinclair/typebox": "0.34.52",
     "jose": "6.2.12"
   },
   "peerDependencies": {

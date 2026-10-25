@@ -36,8 +36,10 @@ export interface OrgBootstrapOptions {
   firstName?: string;
   lastName?: string;
   /**
-   * Datenbank der App: Adresse der Besitzer-Rolle (`DATABASE_ADMIN_URL`) und Schema der Tabellen. Ohne: nur Keycloak
-   * (die Person hätte dann keine Rolle; nur für Tests und Probeläufe).
+   * Datenbank der App: Adresse der Besitzer-Rolle (`DATABASE_ADMIN_URL`) und Schema der Tabellen. Ausdrücklich `null`:
+   * nur Keycloak – Mandant, Principal und das Tupel `org-admin` setzt dann der Aufrufer selbst (z. B. ein eigener
+   * Schritt auf dem Server der Datenbank). Fehlt die Angabe, bricht der Lauf ab (ausser im Probelauf): sonst entstünde
+   * still eine Organisation ohne Admin.
    */
   database?: { url: string; schema: string } | null;
   /** Realm-Rolle der Plattform-Administration zusätzlich vergeben (Name aus PLATFORM_ADMIN_ROLE). */
@@ -117,6 +119,18 @@ export function initFileErrors(data: unknown): string[] {
   return out;
 }
 
+/**
+ * Organisationen aus dem Manifest der App (`identity.app.json`, Feld `organizations`, gleiches Format wie die Datei für
+ * `--file`); die übrigen Felder des Manifests prüft das Test-Kit (`iam-conformity-test`). Fehlertexte wie `initFileErrors`.
+ */
+export function manifestInitFile(data: unknown): { file: InitFile | null; errors: string[] } {
+  const orgs = data && typeof data === 'object' && !Array.isArray(data) ? (data as { organizations?: unknown }).organizations : undefined;
+  if (orgs === undefined) return { file: null, errors: ['/organizations: fehlt (erste Organisation mit ihren Admins)'] };
+  const file = { organizations: orgs };
+  const errors = initFileErrors(file);
+  return errors.length ? { file: null, errors } : { file: file as InitFile, errors };
+}
+
 export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'dryRun' | 'log'> & {
   /** Name der Realm-Rolle für Admins mit `platformAdmin` (PLATFORM_ADMIN_ROLE). */
   platformAdminRole: string;
@@ -168,6 +182,7 @@ function writeSecret(file: string, content: string) {
 export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): Promise<OrgBootstrapResult> {
   const alias = o.alias.toLowerCase(), email = o.email.trim().toLowerCase();
   const errors = orgBootstrapErrors({ alias, email, invite: o.invite });
+  if (o.database === undefined && !o.dryRun) errors.push('Datenbank fehlt: ohne sie bekäme die Person keine Rolle org-admin (database angeben oder ausdrücklich database: null für nur Keycloak)');
   if (errors.length) throw new Error(errors.join('\n'));
   const dry = !!o.dryRun;
   const steps: string[] = [];
@@ -233,7 +248,9 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   if (o.database) {
     const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
     res.tenantId = r.tenantId; res.principalId = r.principalId;
-  } else step('Ohne Datenbank: Rolle org-admin und Freigabestufe nicht gesetzt (DATABASE_ADMIN_URL)');
+  } else step(o.database === null
+    ? 'Nur Keycloak (ausdrücklich): Mandant, Rolle org-admin und Freigabestufe setzt der Aufrufer in der Datenbank der App'
+    : 'Ohne Datenbank (Probelauf): Rolle org-admin und Freigabestufe würden mit DATABASE_ADMIN_URL gesetzt');
   // Einladung zuletzt: die Person findet beim Anmelden ihre Rolle schon vor
   if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) res.invitation = await invite(kc, res.userId, email, o, dry, step);
   step('Fertig.');

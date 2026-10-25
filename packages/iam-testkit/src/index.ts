@@ -13,3 +13,10 @@ export {
   openApiPath, routeCollector, installProbes, unreached, leaks, idSource, unknownKey, normalize, coverageProblems, routesOf,
   ROUTE_HEADER, HANDLER_HEADER, type ProbeResponse,
 } from './isolation.ts';
+export { MANIFEST_FILE, LOCK_FILE, ManifestSchema, RealmSettingsSchema, manifestErrors, resolved as resolvedManifest, productIdent, BUILTIN_CLIENTS, type Manifest } from './conformity/manifest.ts';
+export { LockSchema, MANAGED_MARK, fileHash, formatLock, lockErrors, type Lock } from './conformity/lock.ts';
+export { CURRENT, MINIMUM, compareVersions, versionProblem, type Part } from './conformity/support.ts';
+export { finding, formatMarkdown, formatText, exitCode, summary, type Finding, type Level as ConformityLevel, type Status, type Zone } from './conformity/report.ts';
+export { repoChecks, loadManifest, managedFileProblems, unmanagedFileProblems, moduleRefs, type RepoOptions } from './conformity/repo.ts';
+export { dbChecks, adminProblems, kitMigrationNames, KIT_WITHOUT_TENANT, KIT_SECURITY_DEFINER, type DbOptions } from './conformity/db.ts';
+export { realmChecks, adminReader, FIXED_REALM_SETTINGS, type AdminLogin, type AdminReader, type RealmOptions } from './conformity/realm.ts';

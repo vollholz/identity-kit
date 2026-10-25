@@ -1,6 +1,6 @@
 # OpenTofu-Module des Baukastens (modules/product-realm, modules/product-realm-bootstrap):
 #   Prüfen    fmt, validate, tflint, tofu test (Provider nachgebildet), Node-Tests (Texte, Hilfsskripte),
-#             Typprüfung der Hilfsskripte – ohne Keycloak
+#             Typprüfung der Hilfsskripte; Gerüst von create-iam-app (erzeugt, fmt, validate, tflint) – ohne Keycloak
 #   Keycloak  modules/test/keycloak.sh gegen Keycloak 26.8.1 im Docker: frische Anlage mit allen und
 #             ohne Schalter, zweiter Plan «No changes». Wegwerf-Instanz, Testschlüssel, keine Geheimnisse.
 name: Module
@@ -8,9 +8,9 @@ name: Module
 on:
   push:
     branches: [main]
-    paths: ["modules/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
+    paths: ["modules/**", "packages/create-iam-app/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
   pull_request:
-    paths: ["modules/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
+    paths: ["modules/**", "packages/create-iam-app/**", ".github/workflows/modules.yml", ".nvmrc", "package.json", "package-lock.json", "tsconfig.base.json"]
   workflow_dispatch:
 
 permissions:
@@ -61,6 +61,23 @@ jobs:
         run: npx tsc -p modules/tsconfig.json
       - name: Node-Tests (Texte, Hilfsskripte)
         run: node --test --test-reporter=spec modules/product-realm/test/*.test.ts
+      - name: Gerüst von create-iam-app (erzeugt, fmt, validate, tflint)
+        env:
+          TF_VAR_state_passphrase: nur-fuer-die-pruefung-ohne-state
+        run: |
+          npm run build --workspace @vollholz/iam-testkit >/dev/null
+          app="$RUNNER_TEMP/app"
+          mkdir -p "$app"
+          node packages/create-iam-app/src/bin/create-iam-app.ts init --dir "$app" --product notes --name Notes \
+            --url https://notes.example.ch --keycloak https://id.example.ch --entra
+          node packages/create-iam-app/src/bin/create-iam-app.ts keys --dir "$app" --secret-dir "$RUNNER_TEMP/keys" >/dev/null
+          bash -n "$app/infra/keycloak/kc.sh"
+          tofu fmt -check -recursive -diff "$app/infra/keycloak"
+          for d in "$app/infra/keycloak" "$app/infra/keycloak/bootstrap"; do
+            tofu -chdir="$d" init -backend=false -input=false >/dev/null
+            tofu -chdir="$d" validate
+          done
+          (cd "$app/infra/keycloak" && tflint --init >/dev/null && tflint --format compact)
 
   keycloak:
     name: Keycloak 26.8.1 (frische Anlage)

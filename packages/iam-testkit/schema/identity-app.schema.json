@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vollholz/identity-kit/packages/iam-testkit/schema/identity-app.schema.json",
+  "title": "identity.app.json – Manifest einer App mit dem Identity-Kit",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "product",
+    "displayName",
+    "publicBaseUrl",
+    "keycloakUrl"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "product": {
+      "pattern": "^(?!master$)[a-z][a-z0-9-]{1,30}[a-z0-9]$",
+      "description": "Technischer Name: Realm, Clients <produkt>-*, Datenbankrollen <produkt>_*",
+      "type": "string"
+    },
+    "displayName": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "publicBaseUrl": {
+      "pattern": "^https?://[^/\\s]+(/\\S*)?$",
+      "description": "PUBLIC_BASE_URL der App",
+      "type": "string"
+    },
+    "keycloakUrl": {
+      "pattern": "^https?://[^/\\s]+(/\\S*)?$",
+      "description": "Keycloak-Instanz mit Basispfad, ohne /realms",
+      "type": "string"
+    },
+    "realm": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "theme": {
+          "minLength": 1,
+          "description": "Theme auf der Keycloak-Instanz; leer: Standard-Theme",
+          "type": "string"
+        },
+        "themeTexts": {
+          "description": "Pfad (ab Wurzel des Repositorys) zu einer JSON-Datei { \"<sprache>\": { \"<schlüssel>\": \"<text>\" } }",
+          "type": "string"
+        },
+        "localization": {
+          "description": "Pfad zu weiteren Realm-Texten je Sprache (JSON, wie themeTexts)",
+          "type": "string"
+        },
+        "supportedLocales": {
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Standard [\"de\", \"en\"]",
+          "type": "array",
+          "items": {
+            "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+            "type": "string"
+          }
+        },
+        "smtp": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "description": "Eigenes Mailkonto der App (Einladungen, Passwort festlegen)",
+              "type": "object",
+              "required": [
+                "host",
+                "from",
+                "user"
+              ],
+              "properties": {
+                "host": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "port": {
+                  "minimum": 1,
+                  "maximum": 65535,
+                  "description": "Standard 587",
+                  "type": "integer"
+                },
+                "from": {
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "fromDisplayName": {
+                  "description": "Standard: displayName",
+                  "type": "string"
+                },
+                "replyTo": {
+                  "type": "string"
+                },
+                "starttls": {
+                  "description": "Standard true",
+                  "type": "boolean"
+                },
+                "ssl": {
+                  "description": "Standard false",
+                  "type": "boolean"
+                },
+                "user": {
+                  "minLength": 1,
+                  "description": "Konto beim Mailserver; Passwort nur als Secret SMTP_PASSWORD",
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "m2m": {
+          "description": "Maschinen-Clients der Organisationen (DPoP-Pflicht)",
+          "type": "boolean"
+        },
+        "mcp": {
+          "description": "MCP-Dienst (Clients <produkt>-mcp und -mcp-cli)",
+          "type": "boolean"
+        },
+        "mcpCallbackPort": {
+          "minimum": 1024,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "mcpExtraRedirectUris": {
+          "uniqueItems": true,
+          "type": "array",
+          "items": {
+            "pattern": "^https?://[^/\\s]+(/\\S*)?$",
+            "type": "string"
+          }
+        },
+        "entra": {
+          "description": "Anmeldung über Microsoft Entra ID je Organisation (eigene App der Organisation)",
+          "type": "boolean"
+        },
+        "entraDenyMessage": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "machineClients": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9._-]{2,62}$": {
+              "additionalProperties": false,
+              "description": "Öffentlicher Schlüssel in infra/keycloak/keys/<client>.json; Rolle erst mit der Freigabe in der App",
+              "type": "object",
+              "required": [
+                "organizations"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "organizations": {
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "type": "array",
+                  "items": {
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "uniqueItems": true,
+                  "type": "array",
+                  "items": {
+                    "pattern": "^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "paths": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "Modul mit `export const model = defineModel(…)`; Standard src/authz/model.ts",
+          "type": "string"
+        },
+        "migrations": {
+          "description": "Migrationen der App; Standard db/migrations",
+          "type": "string"
+        },
+        "packages": {
+          "minItems": 1,
+          "description": "package.json-Dateien mit @vollholz/*; Standard [\"package.json\"]",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "database": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "schema": {
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "description": "Schema der Tabellen; Standard <produkt> mit «_»",
+          "type": "string"
+        }
+      }
+    },
+    "state": {
+      "additionalProperties": false,
+      "description": "S3-Backend des OpenTofu-States",
+      "type": "object",
+      "required": [
+        "bucket",
+        "region",
+        "endpoint"
+      ],
+      "properties": {
+        "bucket": {
+          "minLength": 3,
+          "type": "string"
+        },
+        "region": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "endpoint": {
+          "pattern": "^https?://[^/\\s]+(/\\S*)?$",
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[\\w./-]+\\.tfstate$",
+          "description": "Schlüssel des Realm-States; Standard <produkt>/keycloak.tfstate (bestehende Apps: bisheriger Schlüssel)",
+          "type": "string"
+        },
+        "bootstrapKey": {
+          "pattern": "^[\\w./-]+\\.tfstate$",
+          "description": "Schlüssel des Bootstrap-States; Standard <produkt>/keycloak-bootstrap.tfstate",
+          "type": "string"
+        }
+      }
+    },
+    "organizations": {
+      "minItems": 1,
+      "description": "Erste Organisationen mit ihren Admins (iam-org-bootstrap --manifest)",
+      "type": "array",
+      "items": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "alias",
+          "admins"
+        ],
+        "properties": {
+          "alias": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "admins": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "email"
+              ],
+              "properties": {
+                "email": {
+                  "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+                  "type": "string"
+                },
+                "first": {
+                  "type": "string"
+                },
+                "last": {
+                  "type": "string"
+                },
+                "platformAdmin": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "additionalProperties": false,
+      "description": "Begründete Abweichungen; jede wird im Konformitätstest angezeigt",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "Eigene Dateien in verwalteten Ordnern (z. B. infra/keycloak/moved.tf)",
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "minLength": 3,
+              "description": "Begründung",
+              "type": "string"
+            }
+          }
+        },
+        "withoutTenant": {
+          "description": "Tabellen der App ohne tenant_id, auf die die Laufzeit Rechte hat",
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "minLength": 3,
+              "description": "Begründung",
+              "type": "string"
+            }
+          }
+        },
+        "securityDefiner": {
+          "description": "SECURITY-DEFINER-Funktionen der App (Signatur schema.name(arg typen))",
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "minLength": 3,
+              "description": "Begründung",
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

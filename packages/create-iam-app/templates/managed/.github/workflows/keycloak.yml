@@ -1,0 +1,184 @@
+# {{MARK}}
+#
+# Realm der App (infra/keycloak, OpenTofu) auf der Keycloak-Instanz aus identity.app.json.
+#   pull_request (infra/keycloak/**, identity.app.json): nur Prüfen (fmt, validate, tflint, Konformität Repository) –
+#       ohne Plan und ohne Geheimnisse
+#   push auf main oder «Run workflow» mit Aktion apply:
+#       Prüfen → Plan (Freigabe im Environment «production»; Plan verschlüsselt als Artefakt, Zusammenfassung im Lauf)
+#       → Apply genau dieses Plans (zweite Freigabe) → Kontrollplan muss «No changes» zeigen
+#   «Run workflow» mit Aktion abgleich:
+#       Plan gegen Keycloak (nach Freigabe); weicht der Realm vom Repository ab (z. B. Änderung von Hand in der
+#       Konsole), schlägt der Lauf mit Zusammenfassung fehl. Ändert nichts.
+# Anmeldung als <produkt>-iac (realm-admin im Realm der App). Anlage/Neuaufbau des Realms (bootstrap/) läuft von Hand.
+# Secrets (Environment «production»): KEYCLOAK_IAC_PRIVATE_KEY, S3_ACCESS_KEY, S3_SECRET_KEY, TF_STATE_PASSPHRASE,
+# mit SMTP SMTP_PASSWORD.
+name: Keycloak
+
+on:
+  push:
+    branches: [main]
+    paths: ["infra/keycloak/**", "identity.app.json", ".github/workflows/keycloak.yml"]
+  pull_request:
+    paths: ["infra/keycloak/**", "identity.app.json", ".github/workflows/keycloak.yml"]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Aktion
+        type: choice
+        options: [abgleich, apply]
+        default: abgleich
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pull Requests prüfen nur und blockieren die Warteschlange der Produktion nicht
+  group: ${{ github.event_name == 'pull_request' && format('keycloak-pr-{0}', github.ref) || 'keycloak-production' }}
+  cancel-in-progress: false # nie einen laufenden Plan/Apply abbrechen (State-Sperre)
+
+defaults:
+  run:
+    working-directory: infra/keycloak
+
+env:
+  TOFU_VERSION: 1.13.1
+  TFLINT_VERSION: v0.64.0
+  TF_IN_AUTOMATION: "1"
+  ABGLEICH: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abgleich' }}
+
+jobs:
+  check:
+    name: Prüfen (fmt, validate, tflint, Konformität)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read # @vollholz/* aus GitHub Packages (npm ci)
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: terraform-linters/setup-tflint@v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@vollholz"
+      - run: tofu fmt -check -recursive -diff .
+      - name: tofu validate
+        env:
+          TF_VAR_state_passphrase: nur-fuer-die-pruefung-ohne-state
+        run: tofu init -backend=false -input=false >/dev/null && tofu validate
+      - run: tflint --init >/dev/null && tflint --format compact
+      - name: Konformität (Repository)
+        working-directory: .
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm ci --ignore-scripts --no-audit --no-fund && npx iam-conformity-test --markdown "$GITHUB_STEP_SUMMARY"
+
+  plan:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abgleich' && 'Abgleich prüfen' || 'Plan' }}
+    needs: [check]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production # Pflicht-Reviewer
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+    env:
+      KEYCLOAK_IAC_PRIVATE_KEY: ${{ secrets.KEYCLOAK_IAC_PRIVATE_KEY }}
+      S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+      S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+      TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: actions/setup-node@v7.0.0 # kc.sh liest das Manifest; lookup.ts des Moduls läuft im Plan
+        with:
+          node-version-file: .nvmrc
+      - run: ./kc.sh init -no-color >/dev/null
+      - name: tofu plan
+        id: plan
+        run: |
+          set +e
+          ./kc.sh plan -no-color -detailed-exitcode -lock-timeout=5m -out=keycloak.tfplan > plan.txt 2>&1
+          rc=$?
+          set -e
+          cat plan.txt
+          if [ "$rc" = 1 ]; then exit 1; fi
+          changes=false; if [ "$rc" = 2 ]; then changes=true; fi
+          echo "changes=$changes" >> "$GITHUB_OUTPUT"
+          {
+            if [ "$ABGLEICH" = true ]; then echo "### Keycloak-Abgleich: $([ "$changes" = true ] && echo 'ABWEICHUNG' || echo 'keine Abweichung')"
+            else echo "### Keycloak-Plan ($([ "$changes" = true ] && echo 'Änderungen' || echo 'keine Änderungen'))"; fi
+            echo '```'
+            sed -n '/^OpenTofu will perform\|^OpenTofu used the selected\|^No changes/,$p' plan.txt | head -c 60000
+            echo '```'
+            if [ "$ABGLEICH" = true ] && [ "$changes" = true ]; then
+              echo
+              echo "Keycloak weicht von infra/keycloak ab – vermutlich eine Änderung von Hand. Entweder ins Repository übernehmen"
+              echo "(identity.app.json) oder mit «Run workflow › apply» den Stand des Repositorys wiederherstellen."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Abweichung melden
+        if: env.ABGLEICH == 'true' && steps.plan.outputs.changes == 'true'
+        run: |
+          echo "::error title=Keycloak weicht ab::Der Realm weicht von infra/keycloak ab (Details in der Zusammenfassung)."
+          exit 1
+      - uses: actions/upload-artifact@v7.0.1
+        if: env.ABGLEICH != 'true' && steps.plan.outputs.changes == 'true'
+        with:
+          name: keycloak-tfplan
+          path: infra/keycloak/keycloak.tfplan
+          retention-days: 3
+
+  apply:
+    name: Apply (nach Freigabe)
+    needs: [plan]
+    if: needs.plan.outputs.changes == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'apply')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production # Pflicht-Reviewer
+    env:
+      KEYCLOAK_IAC_PRIVATE_KEY: ${{ secrets.KEYCLOAK_IAC_PRIVATE_KEY }}
+      S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+      S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+      TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: keycloak-tfplan
+          path: infra/keycloak
+      - run: ./kc.sh init -no-color >/dev/null
+      # Genau der freigegebene Plan; hat sich der State inzwischen geändert, bricht OpenTofu ab («Saved plan is stale»)
+      - run: ./kc.sh apply-plan -no-color -lock-timeout=5m keycloak.tfplan
+      - name: Kontrollplan (muss «No changes» zeigen)
+        run: |
+          set +e; ./kc.sh plan -no-color -detailed-exitcode > control.txt 2>&1; rc=$?; set -e
+          { echo '### Kontrollplan nach dem Apply'; echo '```'; grep -E '^No changes|^Plan:|will be|must be' control.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^No changes|^Plan:' control.txt || true
+          [ "$rc" = 0 ]

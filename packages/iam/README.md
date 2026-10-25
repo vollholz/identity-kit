@@ -11,6 +11,11 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 ## Änderungen
 
+- **2.1.0:** Keine Organisation mehr ohne Admin. `orgBootstrap` und `orgBootstrapFile` brechen ab, wenn `database`
+  fehlt (ausser im Probelauf); nur Keycloak geht weiter, aber nur ausdrücklich mit `database: null` (der Aufrufer setzt
+  Mandant, Tupel `org-admin` und Freigabestufe selbst). Kommandozeile: `--keycloak-only` statt still ohne Datenbank,
+  `--manifest identity.app.json` liest die Organisationen aus dem Manifest der App (`manifestInitFile`). Wer `database`
+  bisher wegliess, gibt nun `database: null` an.
 - **2.0.0:** Export `ASSETS_ADOPTION` entfernt – eine App mit Übernahme gibt `adopted: { after, map }` selbst an; Lizenz
   Apache-2.0.
 - **1.5.0:** `iam-org-bootstrap` (`orgBootstrap`, `orgBootstrapFile`) schickt neu angelegten Personen ohne Passwort und

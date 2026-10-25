@@ -217,7 +217,7 @@
     },
     "state": {
       "additionalProperties": false,
-      "description": "S3-Backend des OpenTofu-States (Schlüssel <produkt>/keycloak*.tfstate)",
+      "description": "S3-Backend des OpenTofu-States",
       "type": "object",
       "required": [
         "bucket",
@@ -235,6 +235,16 @@
         },
         "endpoint": {
           "pattern": "^https?://[^/\\s]+(/\\S*)?$",
+          "type": "string"
+        },
+        "key": {
+          "pattern": "^[\\w./-]+\\.tfstate$",
+          "description": "Schlüssel des Realm-States; Standard <produkt>/keycloak.tfstate (bestehende Apps: bisheriger Schlüssel)",
+          "type": "string"
+        },
+        "bootstrapKey": {
+          "pattern": "^[\\w./-]+\\.tfstate$",
+          "description": "Schlüssel des Bootstrap-States; Standard <produkt>/keycloak-bootstrap.tfstate",
           "type": "string"
         }
       }

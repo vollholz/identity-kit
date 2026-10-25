@@ -42,15 +42,15 @@ state_env() {
 }
 
 # Backend aus identity.app.json › state als Datei für -backend-config (keine Geheimnisse); Schlüssel je Teil:
-# <produkt>/keycloak.tfstate bzw. <produkt>/keycloak-bootstrap.tfstate
+# state.key bzw. state.bootstrapKey, Standard <produkt>/keycloak.tfstate bzw. <produkt>/keycloak-bootstrap.tfstate
 backend_file() {
-  local bucket region endpoint file
-  bucket="$(m state.bucket)"; region="$(m state.region)"; endpoint="$(m state.endpoint)"
+  local bucket region endpoint key file
+  bucket="$(m state.bucket)"; region="$(m state.region)"; endpoint="$(m state.endpoint)"; key="$(m "state.$2")"
   [ -n "$bucket" ] || { echo "kc.sh: identity.app.json › state fehlt (bucket, region, endpoint)" >&2; exit 1; }
   file="$(mktemp)"
   cat > "$file" <<HCL
 bucket                      = "$bucket"
-key                         = "$PRODUCT/$1.tfstate"
+key                         = "${key:-$PRODUCT/$1.tfstate}"
 region                      = "$region"
 endpoints                   = { s3 = "$endpoint" }
 use_path_style              = true
@@ -99,12 +99,12 @@ case "$cmd" in
     sub="${1:-plan}"; shift || true
     state_env; login_tofu
     case "$sub" in
-      init) cfg="$(backend_file keycloak-bootstrap)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
+      init) cfg="$(backend_file keycloak-bootstrap bootstrapKey)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
       plan|apply) exec tofu "$sub" -input=false "$@" ;;
       *) exec tofu "$sub" "$@" ;;
     esac
     ;;
-  init) state_env; cfg="$(backend_file keycloak)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
+  init) state_env; cfg="$(backend_file keycloak key)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
   apply-plan) state_env; login_iac; exec tofu apply -input=false "$@" ;;
   smtp-test) login_iac
     KEYCLOAK_URL="$KEYCLOAK_TF_URL" KEYCLOAK_IAC_CLIENT_ID="$KEYCLOAK_CLIENT_ID" \

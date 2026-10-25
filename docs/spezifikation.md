@@ -1651,7 +1651,8 @@ Versionierung und Pflege:
 **Manifest `identity.app.json`** (Wurzel des Repositorys der App, JSON Schema `schema/identity-app.schema.json` im
 Test-Kit): die einzige Stelle, an der eine App ihr Setup beschreibt – genau die Zone «Einstellbar»
 ([1.2](#12-zonen-fest-einstellbar-app-eigen)). Felder: `product`, `displayName`, `publicBaseUrl`, `keycloakUrl`,
-`realm` (Schalter des Realm-Moduls), `paths` (`model`, `migrations`, `packages`), `database.schema`, `state`,
+`realm` (Schalter des Realm-Moduls), `paths` (`model`, `migrations`, `packages`), `database.schema`, `state`
+(S3-Backend; `key`/`bootstrapKey` nur für bestehende Apps mit bisherigem Schlüssel),
 `organizations` (erste Admins), `exceptions`. Unbekannte Felder sind ein Fehler.
 
 **Verwaltete Dateien** schreibt `create-iam-app` aus seinen Vorlagen; sie tragen in den ersten Zeilen den Kopf

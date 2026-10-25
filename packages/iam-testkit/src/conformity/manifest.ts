@@ -71,7 +71,9 @@ export const ManifestSchema = Type.Object({
     bucket: Type.String({ minLength: 3 }),
     region: Type.String({ minLength: 1 }),
     endpoint: Type.String({ pattern: URL }),
-  }, { additionalProperties: false, description: 'S3-Backend des OpenTofu-States (Schlüssel <produkt>/keycloak*.tfstate)' })),
+    key: Type.Optional(Type.String({ pattern: '^[\\w./-]+\\.tfstate$', description: 'Schlüssel des Realm-States; Standard <produkt>/keycloak.tfstate (bestehende Apps: bisheriger Schlüssel)' })),
+    bootstrapKey: Type.Optional(Type.String({ pattern: '^[\\w./-]+\\.tfstate$', description: 'Schlüssel des Bootstrap-States; Standard <produkt>/keycloak-bootstrap.tfstate' })),
+  }, { additionalProperties: false, description: 'S3-Backend des OpenTofu-States' })),
   organizations: Type.Optional(Type.Array(Type.Object({
     alias: Type.String({ pattern: ALIAS }),
     name: Type.Optional(Type.String({ minLength: 1 })),

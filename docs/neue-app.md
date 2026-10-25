@@ -21,8 +21,10 @@ Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Det
 
 ## 1. Zugänge
 
-- **Pakete** `@vollholz/*` (npm): `.npmrc` der App (ohne Token, versioniert) mit der Registry der Pakete, Versionen
-  exakt pinnen (`npm i -E …`). Bezug in CI, Image und lokal: [ausrollen.md](ausrollen.md).
+- **Pakete** `@vollholz/*` (npm, öffentlich auf GitHub Packages): `.npmrc` der App (ohne Token, versioniert) mit
+  `@vollholz:registry=https://npm.pkg.github.com`, Versionen exakt pinnen (`npm i -E …`). Zum Installieren genügt ein
+  beliebiges GitHub-Konto mit einem Token (classic, nur `read:packages`); in GitHub Actions `GITHUB_TOKEN`. Keine
+  Mitgliedschaft in `vollholz` nötig. Bezug in CI, Image und lokal: [ausrollen.md](ausrollen.md).
 - **Realm-Module** (OpenTofu) als Git-Quelle mit Tag:
   `git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>`.
 - **Keycloak-Instanz** ab 26.8 mit Organisationen; ihr Betreiber richtet die Zugänge aus Schritt 2 ein.

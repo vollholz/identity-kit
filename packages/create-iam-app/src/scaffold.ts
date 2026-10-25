@@ -148,7 +148,7 @@ export function appFiles(dir: string, m: Manifest): string[] {
   add('.nvmrc', '24\n');
 
   const pkgFile = join(dir, 'package.json');
-  const pkg = existsSync(pkgFile) ? JSON.parse(readFileSync(pkgFile, 'utf8')) as Record<string, unknown> : { name: m.product, private: true, type: 'module' };
+  const pkg: Record<string, unknown> = existsSync(pkgFile) ? JSON.parse(readFileSync(pkgFile, 'utf8')) as Record<string, unknown> : { name: m.product, private: true, type: 'module' };
   const deps = (pkg.dependencies ??= {}) as Record<string, string>;
   const dev = (pkg.devDependencies ??= {}) as Record<string, string>;
   const scripts = (pkg.scripts ??= {}) as Record<string, string>;

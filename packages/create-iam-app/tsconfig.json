@@ -1,5 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true },
+  "compilerOptions": {
+    "noEmit": true,
+    // Typprüfung vor dem Build (CI): das Test-Kit aus den Quellen statt aus dist
+    "paths": { "@vollholz/iam-testkit": ["../iam-testkit/src/index.ts"] }
+  },
   "include": ["src", "test"]
 }

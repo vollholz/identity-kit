@@ -762,7 +762,7 @@ export const de = {
   'iam.orgs.contextPlatform': 'Du bearbeitest «{org}» als Plattform-Administration.',
   'iam.loggedOut.signup': 'Konto erstellen',
   'iam.account.home': 'Dein Konto',
-  'iam.account.text': 'Wähle eine Organisation oder öffne die Plattform-Administration.',
+  'iam.account.text': 'Diesem Konto ist keine Organisation zugeordnet. Öffne die Plattform-Administration oder erstelle eine eigene Organisation.',
   'iam.account.none': 'Deinem Konto ist noch keine Organisation zugeordnet.',
   'iam.account.noneCreate': 'Erstelle eine eigene Organisation oder warte auf eine Einladung.',
   'iam.account.noneWait': 'Sobald dich eine Organisation einlädt, erscheint sie hier.',

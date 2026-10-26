@@ -252,8 +252,9 @@ a.iam-btn,a.iam-iconbtn,a.iam-pill{text-decoration:none}
 .iam-tbl tbody td{padding:0 12px;height:42px;border-bottom:1px solid var(--iam-line);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .iam-tbl tbody tr.iam-grp th{background:var(--iam-surface-2);border-bottom:1px solid var(--iam-line);text-align:left;font-weight:600;padding:6px 12px;position:static}
 .iam-tbl th .iam-th{display:block;padding:10px 12px}
-/* Spaltenköpfe ohne Knopf (nur Text) mit dem gleichen Abstand wie die Zellen darunter */
-.iam-tbl thead th:not(:has(> button, > .iam-th)){padding:10px 12px}
+/* Spaltenköpfe ohne Knopf (nur Text) mit dem gleichen Abstand wie die Zellen darunter (nicht in der Rollenmatrix, die
+   ihre Köpfe selbst setzt); :where hält die Spezifität niedrig */
+.iam-tbl thead th:where(:not(.iam-role-matrix th, :has(> button, > .iam-th))){padding:10px 12px}
 .iam-sub{color:var(--iam-text-2);font-size:13px;margin-top:3px}
 .iam-pill.iam-nodot::before{display:none}
 @keyframes iam-slide{from{transform:translateX(24px);opacity:.4}to{transform:none;opacity:1}}

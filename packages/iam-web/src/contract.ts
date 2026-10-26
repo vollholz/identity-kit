@@ -99,7 +99,7 @@ export interface PermissionGroupInfo { key: string; label: string; match?: strin
 export interface CatalogRole { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
 export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
 /** Werkzeug des MCP-Dienstes (12.2) mit dem Recht und dem Scope, die es braucht. */
-export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean }
+export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean; openWorld: boolean }
 /** Ort des Modells (7.3); `org` zuerst. */
 export interface TypeInfo {
   key: string;

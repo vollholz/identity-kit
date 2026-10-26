@@ -25,7 +25,7 @@ export interface AuthzModel {
   scopes: ModelScope[];
   types: ModelType[];
   classifications: { level: Level; label: string }[];
-  mcpTools?: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
+  mcpTools?: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean; openWorld?: boolean }[];
 }
 
 /** Reservierte Rolle (Kap. 8.1). */

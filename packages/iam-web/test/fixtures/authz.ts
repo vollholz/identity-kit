@@ -20,7 +20,7 @@ export const CATALOG_FIXTURE = {
     },
   ],
   classifications: [{ level: 0 as const, label: 'intern' }],
-  mcpTools: [{ name: 'notes_search', title: 'Notizen suchen', permission: 'note:read', scope: 'notes:read', readOnly: true }],
+  mcpTools: [{ name: 'notes_search', title: 'Notizen suchen', permission: 'note:read', scope: 'notes:read', readOnly: true, openWorld: false }],
 } satisfies AuthzCatalog;
 
 export const API_ME_FIXTURE = {

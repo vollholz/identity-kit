@@ -49,6 +49,7 @@ export function authzCatalogSchema(model: Model) {
       name: Type.String(), title: Type.String(), permission: PermissionT,
       scope: Nullable(Type.String({ description: `Scope, den das Recht im Token braucht; null beim Standard-Scope \`${model.product}:read\`` })),
       readOnly: Type.Boolean({ description: 'Werkzeug liest nur (`readOnlyHint`)' }),
+      openWorld: Type.Boolean({ description: 'Werkzeug greift auf fremde Systeme oder das Netz zu (`openWorldHint`)' }),
     }), { description: 'Werkzeuge des MCP-Dienstes mit dem Recht, das sie brauchen' }),
   }, { title: 'AuthzCatalog' });
 }

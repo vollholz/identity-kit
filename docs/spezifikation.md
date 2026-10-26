@@ -522,7 +522,7 @@ interface ModelInput<P extends string, R extends string, T extends string> {
   classifications?: readonly [string, string, string];
   /** Fähigkeit → Recht je Typ (Felder `can` der Antworten). */
   capabilities?: Partial<Record<T | 'org', Record<string, P>>>;
-  mcpTools?: Record<string, { title: string; permission: P; readOnly: boolean }>;
+  mcpTools?: Record<string, { title: string; permission: P; readOnly: boolean; openWorld?: boolean }>;
   features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean };
 }
 
@@ -1042,7 +1042,7 @@ interface AuthzCatalog {
     read?: string; write?: string;
   }[];
   classifications: { level: Level; label: string }[];
-  mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
+  mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean; openWorld: boolean }[];
 }
 ```
 

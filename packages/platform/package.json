@@ -1,0 +1,56 @@
+{
+  "name": "@vollholz/platform",
+  "version": "0.1.0",
+  "description": "Querschnitt für Apps auf der Identity-Plattform: Konfiguration, HTTP, Warteschlange und Outbox, Betrieb, MCP-Dienst, Mandanten",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/vollholz/identity-kit.git", "directory": "packages/platform" },
+  "engines": { "node": ">=24" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./preload": { "types": "./dist/ops/preload.d.ts", "default": "./dist/ops/preload.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "migrations", "README.md", "LICENSE", "NOTICE"],
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@fastify/helmet": "13.1.2",
+    "@fastify/rate-limit": "11.2.1",
+    "@fastify/swagger": "9.9.1",
+    "@fastify/swagger-ui": "6.1.2",
+    "@fastify/type-provider-typebox": "6.2.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.223.0",
+    "@opentelemetry/exporter-prometheus": "0.223.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/instrumentation-http": "0.223.0",
+    "@opentelemetry/instrumentation-pg": "0.75.0",
+    "@opentelemetry/instrumentation-undici": "0.33.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-metrics": "2.12.0",
+    "@opentelemetry/sdk-node": "0.223.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "@sinclair/typebox": "0.34.52",
+    "pino": "10.4.0",
+    "zod": "4.6.6"
+  },
+  "peerDependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@vollholz/iam": "^3.0.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@fastify/cookie": "11.1.2",
+    "@vollholz/iam": "3.0.0",
+    "@vollholz/iam-testkit": "2.0.0",
+    "fastify": "5.12.6",
+    "pg": "8.23.1"
+  }
+}

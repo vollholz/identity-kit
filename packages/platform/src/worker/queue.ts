@@ -6,7 +6,10 @@
  *   `WORKER_TENANT_LIMIT` laufende Jobs je Mandant, keine Jobs gesperrter Mandanten.
  * - Jeder Job läuft im Kontext seines Mandanten mit voller Sicht und ohne Person (`fullTx`).
  * - Heartbeat jede Minute; ohne Heartbeat seit 15 Minuten gilt ein Job als verwaist und wird neu eingereiht.
- * - Fehler: exponentielles Backoff bis `maxAttempts`; `PermanentJobError` beendet sofort.
+ * - Fehler: exponentielles Backoff bis `maxAttempts` der Definition (Standard 5); `PermanentJobError` beendet sofort.
+ * - Abschluss nur durch den Worker, der den Job hält (`locked_by`): Wer sein Lebenszeichen verpasst hat und dessen Job
+ *   neu vergeben wurde, überschreibt das Ergebnis des neuen Halters nicht.
+ * - Beenden wartet auf laufende Jobs und laufende feste Aufgaben.
  * - Feste Aufgaben (`PeriodicTask`) laufen je Intervall höchstens einmal über alle Instanzen (Advisory-Lock).
  *
  * Fachjobs liefern die Module als `JobDefinition` (`defineModule({ jobs })`), nicht dieses Paket.
@@ -41,6 +44,7 @@ export interface JobContext {
 export interface JobDefinition<P extends Record<string, unknown> = Record<string, unknown>> {
   /** `<modul>.<aufgabe>` */
   kind: string;
+  /** Versuche insgesamt (Standard 5, höchstens 100). */
   maxAttempts?: number;
   run(ctx: JobContext, payload: P): Promise<void>;
 }
@@ -60,14 +64,17 @@ export const claimLockKey = (ctx: Pick<PlatformContext, 'product'>) => `${ctx.pr
 const HEARTBEAT_MS = 60_000;
 const ORPHAN_AFTER = '15 minutes';
 
-/** Auftrag einreihen (in der fachlichen Transaktion). Mit `dedupeKey` höchstens ein offener Auftrag je Schlüssel. */
-export async function enqueue(ctx: PlatformContext, tx: Tx, kind: string, payload: Record<string, unknown> = {}, o: { runAt?: Date; dedupeKey?: string; maxAttempts?: number } = {}): Promise<string | null> {
+/**
+ * Auftrag einreihen (in der fachlichen Transaktion). Mit `dedupeKey` höchstens ein offener Auftrag je Schlüssel. Die
+ * Zahl der Versuche steht in der `JobDefinition` (`maxAttempts`), nicht beim Einreihen.
+ */
+export async function enqueue(ctx: PlatformContext, tx: Tx, kind: string, payload: Record<string, unknown> = {}, o: { runAt?: Date; dedupeKey?: string } = {}): Promise<string | null> {
   const r = await tx.query<{ id: string }>(
-    `INSERT INTO ${ctx.schema}.job (tenant_id, kind, payload, run_at, dedupe_key, max_attempts)
-     VALUES (app.tenant_id(), $1, $2, coalesce($3, now()), $4, coalesce($5, 5))
+    `INSERT INTO ${ctx.schema}.job (tenant_id, kind, payload, run_at, dedupe_key)
+     VALUES (app.tenant_id(), $1, $2, coalesce($3, now()), $4)
      ON CONFLICT (tenant_id, kind, dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('queued', 'running') DO NOTHING
      RETURNING id`,
-    [kind, JSON.stringify(payload), o.runAt ?? null, o.dedupeKey ?? null, o.maxAttempts ?? null]);
+    [kind, JSON.stringify(payload), o.runAt ?? null, o.dedupeKey ?? null]);
   return r.rows[0]?.id ?? null;
 }
 
@@ -89,6 +96,7 @@ export class Worker {
   private readonly jobs: Map<string, JobDefinition<any>>;
   private readonly tasks: PeriodicTask[];
   private readonly running = new Set<Promise<void>>();
+  private readonly tasksRunning = new Set<Promise<unknown>>();
   private readonly timers: NodeJS.Timeout[] = [];
   private stopped = true;
   private wake: (() => void) | null = null;
@@ -115,12 +123,16 @@ export class Worker {
     for (const t of this.timers) clearInterval(t);
     this.timers.length = 0;
     this.wake?.();
-    await Promise.allSettled([...this.running]);
+    await Promise.allSettled([...this.running, ...this.tasksRunning]);
   }
 
   private every(ms: number, fn: () => Promise<unknown>): void {
     if (ms <= 0) return;
-    const t = setInterval(() => { if (!this.stopped) void fn().catch(err => this.log.error({ err }, 'Worker: Aufgabe gescheitert')); }, ms);
+    const t = setInterval(() => {
+      if (this.stopped) return;
+      const p = fn().catch(err => this.log.error({ err }, 'Worker: Aufgabe gescheitert')).finally(() => { this.tasksRunning.delete(p); });
+      this.tasksRunning.add(p);
+    }, ms);
     t.unref();
     this.timers.push(t);
   }
@@ -132,7 +144,10 @@ export class Worker {
         try { claimed = await this.claim(); } catch (err) { this.log.error({ err }, 'Worker: Abholen gescheitert'); }
       }
       if (claimed) {
-        const p = this.execute(claimed).finally(() => { this.running.delete(p); this.wake?.(); });
+        // Scheitert schon das Festhalten (z. B. Datenbank weg): melden; die Erkennung verwaister Jobs holt ihn zurück
+        const job = claimed;
+        const p = this.execute(job).catch(err => this.log.error({ err, job: job.id, kind: job.kind }, 'Worker: Ergebnis nicht festgehalten'))
+          .finally(() => { this.running.delete(p); this.wake?.(); });
         this.running.add(p);
         continue;
       }
@@ -179,22 +194,29 @@ export class Worker {
     };
     try {
       await def.run(ctx, job.payload);
-      await this.db.query(`UPDATE ${this.platform.schema}.job SET status = 'done', finished_at = now(), last_error = NULL WHERE tenant_id = $1 AND id = $2`, [job.tenant_id, job.id]);
+      await this.settle(job, `status = 'done', finished_at = now(), last_error = NULL`, []);
       metrics.jobDone(job.kind, 'done', performance.now() - started);
     } catch (err) {
-      const permanent = err instanceof PermanentJobError || job.attempts >= job.max_attempts;
+      const permanent = err instanceof PermanentJobError || job.attempts >= (def.maxAttempts ?? job.max_attempts);
       const message = (err as Error).message?.slice(0, 2000) ?? String(err);
       if (permanent) {
-        await this.db.query(`UPDATE ${this.platform.schema}.job SET status = 'failed', finished_at = now(), last_error = $3 WHERE tenant_id = $1 AND id = $2`, [job.tenant_id, job.id, message]);
+        await this.settle(job, `status = 'failed', finished_at = now(), last_error = $4`, [message]);
         this.log.error({ err, job: job.id, kind: job.kind, tenant: job.tenant_id, attempt: job.attempts }, 'Job endgültig gescheitert');
       } else {
-        await this.db.query(
-          `UPDATE ${this.platform.schema}.job SET status = 'queued', locked_by = NULL, heartbeat_at = NULL, last_error = $3, run_at = now() + make_interval(secs => $4) WHERE tenant_id = $1 AND id = $2`,
-          [job.tenant_id, job.id, message, backoffMs(job.attempts) / 1000]);
+        await this.settle(job, `status = 'queued', locked_by = NULL, heartbeat_at = NULL, last_error = $4, run_at = now() + make_interval(secs => $5)`,
+          [message, backoffMs(job.attempts) / 1000]);
         this.log.warn({ err, job: job.id, kind: job.kind, attempt: job.attempts }, 'Job gescheitert, neuer Versuch folgt');
       }
       metrics.jobDone(job.kind, permanent ? 'failed' : 'retry', performance.now() - started);
     }
+  }
+
+  /** Ergebnis festhalten, nur solange dieser Worker den Job hält (`$1` Mandant, `$2` ID, `$3` Worker, ab `$4` `args`). */
+  private async settle(job: Claimed, set: string, args: unknown[]): Promise<void> {
+    const r = await this.db.query(
+      `UPDATE ${this.platform.schema}.job SET ${set} WHERE tenant_id = $1 AND id = $2 AND status = 'running' AND locked_by = $3`,
+      [job.tenant_id, job.id, this.id, ...args]);
+    if (!r.rowCount) this.log.warn({ job: job.id, kind: job.kind }, 'Job inzwischen neu vergeben: Ergebnis verworfen');
   }
 
   /** Lebenszeichen der eigenen laufenden Jobs; verwaiste Jobs anderer Instanzen neu einreihen. */

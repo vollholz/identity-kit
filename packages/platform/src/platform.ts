@@ -34,7 +34,7 @@ export interface Platform<P extends string = string, S = unknown> extends Sealer
   /** Ereignis in die Outbox (in der fachlichen Transaktion). */
   emit(tx: Tx, type: EventType, subject: string | null, data: Record<string, unknown>, correlationId?: string | null): Promise<string>;
   /** Job einreihen (in der fachlichen Transaktion); mit `dedupeKey` höchstens ein offener Auftrag je Schlüssel. */
-  enqueue(tx: Tx, kind: string, payload?: Record<string, unknown>, o?: { runAt?: Date; dedupeKey?: string; maxAttempts?: number }): Promise<string | null>;
+  enqueue(tx: Tx, kind: string, payload?: Record<string, unknown>, o?: { runAt?: Date; dedupeKey?: string }): Promise<string | null>;
   /** Audit und optional Ereignis in derselben Transaktion wie die Änderung. */
   record(tx: Tx, who: Actor, e: RecordEntry): Promise<void>;
 }

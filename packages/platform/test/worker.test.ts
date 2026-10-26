@@ -20,7 +20,7 @@ describe('Warteschlange', { skip }, () => {
   let fail = 0;
   const jobs: JobDefinition<any>[] = [
     { kind: 'test.ok', run: async (ctx, p) => { seen.push({ kind: 'test.ok', tenant: await ctx.tx(async tx => (await tx.query('SELECT app.tenant_id() AS t')).rows[0].t), payload: p }); } },
-    { kind: 'test.flaky', maxAttempts: 3, run: async () => { if (fail-- > 0) throw new Error('vorübergehend'); } },
+    { kind: 'test.flaky', maxAttempts: 2, run: async () => { if (fail-- > 0) throw new Error('vorübergehend'); } },
     { kind: 'test.permanent', run: async () => { throw new PermanentJobError('nie wieder'); } },
   ];
   const cfg = app.loadConfig({ NODE_ENV: 'test', OIDC_ISSUER_URL: 'http://idp.test/realms/x', DATABASE_URL: 'postgres://x@localhost/x', WORKER_TENANT_LIMIT: '1' }, null);
@@ -47,7 +47,7 @@ describe('Warteschlange', { skip }, () => {
 
   test('Fehler: Backoff, danach endgültig; PermanentJobError sofort', async () => {
     fail = 10;
-    const id = (await full(t.runtime, A, tx => enqueue(tx, 'test.flaky', {}, { maxAttempts: 2 })))!;
+    const id = (await full(t.runtime, A, tx => enqueue(tx, 'test.flaky', {})))!;
     await drain();
     let s = await status(id, A);
     assert.deepEqual([s.status, s.attempts, s.last_error], ['queued', 1, 'vorübergehend']);
@@ -79,9 +79,34 @@ describe('Warteschlange', { skip }, () => {
     assert.equal(c.id, id);
     await t.worker.query("UPDATE probe.job SET heartbeat_at = now() - interval '20 minutes' WHERE id = $1", [id]);
     // Eine andere Instanz räumt auf (die eigene erneuert ihr Lebenszeichen)
-    await new Worker({ platform: platform.context, fullTx, db: t.worker, cfg, log: quiet, jobs }).heartbeat();
+    const other = new Worker({ platform: platform.context, fullTx, db: t.worker, cfg, log: quiet, jobs });
+    await other.heartbeat();
     assert.equal((await status(id, B)).status, 'queued');
-    await drain();
+    // Die andere Instanz holt ihn; die alte meldet sich verspätet zurück und überschreibt nichts
+    const c2 = (await other.claim())!;
+    assert.equal(c2.id, id);
+    await worker.execute(c);
+    const held = (await t.inspect.query('SELECT status, locked_by FROM probe.job WHERE id = $1', [id])).rows[0];
+    assert.deepEqual(held, { status: 'running', locked_by: other.id });
+    await other.execute(c2);
+    assert.equal((await status(id, B)).status, 'done');
+  });
+
+  test('Beenden wartet auf laufende feste Aufgaben', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const begun = new Promise<void>(r => { started = r; });
+    const task = { name: 'test.lang', intervalMs: () => 10, run: () => { started(); return new Promise<void>(r => { release = r; }); } };
+    const w = new Worker({ platform: platform.context, fullTx, db: t.worker, cfg, log: quiet, jobs: [], tasks: [task] });
+    w.start();
+    await begun;
+    let stopped = false;
+    const stopping = w.stop().then(() => { stopped = true; });
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(stopped, false, 'Aufgabe läuft noch');
+    release();
+    await stopping;
+    assert.equal(stopped, true);
   });
 
   test('feste Aufgabe läuft höchstens einmal gleichzeitig', async () => {

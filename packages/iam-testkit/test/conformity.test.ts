@@ -90,10 +90,12 @@ describe('Versionen', () => {
     assert.match(versionProblem('@vollholz/iam', '1.5.0')!, /älter als 2\.0\.0/);
     assert.match(versionProblem('@vollholz/iam', '99.0.0')!, /neuer als die Hauptversion.*iam-testkit aktualisieren/);
     assert.equal(versionProblem('@vollholz/iam', `${CURRENT['@vollholz/iam'].split('.')[0]}.99.0`), null, 'neuere Neben-Version derselben Hauptversion');
+    assert.equal(versionProblem('@vollholz/platform', '0.1.0'), null, '@vollholz/platform gehört zum Kit');
     const pkg = (p: string) => JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', p, 'package.json'), 'utf8')).version;
     const mod = (m: string) => readFileSync(join(import.meta.dirname, '..', '..', '..', 'modules', m, 'VERSION'), 'utf8').trim();
     assert.deepEqual(CURRENT, {
       '@vollholz/iam': pkg('iam'), '@vollholz/iam-web': pkg('iam-web'), '@vollholz/iam-testkit': pkg('iam-testkit'), '@vollholz/create-iam-app': pkg('create-iam-app'),
+      '@vollholz/platform': pkg('platform'),
       'product-realm': mod('product-realm'), 'product-realm-bootstrap': mod('product-realm-bootstrap'),
     });
   });

@@ -5,14 +5,15 @@
  * es nach (Test im Kit: `CURRENT` = Versionen im Repository).
  */
 
-export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testkit' | '@vollholz/create-iam-app' | 'product-realm' | 'product-realm-bootstrap';
+export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testkit' | '@vollholz/create-iam-app' | '@vollholz/platform' | 'product-realm' | 'product-realm-bootstrap';
 
 /** Stand dieses Test-Kits (beim Release gleich den Versionen im Repository identity-kit). */
 export const CURRENT: Record<Part, string> = {
   '@vollholz/iam': '3.1.0',
   '@vollholz/iam-web': '2.1.0',
-  '@vollholz/iam-testkit': '2.0.0',
+  '@vollholz/iam-testkit': '2.0.1',
   '@vollholz/create-iam-app': '0.2.0',
+  '@vollholz/platform': '0.1.0',
   'product-realm': '2.0.0',
   'product-realm-bootstrap': '0.1.1',
 };
@@ -23,6 +24,7 @@ export const MINIMUM: Record<Part, { version: string; reason: string }> = {
   '@vollholz/iam-web': { version: '1.0.0', reason: 'aktuelle Hauptversion' },
   '@vollholz/iam-testkit': { version: '1.0.0', reason: 'aktuelle Hauptversion' },
   '@vollholz/create-iam-app': { version: '0.1.0', reason: 'erste Version' },
+  '@vollholz/platform': { version: '0.1.0', reason: 'erste Version' },
   'product-realm': { version: '2.0.0', reason: 'ab 2.0 keine Rollen in Keycloak, passend zu @vollholz/iam 2' },
   'product-realm-bootstrap': { version: '0.1.0', reason: 'erste Version' },
 };

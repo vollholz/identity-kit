@@ -19,6 +19,7 @@ import type { Db } from '../db/pool.ts';
 import { metrics } from '../ops/metrics.ts';
 import type { ApiTag, PlatformModule } from '../module.ts';
 import { registerIdempotency } from './idempotency.ts';
+import { registerPublicRoutes } from './public-route.ts';
 
 /** Abhängigkeiten der Module, einmal gebaut in der Kompositionswurzel. */
 export interface Deps {
@@ -159,6 +160,8 @@ export async function buildApp(deps: Deps, o: BuildOptions): Promise<App> {
     return failed.length ? reply.code(503).send({ status: 'unavailable', failed }) : { status: 'ok' };
   });
 
+  // Öffentliche Routen mit Token vor den Modulen (die Oberfläche als letztes Modul hat den Fallback)
+  registerPublicRoutes(app, deps, o.modules.flatMap(m => m.publicRoutes ?? []));
   for (const m of o.modules) await m.register?.(app, deps);
   return app;
 }

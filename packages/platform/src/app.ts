@@ -10,6 +10,7 @@ import { envDocs, type EnvDocsOptions } from './config/docs.ts';
 import type { Db } from './db/pool.ts';
 import { runMigrations, type RunMigrationsOptions } from './db/migrate.ts';
 import { buildApp, type App } from './http/app.ts';
+import { checkPublicRoutes } from './http/public-route.ts';
 import { exportOpenApi } from './http/openapi-doc.ts';
 import { uiModule } from './http/ui.ts';
 import { buildMcpApp, checkTools } from './mcp/server.ts';
@@ -75,6 +76,7 @@ export function defineApp(spec: AppSpec): PlatformApp {
   const { platform } = spec;
   const ctx = platform.context;
   checkModules(spec.modules);
+  checkPublicRoutes(spec.modules.flatMap(m => m.publicRoutes ?? []), platform.model.scopes);
   const modules = spec.ui === false ? [...spec.modules] : [...spec.modules, uiModule];
   const vars = platformVars(ctx.product, spec.vars);
   const tools: Record<string, ToolDef> = Object.assign({}, ...spec.modules.map(m => m.mcpTools ?? {}));

@@ -49,7 +49,7 @@
   "devDependencies": {
     "@fastify/cookie": "11.1.2",
     "@vollholz/iam": "3.1.0",
-    "@vollholz/iam-testkit": "2.0.1",
+    "@vollholz/iam-testkit": "2.0.2",
     "fastify": "5.12.6",
     "pg": "8.23.1"
   }

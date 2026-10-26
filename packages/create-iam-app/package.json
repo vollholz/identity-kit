@@ -19,7 +19,7 @@
     "@vollholz/iam-testkit": "2.0.0"
   },
   "devDependencies": {
-    "@vollholz/iam": "3.0.0",
+    "@vollholz/iam": "3.1.0",
     "pg": "8.23.1"
   }
 }

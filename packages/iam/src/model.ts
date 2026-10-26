@@ -102,7 +102,8 @@ export interface TypeDef<P extends string = string, R extends string = string, T
   write?: P;
 }
 
-export interface McpToolDef<P extends string = string> { title: string; permission: P; readOnly: boolean }
+/** `openWorld`: Werkzeug greift über die App hinaus auf fremde Systeme oder das Netz zu (`openWorldHint`). */
+export interface McpToolDef<P extends string = string> { title: string; permission: P; readOnly: boolean; openWorld?: boolean }
 
 export interface ModelInput<P extends string = string, R extends string = string, T extends string = string> {
   /** Technischer Name des Produkts (Lese-Scope `<product>:read`). */
@@ -154,7 +155,7 @@ export interface AuthzCatalogJson {
     leaf?: true; classified?: true; owner?: true; membersRole?: string; scope?: { relation: string }; read?: string; write?: string;
   }[];
   classifications: { level: Level; label: string }[];
-  mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean }[];
+  mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean; openWorld: boolean }[];
 }
 
 /** Stichwort einer Gruppe als regulärer Ausdruck (Gross/klein egal); Texte werden wörtlich gesucht. */
@@ -501,7 +502,7 @@ export function defineModel<const P extends string, const R extends string, cons
         ...(t.scope ? { scope: { relation: t.scope.relation } } : {}), ...(t.read ? { read: t.read } : {}), ...(t.write ? { write: t.write } : {}),
       })),
       classifications: classifications.map((label, level) => ({ level: level as Level, label })),
-      mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly })),
+      mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly, openWorld: t.openWorld ?? false })),
     }),
     platformJson: () => `${JSON.stringify({ scopes: [...scopes.keys()] }, null, 2)}\n`,
   };

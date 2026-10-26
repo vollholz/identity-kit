@@ -83,6 +83,17 @@ describe('defineModel', () => {
     assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'access:admin', 'members:admin']);
   });
 
+  test('mcpTools im Katalog: Scope aus dem Recht, openWorld ohne Angabe false', () => {
+    const m = defineModel({ ...notesInput(), mcpTools: {
+      notes_search: { title: 'Notizen suchen', permission: 'note:read', readOnly: true },
+      web_fetch: { title: 'Seite abrufen', permission: 'note:write', readOnly: true, openWorld: true },
+    } });
+    assert.deepEqual(m.toJSON().mcpTools, [
+      { name: 'notes_search', title: 'Notizen suchen', permission: 'note:read', scope: null, readOnly: true, openWorld: false },
+      { name: 'web_fetch', title: 'Seite abrufen', permission: 'note:write', scope: 'notes:write', readOnly: true, openWorld: true },
+    ]);
+  });
+
   test('membersRole (D10): Standard viewer bei owner-Typen, eigene Rolle im Katalog, sonst nichts', () => {
     const mr = (x: { types: ReadonlyMap<any, { membersRole: string | null }> }) => ({ get: (k: string) => x.types.get(k)!.membersRole });
     const viewType = (j: ReturnType<typeof notesModel.toJSON>) => j.types.find(t => t.key === 'view')!;

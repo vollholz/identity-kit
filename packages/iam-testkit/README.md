@@ -47,6 +47,8 @@ Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLO
 
 ## Änderungen
 
+- **2.0.1:** Konformitätstest kennt `@vollholz/platform` (ab 0.1.0) als Teil des Kits; vorher meldete er es als fremdes
+  Paket.
 - **1.4.0:** Konformitätstest `iam-conformity-test` mit den Ebenen Repository, Datenbank und Realm (`repoChecks`,
   `dbChecks`, `realmChecks`, Bericht `formatText`/`formatMarkdown`); Manifest `identity.app.json` (`ManifestSchema`,
   JSON Schema im Paket), Lock-Datei `.identity-kit.lock` (`LockSchema`, `fileHash`), unterstützte Versionen (`CURRENT`,

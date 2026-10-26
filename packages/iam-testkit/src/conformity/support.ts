@@ -12,7 +12,7 @@ export const CURRENT: Record<Part, string> = {
   '@vollholz/iam': '3.2.0',
   '@vollholz/iam-web': '2.1.0',
   '@vollholz/iam-testkit': '2.1.1',
-  '@vollholz/create-iam-app': '0.2.0',
+  '@vollholz/create-iam-app': '0.2.1',
   '@vollholz/platform': '0.2.0',
   'product-realm': '2.0.0',
   'product-realm-bootstrap': '0.1.1',

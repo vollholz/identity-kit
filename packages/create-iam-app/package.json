@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/create-iam-app",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gerüst einer App mit dem Identity-Kit: Manifest identity.app.json, verwaltete Dateien (Realm, Workflows) mit Lock-Datei, Schlüsselpaare",
   "type": "module",
   "license": "Apache-2.0",

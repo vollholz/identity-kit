@@ -177,7 +177,7 @@ Damit werden die Lehren der ersten Anwendung einmal behoben und mit `sync` über
 | Modul | Inhalt | Variablen der App |
 |---|---|---|
 | `modules/hetzner-app` | Basis Assets: Netz, Firewalls, Primary IPs v4/v6, rDNS, Placement Group, App-VM, DB-VM (eigenes PG-Image, pgBackRest/PITR, Restore-Test), Buckets mit Versionierung und Kopie, Cloud-Init mit Prüfsummen; dazu `delete_protection` aus nachtschicht. Rollout-Skript mit cosign-Prüfung auf der VM als verwaltete Datei | Produkt, Standort, Grössen, SSH-Schlüssel, Domains, Bucket-Präfix, Backup-Plan |
-| `modules/dns` | A, AAAA, CAA (und `www`) der Domain | Zone, Name, Adressen, Anbieter (E7) |
+| `modules/dns` | A, AAAA, CAA (und `www`) der Domain bei Hostpoint (E7) | Zone, Name, Adressen |
 
 Versioniert wie `product-realm` (`?ref=<modul>-vX.Y.Z`); die App hat nur `infra/hetzner/main.tf` mit dem Aufruf.
 
@@ -237,8 +237,8 @@ Schritt 2 bis 4 sind der Kern; danach lohnt sich jede weitere App sofort.
 | E4 | Wie weit darf eine App vom Gerüst abweichen? | Abweichung nur über Manifest oder `extends`; sonst Änderung im Kit |
 | E5 | Wo liegt die Webapp-Shell: im Kit oder als Vorlage der App? | Kit (`app-web`), Branding über Tokens und Texte |
 | E6 | Bleibt die Lizenz Apache-2.0 auch für `platform`? | ja, wie die übrigen Pakete |
-| E7 | DNS-Anbieter des Moduls `dns`: Hetzner DNS (OpenTofu, nachtschicht) oder Infomaniak (API-Skript, Assets)? | Modul mit Hetzner DNS; Infomaniak als verwaltetes Skript, solange Assets dort bleibt |
-| E8 | Namen der Variablen und Tokens vereinheitlichen (z. B. `API_RATE_LIMIT`/`RATE_LIMIT_PER_MINUTE`, `--text`/`--fg`)? | Namen von Assets für CSS-Tokens (grösserer Satz), Namen von nachtschicht für Variablen (kürzer, nach `IAM_VARS`); Assets mit Übergangsnamen (alt und neu gelesen, Warnung) |
+| E7 | DNS-Anbieter des Moduls `dns` | **Entschieden (2026-10-26): Hostpoint** für die Domains der Apps; die Domain der Identität (Keycloak) bleibt wie gehabt. Offen: ob Hostpoint eine API für DNS-Einträge bietet – sonst verwaltetes Skript bzw. Anleitung statt OpenTofu-Modul |
+| E8 | Namen der Variablen und Tokens vereinheitlichen | **Entschieden (2026-10-26):** CSS-Tokens nach Assets (grösserer Satz), Variablen nach nachtschicht (kürzer, nach `IAM_VARS`); Assets liest während des Übergangs alte und neue Namen und warnt bei alten |
 | E9 | Bleibt If-Match Pflicht (428, nachtschicht) oder optional (Assets)? | Pflicht für neue Routen; Assets per Option je Route, bis die Oberfläche überall ETags mitschickt |
 
 **Inventar (Schritt 1):** Vergleich des Codes von Assets mit nachtschicht, Datei für Datei, nur lesend – in Assets

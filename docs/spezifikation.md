@@ -668,6 +668,8 @@ Einstellung: leeres Array, `false` bzw. `0`). `dbContext` der App entfällt.
 | `app.read_relations`, `app.write_relations` | `app.read_relations()`, `app.write_relations()` | `text[]` | Relationen (Rollen, bei `owner`-Typen auch `owner`), die `read` bzw. `write` des Blatts enthalten, **je Anfrage** aus Modell ∩ Scope berechnet: leer, wenn 5 das Recht nicht deckt; nie `member` |
 | `app.permission_relations` | `app.relations_of(permission text)` | `text[]` | wie oben für ein beliebiges Recht (Typen ausser dem Blatt) (A10) |
 | – | `app.has_tuple(object_type text, object_id uuid, relations text[])` | `boolean` | nicht abgelaufenes Tupel eines Subjekts aus `app.subjects()` mit einer der `relations` an dieser Ressource; `relations` Pflicht, damit jeder Weg über Tupel den Scope beachtet |
+| `app.org_permissions` | `app.has_permission(permission text)` | `boolean` | ein bestimmtes Recht gilt an `org` (∩ Scope), gleich wie `app.read_all_of` (ab 3.2, `iam_018`) |
+| `app.org_permissions`, `app.permission_relations` | `app.has_permission(permission text, object_type text, object_id uuid)` | `boolean` | ein bestimmtes Recht gilt an `org` oder über ein Tupel an genau dieser Ressource (`app.has_tuple(object_type, object_id, app.relations_of(permission))`, ∩ Scope); Rollen an Vorfahren und Zuständigkeit zählen nicht (ab 3.2, `iam_018`) |
 
 Alle Mengen sind mit 5 (Scope) geschnitten. Für interne Prüfungen (`exists`, `hints`, `classification`) setzt der
 Baukasten die **volle Sicht** (`read_all`, `write_all` = `on`, `clearance` = 2); was darin gelesen wird, geht nie als
@@ -685,7 +687,15 @@ WITH CHECK (classification <= app.clearance() AND (
   OR EXISTS (/* Person mit grants = 'edit' */ … AND v.principal_id = app.write_person())))
 -- weitere Ressource mit Tupeln (z. B. view, report, dashboard): Rolle an org über das Recht der App, sonst Tupel
 USING (app.read_all_of('view:read') OR app.has_tuple('view', id, app.relations_of('view:read')))
+-- Daten mit eigenem, engerem Recht (z. B. Gesundheitsdaten einer Person): genau dieses Recht, nicht das Leserecht des
+-- Typs; eine Rolle mit breitem Leserecht an org genügt dann nicht
+USING (app.has_permission('health:read', 'person', person_id))
 ```
+
+`app.has_permission` prüft ein bestimmtes Recht (ab 3.2): ohne Ressource an `org`, mit Ressource zusätzlich über Tupel
+an genau dieser Ressource. Wo das Recht auch über Vorfahren oder Zuständigkeit gelten soll, ergänzt die Policy die
+übrigen Funktionen (z. B. `OR app.has_permission('health:read', 'team', team_id)` für den Elternort,
+`app.person_for(…)`); der Test «Lesesicht = `can`» hält auch diese Wege gleich.
 
 Die Lesesicht ersetzt alle App-seitigen Filter verborgener Ressourcen; der Test
 «Lesesicht = `can`» ([14](#14-mandantentrennung-und-tests)) hält beide gleich.
@@ -1283,7 +1293,8 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
   auch die Lesesicht ([7.6](#76-lesesicht-je-anfrage)).
 - Funktionen der Lesesicht (`app.subjects()`, `app.clearance()`, `app.read_all()`, `app.read_types()`,
   `app.read_units()`, `app.write_all()`, `app.write_types()`, `app.write_units()`, `app.read_all_of(text)`,
-  `app.read_relations()`, `app.write_relations()`, `app.has_tuple(text, uuid, text[])`): `STABLE`, `SECURITY INVOKER`, `search_path` fest, EXECUTE nur für `_app`.
+  `app.read_relations()`, `app.write_relations()`, `app.has_tuple(text, uuid, text[])`, ab 3.2 `app.has_permission(text)`,
+  `app.has_permission(text, text, uuid)`): `STABLE`, `SECURITY INVOKER`, `search_path` fest, EXECUTE nur für `_app`.
 - `app.secure_tenant_tables()` läuft nach **jeder** Migration: jede Tabelle mit `tenant_id` erhält ENABLE + FORCE RLS,
   Richtlinie `tenant_isolation` (`USING` und `WITH CHECK` `tenant_id = app.tenant_id()`) und die Rechte für `_app`.
 - Fremdschlüssel zusammengesetzt (`tenant_id, …`): eine fremde ID verhält sich wie eine unbekannte.

@@ -11,6 +11,11 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 ## Änderungen
 
+- **3.2.0:** Migration `iam_018_has_permission`: `app.has_permission(recht)` und `app.has_permission(recht, typ, id)`
+  prüfen in RLS-Policies der App ein bestimmtes Recht (an `org` bzw. an `org` oder über ein Tupel an genau dieser
+  Ressource, ∩ Scope; Spez. 7.6). Für Daten mit eigenem, engerem Recht, das nicht das Leserecht des Typs ist (z. B.
+  `health:read` an einer Person): eine Rolle mit breitem Leserecht an `org` genügt dann nicht. Abwärtsverträglich; die
+  Migration läuft mit dem nächsten Start.
 - **2.1.0:** Keine Organisation mehr ohne Admin. `orgBootstrap` und `orgBootstrapFile` brechen ab, wenn `database`
   fehlt (ausser im Probelauf); nur Keycloak geht weiter, aber nur ausdrücklich mit `database: null` (der Aufrufer setzt
   Mandant, Tupel `org-admin` und Freigabestufe selbst). Kommandozeile: `--keycloak-only` statt still ohne Datenbank,
@@ -96,7 +101,7 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | Baustein | Inhalt |
 |---|---|
 | `loadIamConfig(env, { product, service })`, `IAM_VARS(product)`, `readVars`, `iamConfigErrors`, `iamConfig`, `iamWarnings` | Variablen nach Kap. 13 mit Standardwerten je Produkt, Pflicht je Dienst, Warnungen bei Client-Geheimnissen |
-| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, model?, adopted? })`, `dirMigrations(dir)`, `syncModelChecks` | Runner und die Migrationen `iam_001`–`iam_015`; Abgleich der CHECKs von `authz_tuple` mit dem Modell; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
+| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, model?, adopted? })`, `dirMigrations(dir)`, `syncModelChecks` | Runner und die Migrationen `iam_001`–`iam_018`; Abgleich der CHECKs von `authz_tuple` mit dem Modell; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
 | `db/bootstrap.sql` | Datenbankrollen nach Kap. 10.1 (psql-Variablen `p`, `db`, Passwörter) |
 | `withTx`, `withTenant`, `setContext`, `createPool` | Transaktion im Mandantenkontext (`app.tenant_id`, `app.principal_id`, Einstellungen der App) |
 | `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger) |

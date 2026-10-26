@@ -89,7 +89,7 @@ await migrate(cfg.db.adminUrl!, [
 - `iam_015_authz.sql` legt `authz_tuple` (RLS, `acl_version` je Anweisung) und die Funktionen der Lesesicht an
   (`app.read_all()`, `app.read_types()`, `app.read_units()`, `app.has_tuple(type, id, relations)` … Spez. 7.6) und
   entfernt `acl_entry`, `tenant_role` und `client_grant`. `iam_016_person_scope.sql` (1.1) ergänzt `app.read_person()` und
-  `app.write_person()`. Bestehende Rollen und Zugriffsregeln werden **nicht**
+  `app.write_person()`, `iam_018_has_permission.sql` (3.2) `app.has_permission(recht[, typ, id])`. Bestehende Rollen und Zugriffsregeln werden **nicht**
   übernommen (Greenfield): nach dem Wechsel die erste Person je Organisation mit `iam-org-bootstrap` erneut einrichten.
 - Die CHECKs von `authz_tuple` zu Typen und Relationen gleicht der Runner bei jedem Lauf mit dem Modell ab
   (`syncModelChecks`). Eine Relation oder einen Typ entfernen geht erst, wenn keine Tupel mehr darauf zeigen.
@@ -99,6 +99,16 @@ await migrate(cfg.db.adminUrl!, [
 ```sql
 CREATE POLICY note_read ON notes.note AS RESTRICTIVE FOR SELECT TO notes_app USING (classification <= app.clearance() AND (
   app.read_all() OR folder_id = ANY (app.read_types()) OR app.has_tuple('note', id, app.read_relations())));
+```
+
+- **Bestimmtes Recht** (ab 3.2): Daten, die ein eigenes, engeres Recht verlangen als das Leserecht ihres Typs, prüfen
+  genau dieses Recht – sonst liest sie jede Rolle mit breitem Leserecht an `org`. `app.has_permission('recht')` gilt,
+  wenn das Recht an `org` gilt; `app.has_permission('recht', 'typ', id)` zusätzlich über ein Tupel an genau dieser
+  Ressource (Rollen an Vorfahren und Zuständigkeit nicht; dafür die Funktionen oben ergänzen). Beides ∩ Scope.
+
+```sql
+CREATE POLICY note_secret_read ON notes.note_secret AS RESTRICTIVE FOR SELECT TO notes_app
+  USING (app.has_permission('note:secret', 'note', note_id));
 ```
 
 **Übernahme bestehender Objekte** (nur für eine App, die die IAM-Tabellen schon aus eigenen Migrationen hat; eine neue

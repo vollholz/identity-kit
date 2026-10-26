@@ -108,6 +108,17 @@ describe('Lesesicht = can', { skip }, () => {
       assert.deepEqual(name(writable), name(canWrite), 'Schreiben (USING und WITH CHECK)');
       const seenViews = new Set(await iam.tx(p, async tx => (await tx.query<{ id: string }>('SELECT id FROM notes.view')).rows.map(r => r.id)));
       for (const v of views) assert.equal(seenViews.has(v), await iam.access.can(p, 'view:read', { type: 'view', id: v }), `Ansicht ${v}`);
+      // app.has_permission (iam_018): Recht an org = Rechte an org; an einer Ressource unter org (ohne Vorfahren) = can
+      const atOrg = await iam.tx(p, async tx => (await tx.query<{ perm: string; ok: boolean }>(
+        'SELECT perm, app.has_permission(perm) AS ok FROM unnest($1::text[]) AS perm', [notesModel.permissions])).rows);
+      const orgPerms = iam.access.orgPermissions(p, await iam.access.load(A));
+      assert.deepEqual(atOrg.filter(r => r.ok).map(r => r.perm), orgPerms, 'has_permission(Recht) = Rechte an org');
+      for (const v of views) {
+        for (const perm of ['view:read', 'view:write', 'note:share']) {
+          const ok = await iam.tx(p, async tx => (await tx.query<{ ok: boolean }>("SELECT app.has_permission($1, 'view', $2) AS ok", [perm, v])).rows[0]!.ok);
+          assert.equal(ok, await iam.access.can(p, perm, { type: 'view', id: v }), `has_permission(${perm}, view ${v})`);
+        }
+      }
       // Einfügen (WITH CHECK) gleich wie can(write) am Ordner
       for (const f of [F1, F2, F3]) {
         const inserted = await iam.tx(p, async tx => {

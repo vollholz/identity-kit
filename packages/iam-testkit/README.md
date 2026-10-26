@@ -13,7 +13,7 @@ Beispiele nutzen die Notiz-App `notes`.
 | `EntraFake` (ab 0.3.0) | Microsoft Entra ID als `fetch`-Ersatz für die Entra-Anbindung: OpenID-Konfiguration je Tenant, Zustimmung mit Anmeldung (`approve`: Code-Flow mit PKCE, ID-Token mit `wids`, Gast, eigenem JWKS), Token mit Client Credentials (Zustimmung, Geheimnis, Verzögerung), Graph `/organization`, `/users` und `/groups` mit `$filter` und `$search`; ab 0.4.0 eigene Apps je Tenant (`app`); ab 1.0.0 Gruppen je Tenant (`FakeTenant.groups`, `GroupMember.Read.All`) |
 | `checkModel(GET /v1/authz/catalog, { product?, members?, platformJson? })` | Prüfungen M1–M12 des Modells (Kap. 8) auf dem ausgelieferten Katalog: reservierte Namen, Schlüsselregeln, Typen und Kette, Blätter, Rollen je Typ, Stichwörter der Gruppen, Rechte nur für Personen; `platform.json` nur mit Scopes (O4) |
 | `accessCases(model)`, `runAccessCases(cases, decide)` | Standardfälle der Entscheidung je Rolle und Scope (an org, mit und ohne Scope), gegen `can` der App |
-| `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`, `publicExecuteProblems`, `bypassRoleProblems`, `readViewProblems`, `READ_VIEW_FUNCTIONS` | allgemeine RLS-Prüfungen, dazu `authz_tuple` (RLS mit FORCE, Mandantentrennung) und die Funktionen der Lesesicht (vorhanden, `SECURITY INVOKER`, `STABLE`, fester `search_path`, ausführbar für die App); liefern Befunde als Liste |
+| `tenantTableProblems`, `grantedTableProblems`, `securityDefinerProblems`, `publicSchemaProblems`, `publicExecuteProblems`, `bypassRoleProblems`, `readViewProblems`, `READ_VIEW_FUNCTIONS`, `LATER_READ_VIEW_FUNCTIONS` | allgemeine RLS-Prüfungen, dazu `authz_tuple` (RLS mit FORCE, Mandantentrennung) und die Funktionen der Lesesicht (vorhanden, `SECURITY INVOKER`, `STABLE`, fester `search_path`, ausführbar für die App; spätere wie `app.has_permission` aus `@vollholz/iam` 3.2 nur, wenn vorhanden); liefern Befunde als Liste |
 | `routeCollector`, `installProbes`, `unreached`, `idSource`, `normalize`, `leaks`, `coverageProblems`, `routesOf`, `openApiPath` | Gerüst für den Isolations-Durchlauf über alle Routen |
 | `iam-conformity-test` (Kommandozeile), `repoChecks`, `dbChecks`, `realmChecks` | Konformitätstest (Spezifikation 14.1): Repository (Manifest, verwaltete Dateien gegen `.identity-kit.lock`, Versionen, Modell, `platform.json`), Datenbank (Migrationen des Kits, Rollen, RLS, Lesesicht, jede Organisation mit `org-admin`), Realm (Einstellungen, Clients, Rollen, Identity Provider; nur lesend). Bericht mit Zone und Herkunft je Prüfung; Text, `--json`, `--markdown` |
 | `ManifestSchema`, `manifestErrors`, `schema/identity-app.schema.json`; `LockSchema`, `fileHash`, `formatLock`; `CURRENT`, `MINIMUM`, `versionProblem` | Manifest `identity.app.json`, Lock-Datei und unterstützte Versionen (Spezifikation 15.4, 15.5) |
@@ -47,6 +47,9 @@ Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLO
 
 ## Änderungen
 
+- **2.1.0:** `readViewProblems` prüft auch `app.has_permission(…)` aus `@vollholz/iam` 3.2 (`iam_018`), sobald sie
+  bestehen (`LATER_READ_VIEW_FUNCTIONS`); Apps mit älterem `@vollholz/iam` bleiben konform. `CURRENT` nennt
+  `@vollholz/iam` 3.2.0.
 - **2.0.2:** `CURRENT` nennt `@vollholz/platform` 0.1.1 (Hinweis auf neuere Version im Konformitätstest).
 - **2.0.1:** Konformitätstest kennt `@vollholz/platform` (ab 0.1.0) als Teil des Kits; vorher meldete er es als fremdes
   Paket.

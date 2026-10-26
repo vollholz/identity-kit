@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
 import {
-  bypassRoleProblems, grantedTableProblems, publicExecuteProblems, publicSchemaProblems, readViewProblems, securityDefinerProblems, tenantTableProblems,
+  bypassRoleProblems, grantedTableProblems, LATER_READ_VIEW_FUNCTIONS, publicExecuteProblems, publicSchemaProblems, readViewProblems, securityDefinerProblems, tenantTableProblems,
 } from '@vollholz/iam-testkit';
 import { withTenant } from '../src/db.ts';
 import { productDb, skipDb } from './support/db.ts';
@@ -72,6 +72,8 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
     assert.deepEqual(await tenantTableProblems(t.inspect, { appRole: 'notes_app', minTables: 8 }), []);
     assert.deepEqual(await grantedTableProblems(t.inspect, { roles: ['notes_app', 'notes_sched'], minTables: 12, withoutTenant: WITHOUT_TENANT }), []);
     assert.deepEqual(await readViewProblems(t.inspect, { schema: 'notes', appRole: 'notes_app' }), []);
+    const later = (await t.inspect.query<{ f: string }>("SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS f FROM pg_proc p WHERE p.pronamespace = 'app'::regnamespace AND p.proname = 'has_permission' ORDER BY 1")).rows.map(r => r.f);
+    assert.deepEqual(later, LATER_READ_VIEW_FUNCTIONS, 'iam_018: app.has_permission besteht (das Test-Kit prüft sie nur, wenn vorhanden)');
     const tables = (await t.inspect.query<{ t: string }>("SELECT tablename AS t FROM pg_tables WHERE schemaname = 'notes' ORDER BY 1")).rows.map(r => r.t);
     for (const gone of ['acl_entry', 'tenant_role', 'client_grant']) assert.ok(!tables.includes(gone), `${gone} entfällt`);
     assert.deepEqual(await securityDefinerProblems(t.inspect, { allowed: SECURITY_DEFINER }), []);
@@ -142,6 +144,20 @@ describe('PostgreSQL RLS (IAM)', { skip }, () => {
       await c.query('COMMIT');
       assert.equal((await c.query('SELECT count(*)::int AS n FROM notes.principal')).rows[0].n, 0);
     } finally { c.release(); }
+  });
+
+  test('app.has_permission (iam_018): ohne Einstellung false, Recht an org, Tupel nur an genau dieser Ressource und im eigenen Mandanten', async () => {
+    const U = '6f1c3c1e-2b7a-4a51-9a52-0c2f3e4d5a61', V = 'a1b2c3d4-0000-4000-8000-000000000001', W = 'a1b2c3d4-0000-4000-8000-000000000002';
+    await withTenant(t.runtime, { tenantId: A }, tx => tx.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type, object_id) VALUES ($1, $2, 'viewer', 'view', $3)", [A, `user:${U}`, V]));
+    const q = "SELECT app.has_permission('view:read') AS org, app.has_permission('view:read', 'view', $1) AS v, app.has_permission('view:read', 'view', $2) AS w, app.has_permission('view:write', 'view', $1) AS write, app.has_permission(NULL, 'view', $1) AS none";
+    const view = { 'app.subjects': `{"user:${U}"}`, 'app.permission_relations': JSON.stringify({ 'view:read': ['viewer', 'editor', 'owner'], 'view:write': ['editor', 'owner'] }) };
+    const run = (tenantId: string, settings: Record<string, string>) => withTenant(t.runtime, { tenantId, settings }, async tx => (await tx.query(q, [V, W])).rows[0]);
+    assert.deepEqual(await run(A, {}), { org: false, v: false, w: false, write: false, none: false }, 'ohne Lesesicht');
+    assert.deepEqual(await run(A, view), { org: false, v: true, w: false, write: false, none: false }, 'Tupel viewer an V');
+    assert.deepEqual(await run(A, { ...view, 'app.org_permissions': '{"view:read"}' }), { org: true, v: true, w: true, write: false, none: false }, 'Recht an org');
+    assert.deepEqual(await run(A, { ...view, 'app.permission_relations': '{}' }), { org: false, v: false, w: false, write: false, none: false }, 'Scope deckt das Recht nicht');
+    assert.deepEqual(await run(B, view), { org: false, v: false, w: false, write: false, none: false }, 'Tupel eines anderen Mandanten zählt nie');
+    assert.equal((await t.runtime.query("SELECT app.has_permission('view:read', 'view', $1) AS ok", [V])).rows[0].ok, false, 'ohne Mandant');
   });
 
   test('Tupel: Subjekt nach Muster, leer genau bei org, Clients nur an org, Relation und Typ aus dem Modell, eindeutig', async () => {

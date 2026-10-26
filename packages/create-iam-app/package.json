@@ -16,10 +16,10 @@
     "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "@vollholz/iam-testkit": "2.0.2"
+    "@vollholz/iam-testkit": "2.1.0"
   },
   "devDependencies": {
-    "@vollholz/iam": "3.1.0",
+    "@vollholz/iam": "3.2.0",
     "pg": "8.23.1"
   }
 }

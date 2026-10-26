@@ -122,6 +122,11 @@ export const READ_VIEW_FUNCTIONS = [
   'has_tuple(p_object_type text, p_object_id uuid, p_relations text[])',
 ];
 
+/** Funktionen der Lesesicht späterer Versionen von `@vollholz/iam`: geprüft wie oben, sobald sie bestehen (ab 3.2: `iam_018`). */
+export const LATER_READ_VIEW_FUNCTIONS = [
+  'has_permission(p_permission text)', 'has_permission(p_permission text, p_object_type text, p_object_id uuid)',
+];
+
 /**
  * Tupel und Lesesicht (Kap. 7.6, 10.2, 10.3): `<schema>.authz_tuple` mit FORCE RLS und `tenant_isolation` für
  * `appRole`, CHECKs aus dem Modell vorhanden; die Funktionen der Lesesicht in `app` bestehen, sind STABLE, SECURITY
@@ -146,9 +151,9 @@ export async function readViewProblems(db: Query, o: { schema: string; appRole: 
     SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS f, p.provolatile::text AS volatile, p.prosecdef AS secdef, p.proconfig AS config,
            ${PUBLIC_EXEC} AS pub, has_function_privilege($1, p.oid, 'EXECUTE') AS app
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'app'`, [o.appRole])).rows.map(r => [r.f, r]));
-  for (const f of READ_VIEW_FUNCTIONS) {
+  for (const f of [...READ_VIEW_FUNCTIONS, ...LATER_READ_VIEW_FUNCTIONS]) {
     const r = fns.get(f);
-    if (!r) { out.push(`app.${f} fehlt`); continue; }
+    if (!r) { if (READ_VIEW_FUNCTIONS.includes(f)) out.push(`app.${f} fehlt`); continue; }
     if (r.volatile !== 's') out.push(`app.${f}: nicht STABLE`);
     if (r.secdef) out.push(`app.${f}: SECURITY DEFINER (soll SECURITY INVOKER sein)`);
     if (!(r.config ?? []).some(c => c.startsWith('search_path='))) out.push(`app.${f}: search_path nicht fest`);

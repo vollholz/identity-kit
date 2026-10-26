@@ -39,6 +39,7 @@ describe('IAM-Migrationen: Parameter', () => {
   'iam_015_authz.sql': 'bdd7d4c74ae77053d60e7dacec2287f37b03b31abbe14577dc8e038f125bdf40',
   'iam_016_person_scope.sql': 'a6e82cebe810b9f1a32328ccf4bb20c38be89f24add4a919d78cd12b2b430123',
   'iam_017_account.sql': '918a2dd121d903f7b9f093e8dc8ec8fb80f825c0a9eb86b7eecb0a5eeead4185',
+  'iam_018_has_permission.sql': 'fcd19fba6755454d67d456e1701706b85ec883eeff23f726c82db0d5583a9fbe',
     };
     const now = new Map(iamMigrations({ product: 'notes' }).migrations.map(m => [m.name, m.checksum]));
     for (const [name, sum] of Object.entries(pinned)) {
@@ -48,12 +49,12 @@ describe('IAM-Migrationen: Parameter', () => {
     assert.deepEqual([...now.keys()].filter(n => !pinned[n]), [], 'neue Migration: Prüfsumme hier ergänzen');
   });
 
-  test('Dateien iam_001 … iam_017 in Reihenfolge, Stand der Übernahme dabei', () => {
+  test('Dateien iam_001 … iam_018 in Reihenfolge, Stand der Übernahme dabei', () => {
     const names = iamMigrations({ product: 'notes' }).migrations.map(m => m.name);
     assert.deepEqual(names, [...names].sort());
     assert.equal(names[0], 'iam_001_core.sql');
     assert.ok(names.includes(IAM_BASELINE));
-    assert.equal(names.at(-1), 'iam_017_account.sql');
+    assert.equal(names.at(-1), 'iam_018_has_permission.sql');
     // Alles Produktspezifische kommt aus den Platzhaltern: kein fester Name einer App im SQL
     const beta = iamMigrations({ product: 'beta' }).migrations;
     for (const [i, m] of iamMigrations({ product: 'alpha' }).migrations.entries()) {
@@ -126,7 +127,7 @@ describe('Runner gegen PostgreSQL', { skip }, () => {
     const note = (await t.inspect.query("SELECT relrowsecurity AS r, relforcerowsecurity AS f FROM pg_class WHERE oid = 'notes.note'::regclass")).rows[0];
     assert.deepEqual(note, { r: true, f: true });
     const again = await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra]);
-    assert.deepEqual(again, { applied: [], adopted: [], skipped: 18 });
+    assert.deepEqual(again, { applied: [], adopted: [], skipped: 19 });
     const log: string[] = [];
     await migrate(t.adminUrl, [iamMigrations({ product: 'notes' }), extra], m => log.push(m));
     assert.deepEqual(log, [], 'Abgleich ohne Änderung meldet nichts');
@@ -203,7 +204,7 @@ describe('Übernahme (adopted)', { skip }, () => {
   test('Objekte vorhanden, Marke angewendet: bis zur Grundlage eingetragen, Späteres ausgeführt', async () => {
     const r = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual(r.adopted, iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name));
-    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql']);
+    assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql', 'iam_018_has_permission.sql']);
     const again = await migrate(t.adminUrl, [own('notes'), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]);
     assert.deepEqual([again.applied, again.adopted], [[], []]);
   });
@@ -243,7 +244,7 @@ describe('Übernahme (adopted)', { skip }, () => {
     const f = await fresh.create();
     try {
       const order = (await f.inspect.query<{ name: string }>('SELECT name FROM public.schema_migrations ORDER BY applied_at, name')).rows.map(r => r.name);
-      assert.deepEqual(order.slice(-10), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql', '050_needs_iam_009.sql']);
+      assert.deepEqual(order.slice(-11), ['iam_009_tenant_role_key.sql', 'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql', 'iam_018_has_permission.sql', '050_needs_iam_009.sql']);
     } finally { await f.drop(); }
   });
 
@@ -326,7 +327,7 @@ describe('Übernahme späterer IAM-Migrationen (adopted.map)', { skip }, () => {
       // ohne Zuordnung: iam_012 scheitert am bestehenden Index
       await assert.rejects(migrate(old.adminUrl, [existingApp(), iamMigrations({ product: 'notes', adopted: { after: '049_tenant_roles.sql' } })]), /iam_012_acl_unique\.sql fehlgeschlagen: .*already exists/);
       const r = await migrate(t.adminUrl, [existingApp(), iamMigrations({ product: 'notes', adopted: ADOPTION })]);
-      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql']);
+      assert.deepEqual(r.applied, ['iam_009_tenant_role_key.sql', 'iam_013_entra_consent_link.sql', 'iam_014_entra_own_app.sql', 'iam_015_authz.sql', 'iam_016_person_scope.sql', 'iam_017_account.sql', 'iam_018_has_permission.sql']);
       assert.deepEqual(r.adopted, [...iamMigrations({ product: 'notes' }).migrations.filter(m => m.name <= IAM_BASELINE).map(m => m.name),
         'iam_010_revoke_public_execute.sql', 'iam_011_resolve_tenant_strict.sql', 'iam_012_acl_unique.sql']);
       assert.deepEqual(diffSnapshots(await schemaSnapshot(full.inspect, 'notes'), await schemaSnapshot(t.inspect, 'notes')), []);

@@ -5,11 +5,11 @@
  * öffentliche Seite «Konto erstellen» (`SELF_SERVICE_SIGNUP`).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { accountApi, useAccount } from '../account.ts';
 import { loginUrl } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
-import type { Me } from '../contract.ts';
+import type { AccountInfo, Me } from '../contract.ts';
 import { iamKeys } from '../keys.ts';
 import { Gate, orgName } from '../session.tsx';
 import { t } from '../texts/index.ts';
@@ -24,6 +24,12 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Alias als Vorschlag aus dem Namen: Kleinbuchstaben, Umlaute ohne Zeichen, sonst «-». */
 const suggestAlias = (name: string) => name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
 
+/**
+ * Reines Konto des Betriebs: Plattform-Administration ohne Organisation und ohne eigene zu erstellen – die Plattform ist
+ * das Einzige, was es tun kann; Startseite ist dann die Plattform statt der Kontoseite.
+ */
+const platformOnly = (me: Me, a: AccountInfo | undefined) => !!a?.platformAdmin && !me.organizations.length && !a.selfService.createOrganization;
+
 export interface AccountHomeProps {
   me: Me;
   switchOrg(alias: string): Promise<void>;
@@ -33,16 +39,19 @@ export interface AccountHomeProps {
 /** Startseite ohne Organisation: Organisationen, eigene erstellen, Plattform-Administration, Abmelden. */
 export function AccountHome({ me, switchOrg, logout }: AccountHomeProps) {
   const { Button } = useIamUi();
-  const { paths, router } = useIamConfig();
+  const { paths, router, features } = useIamConfig();
   useIamText();
   const account = useAccount();
   const [creating, setCreating] = useState(false);
-  if (account.isPending) return <div className="iam-gate"><Loading /></div>;
+  const toPlatform = features.platform !== false && platformOnly(me, account.data);
+  useEffect(() => { if (toPlatform) router.navigate(paths.organizations, { replace: true }); }, [toPlatform, router, paths.organizations]);
+  if (account.isPending || toPlatform) return <div className="iam-gate"><Loading /></div>;
   if (account.error) return <div className="iam-gate"><ErrorState error={account.error} onRetry={() => void account.refetch()} /></div>;
   const a = account.data;
   const orgs = me.organizations;
   const canCreate = a.selfService.createOrganization;
-  // Mit Organisationen wie bisher «Organisation wählen» (mit dem Grund, falls die gewählte fehlt), sonst das Konto
+  // Mit Organisationen wie bisher «Organisation wählen» (mit dem Grund, falls die gewählte fehlt), sonst das Konto;
+  // Plattform-Administration ohne Organisation kommt nur mit «Organisation erstellen» hierher
   const title = orgs.length ? t('iam.org.choose') : t('iam.account.home');
   const text = orgs.length ? me.tenantError ?? t('iam.org.choose.text')
     : a.platformAdmin ? t('iam.account.text') : `${t('iam.account.none')} ${canCreate ? t('iam.account.noneCreate') : t('iam.account.noneWait')}`;
@@ -124,18 +133,20 @@ function CreateOwnOrg({ emailVerified, limit, onCancel, onCreated }: { emailVeri
 
 /**
  * Plattform-Administration ohne Organisation: Organisationen (Liste, Detail) und die Rückkehr von Microsoft unter dem
- * eigenen Rahmen mit «Zum Konto» und «Abmelden». `route`: welche Seite der Pfad meint.
+ * eigenen Rahmen mit «Zum Konto» (nicht für das reine Konto des Betriebs, das Konto führte gleich wieder hierher) und
+ * «Abmelden». `route`: welche Seite der Pfad meint.
  */
-export function PlatformShell({ route, logout }: { route: 'organizations' | 'organization' | 'entraConsent'; logout(): Promise<void> }) {
+export function PlatformShell({ me, route, logout }: { me?: Me; route: 'organizations' | 'organization' | 'entraConsent'; logout(): Promise<void> }) {
   const { product, brand, paths, router } = useIamConfig();
   useIamText();
+  const account = useAccount();
   return (
     <div className="iam-platform">
       <header className="iam-platform-head">
         {brand ?? (product ? <div className="iam-brand"><span className="iam-bt">{product}</span></div> : null)}
         <span className="iam-muted iam-small">{t('iam.account.platform')}</span>
         <span className="iam-sp" />
-        <button type="button" className="iam-linkbtn" onClick={() => router.navigate(paths.home)}>{t('iam.account.back')}</button>
+        {!me || (account.data && !platformOnly(me, account.data)) ? <button type="button" className="iam-linkbtn" onClick={() => router.navigate(paths.home)}>{t('iam.account.back')}</button> : null}
         <button type="button" className="iam-linkbtn" onClick={() => void logout()}>{t('iam.session.logout')}</button>
       </header>
       <main className="iam-platform-main">

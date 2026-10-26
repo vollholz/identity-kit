@@ -218,10 +218,47 @@ describe('Konto ohne Organisation (Spezifikation 6.3)', () => {
       'GET /v1/platform/organizations': () => json({ items: [{ id: 'kc-m', alias: 'muster', name: 'Muster GmbH', description: null, enabled: true, domains: [], tenant: null }] }),
     });
     expect(await screen.findByRole('link', { name: 'Muster GmbH' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Zum Konto' })).toBeInTheDocument();
+    // Reines Konto des Betriebs: das Konto führte gleich wieder hierher
+    expect(screen.queryByRole('button', { name: 'Zum Konto' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Abmelden' })).toBeInTheDocument();
     expect(screen.queryByText('App')).toBeNull();
     const req = api.calls.find(r => new URL(r.url).pathname === '/v1/platform/organizations')!;
     expect(req.headers.get('X-Tenant')).toBeNull();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('reines Konto des Betriebs: Startseite führt direkt in die Plattform-Administration', async () => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
+    setup({
+      ...none,
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true, organizations: [] })),
+      'GET /v1/platform/organizations': () => json({ items: [] }),
+    });
+    await waitFor(() => expect(window.location.pathname).toBe('/verwalten/organisationen'));
+    expect(screen.queryByRole('heading', { name: 'Dein Konto' })).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Abmelden' })).toBeInTheDocument();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('ohne Plattform-Administration in der App (features.platform: false) bleibt das Konto, keine Weiterleitung', async () => {
+    setup({ ...none, 'GET /v1/account': () => json(accountInfo({ platformAdmin: true, organizations: [] })) }, { features: { platform: false } });
+    expect(await screen.findByRole('heading', { name: 'Dein Konto' })).toBeInTheDocument();
+  });
+
+  it('Plattform-Administration mit eigener Organisation erstellen: Konto bleibt Startseite, «Zum Konto» in der Plattform', async () => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
+    setup({
+      ...none,
+      'GET /v1/account': () => json(accountInfo({ platformAdmin: true, organizations: [], selfService: { signup: false, createOrganization: true, organizationLimit: 3 } })),
+      'GET /v1/platform/organizations': () => json({ items: [] }),
+    });
+    expect(await screen.findByRole('heading', { name: 'Dein Konto' })).toBeInTheDocument();
+    expect(screen.getByText(/keine Organisation zugeordnet\. Öffne die Plattform-Administration oder erstelle/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Organisation erstellen' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Organisationen verwalten' }));
+    expect(await screen.findByRole('button', { name: 'Zum Konto' })).toBeInTheDocument();
     window.history.replaceState(null, '', '/');
   });
 

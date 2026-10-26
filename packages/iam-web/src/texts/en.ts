@@ -759,7 +759,7 @@ export const en: Record<IamTextKey, string> = {
   'iam.orgs.contextPlatform': 'You are editing «{org}» as platform administration.',
   'iam.loggedOut.signup': 'Create account',
   'iam.account.home': 'Your account',
-  'iam.account.text': 'Choose an organization or open the platform administration.',
+  'iam.account.text': 'No organization is assigned to this account. Open the platform administration or create an organization of your own.',
   'iam.account.none': 'No organization is assigned to your account yet.',
   'iam.account.noneCreate': 'Create your own organization or wait for an invitation.',
   'iam.account.noneWait': 'As soon as an organization invites you, it appears here.',

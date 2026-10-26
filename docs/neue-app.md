@@ -346,8 +346,9 @@ KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVA
   npx iam-org-bootstrap --operator --email betrieb@example.ch --first Bea --last Betrieb
 ```
 
-Das Konto erhält die Realm-Rolle `platform-admin` und gehört keiner Organisation an; nach der Anmeldung zeigt die
-Oberfläche das Konto mit «Organisationen verwalten». Betrieb und Organisation nie mit demselben Konto: wer auch in einer
+Das Konto erhält die Realm-Rolle `platform-admin` und gehört keiner Organisation an; nach der Anmeldung führt die
+Oberfläche direkt in die Plattform-Administration (Organisationen). Nur mit `SELF_SERVICE_ORGS` zeigt sie zuerst das
+Konto mit «Organisationen verwalten» und «Organisation erstellen». Betrieb und Organisation nie mit demselben Konto: wer auch in einer
 Organisation arbeitet, hat dafür ein zweites Konto.
 
 **Erste Organisation** aus dem Manifest (`organizations`, idempotent; danach verwaltet die Organisations-Administration

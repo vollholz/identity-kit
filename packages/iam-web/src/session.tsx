@@ -239,7 +239,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const platform = platformRoute(config, pathname);
     return (
       <Suspense fallback={<div className="iam-gate"><Loading /></div>}>
-        {platform ? <PlatformShell route={platform} logout={logout} /> : <AccountHome me={me} switchOrg={switchOrg} logout={logout} />}
+        {platform ? <PlatformShell me={me} route={platform} logout={logout} /> : <AccountHome me={me} switchOrg={switchOrg} logout={logout} />}
       </Suspense>
     );
   }

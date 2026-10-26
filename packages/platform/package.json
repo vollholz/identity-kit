@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/platform",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Querschnitt für Apps auf der Identity-Plattform: Konfiguration, HTTP, Warteschlange und Outbox, Betrieb, MCP-Dienst, Mandanten",
   "type": "module",
   "license": "Apache-2.0",

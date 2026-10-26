@@ -89,3 +89,10 @@ Metriken heissen `platform.job.duration` und `platform.outbox.dispatched` (die A
 und Policies, Mandantentrennung über die API, problem+json, Pfade, Oberfläche und OpenAPI, MCP mit Token Exchange,
 Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POSTGRES_SUPERUSER_PASSWORD` (und
 `POSTGRES_PORT`) oder `TEST_POSTGRES_URL`; ohne Datenbank übersprungen, in CI nie.
+
+## Änderungen
+
+- **0.1.1:** Die Erweiterung von Fastify durch `@fastify/swagger` (`tags` in Routen-Schemas, `app.swagger()`) kommt mit
+  den Typen des Pakets; Apps brauchen `@fastify/swagger` nicht mehr selbst. Beschreibung von `OUTBOX_RETENTION` nennt
+  die Zustellungen der Module. Tests des SSRF-Schutzes im Paket.
+- **0.1.0:** erste Fassung, herausgelöst aus nachtschicht.

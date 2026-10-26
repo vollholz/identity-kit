@@ -30,7 +30,7 @@ export const PLATFORM_VARS = (product: string): VarSpec[] => [
   { name: 'WORKER_POLL_INTERVAL', kind: 'duration', group: 'Worker', default: '1s', services: ['worker'], description: 'Abstand der Abfragen, wenn die Warteschlange leer ist.' },
   { name: 'JOB_RETENTION', kind: 'duration', group: 'Worker', default: '30d', services: ['worker'], description: 'Aufbewahrung erledigter und endgültig gescheiterter Jobs.' },
 
-  { name: 'OUTBOX_RETENTION', kind: 'duration', group: 'Ereignisse und Webhooks', default: '7d', services: ['worker'], description: 'Aufbewahrung zugestellter Ereignisse der Outbox.' },
+  { name: 'OUTBOX_RETENTION', kind: 'duration', group: 'Ereignisse und Webhooks', default: '7d', services: ['worker'], description: 'Aufbewahrung verteilter Ereignisse der Outbox; Module mit eigenen Zustellungen (z. B. Webhooks) räumen abgeschlossene nach derselben Frist auf.' },
   { name: 'WEBHOOK_TIMEOUT', kind: 'duration', group: 'Ereignisse und Webhooks', default: '10s', services: ['worker'], description: 'Zeitlimit je Zustellung eines Webhooks.' },
   { name: 'WEBHOOK_MAX_ATTEMPTS', kind: 'int', group: 'Ereignisse und Webhooks', default: '8', services: ['worker'], description: 'Zustellversuche je Ereignis und Abonnement (exponentielles Backoff).' },
   { name: 'WEBHOOK_ALLOW_PRIVATE', kind: 'bool', group: 'Ereignisse und Webhooks', default: 'false', description: 'Nur Entwicklung und Tests: Webhooks an private Adressen (localhost, RFC 1918) zulassen. In Produktion nicht erlaubt.' },

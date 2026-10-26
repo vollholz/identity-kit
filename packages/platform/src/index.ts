@@ -6,6 +6,9 @@
  *
  * Telemetrie: `node --import @vollholz/platform/preload …` (vor allen anderen Modulen).
  */
+// Erweiterung von Fastify durch @fastify/swagger (`tags` in Routen-Schemas, `app.swagger()`) auch für die Apps: Die
+// Deklaration bleibt in dist/index.d.ts, die App braucht @fastify/swagger nicht selbst.
+/// <reference types="@fastify/swagger" preserve="true" />
 export { definePlatform, type Platform, type PlatformSpec } from './platform.ts';
 export { defineApp, type AppSpec, type CreateApiOptions, type PlatformApp } from './app.ts';
 export { defineModule, checkModules, type ApiTag, type PlatformModule } from './module.ts';

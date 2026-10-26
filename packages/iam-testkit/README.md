@@ -47,6 +47,7 @@ Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLO
 
 ## Änderungen
 
+- **2.0.2:** `CURRENT` nennt `@vollholz/platform` 0.1.1 (Hinweis auf neuere Version im Konformitätstest).
 - **2.0.1:** Konformitätstest kennt `@vollholz/platform` (ab 0.1.0) als Teil des Kits; vorher meldete er es als fremdes
   Paket.
 - **1.4.0:** Konformitätstest `iam-conformity-test` mit den Ebenen Repository, Datenbank und Realm (`repoChecks`,

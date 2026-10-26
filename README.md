@@ -40,7 +40,7 @@ einhält, zeigt `npx iam-conformity-test`.
 | `modules/product-realm` | **2.0.0** – Realm-Soll als OpenTofu-Modul für jede Keycloak-Instanz (`keycloak_url` Pflicht), ohne Rollen (Rollen stehen nur in der Datenbank der App), Maschinen-Clients als Code (`machine_clients`); gegen Keycloak 26.8.1 ([README](modules/product-realm/README.md)) |
 | `modules/product-realm-bootstrap` | **0.1.1** – Anlage von Realm und `<produkt>-iac` |
 | `packages/create-iam-app` | **0.1.0** – `init`, `sync`, `check`, `keys`; Vorlagen für `product-realm` 2.0.0 ([README](packages/create-iam-app/README.md)) |
-| `packages/platform` | **0.1.0** – erste Fassung, herausgelöst aus nachtschicht: Prozesse `api`, `worker`, `mcp`, Befehle `migrate`, `tenant`, `rotate-keys`, Migration `platform_001_core.sql` mit Übernahme ([README](packages/platform/README.md)) |
+| `packages/platform` | **0.1.1** – herausgelöst aus nachtschicht: Prozesse `api`, `worker`, `mcp`, Befehle `migrate`, `tenant`, `rotate-keys`, Migration `platform_001_core.sql` mit Übernahme ([README](packages/platform/README.md)) |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
 übersprungen). Veröffentlichen: Version des Pakets erhöhen und mergen – der Workflow «Release» veröffentlicht neue

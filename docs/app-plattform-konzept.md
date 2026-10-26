@@ -209,7 +209,7 @@ Für nachtschicht wären das rund 1 100 Zeilen fachlich plus wenige Dutzend Zeil
 
 | # | Schritt | Ergebnis |
 |---|---|---|
-| 1 | Inventar Assets gegen nachtschicht: was ist gleich, was weicht ab, warum | Liste je Datei: Paket, Modul, verwaltet, App |
+| 1 | Inventar Assets gegen nachtschicht (nur lesend, siehe 11): was ist gleich, was weicht ab, warum | Liste je Datei: Paket, Modul, verwaltet, App |
 | 2 | `@vollholz/platform` 0.1 aus nachtschicht herauslösen (`/config`, `/core`, `/http`, `/worker`, `/ops`, `/mcp`, `/migrations`); nachtschicht stellt um | nachtschicht nur noch Fachliches, CI grün |
 | 3 | `@vollholz/platform-testkit` mit den Suiten; nachtschicht stellt um | Tests der App auf Fachliches reduziert |
 | 4 | `create-app` mit verwalteten Dateien und Test-App im Kit | neue App mit einem Befehl, nächtlich geprüft |
@@ -223,14 +223,27 @@ Schritt 2 bis 4 sind der Kern; danach lohnt sich jede weitere App sofort.
 
 ## 11. Offene Entscheidungen
 
-| Nr. | Frage | Vorschlag |
+| Nr. | Frage | Stand |
 |---|---|---|
-| E1 | Eigene Pakete oder Teil von `@vollholz/iam`? | Eigene: `iam` bleibt Anmeldung und Rechte, `platform` baut darauf auf |
-| E2 | Ein Generator oder `create-iam-app` erweitern? | `create-app` als Nachfolger, `create-iam-app` bleibt für Apps nur mit IAM |
-| E3 | Welche Module aus Assets sind fachneutral genug (Anhänge, Diskussion, Reports, Integrationen)? | Inventar in Schritt 1, Regel «zwei Apps» |
+| E1 | Eigene Pakete oder Teil von `@vollholz/iam`? | **Entschieden (2026-10-26): eigenes Paket.** `iam` bleibt Anmeldung und Rechte, `platform` baut darauf auf |
+| E2 | Ein Generator oder `create-iam-app` erweitern? | **Entschieden (2026-10-26): Nachfolger.** `create-app` ersetzt `create-iam-app`; Apps nur mit IAM nutzen `create-app` ohne Plattform-Profil |
+| E3 | Welche Module aus Assets sind fachneutral genug (Anhänge, Diskussion, Reports, Integrationen)? | Inventar in Schritt 1 (nur lesender Zugriff auf Assets, siehe unten); Regel «zwei Apps» |
 | E4 | Wie weit darf eine App vom Gerüst abweichen? | Abweichung nur über Manifest oder `extends`; sonst Änderung im Kit |
 | E5 | Wo liegt die Webapp-Shell: im Kit oder als Vorlage der App? | Kit (`app-web`), Branding über Tokens und Texte |
 | E6 | Bleibt die Lizenz Apache-2.0 auch für `platform`? | ja, wie die übrigen Pakete |
+
+**Inventar (Schritt 1):** Vergleich des Codes von Assets mit nachtschicht, Datei für Datei, nur lesend – in Assets
+ändert sich dabei nichts. Ergebnis ist eine Tabelle in diesem Dokument (neuer Abschnitt «Inventar»):
+
+| Spalte | Inhalt |
+|---|---|
+| Datei bzw. Baustein | z. B. `src/platform/http/app.ts`, `modules/attachments/` |
+| Gleich / abweichend / nur in einer App | mit Begründung der Abweichung (Fachbezug, ältere Lösung, bewusste Ausnahme) |
+| Form im Kit | Paket (Unterpfad), fertiges Modul, verwaltete Datei, OpenTofu-Modul, bleibt in der App |
+| Aufwand und Risiko der Umstellung je App | klein / mittel / gross |
+
+Daraus folgen die Grenzen von `@vollholz/platform` 0.1 und die Kandidaten für fertige Module (E3). Geschrieben wird in
+Assets erst in Schritt 8, je Teil ein PR.
 
 ## 12. Bewusst nicht gebaut
 

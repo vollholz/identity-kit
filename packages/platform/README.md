@@ -109,7 +109,9 @@ export const kalenderModule = defineModule({ name: 'kalender', publicRoutes: [ka
   problem+json mit dem Routenmuster als `instance` (nie die URL mit dem Token). Ungültiges Format, unbekannte oder
   gesperrte Organisation, unbekanntes Token und nicht mehr aktive Person: 404 mit demselben Text (`publicNotFound`).
   Die Laufzeit ist nicht konstant; der Alias ist kein Geheimnis.
-- **Rate-Limit** je IP und Route (Standard 30 je Minute), auch ausserhalb von `/v1`. **Log:** Routenmuster statt URL.
+- **Rate-Limit** je IP und Route (Standard 30 je Minute), auch ausserhalb von `/v1`; auch 429 und Fehler der
+  Validierung als problem+json mit dem Routenmuster. **Log:** Routenmuster statt URL. **Telemetrie:** keine Spur für
+  diese Pfade (die Instrumentierung sieht die rohe URL mit dem Token). Pfadteile bis 256 Zeichen (`maxParamLength`).
 - In der OpenAPI mit `security: []`; `defineApp` prüft Namen, Pfade und Scopes beim Start.
 
 ## Datenbank
@@ -136,7 +138,8 @@ Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POS
 
 - **0.2.0:** Öffentliche Routen mit Token je Modul (`publicRoutes`, `PublicRoute`, `publicToken`, `publicTokenHash`,
   `aliasToken`, `publicNotFound`, `checkPublicRoutes`, `registerPublicRoutes`): Organisation aus dem Alias, Kontext
-  dieser Organisation, Lesesicht der Person über `viewAs`, Rate-Limit je IP, einheitlich 404, Token nie im Log
+  dieser Organisation, Lesesicht der Person über `viewAs`, Rate-Limit je IP, einheitlich 404, Token nie im Log und nie in Spuren der Telemetrie;
+  `maxParamLength` 256
   (nachtschicht FM-OF-21, Kalender-Abo). Abwärtsverträglich.
 - **0.1.1:** Die Erweiterung von Fastify durch `@fastify/swagger` (`tags` in Routen-Schemas, `app.swagger()`) kommt mit
   den Typen des Pakets; Apps brauchen `@fastify/swagger` nicht mehr selbst. Beschreibung von `OUTBOX_RETENTION` nennt

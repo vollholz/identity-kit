@@ -24,7 +24,7 @@ export const aboRoute: PublicRoute = {
   schema: {
     tags: ['Notizen'], summary: 'Abo der Notizen (ohne Anmeldung)',
     description: 'Liste der Notizen, die die Person des Tokens lesen darf, als Text. Unbekannte Links ergeben 404.',
-    params: Type.Object({ datei: Type.String({ maxLength: 300 }) }),
+    params: Type.Object({ datei: Type.String({ maxLength: 200 }) }),
   },
   async handler(ctx, _req, reply) {
     const abo = (await ctx.tx.query<{ principal_id: string }>('SELECT principal_id FROM probe.notiz_abo WHERE token_hash = $1', [ctx.tokenHash])).rows[0];

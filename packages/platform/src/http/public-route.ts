@@ -11,13 +11,15 @@
  * - Rate-Limit je IP und Route (auch ausserhalb von `/v1`), Antworten nicht zwischenspeicherbar, ohne Referrer.
  * - Keine Existenz-Leaks: ungültiges Format, unbekannte oder gesperrte Organisation, unbekanntes Token und eine Person,
  *   die nicht mehr Mitglied ist, ergeben dieselbe Antwort (404 problem+json, gleicher Text).
- * - Token nie im Log: Die Anfrage wird mit dem Routenmuster statt der URL protokolliert.
+ * - Token nie im Log und nie in Spuren: Die Anfrage wird mit dem Routenmuster statt der URL protokolliert; Spuren der
+ *   Telemetrie entfallen für diese Pfade. Fehler (auch Validierung, 429) mit dem Routenmuster als `instance`.
  *
  * Pfade unter `/v1/` und `/auth/` sind ausgeschlossen (dort verlangt @vollholz/iam eine Anmeldung).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { HttpError, problemBody, setContext, subjectsOf, type Principal } from '@vollholz/iam';
 import type { FastifyInstance, FastifyReply, FastifyRequest, FastifySchema } from 'fastify';
+import { addPublicPath } from '../core/public-paths.ts';
 import type { Tx } from '../db/pool.ts';
 import { withTenant } from '../db/pool.ts';
 import type { Deps } from './app.ts';
@@ -132,17 +134,26 @@ export function registerPublicRoutes(app: FastifyInstance, deps: Deps, routes: r
           keyGenerator: (req: FastifyRequest) => `public:${route.name}:${req.ip}`,
         },
       },
-      handler: async (req, reply) => {
+      // Vor Rate-Limit und Validierung: jede Antwort dieser Route, auch 429 und Fehler
+      onRequest: async (_req, reply) => {
         reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').header('x-robots-tag', 'noindex');
-        try {
-          return await run(route, req, reply);
-        } catch (e) {
-          // Fehler als problem+json mit dem Routenmuster als `instance` (die URL enthält das Token)
-          if (!(e instanceof HttpError) || reply.sent) throw e;
-          return reply.status(e.status).headers(e.headers).type('application/problem+json').send(problemBody(e, typeBase, route.url));
-        }
       },
+      // Fehler der Route selbst, der Validierung und des Rate-Limits als problem+json mit dem Routenmuster als
+      // `instance` (die URL enthält das Token); die Fehlerbehandlung des IAM nähme `req.url`
+      errorHandler: (err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
+        const e = err instanceof HttpError ? err
+          : err.validation ? publicNotFound()
+          : err.statusCode === 429 ? new HttpError(429, 'Zu viele Anfragen', 'Versuche es später nochmals.')
+          : null;
+        if (!e) {
+          req.log.error({ err }, 'Öffentliche Route: Fehler');
+          return reply.status(500).type('application/problem+json').send(problemBody(new HttpError(500, 'Interner Fehler'), typeBase, route.url));
+        }
+        return reply.status(e.status).headers(e.headers).type('application/problem+json').send(problemBody(e, typeBase, route.url));
+      },
+      handler: (req, reply) => run(route, req, reply),
     });
+    addPublicPath(route.url);
   }
 
   async function run(route: PublicRoute, req: FastifyRequest, reply: FastifyReply): Promise<unknown> {

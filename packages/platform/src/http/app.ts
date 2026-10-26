@@ -74,6 +74,8 @@ export function fastifyOptions(cfg: PlatformConfig): FastifyServerOptions {
     // Anzahl der Proxys ist erlaubt (Fastify), fehlt aber im Typ
     trustProxy: cfg.app.http.trustProxy as FastifyServerOptions['trustProxy'],
     bodyLimit: cfg.app.http.bodyLimit,
+    // Pfadteile bis 256 Zeichen (Standard 100): `<alias>.<token>.ics` öffentlicher Routen passt sonst nicht zur Route
+    routerOptions: { maxParamLength: 256 },
     // Unbekannte Felder ergeben 422 statt still zu verschwinden (Voraussetzung von @vollholz/iam)
     ajv: { customOptions: { removeAdditional: false, coerceTypes: 'array', useDefaults: true } },
   };

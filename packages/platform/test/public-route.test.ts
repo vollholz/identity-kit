@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
+import { isPublicPath } from '../src/core/public-paths.ts';
 import { aliasToken, checkPublicRoutes, publicToken, publicTokenHash, type App, type PublicRoute } from '../src/index.ts';
 import { grant, person, testApi, type TestApi } from './api.ts';
 import { issueAbo } from './fixture/notiz/abo.ts';
@@ -82,6 +83,8 @@ describe('Öffentliche Route über die API', { skip }, () => {
     const cases = [
       url('acme', bad), url('globex', token), url('unbekannt', token), url('acme', 'kurz'), url('ac%C3%A9me', token),
       `/abo/notizen/acme.${token}.ics`, `/abo/notizen/acme${token}.txt`, url('acme', `${token}x`),
+      // Schema verletzt (datei länger als 200): Validierung vor der Route, gleiche Antwort ohne Token
+      url('acme', `${token}${'x'.repeat(160)}`),
     ];
     const bodies = new Set<string>();
     for (const u of cases) {
@@ -118,7 +121,18 @@ describe('Öffentliche Route über die API', { skip }, () => {
     for (let i = 0; i < 7; i++) codes.push((await get(url('acme', i % 2 ? token : publicToken().token), address)).statusCode);
     assert.deepEqual(codes.slice(0, 5), [404, 200, 404, 200, 404]);
     assert.deepEqual(codes.slice(5), [429, 429]);
+    const limited = await get(url('acme', token), address);
+    assert.equal(limited.statusCode, 429);
+    assert.match(String(limited.headers['content-type']), /^application\/problem\+json/);
+    assert.equal(limited.headers['cache-control'], 'no-store');
+    assert.ok(!limited.body.includes(token), limited.body);
+    assert.equal(limited.json().instance, '/abo/notizen/:datei');
     assert.equal((await get(url('acme', token), '192.0.2.78')).statusCode, 200, 'andere IP zählt eigen');
+  });
+
+  test('Telemetrie erkennt die Pfade (Spuren entfallen), auch kodiert und mit Abfrage; andere nicht', () => {
+    for (const u of [url('acme', token), `${url('acme', token)}?x=1`, '/abo/notizen/acme%2Ex.txt']) assert.ok(isPublicPath(u), u);
+    for (const u of ['/abo/notizen', '/abo/notizen/a/b', '/v1/notizen', '/healthz', undefined]) assert.ok(!isPublicPath(u), String(u));
   });
 
   test('in der OpenAPI ohne Anmeldung (security: [])', () => {

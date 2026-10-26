@@ -42,7 +42,8 @@ describe('Mandantentrennung über die API', { skip }, () => {
     ids.a = s.json().id;
     const doc = api.app.swagger() as { paths: Record<string, Record<string, { tags?: string[] }>> };
     for (const [path, ops] of Object.entries(doc.paths)) for (const [m, op] of Object.entries(ops)) {
-      if (op.tags?.some(t => APP_TAGS.has(t))) routes.push(`${m.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`);
+      // Öffentliche Routen mit Token (ausserhalb von /v1): Trennung über den Alias, geprüft in public-route.test.ts
+      if (op.tags?.some(t => APP_TAGS.has(t)) && path.startsWith('/v1/')) routes.push(`${m.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`);
     }
   });
   after(async () => { await api?.close(); });

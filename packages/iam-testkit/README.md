@@ -47,6 +47,7 @@ Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLO
 
 ## Änderungen
 
+- **2.1.1:** `CURRENT` nennt `@vollholz/platform` 0.2.0 und `@vollholz/create-iam-app` 0.2.1.
 - **2.1.0:** `readViewProblems` prüft auch `app.has_permission(…)` aus `@vollholz/iam` 3.2 (`iam_018`), sobald sie
   bestehen (`LATER_READ_VIEW_FUNCTIONS`); Apps mit älterem `@vollholz/iam` bleiben konform. `CURRENT` nennt
   `@vollholz/iam` 3.2.0.

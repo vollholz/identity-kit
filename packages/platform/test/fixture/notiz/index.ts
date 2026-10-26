@@ -1,6 +1,7 @@
 /** Modul Notizen der Test-App: Routen, Job und MCP-Werkzeuge. */
 import { z } from 'zod';
 import { defineModule, organisationArg } from '../../../src/index.ts';
+import { aboRoute } from './abo.ts';
 import { pruefJob } from './jobs.ts';
 import { registerRoutes } from './routes.ts';
 
@@ -8,6 +9,7 @@ export const notizModule = defineModule({
   name: 'notiz',
   tags: [{ name: 'Notizen', description: 'Notizen der Organisation mit Zeitraum und Klassifizierung.' }],
   register: registerRoutes,
+  publicRoutes: [aboRoute],
   jobs: [pruefJob],
   mcpTools: {
     list_notizen: {

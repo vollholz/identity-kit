@@ -37,6 +37,10 @@ export { fullTxOf, type FullTx } from './authz/view.ts';
 // HTTP
 export { API_CSP, DOCS_CSP, apiPaths, apiTags, buildApp, fastifyOptions, setSpanContext, type App, type BuildOptions, type Deps } from './http/app.ts';
 export { registerIdempotency } from './http/idempotency.ts';
+export {
+  PUBLIC_TOKEN, aliasToken, checkPublicRoutes, publicNotFound, publicToken, publicTokenHash, registerPublicRoutes,
+  type PublicCredentials, type PublicRoute, type PublicRouteContext,
+} from './http/public-route.ts';
 export { docEnv, exportOpenApi, type ExportOpenApiOptions } from './http/openapi-doc.ts';
 export {
   Cursor, DateTime, IdempotencyHeaders, IdParams, IfMatchHeaders, Limit, NextCursor, Nullable, Uuid,

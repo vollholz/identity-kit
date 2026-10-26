@@ -1,10 +1,11 @@
 /**
- * Fachmodul einer App: Routen, Jobs, feste Aufgaben, Abnehmer der Outbox, Rotation von Geheimnissen, Werkzeuge des
+ * Fachmodul einer App: Routen, öffentliche Routen mit Token, Jobs, feste Aufgaben, Abnehmer der Outbox, Rotation von Geheimnissen, Werkzeuge des
  * MCP-Dienstes und der Tag in der API-Doku – alles an einer Stelle, eingehängt über `defineApp({ modules })`. Ein
  * Modul kennt nur `Deps` und die Bausteine des Pakets, nie ein anderes Modul.
  */
 import type { FastifyInstance } from 'fastify';
 import type { Deps } from './http/app.ts';
+import type { PublicRoute } from './http/public-route.ts';
 import type { ToolDef } from './mcp/tools.ts';
 import type { Rewrapper } from './ops/rotation.ts';
 import type { OutboxConsumer } from './worker/outbox.ts';
@@ -19,6 +20,8 @@ export interface PlatformModule {
   tags?: readonly ApiTag[];
   /** Routen einhängen. */
   register?(app: FastifyInstance, deps: Deps): void | Promise<void>;
+  /** Öffentliche Routen mit Token ohne Sitzung (Organisation aus dem Alias, z. B. Kalender-Abo); siehe `PublicRoute`. */
+  publicRoutes?: readonly PublicRoute[];
   /** Arten von Jobs (`<modul>.<aufgabe>`). */
   jobs?: readonly JobDefinition<any>[];
   /** Feste Aufgaben über alle Mandanten. */

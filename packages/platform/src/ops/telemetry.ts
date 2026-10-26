@@ -16,6 +16,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { PeriodicExportingMetricReader, type IMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
+import { isPublicPath } from '../core/public-paths.ts';
 
 export const TRACER_NAME = '@vollholz/platform';
 
@@ -56,7 +57,8 @@ export function startTelemetry(o: TelemetryOptions): boolean {
     metricReaders: readers,
     // Keine Body-Inhalte, keine Kopfzeilen mit Tokens: nur die Standardattribute der Instrumentierungen
     instrumentations: [
-      new HttpInstrumentation({ ignoreIncomingRequestHook: req => req.url === '/healthz' || req.url === '/readyz' || req.url === '/metrics' }),
+      // Öffentliche Routen mit Token in der URL (public-route.ts): keine Spur, sonst ginge das Token an den Empfänger
+      new HttpInstrumentation({ ignoreIncomingRequestHook: req => req.url === '/healthz' || req.url === '/readyz' || req.url === '/metrics' || isPublicPath(req.url) }),
       new PgInstrumentation({ enhancedDatabaseReporting: false }),
       new UndiciInstrumentation(),
     ],

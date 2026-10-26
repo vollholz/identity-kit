@@ -30,6 +30,12 @@ const TENANT_TABLES: Record<string, (tx: Tx, tenantId: string) => Promise<string
   outbox_event: async (tx, t) => { await tx.query("INSERT INTO probe.outbox_event (tenant_id, type) VALUES ($1, 'probe.created')", [t]); return "type = 'probe.created'"; },
   notiz: async (tx, t) => { await tx.query("INSERT INTO probe.notiz (tenant_id, label) VALUES ($1, 'Probe')", [t]); return "label = 'Probe'"; },
   notiz_version: async () => "label = 'Probe'",   // entsteht per Trigger mit der Notiz
+  // Token der öffentlichen Route: nur tenant_isolation, keine Lesesicht (public-route.test.ts)
+  notiz_abo: async (tx, t) => {
+    const p = (await tx.query<{ id: string }>("INSERT INTO probe.principal (tenant_id, kind, subject) VALUES ($1, 'user', 'abo-probe') RETURNING id", [t])).rows[0]!.id;
+    await tx.query("INSERT INTO probe.notiz_abo (tenant_id, principal_id, token_hash) VALUES ($1, $2, repeat('a', 64))", [t, p]);
+    return "token_hash = repeat('a', 64)";
+  },
 };
 
 /** Tabellen von @vollholz/iam mit tenant_id: RLS, Policies und Trennung prüft das Paket selbst (und die Prüfungen unten). */

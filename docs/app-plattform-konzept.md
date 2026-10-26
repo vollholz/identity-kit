@@ -239,7 +239,7 @@ Schritt 2 bis 4 sind der Kern; danach lohnt sich jede weitere App sofort.
 | E6 | Bleibt die Lizenz Apache-2.0 auch für `platform`? | ja, wie die übrigen Pakete |
 | E7 | DNS-Anbieter des Moduls `dns` | **Entschieden (2026-10-26): Hostpoint** für die Domains der Apps; die Domain der Identität (Keycloak) bleibt wie gehabt. Offen: ob Hostpoint eine API für DNS-Einträge bietet – sonst verwaltetes Skript bzw. Anleitung statt OpenTofu-Modul |
 | E8 | Namen der Variablen und Tokens vereinheitlichen | **Entschieden (2026-10-26):** CSS-Tokens nach Assets (grösserer Satz), Variablen nach nachtschicht (kürzer, nach `IAM_VARS`); Assets liest während des Übergangs alte und neue Namen und warnt bei alten |
-| E9 | Bleibt If-Match Pflicht (428, nachtschicht) oder optional (Assets)? | Pflicht für neue Routen; Assets per Option je Route, bis die Oberfläche überall ETags mitschickt |
+| E9 | Ist If-Match beim Ändern und Löschen Pflicht? | **Entschieden (2026-10-26): Pflicht.** Ohne Version 428, mit veralteter 412 – Standard im Kit für alle Routen. Assets stellt per Option je Route um, bis Oberfläche und Konnektoren überall die Version mitschicken |
 
 **Inventar (Schritt 1):** Vergleich des Codes von Assets mit nachtschicht, Datei für Datei, nur lesend – in Assets
 ändert sich dabei nichts. Ergebnis ist eine Tabelle in diesem Dokument (neuer Abschnitt «Inventar»):

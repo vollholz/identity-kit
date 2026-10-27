@@ -298,7 +298,7 @@ export function iamWarnings(cfg: IamConfig, service: Service | null): string[] {
   const needs = (...s: Service[]) => service === null || s.includes(service);
   const secret = (name: string, key: string) => `${name}: Client-Geheimnis statt privatem Schlüssel (${key}, private_key_jwt). Nur übergangsweise (Spezifikation Kap. 3.4, P3).`;
   if (needs('api') && cfg.oidc.bffClientSecret && !cfg.oidc.bffPrivateKey) out.push(secret('OIDC_BFF_CLIENT_SECRET', 'OIDC_BFF_PRIVATE_KEY'));
-  if (needs('api') && cfg.mgmt.clientId && cfg.mgmt.clientSecret && !cfg.mgmt.privateKey) out.push(secret('KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_MGMT_PRIVATE_KEY'));
+  if (needs('api', 'worker') && cfg.mgmt.clientId && cfg.mgmt.clientSecret && !cfg.mgmt.privateKey) out.push(secret('KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_MGMT_PRIVATE_KEY'));
   if (needs('worker') && cfg.memberSync.clientId && cfg.memberSync.clientSecret && !cfg.memberSync.privateKey) out.push(secret('KEYCLOAK_SYNC_CLIENT_SECRET', 'KEYCLOAK_SYNC_PRIVATE_KEY'));
   if (needs('mcp') && cfg.mcp.clientSecret && !cfg.mcp.privateKey) out.push(secret('MCP_CLIENT_SECRET', 'MCP_PRIVATE_KEY'));
   return out;

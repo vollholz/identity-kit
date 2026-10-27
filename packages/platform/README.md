@@ -163,7 +163,7 @@ await ctx.admin.removeMember(scope, memberId);
   (`DATABASE_WORKER_URL`), ohne eigenes `createIam` und ohne eigenen Pool.
 - Gebaut, wenn der Worker `KEYCLOAK_MGMT_CLIENT_ID` samt `KEYCLOAK_MGMT_PRIVATE_KEY` oder `KEYCLOAK_MGMT_CLIENT_SECRET`
   (bzw. `_FILE`) erhält; sonst `null`. Ein Worker ohne diese Variablen startet unverändert. `worker bereit` im Log nennt
-  `admin` und `mail`.
+  `admin` und `mail`. Mit `KEYCLOAK_MGMT_CLIENT_SECRET` statt Schlüssel warnt auch der Worker (ab `@vollholz/iam` 3.2.1).
 - Tests: `app.createWorker(cfg, db, log, { iam: { keycloakFetch: kc.fetch } })` mit dem `KeycloakFake` des Test-Kits;
   `new Worker({ …, admin, mailer })` setzt beide direkt (Standard `null` bzw. `createMailer(cfg, log)`).
 

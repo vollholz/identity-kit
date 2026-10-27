@@ -5,7 +5,9 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import { backoffMs, PermanentJobError, Worker, type JobDefinition } from '../src/index.ts';
+import { KeycloakFake, startMockIdp } from '@vollholz/iam-testkit';
+import { AdminService } from '@vollholz/iam';
+import { backoffMs, PermanentJobError, protokollMailer, Worker, type JobContext, type JobDefinition } from '../src/index.ts';
 import { app } from './fixture/app.ts';
 import { enqueue, fullTx, platform } from './fixture/platform.ts';
 import { createTestDb, full, skipDb, tenant, type Harness } from './harness.ts';
@@ -120,5 +122,50 @@ describe('Warteschlange', { skip }, () => {
     release();
     assert.equal(await p, true);
     assert.equal(runs, 1);
+  });
+
+  test('Verwaltung und Mailer im Kontext: admin nur mit Zugang zu Keycloak, sonst null', async () => {
+    const idp = await startMockIdp({ realm: 'probe', audience: 'probe-api' });
+    try {
+      const kc = new KeycloakFake();
+      kc.org('alpha', 'Alpha AG');
+      const env = { NODE_ENV: 'test', OIDC_ISSUER_URL: idp.issuer, DATABASE_URL: 'postgres://x@localhost/x', MAIL_ADAPTER: 'protokoll' };
+      const seenCtx: Pick<JobContext, 'admin' | 'mailer'>[] = [];
+      const probe: JobDefinition = {
+        kind: 'notiz.probe',
+        run: async ctx => {
+          seenCtx.push({ admin: ctx.admin, mailer: ctx.mailer });
+          await ctx.mailer.send({ to: 'anna@example.ch', subject: 'Austritt', text: '…' });
+          if (ctx.admin) assert.deepEqual((await ctx.admin.listOrganizations()).map(o => [o.alias, o.tenant?.id]), [['alpha', A]]);
+        },
+      };
+      const run = async (w: Worker) => {
+        const id = (await full(t.runtime, A, tx => enqueue(tx, 'notiz.probe', {})))!;
+        for (let c = await w.claim(); c; c = await w.claim()) await w.execute(c);
+        assert.equal((await status(id, A)).status, 'done');
+      };
+      const withJob = (e: Record<string, string>) => {
+        const w = app.createWorker(app.loadConfig(e, 'worker'), t.worker, quiet, { iam: { keycloakFetch: kc.fetch } });
+        return new Worker({ platform: platform.context, fullTx, db: t.worker, cfg: app.loadConfig(e, 'worker'), log: quiet, jobs: [probe], admin: w.admin, mailer: w.mailer });
+      };
+
+      // Ohne Verwaltung bzw. ohne Schlüssel und Geheimnis im Worker: null
+      assert.equal(app.createWorker(app.loadConfig(env, 'worker'), t.worker, quiet).admin, null);
+      assert.equal(app.createWorker(app.loadConfig({ ...env, KEYCLOAK_MGMT_CLIENT_ID: 'probe-admin' }, 'worker'), t.worker, quiet).admin, null);
+      await run(withJob(env));
+      assert.equal(seenCtx[0]!.admin, null);
+
+      // Mit Zugang: Verwaltung über den Pool des Workers (Rolle _worker)
+      const w = withJob({ ...env, KEYCLOAK_MGMT_CLIENT_ID: 'probe-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 'geheim-fuer-tests' });
+      assert.ok(w.admin instanceof AdminService);
+      await run(w);
+      assert.equal(seenCtx[1]!.admin, w.admin);
+      assert.deepEqual((seenCtx[1]!.mailer as ReturnType<typeof protokollMailer>).sent.map(m => m.subject), ['Austritt']);
+
+      // Feste Aufgaben sehen dieselbe Verwaltung und denselben Mailer
+      let task: { admin: unknown; mailer: unknown } | null = null;
+      await w.runTask({ name: 'test.verwaltung', intervalMs: () => 0, run: async c => { task = { admin: c.admin, mailer: c.mailer }; } });
+      assert.deepEqual(task, { admin: w.admin, mailer: w.mailer });
+    } finally { await idp.close(); }
   });
 });

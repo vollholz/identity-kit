@@ -336,10 +336,16 @@ async function smtpSend(o: SmtpOptions, mail: BuiltMail): Promise<MailResult> {
   }
 }
 
-/** Mailer nach der Konfiguration (`MAIL_ADAPTER`, `MAIL_FROM`, `SMTP_URL`, `SMTP_TIMEOUT`, `SMTP_ALLOW_INSECURE`). */
+/**
+ * Mailer nach der Konfiguration (`MAIL_ADAPTER`, `MAIL_FROM`, `SMTP_URL`, `SMTP_TIMEOUT`, `SMTP_ALLOW_INSECURE`).
+ * `SMTP_URL` und `MAIL_FROM` verlangt nur der Worker; ausserhalb davon scheitert `smtp` ohne sie dauerhaft (`MailError`).
+ */
 export function createMailer(cfg: Pick<PlatformConfig, 'app'>, log?: Pick<Log, 'info'>): Mailer {
   const m = cfg.app.mail;
-  if (m.adapter === 'smtp') return smtpMailer({ url: m.smtpUrl!, from: m.from!, timeoutMs: m.timeoutMs, allowInsecure: m.allowInsecure });
+  if (m.adapter === 'smtp') {
+    if (!m.smtpUrl || !m.from) throw new MailError('MAIL_ADAPTER=smtp: SMTP_URL und MAIL_FROM fehlen in diesem Dienst (Pflicht nur im Worker)', true);
+    return smtpMailer({ url: m.smtpUrl, from: m.from, timeoutMs: m.timeoutMs, allowInsecure: m.allowInsecure });
+  }
   if (m.adapter === 'protokoll') return protokollMailer({ from: m.from ?? 'noreply@localhost.localdomain', log });
   return disabledMailer();
 }

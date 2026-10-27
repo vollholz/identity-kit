@@ -47,6 +47,10 @@ export interface CreateApiOptions {
   iam?: Partial<Pick<IamOptions, 'fetch' | 'keycloakFetch' | 'entraFetch' | 'replay'>>;
 }
 
+export interface CreateWorkerOptions {
+  iam?: Partial<Pick<IamOptions, 'fetch' | 'keycloakFetch' | 'entraFetch'>>;
+}
+
 export interface PlatformApp {
   readonly platform: Platform<any, any>;
   /** Module samt Oberfläche (zuletzt). */
@@ -57,7 +61,8 @@ export interface PlatformApp {
   loadConfig(env: NodeJS.ProcessEnv, service: Service | null): PlatformConfig;
   configOrExit(env: NodeJS.ProcessEnv, service: Service | null): PlatformConfig;
   createApi(cfg: PlatformConfig, db: Db, o?: CreateApiOptions): Promise<{ app: App; iam: ReturnType<typeof createIam> }>;
-  createWorker(cfg: PlatformConfig, db: Db, log: Log): Worker;
+  /** Worker mit Verwaltung (`JobContext.admin`), sofern `KEYCLOAK_MGMT_CLIENT_ID` samt Schlüssel bzw. Geheimnis gesetzt ist. */
+  createWorker(cfg: PlatformConfig, db: Db, log: Log, o?: CreateWorkerOptions): Worker;
   buildMcp(cfg: PlatformConfig, o?: { fetch?: typeof fetch; logger?: boolean }): ReturnType<typeof buildMcpApp>;
   migrate(adminUrl: string, log?: (m: string) => void): Promise<MigrationResult>;
   openApi(): Promise<Record<string, unknown>>;
@@ -75,6 +80,12 @@ export interface PlatformApp {
 export function defineApp(spec: AppSpec): PlatformApp {
   const { platform } = spec;
   const ctx = platform.context;
+  // Verwaltung im Worker über dessen Pool; ohne Zugang zu Keycloak (der Worker bekommt das Geheimnis nur, wenn er es braucht) null
+  const workerAdmin = (cfg: PlatformConfig, db: Db, o: CreateWorkerOptions) => {
+    const m = cfg.mgmt;
+    if (!m.clientId || !(m.privateKey || m.clientSecret)) return null;
+    return createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, bff: false, ...o.iam }).admin;
+  };
   checkModules(spec.modules);
   checkPublicRoutes(spec.modules.flatMap(m => m.publicRoutes ?? []), platform.model.scopes);
   const modules = spec.ui === false ? [...spec.modules] : [...spec.modules, uiModule];
@@ -92,8 +103,8 @@ export function defineApp(spec: AppSpec): PlatformApp {
       const app = await buildApp({ platform: ctx, cfg, db, iam, ready: o.ready ?? (() => true) }, { modules, ...people, ...(o.fastify ? { fastify: o.fastify } : {}) });
       return { app, iam };
     },
-    createWorker: (cfg, db, log) => new Worker({
-      platform: ctx, fullTx: platform.fullTx, db, cfg, log,
+    createWorker: (cfg, db, log, o = {}) => new Worker({
+      platform: ctx, fullTx: platform.fullTx, db, cfg, log, admin: workerAdmin(cfg, db, o),
       jobs: spec.modules.flatMap(m => m.jobs ?? []),
       tasks: [purgeSharedStateTask, retentionTask, outboxTask(spec.modules.flatMap(m => m.consumers ?? [])), ...spec.modules.flatMap(m => m.tasks ?? [])],
     }),

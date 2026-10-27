@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ConfigError, EXIT_CONFIG, defineApp, definePlatform, envDocs, platformVars } from '../src/index.ts';
+import { ConfigError, EXIT_CONFIG, MailError, createMailer, defineApp, definePlatform, envDocs, platformVars } from '../src/index.ts';
 import { app } from './fixture/app.ts';
 import { notizModule } from './fixture/notiz/index.ts';
 
@@ -93,4 +93,21 @@ test('Variablen der App: ergänzt, geprüft und in der Doku; doppelte Namen sind
   assert.match(docs.env, /# PROBE_LIMIT=3/);
   // OTEL_SERVICE_NAME nimmt das Produkt als Standard
   assert.equal(withVar.loadConfig(base, 'api').app.ops.serviceName, 'probe');
+});
+
+test('E-Mail: SMTP_URL und MAIL_FROM nur im Worker Pflicht; die anderen kennen den Adapter ohne Geheimnis', () => {
+  const smtp = { ...prod, MAIL_ADAPTER: 'smtp', DATABASE_WORKER_URL: 'postgres://w@db/probe', MCP_PUBLIC_URL: 'https://probe.example.ch/mcp' };
+  const worker = errorsOf(smtp, 'worker');
+  assert.ok(worker.some(e => e.startsWith('SMTP_URL fehlt')) && worker.some(e => e.startsWith('MAIL_FROM fehlt')), worker.join('\n'));
+  assert.ok(errorsOf(smtp, null).some(e => e.startsWith('SMTP_URL fehlt')), 'Skripte und Tests prüfen alles');
+  for (const s of ['api', 'mcp'] as const) assert.deepEqual(errorsOf(smtp, s), [], s);
+  const api = loadPlatformConfig(smtp, 'api');
+  assert.deepEqual([api.app.mail.adapter, api.app.mail.smtpUrl, api.app.mail.from], ['smtp', null, null]);
+  assert.throws(() => createMailer(api), (e: unknown) => e instanceof MailError && e.permanent && /Pflicht nur im Worker/.test(e.message));
+  // Gesetzte Werte prüft jeder Dienst
+  assert.ok(errorsOf({ ...smtp, SMTP_URL: 'http://mail.example.ch' }, 'api').some(e => e.startsWith('SMTP_URL:')));
+  const full = { ...smtp, SMTP_URL: 'smtps://konto:pw@mail.example.ch:465', MAIL_FROM: 'Probe <noreply@probe.example.ch>' };
+  assert.deepEqual(errorsOf(full, 'worker'), []);
+  assert.equal(loadPlatformConfig(full, 'worker').app.mail.smtpUrl, 'smtps://konto:pw@mail.example.ch:465');
+  assert.match(envDocs(VARS).md, /\| `SMTP_URL` \| url \| – \| – \| worker \|/);
 });

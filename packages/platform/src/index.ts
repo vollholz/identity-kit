@@ -10,7 +10,7 @@
 // Deklaration bleibt in dist/index.d.ts, die App braucht @fastify/swagger nicht selbst.
 /// <reference types="@fastify/swagger" preserve="true" />
 export { definePlatform, type Platform, type PlatformSpec } from './platform.ts';
-export { defineApp, type AppSpec, type CreateApiOptions, type PlatformApp } from './app.ts';
+export { defineApp, type AppSpec, type CreateApiOptions, type CreateWorkerOptions, type PlatformApp } from './app.ts';
 export { defineModule, checkModules, type ApiTag, type PlatformModule } from './module.ts';
 export { platformContext, type ContextSpec, type PlatformContext } from './context.ts';
 

@@ -6,6 +6,8 @@ Personen, Service-Clients, M2M, API und MCP.
 
 > **Neue App anbinden: [docs/neue-app.md](docs/neue-app.md)** – mit `npx @vollholz/create-iam-app init` von den Zugängen über Realm,
 > Datenbank, Backend und Oberfläche bis zu Tests, CI und Entra ID.
+> **Auf Hetzner in Betrieb nehmen: [docs/hetzner-einrichten.md](docs/hetzner-einrichten.md)** – Playbook für ein neues
+> Hetzner-Projekt: Reihenfolge, wer was tut, Entscheide und Stolpersteine.
 
 - **Standard** (dieses Repository): Realm-Soll, Anmeldung (BFF), Token-Prüfung, Mandanten = Keycloak-Organisationen,
   Rechte-Entscheidung, Zugriffsregeln, eigene Rollen, Verwaltung, Datenbank-Schutz (RLS), Oberflächen-Bausteine, Tests.

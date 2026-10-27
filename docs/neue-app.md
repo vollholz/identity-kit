@@ -383,6 +383,9 @@ geheimer Clientschlüssel). Voraussetzungen der App: `realm.entra: true` im Mani
 Verwaltung (`KEYCLOAK_MGMT_*`) und `features.entra` (Schritt 8). Hintergrund:
 [backend.md › Betrieb](../packages/iam/docs/backend.md#8-betrieb).
 
+**Inbetriebnahme auf Hetzner** (neues Projekt, Server, Datenbank, DNS, Geheimnisse, erster Rollout):
+[hetzner-einrichten.md](hetzner-einrichten.md).
+
 ## Zurücksetzen und neu aufsetzen
 
 Ab `@vollholz/iam` 1.4.0 lässt sich eine App automatisiert vollständig zurücksetzen und frisch aufsetzen, etwa für

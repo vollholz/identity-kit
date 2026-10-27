@@ -182,6 +182,7 @@ export function smtpUrlProblems(raw: string): string[] {
   if (!url.hostname) problems.push('Host fehlt');
   if ((url.pathname && url.pathname !== '/') || url.search || url.hash) problems.push('ohne Pfad, Parameter und Fragment');
   if (url.password && !url.username) problems.push('Passwort ohne Benutzer');
+  try { decodeURIComponent(url.username); decodeURIComponent(url.password); } catch { problems.push('Benutzer oder Passwort falsch URL-kodiert'); }
   return problems;
 }
 
@@ -264,12 +265,12 @@ async function smtpSend(o: SmtpOptions, mail: BuiltMail): Promise<MailResult> {
     socket.destroy();
   }, timeoutMs);
 
-  const expect = async (codes: number[], what: string): Promise<Reply> => {
+  const expect = async (codes: number[] | 'positiv', what: string): Promise<Reply> => {
     const r = await reader.read();
-    if (!codes.includes(r.code)) throw new MailError(`${what}: ${r.code} ${r.lines.join(' ').slice(0, 200)}`, r.code >= 500, r.code);
+    if (codes === 'positiv' ? r.code < 200 || r.code > 299 : !codes.includes(r.code)) throw new MailError(`${what}: ${r.code} ${r.lines.join(' ').slice(0, 200)}`, r.code >= 500, r.code);
     return r;
   };
-  const command = (line: string, codes: number[], what: string) => { socket.write(`${line}\r\n`); return expect(codes, what); };
+  const command = (line: string, codes: number[] | 'positiv', what: string) => { socket.write(`${line}\r\n`); return expect(codes, what); };
   const ehlo = async () => {
     const r = await command(`EHLO ${o.ehloName ?? ehloHost()}`, [250], 'EHLO');
     return r.lines.slice(1).map(l => l.toUpperCase());
@@ -317,7 +318,8 @@ async function smtpSend(o: SmtpOptions, mail: BuiltMail): Promise<MailResult> {
     await command('DATA', [354], 'DATA');
     // Punkt-Maskierung (RFC 5321 4.5.2), dann Ende mit <CRLF>.<CRLF>
     socket.write(mail.data.replace(/^\./gm, '..') + '.\r\n');
-    await expect([250], 'Nachricht');
+    // Jede abschliessende 2xx-Antwort ist Annahme (RFC 5321 4.2.5); sonst würde ein erneuter Versuch doppelt zustellen
+    await expect('positiv', 'Nachricht');
     // Höflich beenden; antwortet der Server nicht, schliesst die Verbindung nach einer Sekunde ohnehin
     socket.end('QUIT\r\n');
     const s = socket, linger = setTimeout(() => s.destroy(), 1000);

@@ -31,6 +31,8 @@ interface FakeOptions {
   mode: 'smtps' | 'starttls' | 'plain';
   auth?: ('PLAIN' | 'LOGIN')[];
   rcpt?: (address: string) => string;
+  /** Antwort nach dem Ende der Nachricht (Standard «250 angenommen»). */
+  accepted?: string;
   /** Begrüssung nie senden (Zeitlimit). */
   silent?: boolean;
   /** Nach «220 STARTTLS» eine eingeschleuste Antwort im Klartext nachschieben. */
@@ -56,7 +58,7 @@ async function fakeSmtp(o: FakeOptions) {
     };
     const line = (l: string) => {
       if (data) {
-        if (l === '.') { msg.data = data.join('\r\n'); received.push({ ...msg, to: [...msg.to] }); data = null; say('250 angenommen'); }
+        if (l === '.') { msg.data = data.join('\r\n'); received.push({ ...msg, to: [...msg.to] }); data = null; say(o.accepted ?? '250 angenommen'); }
         else data.push(l.startsWith('..') ? l.slice(1) : l);
         return;
       }
@@ -215,6 +217,14 @@ test('Zeitlimit für den ganzen Versand', async () => {
   } finally { stalled.close(); }
 });
 
+test('jede abschliessende 2xx-Antwort nach der Nachricht gilt als Annahme', async () => {
+  const srv = await fakeSmtp({ mode: 'starttls', auth: ['PLAIN'], accepted: '252 angenommen, Zustellung unbestätigt' });
+  try {
+    const r = await smtpMailer({ url: srv.url(), from: FROM, ca: cert }).send(message);
+    assert.deepEqual(r.accepted, ['anna@example.ch', 'ben@example.ch']);
+  } finally { srv.close(); }
+});
+
 test('abgelehnte Empfänger: 5xx dauerhaft, 4xx vorübergehend', async () => {
   const srv = await fakeSmtp({ mode: 'starttls', auth: ['PLAIN'], rcpt: a => (a.startsWith('weg') ? '550 unbekannt' : a.startsWith('voll') ? '452 Postfach voll' : '250 ok') });
   try {
@@ -278,6 +288,8 @@ test('Konfiguration: Pflicht bei smtp, Form, Verbote in Produktion', () => {
   assert.ok(smtp.some(e => e.startsWith('SMTP_URL fehlt')));
   assert.ok(smtp.some(e => e.startsWith('MAIL_FROM fehlt')));
   assert.ok(errorsOf({ ...base, SMTP_URL: 'https://mail.example.ch' }).some(e => e.startsWith('SMTP_URL: nur smtp://')));
+  assert.ok(errorsOf({ ...base, SMTP_URL: 'smtp://user%ZZ:pass@mail.example.ch' }).some(e => e.startsWith('SMTP_URL: Benutzer oder Passwort falsch URL-kodiert')));
+  assert.throws(() => smtpMailer({ url: 'smtp://u:p%E0@mail.example.ch', from: FROM }), (e: unknown) => e instanceof MailError && e.permanent);
   assert.ok(errorsOf({ ...base, MAIL_FROM: 'a@b.ch\nBcc: c@d.ch' }).some(e => e.startsWith('MAIL_FROM: Zeilenumbruch')));
   assert.ok(errorsOf({ ...base, MAIL_ADAPTER: 'brief' }).some(e => e.startsWith('MAIL_ADAPTER:')));
   assert.deepEqual(errorsOf({ ...base, MAIL_ADAPTER: 'smtp', SMTP_URL: 'smtps://u:p@mail.example.ch', MAIL_FROM: 'noreply@probe.ch' }), []);

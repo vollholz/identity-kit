@@ -16,11 +16,13 @@
  */
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import type { AdminService } from '@vollholz/iam';
 import type { PlatformConfig } from '../config/env.ts';
 import type { FullTx } from '../authz/view.ts';
 import type { PlatformContext } from '../context.ts';
 import type { Actor } from '../core/audit.ts';
 import { systemActor } from '../core/audit.ts';
+import { createMailer, type Mailer } from '../core/mail.ts';
 import type { Db, Tx } from '../db/pool.ts';
 import { metrics } from '../ops/metrics.ts';
 
@@ -38,6 +40,10 @@ export interface JobContext {
   cfg: PlatformConfig;
   log: Log;
   actor: Actor;
+  /** Verwaltung von Organisationen und Mitgliedern (`iam.admin`); null ohne `KEYCLOAK_MGMT_CLIENT_ID` samt Schlüssel bzw. Geheimnis. */
+  admin: AdminService | null;
+  /** Versand nach `MAIL_ADAPTER` (`createMailer`). */
+  mailer: Mailer;
   tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }
 
@@ -53,7 +59,7 @@ export interface JobDefinition<P extends Record<string, unknown> = Record<string
 export interface PeriodicTask {
   name: string;
   intervalMs(cfg: PlatformConfig): number;
-  run(ctx: { db: Db; cfg: PlatformConfig; log: Log; platform: PlatformContext }): Promise<void>;
+  run(ctx: { db: Db; cfg: PlatformConfig; log: Log; platform: PlatformContext; admin: AdminService | null; mailer: Mailer }): Promise<void>;
 }
 
 /** Fehler ohne erneuten Versuch. */
@@ -93,6 +99,9 @@ export class Worker {
   private readonly fullTx: FullTx;
   private readonly cfg: PlatformConfig;
   private readonly log: Log;
+  /** Verwaltung für Jobs und feste Aufgaben (`JobContext.admin`) oder null. */
+  readonly admin: AdminService | null;
+  readonly mailer: Mailer;
   private readonly jobs: Map<string, JobDefinition<any>>;
   private readonly tasks: PeriodicTask[];
   private readonly running = new Set<Promise<void>>();
@@ -101,8 +110,16 @@ export class Worker {
   private stopped = true;
   private wake: (() => void) | null = null;
 
-  constructor(o: { platform: PlatformContext; fullTx: FullTx; db: Db; cfg: PlatformConfig; log: Log; jobs: readonly JobDefinition<any>[]; tasks?: readonly PeriodicTask[] }) {
+  constructor(o: {
+    platform: PlatformContext; fullTx: FullTx; db: Db; cfg: PlatformConfig; log: Log; jobs: readonly JobDefinition<any>[]; tasks?: readonly PeriodicTask[];
+    /** Standard null (`defineApp` baut sie aus der Konfiguration). */
+    admin?: AdminService | null;
+    /** Standard `createMailer(cfg, log)`. */
+    mailer?: Mailer;
+  }) {
     this.db = o.db; this.cfg = o.cfg; this.log = o.log; this.platform = o.platform; this.fullTx = o.fullTx;
+    this.admin = o.admin ?? null;
+    this.mailer = o.mailer ?? createMailer(o.cfg, o.log);
     this.jobs = new Map(o.jobs.map(j => [j.kind, j]));
     if (this.jobs.size !== o.jobs.length) throw new Error('Worker: doppelte Job-Arten');
     this.tasks = [...(o.tasks ?? [])];
@@ -189,7 +206,7 @@ export class Worker {
     const started = performance.now();
     const ctx: JobContext = {
       tenantId: job.tenant_id, jobId: job.id, attempt: job.attempts, cfg: this.cfg, log: this.log,
-      actor: systemActor('worker', `job:${job.id}`),
+      actor: systemActor('worker', `job:${job.id}`), admin: this.admin, mailer: this.mailer,
       tx: fn => this.fullTx(this.db, job.tenant_id, fn),
     };
     try {
@@ -235,7 +252,7 @@ export class Worker {
       const key = `${this.platform.product}:task:${t.name}`;
       const got = (await c.query<{ ok: boolean }>('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [key])).rows[0]!.ok;
       if (!got) return false;
-      try { await t.run({ db: this.db, cfg: this.cfg, log: this.log, platform: this.platform }); } finally {
+      try { await t.run({ db: this.db, cfg: this.cfg, log: this.log, platform: this.platform, admin: this.admin, mailer: this.mailer }); } finally {
         await c.query('SELECT pg_advisory_unlock(hashtext($1))', [key]);
       }
       return true;

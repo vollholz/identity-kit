@@ -11,6 +11,8 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 ## Änderungen
 
+- **3.2.1:** `iamWarnings` warnt auch im Worker vor `KEYCLOAK_MGMT_CLIENT_SECRET` statt privatem Schlüssel: Ab
+  `@vollholz/platform` 0.4.0 nutzt der Worker den Verwaltungs-Client (`JobContext.admin`). Sonst unverändert.
 - **3.2.0:** Migration `iam_018_has_permission`: `app.has_permission(recht)` und `app.has_permission(recht, typ, id)`
   prüfen in RLS-Policies der App ein bestimmtes Recht (an `org` bzw. an `org` oder über ein Tupel an genau dieser
   Ressource, ∩ Scope; Spez. 7.6). Für Daten mit eigenem, engerem Recht, das nicht das Leserecht des Typs ist (z. B.

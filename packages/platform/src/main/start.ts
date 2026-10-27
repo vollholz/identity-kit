@@ -58,7 +58,7 @@ export async function startWorker(a: PlatformApp, env: NodeJS.ProcessEnv = proce
   runtime.onShutdown(() => worker.stop());
   worker.start();
   runtime.markReady();
-  log.info({ jobs: a.modules.flatMap(m => (m.jobs ?? []).map(j => j.kind)), memberSync: !!sync, ops: ops.port }, 'worker bereit');
+  log.info({ jobs: a.modules.flatMap(m => (m.jobs ?? []).map(j => j.kind)), memberSync: !!sync, admin: !!worker.admin, mail: cfg.app.mail.adapter, ops: ops.port }, 'worker bereit');
 }
 
 export async function startMcp(a: PlatformApp, env: NodeJS.ProcessEnv = process.env): Promise<void> {

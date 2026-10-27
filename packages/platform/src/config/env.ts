@@ -37,8 +37,8 @@ export const PLATFORM_VARS = (product: string): VarSpec[] => [
   { name: 'WEBHOOK_ALLOW_PRIVATE', kind: 'bool', group: 'Ereignisse und Webhooks', default: 'false', description: 'Nur Entwicklung und Tests: Webhooks an private Adressen (localhost, RFC 1918) zulassen. In Produktion nicht erlaubt.' },
 
   { name: 'MAIL_ADAPTER', kind: 'enum', group: 'E-Mail', values: ['aus', 'protokoll', 'smtp'], default: 'aus', description: 'Versand von E-Mails (`createMailer`): `aus` (jeder Versand scheitert), `protokoll` (nur ins Log, Entwicklung und Tests; in Produktion nicht erlaubt) oder `smtp`.' },
-  { name: 'MAIL_FROM', kind: 'string', group: 'E-Mail', description: 'Absender, auch im Umschlag. Bei `MAIL_ADAPTER=smtp` Pflicht.', example: `${product[0]!.toUpperCase()}${product.slice(1)} <noreply@${product}.example.ch>` },
-  { name: 'SMTP_URL', kind: 'url', group: 'E-Mail', secret: true, fileAllowed: true, description: 'Mailserver mit Anmeldung: `smtps://` (TLS, Port 465) oder `smtp://` (STARTTLS Pflicht, Port 587); Benutzer und Passwort URL-kodiert. Bei `MAIL_ADAPTER=smtp` Pflicht.', example: 'smtps://konto%40example.ch:***@mail.example.ch:465' },
+  { name: 'MAIL_FROM', kind: 'string', group: 'E-Mail', services: ['worker'], description: 'Absender, auch im Umschlag. Bei `MAIL_ADAPTER=smtp` im Worker Pflicht (nur er versendet).', example: `${product[0]!.toUpperCase()}${product.slice(1)} <noreply@${product}.example.ch>` },
+  { name: 'SMTP_URL', kind: 'url', group: 'E-Mail', secret: true, fileAllowed: true, services: ['worker'], description: 'Mailserver mit Anmeldung: `smtps://` (TLS, Port 465) oder `smtp://` (STARTTLS Pflicht, Port 587); Benutzer und Passwort URL-kodiert. Bei `MAIL_ADAPTER=smtp` im Worker Pflicht (nur er versendet).', example: 'smtps://konto%40example.ch:***@mail.example.ch:465' },
   { name: 'SMTP_TIMEOUT', kind: 'duration', group: 'E-Mail', default: '30s', description: 'Frist für den ganzen Versand einer E-Mail (Verbindung bis Annahme).' },
   { name: 'SMTP_ALLOW_INSECURE', kind: 'bool', group: 'E-Mail', default: 'false', description: 'Nur Entwicklung: Mailserver ohne TLS bzw. mit ungeprüftem Zertifikat zulassen (z. B. Mailpit). In Produktion nicht erlaubt.' },
 
@@ -96,9 +96,10 @@ function appConfigErrors(raw: RawVars, mode: IamConfig['mode'], service: Service
     if (raw.MAIL_ADAPTER === 'protokoll') errors.push('MAIL_ADAPTER=protokoll ist in Produktion nicht erlaubt');
     if (/^(true|1)$/i.test(raw.SMTP_ALLOW_INSECURE ?? '')) errors.push('SMTP_ALLOW_INSECURE=true ist in Produktion nicht erlaubt');
   }
-  if (raw.MAIL_ADAPTER === 'smtp') {
-    if (!raw.SMTP_URL) errors.push('SMTP_URL fehlt – bei MAIL_ADAPTER=smtp Pflicht');
-    if (!raw.MAIL_FROM) errors.push('MAIL_FROM fehlt – bei MAIL_ADAPTER=smtp Pflicht');
+  // Nur der Worker versendet; API, MCP und Migration kennen den Adapter (`cfg.app.mail.adapter`) ohne das Geheimnis
+  if (raw.MAIL_ADAPTER === 'smtp' && needs('worker')) {
+    if (!raw.SMTP_URL) errors.push('SMTP_URL fehlt – bei MAIL_ADAPTER=smtp im Worker Pflicht');
+    if (!raw.MAIL_FROM) errors.push('MAIL_FROM fehlt – bei MAIL_ADAPTER=smtp im Worker Pflicht');
   }
   if (raw.SMTP_URL) {
     const problems = smtpUrlProblems(raw.SMTP_URL);

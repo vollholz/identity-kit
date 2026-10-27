@@ -101,7 +101,8 @@ test('Warnungen: Client-Geheimnis statt privatem Schlüssel; Rollen kommen nie a
   const c = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', KEYCLOAK_MGMT_CLIENT_ID: 'notes-admin', KEYCLOAK_MGMT_CLIENT_SECRET: 's', KEYCLOAK_SYNC_CLIENT_ID: 'notes-sync', KEYCLOAK_SYNC_CLIENT_SECRET: 's', MCP_CLIENT_SECRET: 's' }, { product: 'notes', service: null });
   const all = iamWarnings(c, null).join('\n');
   for (const v of ['OIDC_BFF_CLIENT_SECRET', 'KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_SYNC_CLIENT_SECRET', 'MCP_CLIENT_SECRET']) assert.ok(all.includes(v), v);
-  assert.deepEqual(iamWarnings(c, 'worker').map(w => w.split(':')[0]), ['KEYCLOAK_SYNC_CLIENT_SECRET']);
+  assert.deepEqual(iamWarnings(c, 'worker').map(w => w.split(':')[0]), ['KEYCLOAK_MGMT_CLIENT_SECRET', 'KEYCLOAK_SYNC_CLIENT_SECRET']);
+  assert.deepEqual(iamWarnings(c, 'mcp').map(w => w.split(':')[0]), ['MCP_CLIENT_SECRET']);
   assert.ok(!all.includes('ROLE_SOURCE'));
   const withKey = loadIamConfig({ ...base, OIDC_BFF_CLIENT_SECRET: 's', OIDC_BFF_PRIVATE_KEY: 'pem' }, { product: 'notes', service: 'api' });
   assert.deepEqual(iamWarnings(withKey, 'api'), []);

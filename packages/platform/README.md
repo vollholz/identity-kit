@@ -121,10 +121,9 @@ export const kalenderModule = defineModule({ name: 'kalender', publicRoutes: [ka
 ```ts
 import { createMailer, MailError, PermanentJobError } from '@vollholz/platform';
 
-// in einem Job: Konfiguration und Log aus dem Kontext
-const mailer = createMailer(ctx.cfg, ctx.log);
+// in einem Job bzw. einer festen Aufgabe: ctx.mailer (= createMailer(ctx.cfg, ctx.log) des Workers)
 try {
-  await mailer.send({ to: 'Anna Muster <anna@example.ch>', subject: 'Einladung', text: '…', html: '<p>…</p>' });
+  await ctx.mailer.send({ to: 'Anna Muster <anna@example.ch>', subject: 'Einladung', text: '…', html: '<p>…</p>' });
 } catch (e) {
   if (e instanceof MailError && e.permanent) throw new PermanentJobError(e.message);   // 5xx, ungültig, nicht eingerichtet
   throw e;                                                                            // 4xx, Netz, Zeitlimit: erneut
@@ -134,11 +133,14 @@ try {
 | Variable | Bedeutung |
 |---|---|
 | `MAIL_ADAPTER` | `aus` (Standard: jeder Versand scheitert dauerhaft), `protokoll` (nur ins Log und in `sent`, in Produktion verboten), `smtp` |
-| `MAIL_FROM` | Absender, auch im Umschlag, z. B. `Nachtschicht <noreply@nachtschicht.example.ch>`; bei `smtp` Pflicht |
-| `SMTP_URL` | `smtps://user:pass@host:465` (TLS ab dem ersten Byte) oder `smtp://user:pass@host:587` (STARTTLS Pflicht); Benutzer und Passwort URL-kodiert; geheim, auch als `SMTP_URL_FILE` |
+| `MAIL_FROM` | Absender, auch im Umschlag, z. B. `Nachtschicht <noreply@nachtschicht.example.ch>`; bei `smtp` im Worker Pflicht |
+| `SMTP_URL` | `smtps://user:pass@host:465` (TLS ab dem ersten Byte) oder `smtp://user:pass@host:587` (STARTTLS Pflicht); Benutzer und Passwort URL-kodiert; geheim, auch als `SMTP_URL_FILE`; bei `smtp` im Worker Pflicht |
 | `SMTP_TIMEOUT` | Frist für den ganzen Versand (Standard `30s`) |
 | `SMTP_ALLOW_INSECURE` | Nur Entwicklung (z. B. Mailpit): Klartext ohne STARTTLS, Zertifikat ungeprüft; in Produktion verboten |
 
+- **Dienste:** Nur der Worker versendet und verlangt `SMTP_URL` und `MAIL_FROM`. API, MCP und Migration starten ohne
+  sie und kennen den Adapter trotzdem (`cfg.app.mail.adapter`, z. B. um anzuzeigen, ob E-Mails versendet werden);
+  `createMailer` scheitert dort bei `smtp` dauerhaft (`MailError`). Gesetzte Werte prüft jeder Dienst.
 - **TLS:** Zertifikat und Name geprüft, mindestens TLS 1.2; ohne STARTTLS bricht `smtp://` ab, bevor Zugangsdaten
   gesendet werden. Antworten, die vor dem TLS-Handshake eingeschleust werden, brechen ab (STARTTLS-Injection).
 - **Anmeldung:** `AUTH PLAIN`, sonst `AUTH LOGIN`; ohne Benutzer in `SMTP_URL` keine Anmeldung.
@@ -148,6 +150,22 @@ try {
 - **Fehler:** `MailError` mit `permanent` (5xx, ungültige Nachricht, nicht eingerichtet) und `code` (Antwort des Servers).
 - **Tests:** `protokollMailer({ from })` hält die letzten 100 Nachrichten in `sent` (mit dem fertigen Text in `data`).
 - Eigener Client auf `node:net`/`node:tls`, ohne zusätzliche Abhängigkeit; ein Versand je Verbindung (kein Pool).
+
+### Verwaltung im Worker
+
+```ts
+// Job eines Moduls: Verwaltung von Organisationen und Mitgliedern (AdminService von @vollholz/iam) oder null
+if (!ctx.admin) throw new PermanentJobError('Verwaltung nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID)');
+await ctx.admin.removeMember(scope, memberId);
+```
+
+- `ctx.admin` in `JobContext` und im Kontext fester Aufgaben (`PeriodicTask`): `iam.admin` über den Pool des Workers
+  (`DATABASE_WORKER_URL`), ohne eigenes `createIam` und ohne eigenen Pool.
+- Gebaut, wenn der Worker `KEYCLOAK_MGMT_CLIENT_ID` samt `KEYCLOAK_MGMT_PRIVATE_KEY` oder `KEYCLOAK_MGMT_CLIENT_SECRET`
+  (bzw. `_FILE`) erhält; sonst `null`. Ein Worker ohne diese Variablen startet unverändert. `worker bereit` im Log nennt
+  `admin` und `mail`. Mit `KEYCLOAK_MGMT_CLIENT_SECRET` statt Schlüssel warnt auch der Worker (ab `@vollholz/iam` 3.2.1).
+- Tests: `app.createWorker(cfg, db, log, { iam: { keycloakFetch: kc.fetch } })` mit dem `KeycloakFake` des Test-Kits;
+  `new Worker({ …, admin, mailer })` setzt beide direkt (Standard `null` bzw. `createMailer(cfg, log)`).
 
 ## Datenbank
 
@@ -170,6 +188,15 @@ Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POS
 `POSTGRES_PORT`) oder `TEST_POSTGRES_URL`; ohne Datenbank übersprungen, in CI nie.
 
 ## Änderungen
+
+- **0.4.0:** Worker-Bausteine. `SMTP_URL` und `MAIL_FROM` sind bei `MAIL_ADAPTER=smtp` nur im Dienst `worker` Pflicht
+  (`services: ['worker']`); API, MCP und Migration starten ohne sie, `cfg.app.mail.adapter` bleibt überall gesetzt,
+  `createMailer` scheitert ohne sie mit `MailError` (dauerhaft) statt mit einem leeren Wert. `JobContext` und der Kontext
+  fester Aufgaben bieten `admin` (Verwaltung von `@vollholz/iam` über den Pool des Workers, sofern
+  `KEYCLOAK_MGMT_CLIENT_ID` samt Schlüssel bzw. Geheimnis gesetzt ist, sonst `null`) und `mailer` (`createMailer` des
+  Workers); `createWorker` nimmt optional `{ iam: { keycloakFetch, … } }`, `Worker` optional `admin` und `mailer`.
+  Brechend nur für Code, der `JobContext` oder den Kontext von `PeriodicTask.run` selbst baut (z. B. Tests): dort
+  `admin` und `mailer` ergänzen.
 
 - **0.3.0:** E-Mail-Versand als Baustein (`createMailer`, `smtpMailer`, `protokollMailer`, `disabledMailer`,
   `buildMail`, `parseAddress`, `smtpUrlProblems`, `MailError`) mit den Variablen `MAIL_ADAPTER`, `MAIL_FROM`,

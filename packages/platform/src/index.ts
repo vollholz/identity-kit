@@ -27,6 +27,10 @@ export { createSealer, sealedKeyId, type Keyring, type Sealer } from './core/cry
 export { conflict, forbidden, HttpError, invalid, notFound, preconditionFailed, preconditionRequired } from './core/errors.ts';
 export { emit, toCloudEvent, type CloudEvent, type EventType } from './core/events.ts';
 export { REDACT_PATHS, redact } from './core/redact.ts';
+export {
+  MailError, buildMail, createMailer, disabledMailer, parseAddress, protokollMailer, smtpMailer, smtpUrlProblems,
+  type BuiltMail, type LoggedMail, type MailAdapter, type Mailer, type MailMessage, type MailResult, type SmtpOptions,
+} from './core/mail.ts';
 export { isPublicAddress, resolveTarget, safeRequest, SsrfError, type SafeResponse } from './core/ssrf.ts';
 
 // Datenbank

@@ -45,3 +45,28 @@ test('Kennung des Absenders: Standard des Pakets, sonst die der App', async () =
     assert.deepEqual(agents, ['vollholz-platform/0', 'probe-webhooks/1']);
   } finally { server.close(); }
 });
+
+test('Inhalt als Bytes (Uint8Array, Buffer) unverändert mit Content-Length, Text als UTF-8', async () => {
+  const got: { body: Buffer; length: string | undefined; chunked: string | undefined }[] = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => { got.push({ body: Buffer.concat(chunks), length: req.headers['content-length'], chunked: req.headers['transfer-encoding'] }); res.writeHead(201).end(); });
+  });
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
+  // Alle Bytewerte, darunter ungültiges UTF-8 (wie verschlüsselter Inhalt bei Web Push, aes128gcm)
+  const bytes = Uint8Array.from({ length: 256 }, (_, i) => i);
+  try {
+    const r = await safeRequest(url, { timeoutMs: 2000, allowPrivate: true, headers: { 'content-encoding': 'aes128gcm' }, body: bytes });
+    assert.equal(r.status, 201);
+    await safeRequest(url, { timeoutMs: 2000, allowPrivate: true, body: Buffer.from(bytes) });
+    await safeRequest(url, { timeoutMs: 2000, allowPrivate: true, body: 'Grüsse' });
+    await safeRequest(url, { timeoutMs: 2000, allowPrivate: true, body: bytes.subarray(16, 32), headers: { 'Content-Length': '16' } });
+    assert.deepEqual(got.map(g => [g.length, g.chunked]), [['256', undefined], ['256', undefined], ['7', undefined], ['16', undefined]]);
+    assert.ok(got[0]!.body.equals(Buffer.from(bytes)));
+    assert.ok(got[1]!.body.equals(Buffer.from(bytes)));
+    assert.equal(got[2]!.body.toString('utf8'), 'Grüsse');
+    assert.ok(got[3]!.body.equals(Buffer.from(bytes.subarray(16, 32))));
+  } finally { server.close(); }
+});

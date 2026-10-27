@@ -19,6 +19,8 @@ meinen Abschnitte der Vorgabe `docs/konzepte/app-boilerplate.md` (Repository vol
 | `defineApp` | Kompositionswurzel: Konfiguration (`IAM_VARS` + Plattform + App, Exit 78), API (Fastify, OpenAPI 3.1, Rate-Limit, Idempotenz, CSP, Oberfläche mit SPA-Fallback), Worker, MCP-Dienst, Migrationen, OpenAPI-Export, `.env.example` und Doku der Konfiguration, Mandanten, Rotation |
 | `startApi`, `startWorker`, `startMcp`, `runCli` | Prozesse mit Betriebs-Endpunkt (`/healthz`, `/readyz`, `/metrics`) und geordnetem Beenden; Befehle `migrate`, `tenant …`, `rotate-keys` |
 | `PublicRoute`, `publicToken`, `publicTokenHash`, `aliasToken`, `publicNotFound` | Öffentliche Routen ohne Sitzung (z. B. Kalender-Abo): Organisation aus dem Alias, Kontext genau dieser Organisation, Lesesicht der Person des Tokens, Rate-Limit je IP, einheitlich 404 (siehe unten) |
+| `createMailer`, `smtpMailer`, `protokollMailer`, `MailError` | E-Mail-Versand nach `MAIL_ADAPTER`: SMTP mit TLS-Pflicht, Zeitlimit und Schutz gegen Header-Injection; «protokoll» für Entwicklung und Tests (siehe unten) |
+| `safeRequest`, `resolveTarget`, `isPublicAddress` | Abrufe an Adressen aus Daten mit SSRF-Schutz, fester Frist und begrenzter Antwort; Inhalt als Text oder Bytes |
 | `migrations/platform_001_core.sql` | Warteschlange (`job`), Idempotenz (`idempotency_key`), Outbox (`outbox_event`) mit RLS; Scheduler liest über alle Mandanten und schreibt mit gesetztem Kontext nur dort |
 | `@vollholz/platform/preload` | OpenTelemetry (Traces, Metriken über OTLP und/oder Prometheus) vor allen anderen Modulen |
 
@@ -114,6 +116,39 @@ export const kalenderModule = defineModule({ name: 'kalender', publicRoutes: [ka
   diese Pfade (die Instrumentierung sieht die rohe URL mit dem Token). Pfadteile bis 256 Zeichen (`maxParamLength`).
 - In der OpenAPI mit `security: []`; `defineApp` prüft Namen, Pfade und Scopes beim Start.
 
+### E-Mail
+
+```ts
+import { createMailer, MailError, PermanentJobError } from '@vollholz/platform';
+
+// in einem Job: Konfiguration und Log aus dem Kontext
+const mailer = createMailer(ctx.cfg, ctx.log);
+try {
+  await mailer.send({ to: 'Anna Muster <anna@example.ch>', subject: 'Einladung', text: '…', html: '<p>…</p>' });
+} catch (e) {
+  if (e instanceof MailError && e.permanent) throw new PermanentJobError(e.message);   // 5xx, ungültig, nicht eingerichtet
+  throw e;                                                                            // 4xx, Netz, Zeitlimit: erneut
+}
+```
+
+| Variable | Bedeutung |
+|---|---|
+| `MAIL_ADAPTER` | `aus` (Standard: jeder Versand scheitert dauerhaft), `protokoll` (nur ins Log und in `sent`, in Produktion verboten), `smtp` |
+| `MAIL_FROM` | Absender, auch im Umschlag, z. B. `Nachtschicht <noreply@nachtschicht.example.ch>`; bei `smtp` Pflicht |
+| `SMTP_URL` | `smtps://user:pass@host:465` (TLS ab dem ersten Byte) oder `smtp://user:pass@host:587` (STARTTLS Pflicht); Benutzer und Passwort URL-kodiert; geheim, auch als `SMTP_URL_FILE` |
+| `SMTP_TIMEOUT` | Frist für den ganzen Versand (Standard `30s`) |
+| `SMTP_ALLOW_INSECURE` | Nur Entwicklung (z. B. Mailpit): Klartext ohne STARTTLS, Zertifikat ungeprüft; in Produktion verboten |
+
+- **TLS:** Zertifikat und Name geprüft, mindestens TLS 1.2; ohne STARTTLS bricht `smtp://` ab, bevor Zugangsdaten
+  gesendet werden. Antworten, die vor dem TLS-Handshake eingeschleust werden, brechen ab (STARTTLS-Injection).
+- **Anmeldung:** `AUTH PLAIN`, sonst `AUTH LOGIN`; ohne Benutzer in `SMTP_URL` keine Anmeldung.
+- **Header-Injection:** Zeilenumbrüche und Steuerzeichen in Adressen, Namen, Betreff und `MAIL_FROM` sind ein Fehler
+  (`MailError`, dauerhaft); nichts wird still bereinigt. Adressen nur ASCII; Namen und Betreff sonst als Encoded-Word.
+- **Inhalt:** Text, optional HTML (`multipart/alternative`), je UTF-8 in Base64; `Message-ID`, `Date`, `Reply-To`.
+- **Fehler:** `MailError` mit `permanent` (5xx, ungültige Nachricht, nicht eingerichtet) und `code` (Antwort des Servers).
+- **Tests:** `protokollMailer({ from })` hält die letzten 100 Nachrichten in `sent` (mit dem fertigen Text in `data`).
+- Eigener Client auf `node:net`/`node:tls`, ohne zusätzliche Abhängigkeit; ein Versand je Verbindung (kein Pool).
+
 ## Datenbank
 
 Reihenfolge der Migrationen: `@vollholz/iam` (`iam_*`), Plattform (`platform_*`), App (`NNN_*.sql`). Eine App, die
@@ -136,6 +171,12 @@ Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POS
 
 ## Änderungen
 
+- **0.3.0:** E-Mail-Versand als Baustein (`createMailer`, `smtpMailer`, `protokollMailer`, `disabledMailer`,
+  `buildMail`, `parseAddress`, `smtpUrlProblems`, `MailError`) mit den Variablen `MAIL_ADAPTER`, `MAIL_FROM`,
+  `SMTP_URL`, `SMTP_TIMEOUT`, `SMTP_ALLOW_INSECURE` und `cfg.app.mail`; Standard `aus`, bestehende Apps starten
+  unverändert. `safeRequest` nimmt als `body` auch Bytes (`Uint8Array`, `Buffer`) unverändert, z. B. für Web Push
+  (`aes128gcm`), und setzt `Content-Length`, sofern die Kopfzeilen keine nennen (bisher `Transfer-Encoding: chunked`).
+  Abwärtsverträglich.
 - **0.2.0:** Öffentliche Routen mit Token je Modul (`publicRoutes`, `PublicRoute`, `publicToken`, `publicTokenHash`,
   `aliasToken`, `publicNotFound`, `checkPublicRoutes`, `registerPublicRoutes`): Organisation aus dem Alias, Kontext
   dieser Organisation, Lesesicht der Person über `viewAs`, Rate-Limit je IP, einheitlich 404, Token nie im Log und nie in Spuren der Telemetrie;

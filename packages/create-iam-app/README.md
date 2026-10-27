@@ -35,6 +35,8 @@ Leitfaden für eine neue App: [docs/neue-app.md](../../docs/neue-app.md).
 
 ## Änderungen
 
+- **0.2.2:** Neue Apps erhalten `@vollholz/iam-testkit` 2.1.2 (aus `CURRENT` des Test-Kits, nennt `@vollholz/platform`
+  0.3.0); keine Änderung an Vorlagen.
 - **0.2.1:** Neue Apps erhalten `@vollholz/iam` 3.2.0 und `@vollholz/iam-testkit` 2.1.1 (aus `CURRENT` des
   Test-Kits); keine Änderung an Vorlagen.
 - **0.1.0:** Erste Version: `init`, `sync`, `check`, `keys`; Manifest `identity.app.json`, Lock-Datei

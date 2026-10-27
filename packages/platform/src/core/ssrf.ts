@@ -51,10 +51,12 @@ export interface SafeResponse { status: number; headers: http.IncomingHttpHeader
 
 /**
  * Anfrage an eine Adresse aus Daten. Folgt keinen Weiterleitungen (3xx zählt als Antwort), liest höchstens
- * `maxBytes` der Antwort und bricht nach `timeoutMs` ab (Gesamtzeit, nicht nur Leerlauf).
+ * `maxBytes` der Antwort und bricht nach `timeoutMs` ab (Gesamtzeit, nicht nur Leerlauf). `body` als Text (UTF-8) oder
+ * Bytes (`Uint8Array`, auch `Buffer`, z. B. Web Push mit `aes128gcm`) geht unverändert hinaus, mit `Content-Length`,
+ * sofern `headers` keine nennt.
  */
 export async function safeRequest(raw: string, o: {
-  method?: string; headers?: Record<string, string>; body?: string; timeoutMs: number; allowPrivate?: boolean; maxBytes?: number; userAgent?: string;
+  method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeoutMs: number; allowPrivate?: boolean; maxBytes?: number; userAgent?: string;
 }): Promise<SafeResponse> {
   const { url, address, family } = await resolveTarget(raw, o);
   const pinned: LookupFunction = (_host, opts, cb) => {
@@ -63,11 +65,15 @@ export async function safeRequest(raw: string, o: {
   };
   const mod = url.protocol === 'https:' ? https : http;
   const max = o.maxBytes ?? 64 * 1024;
+  const headers: Record<string, string> = { 'user-agent': o.userAgent ?? 'vollholz-platform/0', ...o.headers };
+  if (o.body !== undefined && !Object.keys(headers).some(k => k.toLowerCase() === 'content-length')) {
+    headers['content-length'] = String(typeof o.body === 'string' ? Buffer.byteLength(o.body) : o.body.byteLength);
+  }
   return new Promise<SafeResponse>((resolve, reject) => {
     let settled = false;
     const finish = (fn: () => void) => { if (!settled) { settled = true; clearTimeout(deadline); fn(); } };
     const req = mod.request(url, {
-      method: o.method ?? 'POST', headers: { 'user-agent': o.userAgent ?? 'vollholz-platform/0', ...o.headers }, lookup: pinned, timeout: o.timeoutMs,
+      method: o.method ?? 'POST', headers, lookup: pinned, timeout: o.timeoutMs,
       ...(url.protocol === 'https:' ? { servername: isIP(url.hostname) ? undefined : url.hostname } : {}),
     }, res => {
       const chunks: Buffer[] = [];

@@ -6,6 +6,7 @@
  * (alle Fehler zugleich, `ConfigError`, Einstiegspunkte enden mit Exit 78) sowie `.env.example` und die Doku der
  * Konfiguration (`envDocs`).
  */
+import { MailError, parseAddress, smtpUrlProblems, type MailAdapter } from '../core/mail.ts';
 import { ConfigError, IAM_VARS, iamConfig, iamConfigErrors, parseDuration, readVars, type IamConfig, type RawVars, type Service, type VarSpec } from '@vollholz/iam';
 
 export { ConfigError, type RawVars, type Service, type VarSpec };
@@ -35,6 +36,12 @@ export const PLATFORM_VARS = (product: string): VarSpec[] => [
   { name: 'WEBHOOK_MAX_ATTEMPTS', kind: 'int', group: 'Ereignisse und Webhooks', default: '8', services: ['worker'], description: 'Zustellversuche je Ereignis und Abonnement (exponentielles Backoff).' },
   { name: 'WEBHOOK_ALLOW_PRIVATE', kind: 'bool', group: 'Ereignisse und Webhooks', default: 'false', description: 'Nur Entwicklung und Tests: Webhooks an private Adressen (localhost, RFC 1918) zulassen. In Produktion nicht erlaubt.' },
 
+  { name: 'MAIL_ADAPTER', kind: 'enum', group: 'E-Mail', values: ['aus', 'protokoll', 'smtp'], default: 'aus', description: 'Versand von E-Mails (`createMailer`): `aus` (jeder Versand scheitert), `protokoll` (nur ins Log, Entwicklung und Tests; in Produktion nicht erlaubt) oder `smtp`.' },
+  { name: 'MAIL_FROM', kind: 'string', group: 'E-Mail', description: 'Absender, auch im Umschlag. Bei `MAIL_ADAPTER=smtp` Pflicht.', example: `${product[0]!.toUpperCase()}${product.slice(1)} <noreply@${product}.example.ch>` },
+  { name: 'SMTP_URL', kind: 'url', group: 'E-Mail', secret: true, fileAllowed: true, description: 'Mailserver mit Anmeldung: `smtps://` (TLS, Port 465) oder `smtp://` (STARTTLS Pflicht, Port 587); Benutzer und Passwort URL-kodiert. Bei `MAIL_ADAPTER=smtp` Pflicht.', example: 'smtps://konto%40example.ch:***@mail.example.ch:465' },
+  { name: 'SMTP_TIMEOUT', kind: 'duration', group: 'E-Mail', default: '30s', description: 'Frist für den ganzen Versand einer E-Mail (Verbindung bis Annahme).' },
+  { name: 'SMTP_ALLOW_INSECURE', kind: 'bool', group: 'E-Mail', default: 'false', description: 'Nur Entwicklung: Mailserver ohne TLS bzw. mit ungeprüftem Zertifikat zulassen (z. B. Mailpit). In Produktion nicht erlaubt.' },
+
   { name: 'MCP_PORT', kind: 'int', group: 'MCP', default: '8081', services: ['mcp'], description: 'Port des MCP-Dienstes (Streamable HTTP unter `/mcp`).' },
 
   { name: 'OPS_PORT', kind: 'int', group: 'Betrieb', default: '9090', description: 'Betriebs-Endpunkt jedes Prozesses: `/healthz`, `/readyz`, `/metrics`.' },
@@ -61,6 +68,7 @@ export interface AppConfig {
   http: { host: string; port: number; trustProxy: boolean | number | string[]; bodyLimit: number; rateLimit: number; idempotencyTtlMs: number; webDistDir: string };
   worker: { concurrency: number; tenantLimit: number; pollMs: number; jobRetentionMs: number };
   events: { outboxRetentionMs: number; webhookTimeoutMs: number; webhookMaxAttempts: number; allowPrivate: boolean };
+  mail: { adapter: MailAdapter; from: string | null; smtpUrl: string | null; timeoutMs: number; allowInsecure: boolean };
   mcp: { port: number };
   ops: { port: number; shutdownDelayMs: number; shutdownTimeoutMs: number; metrics: boolean; otlpEndpoint: string | null; serviceName: string };
 }
@@ -85,6 +93,19 @@ function appConfigErrors(raw: RawVars, mode: IamConfig['mode'], service: Service
     if (needs('api', 'worker') && raw.DATABASE_SSL !== 'verify-full') errors.push('DATABASE_SSL muss in Produktion verify-full sein');
     if (/^(true|1)$/i.test(raw.WEBHOOK_ALLOW_PRIVATE ?? '')) errors.push('WEBHOOK_ALLOW_PRIVATE=true ist in Produktion nicht erlaubt');
     if (needs('api', 'worker') && !raw.ENCRYPTION_KEYS) errors.push('ENCRYPTION_KEYS fehlt – in Produktion Pflicht');
+    if (raw.MAIL_ADAPTER === 'protokoll') errors.push('MAIL_ADAPTER=protokoll ist in Produktion nicht erlaubt');
+    if (/^(true|1)$/i.test(raw.SMTP_ALLOW_INSECURE ?? '')) errors.push('SMTP_ALLOW_INSECURE=true ist in Produktion nicht erlaubt');
+  }
+  if (raw.MAIL_ADAPTER === 'smtp') {
+    if (!raw.SMTP_URL) errors.push('SMTP_URL fehlt – bei MAIL_ADAPTER=smtp Pflicht');
+    if (!raw.MAIL_FROM) errors.push('MAIL_FROM fehlt – bei MAIL_ADAPTER=smtp Pflicht');
+  }
+  if (raw.SMTP_URL) {
+    const problems = smtpUrlProblems(raw.SMTP_URL);
+    if (problems.length) errors.push(`SMTP_URL: ${problems.join(', ')}`);
+  }
+  if (raw.MAIL_FROM) {
+    try { parseAddress(raw.MAIL_FROM, 'MAIL_FROM'); } catch (e) { if (!(e instanceof MailError)) throw e; errors.push(e.message); }
   }
   for (const k of ['HTTP_PORT', 'MCP_PORT', 'OPS_PORT']) {
     const n = Number(raw[k]);
@@ -106,6 +127,7 @@ function appConfig(raw: RawVars): AppConfig {
     http: { host: s('HTTP_HOST'), port: n('HTTP_PORT'), trustProxy: trustProxy(s('TRUST_PROXY')), bodyLimit: n('BODY_LIMIT'), rateLimit: n('API_RATE_LIMIT'), idempotencyTtlMs: d('IDEMPOTENCY_TTL'), webDistDir: s('WEB_DIST_DIR') },
     worker: { concurrency: n('WORKER_CONCURRENCY'), tenantLimit: n('WORKER_TENANT_LIMIT'), pollMs: d('WORKER_POLL_INTERVAL'), jobRetentionMs: d('JOB_RETENTION') },
     events: { outboxRetentionMs: d('OUTBOX_RETENTION'), webhookTimeoutMs: d('WEBHOOK_TIMEOUT'), webhookMaxAttempts: n('WEBHOOK_MAX_ATTEMPTS'), allowPrivate: b('WEBHOOK_ALLOW_PRIVATE') },
+    mail: { adapter: (s('MAIL_ADAPTER') || 'aus') as MailAdapter, from: raw.MAIL_FROM || null, smtpUrl: raw.SMTP_URL || null, timeoutMs: d('SMTP_TIMEOUT'), allowInsecure: b('SMTP_ALLOW_INSECURE') },
     mcp: { port: n('MCP_PORT') },
     ops: { port: n('OPS_PORT'), shutdownDelayMs: d('SHUTDOWN_DELAY'), shutdownTimeoutMs: d('SHUTDOWN_TIMEOUT'), metrics: b('METRICS_ENABLED'), otlpEndpoint: raw.OTEL_EXPORTER_OTLP_ENDPOINT || null, serviceName: s('OTEL_SERVICE_NAME') },
   };

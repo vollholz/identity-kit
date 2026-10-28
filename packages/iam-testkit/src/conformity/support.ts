@@ -11,9 +11,9 @@ export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testki
 export const CURRENT: Record<Part, string> = {
   '@vollholz/iam': '5.0.0',
   '@vollholz/iam-web': '2.2.0',
-  '@vollholz/iam-testkit': '2.4.1',
-  '@vollholz/create-iam-app': '0.5.1',
-  '@vollholz/platform': '0.6.1',
+  '@vollholz/iam-testkit': '2.4.2',
+  '@vollholz/create-iam-app': '0.5.2',
+  '@vollholz/platform': '0.6.2',
   'product-realm': '2.0.0',
   'product-realm-bootstrap': '0.1.1',
 };

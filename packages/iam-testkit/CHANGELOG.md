@@ -9,6 +9,12 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.4.2] – 2026-10-28
+
+### Geändert
+
+- `CURRENT` nennt `@vollholz/platform` 0.6.2, `@vollholz/iam-testkit` 2.4.2 und `@vollholz/create-iam-app` 0.5.2.
+
 ## [2.4.1] – 2026-10-28
 
 ### Geändert

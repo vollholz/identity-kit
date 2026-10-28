@@ -9,6 +9,25 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.5.0] – 2026-10-28
+
+### Hinzugefügt
+
+- Datenbank-Tests sichtbar überspringen: `postgresSkip(env?)` (eigenständig) und `testDatabases(…).dbSkip()` liefern
+  `false` mit erreichbarer Datenbank, ohne Konfiguration (`TEST_POSTGRES_URL` bzw. `POSTGRES_SUPERUSER_PASSWORD`) den
+  Grund `NO_POSTGRES`; konfiguriert, aber nicht erreichbar, werfen sie einen Fehler mit Variable und Adresse
+  (`dbSkip` auch, wenn `DATABASE_URL` oder `DATABASE_ADMIN_URL` fehlt). `superuserUrlFrom(env?)`.
+- `dbTests(skip)`: `describe`, `test`, `it` und Hooks, mit denen jeder Datenbank-Test einzeln als übersprungen zählt
+  (mit Grund) und die Hooks ohne Datenbank nicht laufen. Grund: `describe(…, { skip })` von node:test zählt die Tests
+  darin nicht, ein Lauf ohne Datenbank war «grün» mit weniger Tests und «skipped 0».
+  Migration (empfohlen): in Testdateien mit Datenbank `import { describe, test, before, after } from 'node:test'`
+  ersetzen durch `const { describe, test, before, after } = dbTests(await postgresSkip())` (oder `dbs.dbSkip()`) und
+  `{ skip }` an `describe` weglassen. `dbAvailable()` bleibt unverändert.
+
+### Geändert
+
+- `CURRENT` nennt `@vollholz/iam-testkit` 2.5.0 und `@vollholz/create-iam-app` 0.5.6.
+
 ## [2.4.5] – 2026-10-28
 
 ### Geändert

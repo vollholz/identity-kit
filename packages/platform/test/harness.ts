@@ -9,7 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
-import { testDatabases, type TestDb } from '@vollholz/iam-testkit';
+import { postgresSkip, testDatabases, type TestDb } from '@vollholz/iam-testkit';
 import { runMigrations } from '../src/index.ts';
 import { MIGRATIONS_DIR } from './fixture/app.ts';
 import type { Tx } from '../src/index.ts';
@@ -28,17 +28,14 @@ export function asRole(url: string, role: string): string {
   return u.toString();
 }
 
-async function reachable(): Promise<boolean> {
-  if (!superuser) return false;
-  const c = new pg.Client({ connectionString: superuser, connectionTimeoutMillis: 1500 });
-  try { await c.connect(); await c.end(); return true; } catch { return false; }
-}
-
-/** Grund zum Überspringen (false: Datenbank da). In CI (`CI=true`) ist eine fehlende Datenbank ein Fehler. */
+/**
+ * Grund zum Überspringen (false: Datenbank da), aus `postgresSkip` des Test-Kits: konfiguriert, aber nicht erreichbar,
+ * ist ein Fehler. In CI (`CI=true`) ist auch eine fehlende Konfiguration ein Fehler.
+ */
 export async function skipDb(): Promise<false | string> {
-  if (await reachable()) return false;
-  if (process.env.CI) throw new Error('PostgreSQL in CI nicht erreichbar (POSTGRES_SUPERUSER_PASSWORD, POSTGRES_PORT)');
-  return 'PostgreSQL nicht erreichbar (POSTGRES_SUPERUSER_PASSWORD, POSTGRES_PORT)';
+  const skip = await postgresSkip();
+  if (skip && process.env.CI) throw new Error('PostgreSQL in CI nicht konfiguriert (TEST_POSTGRES_URL oder POSTGRES_SUPERUSER_PASSWORD)');
+  return skip;
 }
 
 /** Rollen nach app-boilerplate 5.3 (clusterweit, idempotent, auch bei parallelen Testdateien). */

@@ -1,7 +1,8 @@
 /**
  * Wegwerf-Datenbanken für Tests (Spezifikation Kap. 10, 14): je Testdatei eine eigene Datenbank auf dem lokalen
  * PostgreSQL bzw. dem Service-Container der CI, mit den Migrationen der App, Besitzer-Rolle und Laufzeit-Rollen wie in
- * Produktion. Ohne erreichbare Datenbank liefert `dbAvailable()` false; die Tests überspringen sich dann selbst.
+ * Produktion. Überspringen: `{ skip: await dbSkip() }` (bzw. `postgresSkip()`) zählt die Tests ohne Datenbank sichtbar als
+ * übersprungen; ist sie konfiguriert, aber nicht erreichbar, scheitert der Lauf. `dbAvailable()` (nur true/false) bleibt.
  *
  * Umgebung (Namen wie in den Apps): `TEST_POSTGRES_URL` oder `POSTGRES_SUPERUSER_PASSWORD` (+ `POSTGRES_PORT`, Standard
  * 5433) für den Superuser, `DATABASE_URL` (Laufzeit), `DATABASE_ADMIN_URL` (Besitzer), optional `DATABASE_WORKER_URL`.
@@ -38,6 +39,8 @@ export interface TestDb<R> {
 export interface TestDatabases<R> {
   superuserUrl(): string | null;
   dbAvailable(): Promise<boolean>;
+  /** `false`, Grund zum Überspringen (keine Datenbank konfiguriert) oder Fehler (konfiguriert, aber nicht nutzbar). */
+  dbSkip(): Promise<false | string>;
   testDbName(now?: number, prefix?: string): string;
   sweepStaleTestDbs(o?: { maxAgeMs?: number; now?: number; prefix?: string; only?: (name: string) => boolean }): Promise<string[]>;
   createTestDb(o?: { migrationsDir?: string }): Promise<TestDb<R>>;
@@ -46,6 +49,32 @@ export interface TestDatabases<R> {
 const PREFIX = /^[a-z][a-z0-9_]*_$/;
 const IDENT = /^[a-z_][a-z0-9_]*$/;
 
+/** Adresse des Superusers aus der Umgebung: `TEST_POSTGRES_URL` oder `POSTGRES_SUPERUSER_PASSWORD` (+ `POSTGRES_PORT`). */
+export function superuserUrlFrom(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.TEST_POSTGRES_URL) return env.TEST_POSTGRES_URL;
+  if (!env.POSTGRES_SUPERUSER_PASSWORD) return null;
+  return `postgres://postgres:${encodeURIComponent(env.POSTGRES_SUPERUSER_PASSWORD)}@localhost:${env.POSTGRES_PORT ?? '5433'}/postgres`;
+}
+
+/** Grund zum Überspringen ohne konfigurierte Datenbank (für `{ skip }` von node:test). */
+export const NO_POSTGRES = 'Datenbank-Tests übersprungen: keine PostgreSQL konfiguriert (TEST_POSTGRES_URL oder POSTGRES_SUPERUSER_PASSWORD)';
+
+/**
+ * Für `describe(…, { skip: await postgresSkip() })`: `false` mit erreichbarer Datenbank; ohne Konfiguration der Grund
+ * `NO_POSTGRES` (node:test zählt die Tests als übersprungen und zeigt ihn); konfiguriert, aber nicht erreichbar: Fehler
+ * (der Lauf scheitert, statt still weniger Tests zu prüfen).
+ */
+export async function postgresSkip(env: NodeJS.ProcessEnv = process.env): Promise<false | string> {
+  const url = superuserUrlFrom(env);
+  if (!url) return NO_POSTGRES;
+  const c = new pg.Client({ connectionString: url, connectionTimeoutMillis: 1500 });
+  try { await c.connect(); } catch (e) {
+    const u = new URL(url);
+    throw new Error(`PostgreSQL konfiguriert (${env.TEST_POSTGRES_URL ? 'TEST_POSTGRES_URL' : 'POSTGRES_SUPERUSER_PASSWORD'}), aber nicht erreichbar unter ${u.host}: ${(e as Error).message}`);
+  } finally { await c.end().catch(() => undefined); }
+  return false;
+}
+
 export function withDb(url: string, db: string): string { const u = new URL(url); u.pathname = `/${db}`; return u.toString(); }
 
 export function testDatabases<R>(o: TestDatabaseOptions<R>): TestDatabases<R> {
@@ -53,17 +82,22 @@ export function testDatabases<R>(o: TestDatabaseOptions<R>): TestDatabases<R> {
   for (const r of [o.owner, ...o.connect]) if (!IDENT.test(r)) throw new Error(`Ungültiger Rollenname: ${r}`);
   const env = o.env ?? process.env;
 
-  function superuserUrl(): string | null {
-    if (env.TEST_POSTGRES_URL) return env.TEST_POSTGRES_URL;
-    if (!env.POSTGRES_SUPERUSER_PASSWORD) return null;
-    return `postgres://postgres:${encodeURIComponent(env.POSTGRES_SUPERUSER_PASSWORD)}@localhost:${env.POSTGRES_PORT ?? '5433'}/postgres`;
-  }
+  const superuserUrl = () => superuserUrlFrom(env);
 
   async function dbAvailable(): Promise<boolean> {
     const url = superuserUrl();
     if (!url || !env.DATABASE_URL || !env.DATABASE_ADMIN_URL) return false;
     const c = new pg.Client({ connectionString: url, connectionTimeoutMillis: 1500 });
     try { await c.connect(); await c.end(); return true; } catch { return false; }
+  }
+
+  /** Wie `postgresSkip`, dazu Fehler, wenn mit Datenbank `DATABASE_URL` oder `DATABASE_ADMIN_URL` fehlt. */
+  async function dbSkip(): Promise<false | string> {
+    const skip = await postgresSkip(env);
+    if (skip) return skip;
+    const missing = ['DATABASE_URL', 'DATABASE_ADMIN_URL'].filter(k => !env[k]);
+    if (missing.length) throw new Error(`PostgreSQL erreichbar, aber ${missing.join(' und ')} fehlt (Rollen der Wegwerf-Datenbank)`);
+    return false;
   }
 
   // Name trägt den Erstellungszeitpunkt (Base36-Millisekunden), damit Reste abgebrochener Läufe ohne Dateizugriff datierbar sind
@@ -166,5 +200,5 @@ export function testDatabases<R>(o: TestDatabaseOptions<R>): TestDatabases<R> {
     };
   }
 
-  return { superuserUrl, dbAvailable, testDbName, sweepStaleTestDbs, createTestDb };
+  return { superuserUrl, dbAvailable, dbSkip, testDbName, sweepStaleTestDbs, createTestDb };
 }

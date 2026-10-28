@@ -3,7 +3,11 @@
  * und false bleiben, alle anderen Eingaben wie bisher. `anyOf [X, null]` machte aus null den Wert von X (0, "", false).
  */
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { createRequire } from 'node:module';
+import { before, describe, test } from 'node:test';
+import { FormatRegistry } from '@sinclair/typebox';
+import { TypeCompiler } from '@sinclair/typebox/compiler';
+import { Value } from '@sinclair/typebox/value';
 import { Type, type TSchema } from '@sinclair/typebox';
 import Fastify from 'fastify';
 import { DateTime, Nullable, Uuid } from '../src/http/routes.ts';
@@ -46,5 +50,41 @@ describe('Nullable', () => {
     const diff = [...before].filter(([k, v]) => !k.endsWith('← null') && JSON.stringify(after.get(k)) !== JSON.stringify(v))
       .map(([k, v]) => `${k}: ${JSON.stringify(v)} → ${JSON.stringify(after.get(k))}`);
     assert.deepEqual(diff, []);
+  });
+});
+
+/** AJV ohne Umwandlung mit den Formaten von Fastify (aus dessen Installation), zum Vergleich mit TypeBox. */
+const fromFastify = createRequire(createRequire(import.meta.url).resolve('fastify'));
+const ajvCompiler = createRequire(fromFastify.resolve('@fastify/ajv-compiler'));
+const AjvClass = ajvCompiler('ajv').default as new (o: object) => { compile(s: object): (v: unknown) => boolean };
+const ajv = new AjvClass({ strict: false });
+ajvCompiler('ajv-formats').default(ajv);
+
+describe('Nullable mit Value.Check, Value.Errors und TypeCompiler von TypeBox', () => {
+  // Formate wie AJV (TypeBox kennt ohne Eintrag keine); DateTime ist `Unsafe` und für Value ohnehin nicht prüfbar
+  before(() => {
+    if (!FormatRegistry.Has('uuid')) FormatRegistry.Set('uuid', v => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v));
+  });
+  const VALUE_TYPES = Object.entries(TYPES).filter(([k]) => k !== 'dateTime');
+
+  test('gleiches Ergebnis wie AJV (ohne Umwandlung) und wie anyOf [X, null] für alle Feldtypen und Eingaben', () => {
+    const diff: string[] = [];
+    for (const [field, s] of VALUE_TYPES) {
+      const schema = Nullable(s);
+      const compiled = TypeCompiler.Compile(schema);
+      const viaAjv = ajv.compile(JSON.parse(JSON.stringify(schema)));
+      for (const input of INPUTS) {
+        const check = Value.Check(schema, input);
+        const errors = [...Value.Errors(schema, input)].length === 0;
+        const expected = { old: Value.Check(Type.Union([s, Type.Null()]), input), ajv: viaAjv(input) };
+        if (check !== expected.old || check !== expected.ajv || errors !== check || compiled.Check(input) !== check) {
+          diff.push(`${field} ← ${JSON.stringify(input)}: Check ${check}, Errors leer ${errors}, Compiler ${compiled.Check(input)}, bisher ${expected.old}, AJV ${expected.ajv}`);
+        }
+      }
+    }
+    assert.deepEqual(diff, []);
+    assert.equal(Value.Check(Nullable(Type.Number()), null), true);
+    assert.equal(Value.Check(Nullable(Type.Number()), 0), true);
+    assert.equal(Value.Check(Nullable(Type.Number()), 'x'), false);
   });
 });

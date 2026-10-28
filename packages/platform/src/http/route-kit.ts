@@ -2,7 +2,7 @@
  * Bausteine für Routen aller Module (app-boilerplate 5.5): Schemas, Cursor, ETag/If-Match, Handelnder. Audit mit
  * Ereignis in derselben Transaktion: `platform.record`.
  */
-import { Type, type TSchema } from '@sinclair/typebox';
+import { Kind, Type, TypeRegistry, type TSchema } from '@sinclair/typebox';
 import { decodeCursor, encodeCursor, etag, ifMatchVersion } from '@vollholz/iam';
 import type { FastifyRequest } from 'fastify';
 import type { Actor, AuditPort } from '../core/audit.ts';
@@ -15,8 +15,13 @@ export { decodeCursor, encodeCursor, etag };
 
 export const Uuid = Type.String({ format: 'uuid' });
 export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'date-time' });
-/** Genau null, ohne Umwandlung durch AJV (`const` wandelt nicht um, `type: 'null'` schon: 0, "" und false → null). */
-const ExactlyNull = Type.Unsafe<null>({ const: null });
+/**
+ * Genau null, ohne Umwandlung durch AJV (`const` wandelt nicht um, `type: 'null'` schon: 0, "" und false → null). Eigene
+ * Kind `NullExakt` in der TypeRegistry: `Value.Check`, `Value.Errors` und der TypeCompiler von TypeBox prüfen `=== null`
+ * (dieselbe Kopie von TypeBox wie dieses Paket), AJV liest nur `const`.
+ */
+TypeRegistry.Set('NullExakt', (_s, v) => v === null);
+const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
 /**
  * Wert oder `null`: `anyOf [null (genau), X, null]`. Mit `coerceTypes` (Plattform) machte `anyOf [X, null]` aus null
  * den Wert von X (0, "", false), `anyOf [null, X]` aus 0, "" und false null. Der erste Zweig nimmt null unverändert,

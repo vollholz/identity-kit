@@ -137,7 +137,8 @@ Der Betreiber legt sie einmal als Datei in seinem Repository ab; `create-iam-app
 | `themeTexts` | `realm.themeTexts` = `infra/keycloak/theme-texts.json` | Vorlage je Sprache: `themeAccent…` (`#RRGGBB`), `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`; Platzhalter `{displayName}`, `{product}`, `{publicBaseUrl}`. Ohne Vorlage legt `init` ein Grundgerüst an |
 
 - URL nur `https`; liegt die Datei in einem privaten Repository, `GITHUB_TOKEN` setzen (Bearer, z. B.
-  `https://api.github.com/repos/<betreiber>/<repo>/contents/<datei>` mit `Accept: application/vnd.github.raw`).
+  `https://api.github.com/repos/<betreiber>/<repo>/contents/<datei>` mit `Accept: application/vnd.github.raw`). Das Token geht nur an `raw.githubusercontent.com` und `api.github.com`, nie an
+  einen anderen Server.
 - Bestehende Apps: `init` und `sync` ändern ein Manifest nie stillschweigend. `npx create-iam-app sync --operator-defaults …`
   zeigt nur, was fehlt oder abweicht; übernehmen von Hand in `identity.app.json`.
 - Ohne `realm.smtp` warnt `npx iam-conformity-test` («E-Mail-Versand des Realms»), weil Keycloak dann keine Einladung

@@ -88,6 +88,9 @@ describe('Manifest', () => {
     assert.deepEqual(operatorDefaultsErrors({ smtp: { host: 'mail.example.ch', from: 'noreply@example.ch', user: 'noreply@example.ch' }, theme: 't', themeTexts: { de: { 'themeSub.login': '{displayName}' } } }), []);
     assert.match(operatorDefaultsErrors({ smtp: { host: 'x', from: 'x', user: 'u' } }).join(), /\/smtp\/from/);
     assert.match(operatorDefaultsErrors({ smtp: { host: 'x', from: 'a@b.ch', user: 'u', password: 'nie' } }).join(), /smtp/, 'kein Passwort in den Vorgaben');
+    const smtp = { host: 'x', from: 'a@b.ch', user: 'u' };
+    assert.match(operatorDefaultsErrors({ smtp, themeTexts: { DE: { themeClaim: 'x' } } }).join(), /themeTexts/, 'Sprache nur de, de-CH …');
+    assert.match(operatorDefaultsErrors({ smtp, themeTexts: { de: { claim: 'x' } } }).join(), /themeTexts/, 'Schlüssel nur theme…');
   });
 });
 

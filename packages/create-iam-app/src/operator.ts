@@ -11,17 +11,22 @@ import { operatorDefaultsErrors, themeTextsFor, type Manifest, type OperatorDefa
 /** Pfad der Texte des Themes im Repository der App (Datei der App, nur angelegt, wenn sie fehlt). */
 export const THEME_TEXTS_FILE = 'infra/keycloak/theme-texts.json';
 
+/** Server von GitHub, an die `GITHUB_TOKEN` geht. */
+const GITHUB_HOSTS = new Set(['raw.githubusercontent.com', 'api.github.com']);
+
 /**
- * Vorgaben lesen: `https://…` (mit `GITHUB_TOKEN` als Bearer, falls gesetzt – für Dateien in privaten Repositorys über
+ * Vorgaben lesen: `https://…` (bei GitHub mit `GITHUB_TOKEN` als Bearer, falls gesetzt – für Dateien in privaten Repositorys über
  * raw.githubusercontent.com bzw. die API mit `Accept: application/vnd.github.raw`) oder Pfad zu einer Datei.
  */
 export async function loadOperatorDefaults(source: string, o: { cwd?: string; env?: NodeJS.ProcessEnv; fetch?: typeof fetch } = {}): Promise<OperatorDefaults> {
   let text: string;
   if (/^https?:\/\//.test(source)) {
     if (!source.startsWith('https://')) throw new Error(`Vorgaben des Betreibers: nur https (${source})`);
-    const token = (o.env ?? process.env).GITHUB_TOKEN;
-    const res = await (o.fetch ?? fetch)(source, { headers: { accept: 'application/vnd.github.raw, application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) throw new Error(`Vorgaben des Betreibers: ${source} antwortet ${res.status}${res.status === 404 && !token ? ' (privates Repository? GITHUB_TOKEN setzen)' : ''}`);
+    // Token nur an GitHub, nie an einen anderen Server (und keine Weiterleitung anderswohin)
+    const github = GITHUB_HOSTS.has(new URL(source).hostname);
+    const token = github ? (o.env ?? process.env).GITHUB_TOKEN : undefined;
+    const res = await (o.fetch ?? fetch)(source, { headers: { accept: 'application/vnd.github.raw', ...(token ? { authorization: `Bearer ${token}` } : {}) }, redirect: token ? 'error' : 'follow', signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`Vorgaben des Betreibers: ${source} antwortet ${res.status}${res.status === 404 && github && !token ? ' (privates Repository? GITHUB_TOKEN setzen)' : ''}`);
     text = await res.text();
   } else {
     const file = resolve(o.cwd ?? process.cwd(), source);

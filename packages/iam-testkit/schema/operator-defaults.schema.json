@@ -59,10 +59,12 @@
       "type": "string"
     },
     "themeTexts": {
+      "additionalProperties": false,
       "description": "Vorlage der Texte des Themes je Sprache; Platzhalter {displayName}, {product}, {publicBaseUrl}",
       "type": "object",
       "patternProperties": {
         "^[a-z]{2}(-[A-Z]{2})?$": {
+          "additionalProperties": false,
           "type": "object",
           "patternProperties": {
             "^theme[A-Z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9-]*)?$": {

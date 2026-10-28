@@ -215,6 +215,8 @@ describe('Vorgaben des Betreibers', () => {
     const fake = (async (_u: string, init?: RequestInit) => { auth = new Headers(init?.headers).get('authorization'); return new Response(JSON.stringify(defaults)); }) as unknown as typeof fetch;
     const d = await loadOperatorDefaults('https://raw.githubusercontent.com/betrieb/identity/main/app-defaults.json', { env: { GITHUB_TOKEN: 't0k' }, fetch: fake });
     assert.deepEqual([d.theme, auth], ['betrieb', 'Bearer t0k']);
+    await loadOperatorDefaults('https://config.example.ch/app-defaults.json', { env: { GITHUB_TOKEN: 't0k' }, fetch: fake });
+    assert.equal(auth, null, 'Token nur an GitHub');
     const errs = (await import('@vollholz/iam-testkit')).operatorDefaultsErrors({ smtp: { host: 'x', from: 'a@b.ch', user: 'u' }, themeTexts: { de: { themeAccent: 'grün', themeClaim: '{unbekannt}' } } });
     assert.deepEqual(errs, ['/themeTexts/de/themeAccent: nur #RRGGBB', '/themeTexts/de/themeClaim: unbekannter Platzhalter {unbekannt} (erlaubt: {displayName}, {product}, {publicBaseUrl})']);
   });

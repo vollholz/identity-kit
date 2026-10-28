@@ -35,7 +35,8 @@ export const OperatorDefaultsSchema = Type.Object({
     user: Type.String({ minLength: 1, description: 'Konto beim Mailserver; Passwort nur als Secret SMTP_PASSWORD der App' }),
   }, { additionalProperties: false }),
   theme: Type.Optional(Type.String({ minLength: 1, description: 'Theme auf der Keycloak-Instanz' })),
-  themeTexts: Type.Optional(Type.Record(Type.String({ pattern: '^[a-z]{2}(-[A-Z]{2})?$' }), Type.Record(Type.String({ pattern: THEME_TEXT_KEY }), Type.String()), {
+  themeTexts: Type.Optional(Type.Record(Type.String({ pattern: '^[a-z]{2}(-[A-Z]{2})?$' }), Type.Record(Type.String({ pattern: THEME_TEXT_KEY }), Type.String(), { additionalProperties: false }), {
+    additionalProperties: false,
     description: 'Vorlage der Texte des Themes je Sprache; Platzhalter {displayName}, {product}, {publicBaseUrl}',
   })),
 }, {

@@ -154,3 +154,70 @@ describe('keys', () => {
     assert.equal(k.jwks.keys[0].kid, createHash('sha256').update(JSON.stringify({ crv, kty, x, y })).digest('base64url'));
   });
 });
+
+describe('Vorgaben des Betreibers', () => {
+  const defaults = {
+    smtp: { host: 'mail.betrieb.example', port: 587, starttls: true, from: 'noreply@betrieb.example', user: 'noreply@betrieb.example' },
+    theme: 'betrieb',
+    themeTexts: { de: { themeAccent: '#0D6B5B', themeClaim: '{displayName} – alles an einem Ort.', 'themeSub.login': 'Anmelden bei {displayName}', themeMailFooter: '{displayName} · {publicBaseUrl}' } },
+  };
+  const write = (name: string, data: unknown) => { const f = join(root, name); writeFileSync(f, JSON.stringify(data)); return f; };
+
+  test('init übernimmt smtp (Anzeigename der App), theme und Texte des Themes je Sprache; konform ohne Warnung zu SMTP', async () => {
+    const dir = newApp('betrieb');
+    const r = await init(dir, ['--operator-defaults', write('vorgaben.json', defaults)]);
+    assert.equal(r.code, 0, r.out + r.err);
+    const m = JSON.parse(readFileSync(join(dir, 'identity.app.json'), 'utf8'));
+    assert.deepEqual(manifestErrors(m), []);
+    assert.deepEqual(m.realm.smtp, { ...defaults.smtp, fromDisplayName: 'Notes' });
+    assert.deepEqual([m.realm.theme, m.realm.themeTexts], ['betrieb', 'infra/keycloak/theme-texts.json']);
+    const texts = JSON.parse(readFileSync(join(dir, 'infra/keycloak/theme-texts.json'), 'utf8'));
+    assert.deepEqual(Object.keys(texts), ['de', 'en'], 'je Sprache der App (en aus der Vorlage de)');
+    assert.deepEqual(texts.de, { themeAccent: '#0D6B5B', themeClaim: 'Notes – alles an einem Ort.', 'themeSub.login': 'Anmelden bei Notes', themeMailFooter: 'Notes · https://notes.example.ch' });
+    assert.match(r.out, /realm\.smtp\s+Mailversand \(gesetzt; Secret SMTP_PASSWORD/);
+    const { findings } = await repoChecks(dir);
+    assert.deepEqual(failed(findings), []);
+    assert.equal(findings.find(f => f.check === 'E-Mail-Versand des Realms')!.status, 'ok');
+  });
+
+  test('ohne Vorgaben: realm.smtp null, Warnung im Konformitätstest (kein Fehler); sync gibt nur Hinweise und ändert nichts', async () => {
+    const dir = newApp('ohne-betrieb');
+    assert.equal((await init(dir)).code, 0);
+    const before = readFileSync(join(dir, 'identity.app.json'), 'utf8');
+    const { findings } = await repoChecks(dir);
+    const smtp = findings.find(f => f.check === 'E-Mail-Versand des Realms')!;
+    assert.deepEqual([smtp.status, failed(findings)], ['warn', []]);
+    assert.match(smtp.details[0]!, /Einladung «Passwort festlegen»/);
+    const s = await run(['sync', '--dir', dir, '--operator-defaults', write('vorgaben2.json', defaults)]);
+    assert.equal(s.code, 0, s.out + s.err);
+    assert.match(s.out, /Hinweise \(identity\.app\.json bleibt unverändert\)/);
+    assert.match(s.out, /realm\.smtp fehlt/);
+    assert.match(s.out, /Vorgabe des Betreibers für realm\.smtp: .*"fromDisplayName":"Notes"/);
+    assert.match(s.out, /realm\.theme: null, Vorgabe des Betreibers "betrieb"/);
+    assert.equal(readFileSync(join(dir, 'identity.app.json'), 'utf8'), before, 'Manifest unverändert');
+    assert.ok(!existsSync(join(dir, 'infra/keycloak/theme-texts.json')));
+    // init auf bestehendem Manifest: ebenfalls nur Hinweise
+    const again = await run(['init', '--dir', dir, '--operator-defaults', join(root, 'vorgaben2.json')]);
+    assert.equal(again.code, 0, again.err);
+    assert.match(again.out, /realm\.smtp fehlt/);
+    assert.equal(readFileSync(join(dir, 'identity.app.json'), 'utf8'), before);
+  });
+
+  test('ungültige Vorgaben: Abbruch mit Befund; URL nur https, mit GITHUB_TOKEN als Bearer', async () => {
+    const bad = await run(['init', '--dir', newApp('falsch'), '--product', 'notes', '--name', 'Notes', '--url', 'https://notes.example.ch', '--keycloak', 'https://id.example.ch',
+      '--operator-defaults', write('falsch.json', { smtp: { host: 'x', from: 'kein-mail', user: 'u' }, themeTexts: { de: { themeAccent: 'grün', themeClaim: '{unbekannt}' } } })]);
+    assert.equal(bad.code, 1, 'Befund (Code 1)');
+    assert.match(bad.err, /Vorgaben des Betreibers ungültig/);
+    assert.ok(!existsSync(join(root, 'falsch', 'identity.app.json')), 'nichts angelegt');
+    const { loadOperatorDefaults } = await import('../src/operator.ts');
+    await assert.rejects(loadOperatorDefaults('http://example.ch/v.json'), /nur https/);
+    let auth: string | null = null;
+    const fake = (async (_u: string, init?: RequestInit) => { auth = new Headers(init?.headers).get('authorization'); return new Response(JSON.stringify(defaults)); }) as unknown as typeof fetch;
+    const d = await loadOperatorDefaults('https://raw.githubusercontent.com/betrieb/identity/main/app-defaults.json', { env: { GITHUB_TOKEN: 't0k' }, fetch: fake });
+    assert.deepEqual([d.theme, auth], ['betrieb', 'Bearer t0k']);
+    await loadOperatorDefaults('https://config.example.ch/app-defaults.json', { env: { GITHUB_TOKEN: 't0k' }, fetch: fake });
+    assert.equal(auth, null, 'Token nur an GitHub');
+    const errs = (await import('@vollholz/iam-testkit')).operatorDefaultsErrors({ smtp: { host: 'x', from: 'a@b.ch', user: 'u' }, themeTexts: { de: { themeAccent: 'grün', themeClaim: '{unbekannt}' } } });
+    assert.deepEqual(errs, ['/themeTexts/de/themeAccent: nur #RRGGBB', '/themeTexts/de/themeClaim: unbekannter Platzhalter {unbekannt} (erlaubt: {displayName}, {product}, {publicBaseUrl})']);
+  });
+});

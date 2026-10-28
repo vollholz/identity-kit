@@ -9,6 +9,27 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.5.0] – 2026-10-28
+
+### Hinzugefügt
+
+- **`--operator-defaults <datei|url>`** für `init`: Vorgaben des Betreibers (Format `OperatorDefaultsSchema` des
+  Test-Kits) ergeben im neuen Manifest `realm.smtp` (mit `fromDisplayName` = displayName der App), `realm.theme` und
+  `realm.themeTexts` = `infra/keycloak/theme-texts.json`; die Datei (Datei der App, nur angelegt, wenn sie fehlt) enthält
+  die Texte des Themes je Sprache der App aus der Vorlage des Betreibers (Platzhalter ersetzt) oder ein Grundgerüst
+  (`themeClaim`, `themeMailFooter`; weitere Schlüssel nach dem Theme ergänzen). URL nur https; mit `GITHUB_TOKEN` als Bearer nur an
+  `raw.githubusercontent.com` und `api.github.com` (privates Repository des Betreibers), dann ohne Weiterleitung. Ungültige Vorgaben: Abbruch mit Befund, nichts angelegt.
+- Bestehendes Manifest (`init`, `sync`, `check`): nie geändert, nur **Hinweise** – `realm.smtp` fehlt, mit
+  `--operator-defaults` auch Abweichungen von den Vorgaben (smtp, theme, themeTexts).
+- «Nächste Schritte» nach `init` nennen den Stand von `realm.smtp` und das Secret `SMTP_PASSWORD`.
+- `loadOperatorDefaults`, `realmFromOperator`, `themeTextsFile`, `operatorHints`, `THEME_TEXTS_FILE`; `InitOptions.operatorDefaults`,
+  `appFiles(dir, m, operatorDefaults)`.
+
+### Geändert
+
+- Neue Apps erhalten `@vollholz/iam-testkit` 2.4.0. Bestehende Apps: keine Schritte (Vorgaben nachträglich von Hand
+  übernehmen, die Hinweise von `sync --operator-defaults …` nennen die Werte).
+
 ## [0.4.0] – 2026-10-28
 
 ### Geändert

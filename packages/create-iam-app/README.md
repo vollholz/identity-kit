@@ -17,6 +17,7 @@ nur mit einer neuen Version des Kits.
 npx @vollholz/create-iam-app init --product notes --name Notes --url https://notes.example.ch \
     --keycloak https://id.example.ch --entra --admin anna@example.ch --org solutions \
     --state-bucket notes-tofu-state --state-region nbg1 --state-endpoint https://nbg1.your-objectstorage.com
+# mit Vorgaben des Betreibers (Mailversand, Theme): --operator-defaults <datei|https-url>
 npx create-iam-app keys      # Schlüsselpaare: öffentlich nach infra/keycloak/keys/, privat nach ~/.identity/notes/
 npx create-iam-app check     # zeigt, was sync ändern würde (Code 1, wenn etwas)
 npx create-iam-app sync      # verwaltete Dateien auf diese Version (nach einem Upgrade); von Hand geänderte nur mit --force
@@ -29,6 +30,9 @@ npx create-iam-app sync      # verwaltete Dateien auf diese Version (nach einem 
 - `keys` erzeugt nur, was fehlt (EC P-256, `kid` = JWK-Thumbprint), private Schlüssel 0600 in einem Verzeichnis 0700,
   nie überschrieben. Der öffentliche Schlüssel von `<produkt>-tofu` landet nicht im Repository, sondern geht an den
   Betreiber der Keycloak-Instanz.
+- `--operator-defaults <datei|url>`: Vorgaben des Betreibers (Format `OperatorDefaultsSchema` aus `@vollholz/iam-testkit`)
+  ergeben `realm.smtp`, `realm.theme` und `realm.themeTexts` samt `infra/keycloak/theme-texts.json`; bei einem
+  bestehenden Manifest (auch mit `sync`/`check`) nur Hinweise, nie Änderungen ([Leitfaden](../../docs/neue-app.md#vorgaben-des-betreibers)).
 - Prüfen, ob die App den Vertrag einhält: `npx iam-conformity-test` aus `@vollholz/iam-testkit`.
 
 Leitfaden für eine neue App: [docs/neue-app.md](../../docs/neue-app.md).

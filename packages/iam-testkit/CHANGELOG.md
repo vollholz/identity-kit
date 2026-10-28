@@ -9,6 +9,21 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.4.0] – 2026-10-28
+
+### Hinzugefügt
+
+- Format der **Vorgaben des Betreibers** (`OperatorDefaultsSchema`, `operatorDefaultsErrors`, `themeTextsFor`,
+  `THEME_TEXT_KEY`, `THEME_TEXT_VARS`, Typ `OperatorDefaults`) und JSON Schema
+  `@vollholz/iam-testkit/schema/operator-defaults.schema.json`: `smtp` (host, port, starttls, ssl, from, replyTo, user;
+  nie ein Passwort), `theme`, `themeTexts` je Sprache mit Platzhaltern `{displayName}`, `{product}`, `{publicBaseUrl}`.
+- Konformitätstest: Prüfung «E-Mail-Versand des Realms» (Ebene Repository) warnt, wenn `realm.smtp` fehlt (ohne SMTP
+  keine Einladung «Passwort festlegen»). Nur eine Warnung, kein Fehler; mit `--strict` zählt sie wie jede Warnung.
+
+### Geändert
+
+- `CURRENT` nennt `@vollholz/iam-testkit` 2.4.0 und `@vollholz/create-iam-app` 0.5.0.
+
 ## [2.3.0] – 2026-10-28
 
 ### Geändert

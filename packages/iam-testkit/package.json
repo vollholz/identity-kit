@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/iam-testkit",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Tests für Apps mit dem IAM-Baukasten: Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, RLS-, Katalog- und Isolationsprüfungen, Konformitätstest (iam-conformity-test)",
   "type": "module",
   "license": "Apache-2.0",
@@ -9,6 +9,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./schema/identity-app.schema.json": "./schema/identity-app.schema.json",
+    "./schema/operator-defaults.schema.json": "./schema/operator-defaults.schema.json",
     "./package.json": "./package.json"
   },
   "bin": { "iam-conformity-test": "dist/bin/conformity-test.js" },

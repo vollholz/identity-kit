@@ -23,8 +23,8 @@ Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Det
 |---|---|---|
 | `@vollholz/iam` (Backend) | 5.0.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 2.2.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.3.0 | GitHub Packages |
-| `@vollholz/create-iam-app` (Gerüst) | 0.4.0 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.4.0 | GitHub Packages |
+| `@vollholz/create-iam-app` (Gerüst) | 0.5.0 | GitHub Packages |
 | `@vollholz/platform` (Querschnitt, optional) | 0.6.0 | GitHub Packages |
 | `product-realm` (OpenTofu) | 2.0.0 | Git-Tag `product-realm-v2.0.0` (im Gerüst eingesetzt) |
 | `product-realm-bootstrap` (OpenTofu) | 0.1.1 | Git-Tag `product-realm-bootstrap-v0.1.1` (im Gerüst eingesetzt) |
@@ -49,10 +49,14 @@ Im Repository der App (einmalig):
 echo '@vollholz:registry=https://npm.pkg.github.com' > .npmrc
 npx @vollholz/create-iam-app init --product notes --name Notes --url https://notes.example.ch \
     --keycloak https://id.example.ch --entra --admin anna@example.ch --org solutions --org-name "Solutions" \
-    --state-bucket notes-tofu-state --state-region nbg1 --state-endpoint https://nbg1.your-objectstorage.com
+    --state-bucket notes-tofu-state --state-region nbg1 --state-endpoint https://nbg1.your-objectstorage.com \
+    --operator-defaults <datei oder https-URL der Vorgaben des Betreibers>
 npm install
 npx create-iam-app keys
 ```
+
+`--operator-defaults` übernimmt die [Vorgaben des Betreibers](#vorgaben-des-betreibers) (Mailversand, Theme) ins
+Manifest; ohne bleibt `realm.smtp` leer, und der Konformitätstest warnt (keine Einladung «Passwort festlegen»).
 
 Das legt an:
 
@@ -63,7 +67,8 @@ Das legt an:
   und `identity-conformity.yml`, `docs/identity-kit.md`; ihre Prüfsummen in `.identity-kit.lock`. Sie lesen ihre Werte
   aus dem Manifest – **nie von Hand ändern**; eine Änderung meldet der Konformitätstest.
 - Dateien der App (nur wenn sie fehlen): Modell `src/authz/model.ts` (Stufe «einfach»), `infra/keycloak/platform.json`,
-  `db/migrations/`, `.nvmrc`, in `package.json` die Pakete des Kits und die Skripte `identity:*`.
+  `db/migrations/`, `.nvmrc`, mit Vorgaben des Betreibers `infra/keycloak/theme-texts.json` (Texte des Themes je
+  Sprache, Werte der App eintragen), in `package.json` die Pakete des Kits und die Skripte `identity:*`.
 - `keys`: Schlüsselpaare (EC P-256). Öffentlich nach `infra/keycloak/keys/notes-<client>.json` (versionieren), privat
   nach `~/.identity/notes/` (0600). `notes-tofu.json` liegt nur dort: es geht an den Betreiber.
 
@@ -96,13 +101,48 @@ der Datenbank der App (Spezifikation [3.5](spezifikation.md#35-rollen-und-gruppe
 Manifest; der Aufruf (`infra/keycloak/main.tf`) ist verwaltet.
 
 Secrets im Environment `production` des Repositorys: `KEYCLOAK_IAC_PRIVATE_KEY` (PEM aus `~/.identity/notes/notes-iac.pem`),
-`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TF_STATE_PASSPHRASE`, mit SMTP `SMTP_PASSWORD`. Ein Pull Request prüft nur; ein Push
+`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TF_STATE_PASSPHRASE`, mit SMTP `SMTP_PASSWORD` (Passwort des Kontos `realm.smtp.user`,
+vom Betreiber). Theme und Texte des Themes: `realm.theme` und `realm.themeTexts` (`infra/keycloak/theme-texts.json`);
+die Akzentfarben (`themeAccent…`) nur als `#RRGGBB`. Ein Pull Request prüft nur; ein Push
 auf `main` läuft Plan → Freigabe → Apply genau dieses Plans → Kontrollplan «No changes». Die Aktion `abgleich` meldet
 Änderungen von Hand. Lokal: `infra/keycloak/kc.sh init` und `kc.sh plan`.
 
 Eine Einstellung ändern (z. B. MCP einschalten, einen Maschinen-Client hinzufügen): nur `identity.app.json` ändern
 (dazu ggf. den öffentlichen Schlüssel in `infra/keycloak/keys/`), Pull Request, Workflow «Keycloak». Ausgabe `issuer`
 = `OIDC_ISSUER_URL`.
+
+## Vorgaben des Betreibers
+
+Mailversand und Theme sind beim Betreiber für alle Apps gleich (ein Absender, ein Theme mit eigenen Werten je App).
+Der Betreiber legt sie einmal als Datei in seinem Repository ab; `create-iam-app init --operator-defaults <datei|url>`
+übernimmt sie in ein neues Manifest. Das Kit kennt keinen Betreiber: nur das Format
+([Schema](../packages/iam-testkit/schema/operator-defaults.schema.json), `OperatorDefaultsSchema`).
+
+```json
+{
+  "$schema": "./node_modules/@vollholz/iam-testkit/schema/operator-defaults.schema.json",
+  "smtp": { "host": "mail.example.ch", "port": 587, "starttls": true, "from": "noreply@example.ch", "user": "noreply@example.ch" },
+  "theme": "betreiber",
+  "themeTexts": {
+    "de": { "themeAccent": "#0D6B5B", "themeClaim": "{displayName}", "themeSub.login": "Anmelden bei {displayName}", "themeMailFooter": "{displayName} · {publicBaseUrl}" },
+    "en": { "themeAccent": "#0D6B5B", "themeClaim": "{displayName}", "themeSub.login": "Sign in to {displayName}", "themeMailFooter": "{displayName} · {publicBaseUrl}" }
+  }
+}
+```
+
+| Feld | wird im Manifest | Hinweis |
+|---|---|---|
+| `smtp` | `realm.smtp`, `fromDisplayName` = `displayName` der App | Passwort nie in der Datei: Secret `SMTP_PASSWORD` der App |
+| `theme` | `realm.theme` | Name des Themes auf der Keycloak-Instanz |
+| `themeTexts` | `realm.themeTexts` = `infra/keycloak/theme-texts.json` | Vorlage je Sprache: `themeAccent…` (`#RRGGBB`), `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`; Platzhalter `{displayName}`, `{product}`, `{publicBaseUrl}`. Ohne Vorlage legt `init` ein Grundgerüst an |
+
+- URL nur `https`; liegt die Datei in einem privaten Repository, `GITHUB_TOKEN` setzen (Bearer, z. B.
+  `https://api.github.com/repos/<betreiber>/<repo>/contents/<datei>` mit `Accept: application/vnd.github.raw`). Das Token geht nur an `raw.githubusercontent.com` und `api.github.com`, nie an
+  einen anderen Server.
+- Bestehende Apps: `init` und `sync` ändern ein Manifest nie stillschweigend. `npx create-iam-app sync --operator-defaults …`
+  zeigt nur, was fehlt oder abweicht; übernehmen von Hand in `identity.app.json`.
+- Ohne `realm.smtp` warnt `npx iam-conformity-test` («E-Mail-Versand des Realms»), weil Keycloak dann keine Einladung
+  «Passwort festlegen» senden kann.
 
 ## 4. Modell und Ressourcen
 

@@ -28,6 +28,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 import { productIdent } from './config.ts';
+import { pgSsl, type DbSsl } from './db.ts';
 import { LOCKS } from './locks.ts';
 import { ADMIN_ROLE, ORG, type Model } from './model.ts';
 
@@ -352,18 +353,26 @@ function plan(sources: MigrationSource[]): MigrationSource[] {
   return order.filter(o => o.to > o.from || o.s.adopt || o.s.sync).map(o => ({ ...o.s, migrations: o.s.migrations.slice(o.from, o.to) }));
 }
 
+export interface MigrateOptions {
+  /** Meldung je ausgeführter oder übernommener Migration und je Abgleich. */
+  log?: (m: string) => void;
+  /** TLS zur Datenbank wie die übrigen Verbindungen (`DATABASE_SSL`); Standard `disable`. */
+  ssl?: DbSsl;
+}
+
 /**
  * Führt die Migrationen aller Quellen aus (als Besitzer-Rolle, `adminUrl`).
- * @param log Meldung je ausgeführter oder übernommener Migration und je Abgleich
+ * @param o Optionen; eine Funktion gilt als `log` (bisherige Form)
  */
-export async function migrate(adminUrl: string, sources: MigrationSource[], log: (m: string) => void = () => undefined): Promise<MigrationResult> {
+export async function migrate(adminUrl: string, sources: MigrationSource[], o: MigrateOptions | ((m: string) => void) = {}): Promise<MigrationResult> {
+  const { log = () => undefined, ssl } = typeof o === 'function' ? { log: o } : o;
   const names = new Map<string, string>();
   for (const s of sources) for (const m of s.migrations) {
     if (names.has(m.name)) throw new Error(`Migration ${m.name} kommt in ${names.get(m.name)} und ${s.name} vor`);
     names.set(m.name, s.name);
   }
   for (const s of sources) if (s.adopt && !s.migrations.some(m => m.name === s.adopt!.upTo)) throw new Error(`Übernahme bis ${s.adopt.upTo}: Migration fehlt in ${s.name}`);
-  const client = new pg.Client({ connectionString: adminUrl, application_name: 'iam-migrate' });
+  const client = new pg.Client({ connectionString: adminUrl, application_name: 'iam-migrate', ssl: pgSsl(ssl) });
   await client.connect();
   try {
     // Alle Objekte gehören der Besitzer-Rolle (Rechte, Standardrechte, Policies für die Besitzer-Rolle)

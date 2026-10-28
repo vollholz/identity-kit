@@ -11,6 +11,7 @@
  *   Stufe der Zielperson zählt wie die neue: wer herabstuft, muss sie auch haben, wie beim Entziehen, A9/A12).
  */
 import type { AccessService } from './access.ts';
+import type { Actor } from './audit.ts';
 import { live } from './access.ts';
 import type { Tx } from './db.ts';
 import { conflict, HttpError, invalid } from './errors.ts';
@@ -72,9 +73,11 @@ export async function lastAdminGuard(tx: Tx, schema: string, principalId: string
 
 /**
  * Rollen eines Subjekts an org auf genau diese Liste setzen (fehlende anlegen, übrige löschen), mit allen Regeln.
+ * `actor`: wer handelt, für die Ereignisse `access.granted` und `access.revoked` an die App (kein Audit je Tupel; der
+ * Aufrufer protokolliert die Änderung als Ganzes).
  * @returns hinzugefügte und entfernte Rollen
  */
-export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: TupleStore; schema: string; acting: Acting; subject: string; roles: string[]; createdBy: string | null; isActive?: ActiveCheck }): Promise<{ added: string[]; removed: string[] }> {
+export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: TupleStore; schema: string; acting: Acting; subject: string; roles: string[]; createdBy: string | null; isActive?: ActiveCheck; actor?: Actor }): Promise<{ added: string[]; removed: string[] }> {
   const roles = checkRoles(o.access, o.roles);
   const current = (await tx.query<{ id: string; relation: string; expires_at: Date | null }>(
     `SELECT id, relation, expires_at FROM ${o.schema}.authz_tuple WHERE subject = $1 AND object_type = 'org'`, [o.subject])).rows;
@@ -83,11 +86,12 @@ export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: Tu
   const added = roles.filter(r => !have.includes(r)), removed = have.filter(r => !roles.includes(r));
   if (!added.length && !removed.length) return { added, removed };
   await checkRoleChange(o.access, o.acting, [...added, ...removed]);
+  const who = o.actor ? { ...o.actor, audit: false } : undefined;
   if (removed.includes(ADMIN_ROLE) && o.subject.startsWith('user:')) await lastAdminGuard(tx, o.schema, o.subject.slice(5), o.access.model.roles.get(ADMIN_ROLE)?.label, o.isActive);
   for (const t of current) {
-    if (removed.includes(t.relation) || (added.includes(t.relation) && !live(t))) await o.tuples.revoke(tx, t.id);
+    if (removed.includes(t.relation) || (added.includes(t.relation) && !live(t))) await o.tuples.revoke(tx, t.id, who);
   }
-  for (const r of added) await o.tuples.grant(tx, { subject: o.subject, relation: r, place: { type: 'org' }, createdBy: o.createdBy });
+  for (const r of added) await o.tuples.grant(tx, { subject: o.subject, relation: r, place: { type: 'org' }, createdBy: o.createdBy }, who);
   return { added, removed };
 }
 

@@ -54,7 +54,7 @@ Abschlussbericht eines PRs, nicht durch Bauen.
 | O7 | Release-Hinweis 1.0: neue Symbole `arrow`, `lock` in `IamIconName`; OpenAPI-Auszug in iam-web erneuern, sobald P1 eine OpenAPI liefert | P6 | an P7 |
 | O8 | Alte Dateien in packages/iam löschen (alte Module, Tests, Skripte, Fixtures; Liste in #47); bestehende Migrationen bleiben | P1 | erledigt (identity-kit#54) |
 | O9 | «Warum?» für andere Personen kennt deren Entra-Gruppen nicht (nur aus dem eigenen Token); Vorschlag: Gruppen beim Login am Principal speichern | P1 #47 | offen |
-| O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Apps erzeugen `access.changed` bis dahin selbst | – | offen, Kit-Folgearbeit |
+| O10 | Baukasten ruft `events` bei Zugriffsänderungen nicht auf; Apps erzeugen `access.changed` bis dahin selbst | – | erledigt (iam 4.0.0): `events.after` erhält `access.granted`, `access.revoked`, `access.expired` je Tupel, dazu `member.removing`/`member.removed`/`member.left` |
 | O13 | `iam-reset --keycloak` entfernt keine Entra-Anbieter, die nach einem abgebrochenen Lauf an keiner Organisation mehr hängen | P12 #55 | offen, klein |
 | O14 | `platform.reset` nur im Workflow-Protokoll (stdout), nicht in der Datenbank; bei Bedarf Plattform-Audit ohne Mandant (eigene Tabelle) | P12 #55 | offen, nur bei Bedarf |
 | O15 | Versionstabelle in docs/neue-app.md veraltet | P12 #55 | erledigt |

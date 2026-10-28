@@ -85,9 +85,9 @@ describe('Manifest', () => {
 
 describe('Versionen', () => {
   test('exakt und im Fenster; CURRENT = Versionen im Repository', () => {
-    assert.equal(versionProblem('@vollholz/iam', '2.0.0'), null);
-    assert.match(versionProblem('@vollholz/iam', '^2.0.0')!, /exakte Version/);
-    assert.match(versionProblem('@vollholz/iam', '1.5.0')!, /älter als 2\.0\.0/);
+    assert.equal(versionProblem('@vollholz/iam', '3.0.0'), null);
+    assert.match(versionProblem('@vollholz/iam', '^3.0.0')!, /exakte Version/);
+    assert.match(versionProblem('@vollholz/iam', '2.1.0')!, /älter als 3\.0\.0/);
     assert.match(versionProblem('@vollholz/iam', '99.0.0')!, /neuer als die Hauptversion.*iam-testkit aktualisieren/);
     assert.equal(versionProblem('@vollholz/iam', `${CURRENT['@vollholz/iam'].split('.')[0]}.99.0`), null, 'neuere Neben-Version derselben Hauptversion');
     assert.equal(versionProblem('@vollholz/platform', '0.1.0'), null, '@vollholz/platform gehört zum Kit');

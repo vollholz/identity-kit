@@ -13,7 +13,7 @@
  * Beide sind wiederholbar; mit `dryRun` wird nur gezählt.
  */
 import pg from 'pg';
-import { schemaName } from './db.ts';
+import { pgSsl, schemaName, type DbSsl } from './db.ts';
 import type { KeycloakAdmin, KcUser } from './keycloak.ts';
 
 /** Tabellen der Migrationsbuchhaltung: bleiben immer. */
@@ -53,6 +53,8 @@ export interface DatabaseResetOptions extends ResetOptions {
   url: string;
   /** Schema der Tabellen der App. */
   schema: string;
+  /** TLS wie `DATABASE_SSL`; Standard `disable`. */
+  ssl?: DbSsl;
   /** Weitere Tabellen, die bleiben (App-spezifisch). */
   keep?: string[];
 }
@@ -63,7 +65,7 @@ export async function resetDatabase(o: DatabaseResetOptions): Promise<DatabaseRe
   const S = schemaName(o.schema);
   const dry = !!o.dryRun;
   const log = (m: string) => o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`);
-  const c = new pg.Client({ connectionString: o.url, application_name: 'iam-reset' });
+  const c = new pg.Client({ connectionString: o.url, application_name: 'iam-reset', ssl: pgSsl(o.ssl) });
   await c.connect();
   try {
     await c.query('BEGIN');

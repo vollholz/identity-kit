@@ -47,6 +47,8 @@ Realm-Anmeldung: `KEYCLOAK_CONFORMITY_URL`, `KEYCLOAK_CONFORMITY_REALM`, `KEYCLO
 
 ## Änderungen
 
+Ab 2.2.0 stehen alle Änderungen in [CHANGELOG.md](CHANGELOG.md).
+
 - **2.1.3:** `CURRENT` nennt `@vollholz/iam` 3.2.1, `@vollholz/platform` 0.4.0 und `@vollholz/create-iam-app` 0.2.3.
 - **2.1.2:** `CURRENT` nennt `@vollholz/platform` 0.3.0 und `@vollholz/create-iam-app` 0.2.2.
 - **2.1.1:** `CURRENT` nennt `@vollholz/platform` 0.2.0 und `@vollholz/create-iam-app` 0.2.1.

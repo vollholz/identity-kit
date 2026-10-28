@@ -212,19 +212,69 @@ problem+json und die Module:
   des Lese-Scopes `<produkt>:read` und `access:admin`. Unbekannte Rechte brechen den Start ab; vorbehaltene wie `tenant:read`
   (hat jedes Mitglied) ergeben eine Warnung. Öffnet ohne Option kein Recht das Verzeichnis, fehlt das Modul mit Warnung.
 - **`modules`** wählt die Module ausdrücklich, **`openapi`** ersetzt Tags, Texte und Feldbeschreibungen.
-- **`events`** (`createIam`): Ereignisse in derselben Transaktion, z. B. für eine Outbox der App.
+- **`events`** (`createIam`): Haken der App vor und nach Änderungen, in der Transaktion der Änderung – siehe
+  [Ereignisse und Haken](#ereignisse-und-haken-events).
 - **`readinessChecks(iam)`** für `/readyz` (Datenbank, Anmeldedienst).
 - **Mehrere Instanzen:** `SHARED_STATE=postgres` (Standard) hält Replay-Schutz für DPoP und Logout-Tokens sowie das
   Rate-Limit (`pgRateLimitStore`) über alle Instanzen; `memory` nur für eine einzelne Instanz. Teilen sich mehrere
   Umgebungen denselben Speicher (z. B. E2E und lokale App), trennt `RATE_LIMIT_NAMESPACE` ihre Zähler: Die Schlüssel
   des Pakets lauten dann `<namespace>:<produkt>:…`.
 
+### Ereignisse und Haken (`events`)
+
+`events` in `createIam` (und `MemberSync` im Worker; `@vollholz/platform`: `AppSpec.iamEvents` für beides) ist ein
+Objekt mit zwei Haken. Beide laufen **in der Transaktion der Änderung**, im Mandantenkontext (RLS), mit `tx` der
+Änderung; was die App dort schreibt, steht und fällt mit ihr. Gleich ist der Weg: Verwalten-Seiten («Benutzer und
+Rollen», Routen `/v1/admin/members…` und `/v1/platform/organizations/:alias/members…`), `POST/PATCH/DELETE /v1/access`,
+Clients, Einladen sowie Aufrufe der App über `iam.admin` und `iam.tuples`.
+
+```ts
+import { conflict, type IamEvents } from '@vollholz/iam';
+
+const events: IamEvents = {
+  // Vor dem Entfernen (unter der Sperre der Organisation, vor jeder Änderung in Keycloak): darf ablehnen
+  async before(tx, e) {
+    const open = await openRolesOf(tx, e.data.principalId);          // Abfrage der App über dieselbe Transaktion
+    if (open.length) throw conflict(`${e.data.email} ist noch in ${open.length} Rollen eingesetzt. Zuerst neu besetzen.`, { reason: 'roles-open', roles: open });
+  },
+  // Nach der Änderung, in derselben Transaktion
+  async after(tx, e) {
+    if (e.type === 'member.removed') await createReassignTasks(tx, e.data.principalId);
+    if (e.type === 'access.granted' || e.type === 'access.revoked') await platform.emit(tx, `iam.${e.type}`, e.subject, e.data);
+  },
+};
+const iam = createIam({ cfg, model, db, schema: 'notes', resources, audit, events });
+```
+
+| Ereignis | Haken | Wann | `data` |
+|---|---|---|---|
+| `member.removing` | `before` | Entfernen eines Mitglieds bzw. Zurückziehen einer Einladung (`iam.admin.removeMember`), nach den Prüfungen des Pakets (sich selbst, Rollen, letzter Admin) | `MemberEventData` |
+| `member.removed` | `after` | nach Keycloak, Tupeln, Austritt und Audit desselben Entfernens | `MemberEventData` |
+| `access.granted` | `after` | Rolle (Relation) an einem Ort vergeben oder Ablauf geändert (`previousExpiresAt`); auch Rollen an `org` aus «Rollen setzen», Einladen, Clients, `iam.tuples.grant` | `AccessEventData` |
+| `access.revoked` | `after` | Rolle an einem Ort entzogen; beim Entfernen je Tupel, vor `member.removed` | `AccessEventData` |
+| `access.expired` | `after` | abgelaufene Rolle aufgeräumt (Worker, `expireAccess`) | `AccessEventData` |
+| `member.left` | `after` | Abgleich stellt einen Austritt ausserhalb der App fest (z. B. in Keycloak entfernt); Tupel bleiben (A17) | `{ userId, principalId }` |
+
+Jedes Ereignis: `{ type, tenantId, subject, actor, data }`. `subject` ist das Subjekt der Tupel (`user:<principal-id>`,
+`client:<id>` …; bei `member.*` null, wenn die Person nie einen Principal hatte). `actor` wie im Audit (`principal`,
+`source`, `correlationId`); Abgleich, Aufräumen und Aufrufe der App ohne `actor` melden `principal: null`, `source:
+'system'`. `MemberEventData`: `memberId` (ID nach aussen: Keycloak-ID bzw. Einladungs-ID), `userId`, `principalId`,
+`email`, `roles` (an `org`, vor dem Entfernen), `invitation`, `platform`. `AccessEventData`: `tupleId`, `subject`,
+`relation`, `type`, `id` (null bei `org`), `expiresAt`, `previousExpiresAt`.
+
+**Fehler:** Wirft `before`, unterbleibt die Änderung ganz (Keycloak, Datenbank, Audit). Ein `HttpError` (`conflict`,
+`forbidden` …) geht unverändert als application/problem+json an den Aufrufer, mit allen Zusatzfeldern; die
+Verwalten-Seite zeigt `detail` in der Rückfrage. Andere Fehler ergeben 500. Wirft `after`, wird die Transaktion
+zurückgerollt (Tupel, Austritt, Audit, Schreibvorgänge der App); was Keycloak schon geändert hat (Mitgliedschaft
+entfernt), bleibt und steht als `member.remove_failed` mit den Schritten im Audit. Ablehnen gehört deshalb in `before`.
+Die Haken laufen unter der Sperre der Organisation: kurz halten, keine Aufrufe nach aussen (dafür die Outbox).
+
 ## 6. Worker
 
 ```ts
 import { MemberSync } from '@vollholz/iam';
 
-const sync = new MemberSync(cfg, pool, { schema: 'notes', log: (m, d) => log.info(d, m) });
+const sync = new MemberSync(cfg, pool, { schema: 'notes', events, log: (m, d) => log.info(d, m) });   // events: member.left, access.expired
 sync.start();                // alle MEMBER_SYNC_INTERVAL, höchstens ein Lauf über alle Instanzen (LOCKS.memberSync)
 process.on('SIGTERM', () => void sync.stop());
 ```

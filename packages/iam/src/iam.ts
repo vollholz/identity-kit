@@ -20,9 +20,9 @@ import type { ResourceModel } from './resources.ts';
 import { MemoryReplayStore, PgReplayStore, type ReplayStore } from './state.ts';
 import { OidcProvider, TokenVerifier } from './tokens.ts';
 import { TupleStore } from './tuples.ts';
+import type { IamEvents } from './events.ts';
 
-/** Ereignis zu einer IAM-Änderung in derselben Transaktion (z. B. für eine Outbox der App). */
-export type IamEvents = (tx: Tx, type: string, subject: string | null, data: Record<string, unknown>) => Promise<void>;
+export type { IamEvents } from './events.ts';
 
 export interface IamOptions<P extends string = string, S = unknown> {
   cfg: IamConfig;
@@ -34,7 +34,11 @@ export interface IamOptions<P extends string = string, S = unknown> {
   /** Ressourcen der App (Kette, Existenz, Klassifizierung, Zuständigkeit); ohne: Typen direkt unter der Organisation. */
   resources?: ResourceModel<S> | null;
   audit: AuditPort;
-  events?: IamEvents;
+  /**
+   * Haken der App vor und nach Änderungen (events.ts): `member.removing` (darf ablehnen), `member.removed`,
+   * `access.granted`, `access.revoked`, `access.expired`; im Worker dieselben Haken an `MemberSync` geben.
+   */
+  events?: IamEvents | null;
   /** Replay-Schutz (DPoP, Logout-Tokens); sonst nach `SHARED_STATE`. */
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
@@ -113,8 +117,9 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const resolver = new PrincipalResolver(o.db, o.cfg, { schema, access: access as AccessService });
   // Plattform-Administration steht zusätzlich im Protokoll der Plattform
   const audit = withPlatformAudit(o.audit);
-  const tuples = new TupleStore({ schema, model: o.model, audit });
-  const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit, resolver, access: access as AccessService, tuples };
+  const events = o.events ?? null;
+  const tuples = new TupleStore({ schema, model: o.model, audit, events });
+  const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit, resolver, access: access as AccessService, tuples, events };
   const admin = o.cfg.mgmt.clientId
     ? new AdminService(deps, new KeycloakAdmin(o.cfg, async () => (await provider.discovery()).token_endpoint, o.keycloakFetch))
     : null;
@@ -123,7 +128,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
   const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
-    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events: o.events ?? null, replay,
+    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
     async tx(p, fn) {

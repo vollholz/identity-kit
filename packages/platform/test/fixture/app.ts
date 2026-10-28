@@ -11,4 +11,6 @@ export const app = defineApp({
   modules: [notizModule],
   people: { permissions: ['notiz:read'] },
   migrations: { dir: MIGRATIONS_DIR },
+  // Ereignisse des Baukastens in die Outbox der App (gleiche Transaktion)
+  iamEvents: { after: (tx, e) => platform.emit(tx, `iam.${e.type}`, e.subject, e.data) },
 });

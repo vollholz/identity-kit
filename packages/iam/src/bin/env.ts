@@ -5,6 +5,7 @@
  *   `<realm>-iac`), KEYCLOAK_IAC_PRIVATE_KEY bzw. KEYCLOAK_IAC_PRIVATE_KEY_B64 (PEM).
  */
 import type { IamConfig } from '../config.ts';
+import { dbSslFromEnv, type DbSsl } from '../db.ts';
 import { KeycloakAdmin } from '../keycloak.ts';
 
 export type Fail = (message: string) => never;
@@ -14,6 +15,11 @@ export function realmFromEnv(env: NodeJS.ProcessEnv, fail: Fail): string {
   const realm = env.KEYCLOAK_TF_REALM || fail('KEYCLOAK_TF_REALM fehlt');
   if (realm === 'master') fail('Realm master ist nicht erlaubt');
   return realm;
+}
+
+/** TLS zur Datenbank aus DATABASE_SSL (wie die übrigen Verbindungen); ungültiger Wert → Abbruch. */
+export function dbSslOrFail(env: NodeJS.ProcessEnv, fail: Fail): DbSsl {
+  try { return dbSslFromEnv(env); } catch (e) { return fail((e as Error).message); }
 }
 
 /** Schema der Tabellen: `--schema`, Standard der Realm mit «_». */

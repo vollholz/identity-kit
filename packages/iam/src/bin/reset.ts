@@ -12,12 +12,12 @@
  * Erst die Datenbank, dann Keycloak (bricht Keycloak ab, ist ein erneuter Lauf möglich, ohne dass Mandanten an
  * gelöschte Organisationen gebunden bleiben). Nach dem Leeren der Datenbank eine Zeile `audit platform.reset` (JSON)
  * auf stdout: Das Audit-Protokoll der App gehört je Mandant und ist danach leer.
- * Anmeldung bei Keycloak: siehe src/bin/env.ts. Datenbank: DATABASE_ADMIN_URL (Besitzer-Rolle). Exit-Code 64 bei
+ * Anmeldung bei Keycloak: siehe src/bin/env.ts. Datenbank: DATABASE_ADMIN_URL (Besitzer-Rolle), TLS nach DATABASE_SSL. Exit-Code 64 bei
  * falschem Aufruf, 1 bei einem Fehler unterwegs.
  */
 import { parseArgs } from 'node:util';
 import { resetDatabase, resetKeycloak } from '../reset.ts';
-import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
+import { dbSslOrFail, defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
 const env = process.env;
 const fail = (m: string, code = 64): never => { console.error(m); process.exit(code); };
@@ -45,7 +45,7 @@ const schema = a.schema ?? defaultSchema(realm);
 
 try {
   if (dbUrl) {
-    const r = await resetDatabase({ url: dbUrl, schema, keep: a['keep-table'], dryRun, log });
+    const r = await resetDatabase({ url: dbUrl, schema, ssl: dbSslOrFail(env, fail), keep: a['keep-table'], dryRun, log });
     if (!dryRun) {
       const rows = r.tables.reduce((n, t) => n + t.rows, 0);
       console.log(`audit ${JSON.stringify({ action: 'platform.reset', at: new Date().toISOString(), realm, schema, tables: r.tables.length, rows, kept: r.kept, by: env.GITHUB_ACTOR ?? env.USER ?? null, via: 'iam-reset' })}`);

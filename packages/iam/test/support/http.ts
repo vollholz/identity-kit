@@ -15,6 +15,7 @@ import { withTenant, type Db, type Tx } from '../../src/db.ts';
 import { iamPlugin, need, type IamPluginOptions } from '../../src/http/plugin.ts';
 import { optionalBodies } from '../../src/http/routes.ts';
 import { createIam, type Iam, type IamEvents } from '../../src/iam.ts';
+import type { IamEvent } from '../../src/events.ts';
 import { migration } from '../../src/migrations.ts';
 import type { Level, Model } from '../../src/model.ts';
 import { refKey, type ResourceModel, type ResourceRef } from '../../src/resources.ts';
@@ -115,7 +116,7 @@ export const notesResources: ResourceModel<NotesState> = {
 
 export const claims = claimsFor({ personClientId: 'notes-platform' });
 
-export interface NotesApp { app: FastifyInstance; iam: Iam<string, NotesState>; events: { type: string; subject: string | null; data: Record<string, unknown> }[] }
+export interface NotesApp { app: FastifyInstance; iam: Iam<string, NotesState>; events: IamEvent[] }
 
 /** Notiz-App mit dem Plugin; `env` für die Konfiguration, `plugin` für die Optionen des Plugins. */
 export async function notesApp(o: {
@@ -129,9 +130,11 @@ export async function notesApp(o: {
   fastify?: FastifyServerOptions;
   /** Nach allen Routen, vor `ready` (z. B. Testsonden). */
   after?: (app: FastifyInstance) => Promise<void> | void;
+  /** Haken der App; ohne: `after` sammelt die Ereignisse in `events`. */
+  events?: IamEvents;
 }): Promise<NotesApp> {
-  const events: NotesApp['events'] = [];
-  const onEvent: IamEvents = async (_tx, type, subject, data) => { events.push({ type, subject, data }); };
+  const events: IamEvent[] = [];
+  const onEvent: IamEvents = o.events ?? { after: async (_tx, e) => { events.push(e); } };
   const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}) });
   // Wie docs/backend.md verlangt: unbekannte Felder ergeben 422 statt still zu verschwinden
   const app = Fastify({ logger: process.env.TEST_LOG ? { level: 'error' } : false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });

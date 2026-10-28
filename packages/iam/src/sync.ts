@@ -27,14 +27,15 @@ import type { Actor, AuditPort } from './audit.ts';
 import { pgAudit } from './audit.ts';
 import type { IamConfig } from './config.ts';
 import { schemaName, withTenant, type Db } from './db.ts';
+import { emitAfter, type IamEvents } from './events.ts';
 import { KeycloakAdmin, type KcOrg, type KcUser } from './keycloak.ts';
 import { LOCKS, lockKey } from './locks.ts';
 import { asciiLower } from './principal.ts';
 import { findTenant, listTenants, type TenantRow } from './tenants.ts';
 import { OidcProvider } from './tokens.ts';
 
-/** Schema der Tabellen und Protokoll. */
-export interface SyncContext { schema: string; audit: AuditPort }
+/** Schema der Tabellen, Protokoll und Haken der App (`member.left`, `access.expired`). */
+export interface SyncContext { schema: string; audit: AuditPort; events?: IamEvents | null }
 
 /** Konto mit offenem «Passwort setzen» (eingeladen, Passwort noch nie gesetzt). */
 export const pendingActions = (u: KcUser) => (u.requiredActions ?? []).includes('UPDATE_PASSWORD');
@@ -107,9 +108,13 @@ export async function syncTenantMembers(ctx: SyncContext, db: Db, tenantId: stri
        RETURNING (xmax = 0) AS inserted`,
       [ids, members.map(displayName), members.map(u => u.email ?? null)]);
     const added = up.rows.filter(r => r.inserted).length;
-    const removed = (await tx.query(
+    const left = (await tx.query<{ id: string; subject: string }>(
       `UPDATE ${S}.principal p SET removed_at = now() WHERE kind = 'user' AND removed_at IS NULL AND NOT (subject = ANY($1::text[]) OR subject = ANY($2::text[]))
-         AND NOT EXISTS (SELECT 1 FROM ${S}.member_invitation i WHERE i.user_id = p.subject AND i.accepted_at IS NULL)`, [ids, pending])).rowCount ?? 0;
+         AND NOT EXISTS (SELECT 1 FROM ${S}.member_invitation i WHERE i.user_id = p.subject AND i.accepted_at IS NULL)
+       RETURNING id, subject`, [ids, pending])).rows;
+    const removed = left.length;
+    // Austritt ausserhalb der Verwaltung (z. B. in der Konsole von Keycloak): die Tupel bleiben (A17), die App erfährt es
+    for (const p of left) await emitAfter(ctx.events, tx, { type: 'member.left', tenantId, subject: `user:${p.id}`, actor: SYSTEM(correlationId), data: { userId: p.subject, principalId: p.id } });
     if (added || removed) {
       await ctx.audit.write(tx, SYSTEM(correlationId), { action: 'people.synced', resourceType: 'tenant', resourceId: tenantId, data: { alias, members: ids.length, added, removed } });
     }
@@ -128,7 +133,9 @@ export async function expireAccess(ctx: SyncContext, db: Db, tenantId: string, c
     const tuples = (await tx.query<{ id: string; subject: string; relation: string; object_type: string; object_id: string | null; expires_at: Date }>(
       `DELETE FROM ${S}.authz_tuple WHERE expires_at IS NOT NULL AND expires_at <= now() RETURNING id, subject, relation, object_type, object_id, expires_at`)).rows;
     for (const t of tuples) {
-      await ctx.audit.write(tx, actor, { action: 'access.expired', resourceType: 'tuple', resourceId: t.id, data: { subject: t.subject, relation: t.relation, type: t.object_type, id: t.object_id, expiresAt: t.expires_at.toISOString() } });
+      const data = { subject: t.subject, relation: t.relation, type: t.object_type, id: t.object_id, expiresAt: t.expires_at.toISOString() };
+      await ctx.audit.write(tx, actor, { action: 'access.expired', resourceType: 'tuple', resourceId: t.id, data });
+      await emitAfter(ctx.events, tx, { type: 'access.expired', tenantId, subject: t.subject, actor, data: { tupleId: t.id, ...data } });
     }
     const ended = (await tx.query<{ id: string }>(
       `UPDATE ${S}.principal SET clearance_boost = NULL, clearance_until = NULL WHERE clearance_until IS NOT NULL AND clearance_until <= now() RETURNING id`)).rows;
@@ -189,10 +196,13 @@ export class MemberSync {
   private readonly log: Log;
   readonly kc: KeycloakAdmin | null;
 
-  /** @param o.audit Protokoll (Standard `pgAudit` im Schema), @param o.fetch Abruf bei Keycloak (Tests) */
-  constructor(cfg: Pick<IamConfig, 'oidc' | 'mgmt' | 'memberSync'>, db: Db, o: { schema: string; audit?: AuditPort; log?: Log; fetch?: typeof fetch }) {
+  /**
+   * @param o.audit Protokoll (Standard `pgAudit` im Schema), @param o.events Haken der App (wie in `createIam`:
+   * `member.left`, `access.expired`), @param o.fetch Abruf bei Keycloak (Tests)
+   */
+  constructor(cfg: Pick<IamConfig, 'oidc' | 'mgmt' | 'memberSync'>, db: Db, o: { schema: string; audit?: AuditPort; events?: IamEvents | null; log?: Log; fetch?: typeof fetch }) {
     this.db = db; this.cfg = cfg; this.log = o.log ?? (() => undefined);
-    this.ctx = { schema: o.schema, audit: o.audit ?? pgAudit({ schema: o.schema }) };
+    this.ctx = { schema: o.schema, audit: o.audit ?? pgAudit({ schema: o.schema }), events: o.events ?? null };
     const s = cfg.memberSync;
     const provider = new OidcProvider(cfg.oidc.issuer, o.fetch);
     this.kc = s.clientId ? new KeycloakAdmin(cfg, async () => (await provider.discovery()).token_endpoint, o.fetch, s) : null;

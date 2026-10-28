@@ -159,7 +159,7 @@ export const adminModule: IamModule = {
       app.delete(`${base}/:id`, {
         schema: routeSchema(ctx, 'DELETE', `${base}/:id`, {
           tags, summary: 'Mitglied entfernen', params: p2,
-          description: 'Entfernt die Mitgliedschaft und alle Freigaben der Person bzw. zieht die Einladung zurück (`id`: Mitglied oder Einladung, wie in der Liste). Hat die Einladung das Konto angelegt, wurde sie nie angenommen und gehört die Person keiner anderen Organisation an, wird das unbenutzte Konto gelöscht. Zurückziehen dauert mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen).',
+          description: 'Entfernt die Mitgliedschaft und alle Freigaben der Person bzw. zieht die Einladung zurück (`id`: Mitglied oder Einladung, wie in der Liste). Hat die Einladung das Konto angelegt, wurde sie nie angenommen und gehört die Person keiner anderen Organisation an, wird das unbenutzte Konto gelöscht. Zurückziehen dauert mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen). Die App kann das Entfernen in ihrem Haken `member.removing` ablehnen (z. B. 409 mit Begründung in `detail` und eigenem `reason`); dann bleibt alles unverändert.',
           response: { 200: Type.Object({ accountDeleted: Type.Boolean({ description: 'Unbenutztes Konto gelöscht. Nur für die Plattform-Administration aussagekräftig, für org-admin immer false (sonst verriete es andere Organisationen)' }) }) },
         }),
       }, async req => { const sc = await scope(req); return on().removeMember(sc, id(req)); });

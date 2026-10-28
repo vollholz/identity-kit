@@ -9,6 +9,22 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.2] – 2026-10-28
+
+### Behoben
+
+- `Nullable(X)` mit `coerceTypes` (Plattform): `anyOf [X, null]` machte aus `null` den Wert von X, wenn er dort
+  gültig ist (0, `""`, `false`, `[""]`). Ein PATCH mit `wert: null` speicherte so 0 (CSPAG/ppm #159). Neu
+  `anyOf [{ const: null }, X, { type: 'null' }]`: `null` bleibt `null`, alle anderen Eingaben wie bisher (Umwandlung,
+  Ablehnung, `""` → `null` bei Zahl und Datum). Achtung: «null zuerst» (`Type.Union([Type.Null(), X])`) hilft nicht.
+  AJV wandelt dann 0, `""` und `false` in `null` um. Wer das als lokale Korrektur hat, nimmt stattdessen `Nullable` aus
+  diesem Paket.
+
+### Geändert
+
+- OpenAPI: Jedes `Nullable` hat vorne einen Zweig `{ "enum": [null] }` (aus `const: null`), also
+  `anyOf [{ enum: [null] }, X, { type: null }]`. Aus der Doku erzeugte Typen bleiben `X | null`.
+
 ## [0.6.1] – 2026-10-28
 
 ### Behoben

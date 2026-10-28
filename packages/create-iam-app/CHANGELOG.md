@@ -9,6 +9,12 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.5.1] – 2026-10-28
+
+### Geändert
+
+- Neue Apps mit `@vollholz/iam-testkit` 2.4.1 (`CURRENT` mit `@vollholz/platform` 0.6.1).
+
 ## [0.5.0] – 2026-10-28
 
 ### Hinzugefügt

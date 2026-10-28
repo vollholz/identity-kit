@@ -57,9 +57,16 @@ die Integrität trägt das nächste `npm install` mit echtem Zugang nach.
 
 ## Neue Version
 
-Version in `packages/<paket>/package.json` erhöhen und per PR mergen. Der Workflow «Release» veröffentlicht nach dem
-Merge jedes Paket, dessen Version noch nicht in der Registry liegt, und setzt das Tag `<paket>-v<version>`.
-Versionen je Paket (semantisch); brechende Änderungen mit Migrationshinweis in `docs/`.
+Version in `packages/<paket>/package.json` erhöhen, den Abschnitt der Version in `packages/<paket>/CHANGELOG.md`
+schreiben und per PR mergen. Der Workflow «Release» veröffentlicht nach dem Merge jedes Paket, dessen Version noch nicht
+in der Registry liegt, setzt das Tag `<paket>-v<version>` und legt ein GitHub Release mit dem Abschnitt als Text an.
+Versionen je Paket (semantisch, Breaking = Major).
+
+**Keine neue Version ohne CHANGELOG-Eintrag.** Abschnitt `## [<version>] – <datum>` zuoberst (unter «Unveröffentlicht»),
+darin nach Bedarf `### Breaking`, `### Hinzugefügt`, `### Geändert`, `### Entfernt`, `### Behoben`. Unter Breaking steht
+jede Änderung, die eine App anpassen muss, mit Migrationsschritten. Die CI prüft das (`node scripts/changelog.ts
+check`); ohne Abschnitt bricht auch «Release» vor dem Veröffentlichen ab. Apps lesen vor dem Anheben die Abschnitte
+zwischen ihrer und der neuen Version (CHANGELOG.md im Paket oder GitHub Releases `<paket>-v<version>`).
 
 OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen; «Release» setzt dann das Tag
 `<modul>-v<version>`. Die App bezieht das Modul über

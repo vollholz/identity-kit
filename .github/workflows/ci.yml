@@ -1,4 +1,5 @@
-# CI des Baukastens: Typprüfung, Build und Tests aller Pakete (Datenbank-Tests gegen PostgreSQL im Service-Container).
+# CI des Baukastens: Release Notes (CHANGELOG.md je Paket zur Version), Typprüfung, Build und Tests aller Pakete
+# (Datenbank-Tests gegen PostgreSQL im Service-Container).
 name: CI
 
 on:
@@ -39,6 +40,18 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Release Notes (keine neue Version ohne CHANGELOG-Eintrag)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          npx tsc -p scripts/tsconfig.json
+          node --test --test-reporter=spec scripts/*.test.ts
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            node scripts/changelog.ts check --base FETCH_HEAD
+          else
+            node scripts/changelog.ts check
+          fi
       - run: npm run typecheck
       - run: npm run build
       - run: npm test

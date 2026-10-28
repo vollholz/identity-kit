@@ -1,7 +1,8 @@
 # Veröffentlichung: Nach jedem Merge auf main (und von Hand) prüft der Workflow alle Pakete und veröffentlicht jedes,
 # dessen Version noch nicht auf GitHub Packages liegt (@vollholz/*). Je veröffentlichtem Paket entsteht ein Tag
-# `<paket>-v<version>` (z. B. iam-testkit-v0.1.1). Eine neue Version = Version in packages/<paket>/package.json erhöhen
-# und per PR mergen; ohne erhöhte Version veröffentlicht der Workflow nichts.
+# `<paket>-v<version>` (z. B. iam-testkit-v0.1.1) und ein GitHub Release zum Tag mit dem Abschnitt der Version aus
+# packages/<paket>/CHANGELOG.md als Text. Eine neue Version = Version in packages/<paket>/package.json erhöhen, Abschnitt
+# in CHANGELOG.md schreiben (Prüfung in ci.yml) und per PR mergen; ohne erhöhte Version veröffentlicht der Workflow nichts.
 # OpenTofu-Module (modules/<modul>/VERSION) bekommen nur ein Tag `<modul>-v<version>` (z. B. product-realm-v0.1.0); Apps
 # beziehen sie über `?ref=<modul>-v<version>`.
 name: Release
@@ -25,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: write        # Tags der veröffentlichten Versionen
+      contents: write        # Tags und GitHub Releases der veröffentlichten Versionen
       packages: write
     services:
       postgres:
@@ -51,7 +52,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: Neue Versionen veröffentlichen und taggen
+      - name: Neue Versionen veröffentlichen, taggen und als GitHub Release anlegen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -61,15 +64,25 @@ jobs:
             version="$(node -p "require('./${p}package.json').version")"
             private="$(node -p "!!require('./${p}package.json').private")"
             [ "$private" = "false" ] || continue
+            tag="${name#@vollholz/}-v$version"
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version liegt schon vor"
+              # Release nachtragen (z. B. Lauf nach dem Veröffentlichen abgebrochen), wenn Tag und Abschnitt bestehen
+              if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 && ! gh release view "$tag" >/dev/null 2>&1 \
+                && node scripts/changelog.ts notes "$p" "$version" > "$RUNNER_TEMP/notes.md" 2>/dev/null; then
+                gh release create "$tag" --verify-tag --title "$name@$version" --notes-file "$RUNNER_TEMP/notes.md"
+                echo "GitHub Release nachgetragen: $tag"
+              fi
               continue
             fi
+            # Text vor dem Veröffentlichen: ohne Abschnitt in CHANGELOG.md keine Version
+            notes="$RUNNER_TEMP/notes-${name#@vollholz/}.md"
+            node scripts/changelog.ts notes "$p" "$version" > "$notes"
             npm publish --workspace "$p"
-            tag="${name#@vollholz/}-v$version"
             git tag -a "$tag" -m "$name@$version"
             git push origin "$tag"
-            echo "veröffentlicht: $name@$version ($tag)"
+            gh release create "$tag" --verify-tag --title "$name@$version" --notes-file "$notes"
+            echo "veröffentlicht: $name@$version ($tag, GitHub Release)"
           done
       - name: Neue Modulversionen taggen
         run: |

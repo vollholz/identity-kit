@@ -89,7 +89,7 @@ describe('Nullable und EmptyAsNull mit AJV (coerceTypes)', () => {
 describe('EmptyAsNull in der OpenAPI', () => {
   test('"" als gültige Eingabe beschrieben (wie in buildApp), Nullable unverändert', async () => {
     const app = Fastify({ ...fastifyOptions(cfg), logger: false });
-    await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 't', version: '1' } }, transformObject: (d => emptyAsNullDocs(optionalBodies(d))) as never });
+    await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 't', version: '1' } }, transformObject: ((d: Parameters<typeof optionalBodies>[0]) => emptyAsNullDocs(optionalBodies(d))) as never });
     app.patch('/x', { schema: { body: Type.Object({ bis: EmptyAsNull(DateTime), id: Nullable(Uuid) }) } }, async () => null);
     await app.ready();
     const props = (app.swagger() as any).paths['/x'].patch.requestBody.content['application/json'].schema.properties;

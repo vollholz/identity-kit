@@ -23,11 +23,48 @@ export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'da
 TypeRegistry.Set('NullExakt', (_s, v) => v === null);
 const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
 /**
- * Wert oder `null`: `anyOf [null (genau), X, null]`. Mit `coerceTypes` (Plattform) machte `anyOf [X, null]` aus null
- * den Wert von X (0, "", false), `anyOf [null, X]` aus 0, "" und false null. Der erste Zweig nimmt null unverändert,
- * alle anderen Werte prüfen und wandeln X und `null` wie bisher.
+ * Wert oder `null`: `anyOf [null (genau), X]`, also X und zusätzlich `null`. Mit `coerceTypes` (Fastify) wandelt
+ * nur X um; was X ablehnt, ergibt 400. Bis 0.6.3 machte ein Zweig `{ type: 'null' }` auch ungültige Eingaben
+ * (0, "", false) zu null, davor `anyOf [X, null]` null zu 0, "" oder false. Leere Formularfelder: `EmptyAsNull`.
+ * Gleich wie in @vollholz/iam.
  */
-export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, Type.Null()]);
+export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s]);
+/**
+ * Genau "", als `null` weitergegeben: AJV prüft `const ""`, dann wandelt `type: 'null'` "" in null (andere Werte scheitern
+ * schon an `const`). Ohne Umwandlung (TypeBox `Value`, AJV ohne `coerceTypes`) trifft der Zweig nie zu.
+ */
+TypeRegistry.Set('LeerAlsNull', () => false);
+const EmptyToNull = Type.Unsafe<null>({ [Kind]: 'LeerAlsNull', allOf: [{ const: '' }, { type: 'null' }] });
+/**
+ * Wie `Nullable`, dazu "" als `null` (leere Felder aus Formularen, z. B. Datum). Nur "", nicht 0 oder false.
+ * `Value.Check` von TypeBox wandelt nicht um und lehnt "" ab.
+ */
+export const EmptyAsNull = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, EmptyToNull]);
+
+/** Zweig von `EmptyAsNull` in der OpenAPI (nach @fastify/swagger: `const` als `enum`). */
+function isEmptyToNull(n: Record<string, unknown>): boolean {
+  const all = n.allOf;
+  if (!Array.isArray(all) || all.length !== 2 || Object.keys(n).length !== 1) return false;
+  const [a, b] = all as Array<Record<string, unknown>>;
+  const empty = a && (a.const === '' || (Array.isArray(a.enum) && a.enum.length === 1 && a.enum[0] === ''));
+  return !!empty && Object.keys(a).length === 1 && b?.type === 'null' && Object.keys(b).length === 1;
+}
+/**
+ * OpenAPI: Zweig von `EmptyAsNull` als gültige Eingabe "" beschreiben. Im Schema ist er `allOf [{ const: "" }, { type:
+ * null }]` (AJV wandelt "" in null), das kein Wert erfüllt; Validatoren und Clients nach der Doku lehnten "" sonst ab.
+ * Für `transformObject` von @fastify/swagger (nach `optionalBodies`).
+ */
+export function emptyAsNullDocs<T>(doc: T): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== 'object') return v;
+    const n = v as Record<string, unknown>;
+    if (isEmptyToNull(n)) return { enum: [''], description: 'Leer (""), gilt als `null`.' };
+    for (const k of Object.keys(n)) n[k] = walk(n[k]);
+    return n;
+  };
+  return walk(doc) as T;
+}
 export const IdParams = Type.Object({ id: Uuid }, { additionalProperties: false });
 export const Limit = Type.Integer({ minimum: 1, maximum: 200, default: 50, description: 'Seitengrösse (höchstens 200).' });
 export const Cursor = Type.String({ maxLength: 512, description: 'Opaker Cursor aus `nextCursor` der vorherigen Seite.' });

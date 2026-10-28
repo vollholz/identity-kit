@@ -47,7 +47,7 @@ export {
 } from './http/public-route.ts';
 export { docEnv, exportOpenApi, type ExportOpenApiOptions } from './http/openapi-doc.ts';
 export {
-  Cursor, DateTime, IdempotencyHeaders, IdParams, IfMatchHeaders, Limit, NextCursor, Nullable, Uuid,
+  Cursor, DateTime, EmptyAsNull, IdempotencyHeaders, IdParams, IfMatchHeaders, Limit, NextCursor, Nullable, Uuid,
   actorOf, decodeCursor, encodeCursor, etag, record, requireIfMatch, type RecordEntry,
 } from './http/route-kit.ts';
 export { registerUi, safePath, uiCsp, uiModule } from './http/ui.ts';

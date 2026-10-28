@@ -9,6 +9,16 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [5.0.3] – 2026-10-28
+
+### Behoben
+
+- `Nullable(X)` in den Routen des Pakets machte mit `coerceTypes` aus **ungültigen** Eingaben `null` statt 400 (der
+  Zweig `{ type: 'null' }` wandelt 0, `""` und `false`, wenn X sie ablehnt). Neu `anyOf [{ const: null }, X]` wie in
+  `@vollholz/platform` 0.7.0. Betroffene Felder: `POST /v1/access` `id` und `secretExpiresAt` der Entra-Verbindung mit
+  `""` → bisher null, jetzt 400 (iam-web schickt `null`); die Beschreibung der Organisation (`""` bleibt `""`) und
+  alle anderen Eingaben unverändert. OpenAPI: der Zweig `{ type: "null" }` entfällt, erzeugte Typen bleiben `X | null`.
+
 ## [5.0.2] – 2026-10-28
 
 ### Behoben

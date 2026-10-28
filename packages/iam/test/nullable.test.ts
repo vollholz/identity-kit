@@ -1,11 +1,11 @@
 /**
- * `Nullable` mit den AJV-Optionen von Fastify (`coerceTypes: 'array'`, auch in der Plattform): null bleibt null, 0, ""
- * und false bleiben, alle anderen Eingaben wie bisher. `anyOf [X, null]` machte aus null den Wert von X (0, "", false).
+ * `Nullable` mit den AJV-Optionen von Fastify (`coerceTypes: 'array'`, auch in der Plattform) und mit TypeBox:
+ * `Nullable(X)` = X (mit dessen Umwandlung und Ablehnung) und zusätzlich null.
  */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { before, describe, test } from 'node:test';
-import { FormatRegistry } from '@sinclair/typebox';
+import { FormatRegistry, Kind } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { Value } from '@sinclair/typebox/value';
 import { Type, type TSchema } from '@sinclair/typebox';
@@ -42,14 +42,17 @@ describe('Nullable', () => {
     assert.equal(r.get('boolean ← false'), false);
   });
 
-  test('alle anderen Eingaben wie mit anyOf [X, null] (bis 5.0.0)', async () => {
-    const before = await results(s => Type.Union([s, Type.Null()]));
-    assert.equal(before.get('number ← null'), 0, 'Fehler der bisherigen Form');
-    assert.equal(before.get('string ← null'), '', 'Fehler der bisherigen Form');
+  test('Nullable(X) = X und zusätzlich null; Fehler der früheren Formen (bis 5.0.0: null → 0, bis 5.0.2: ungültig → null)', async () => {
+    const v500 = await results(s => Type.Union([s, Type.Null()]));
+    assert.deepEqual([v500.get('number ← null'), v500.get('string ← null')], [0, ''], 'bis 5.0.0');
+    const v502 = await results(s => Type.Union([Type.Unsafe({ [Kind]: 'NullExakt', const: null }), s, Type.Null()]));
+    assert.deepEqual([v502.get('number ← ""'), v502.get('object ← ""'), v502.get('uuid ← ""')], [null, null, null], 'bis 5.0.2');
+    const plain = await results(s => s);
     const after = await results(Nullable);
-    const diff = [...before].filter(([k, v]) => !k.endsWith('← null') && JSON.stringify(after.get(k)) !== JSON.stringify(v))
+    const diff = [...plain].filter(([k, v]) => JSON.stringify(after.get(k)) !== JSON.stringify(k.endsWith('← null') ? null : v))
       .map(([k, v]) => `${k}: ${JSON.stringify(v)} → ${JSON.stringify(after.get(k))}`);
     assert.deepEqual(diff, []);
+    assert.deepEqual([after.get('number ← ""'), after.get('object ← ""'), after.get('uuid ← ""')], [400, 400, 400]);
   });
 });
 

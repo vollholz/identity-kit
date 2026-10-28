@@ -9,6 +9,15 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.3.0] – 2026-10-28
+
+### Geändert
+
+- `CURRENT` nennt `@vollholz/iam` 5.0.0, `@vollholz/iam-web` 2.2.0, `@vollholz/platform` 0.6.0 und
+  `@vollholz/create-iam-app` 0.4.0.
+- Fenster der unterstützten Versionen rückt nach (Spezifikation 15.5): `MINIMUM` für `@vollholz/iam` ist 4.0.0.
+  Migration (nur Apps auf `@vollholz/iam` 3.x): auf 4.0.0 oder 5.0.0 anheben (docs/ausrollen.md).
+
 ## [2.2.0] – 2026-10-28
 
 ### Geändert

@@ -66,7 +66,6 @@ export const clientsModule: IamModule = {
   register(app: FastifyInstance, ctx: ModuleContext) {
     const { iam, prefix } = ctx;
     const S = iam.schema;
-    const roleOrder = [...iam.model.roles.keys()];
     if (!app.getSchema('Client')) app.addSchema(ClientSchema);
 
     const own = async (req: FastifyRequest): Promise<Target> => {
@@ -96,7 +95,7 @@ export const clientsModule: IamModule = {
       const params = Type.Object({ ...(aliasParam ? Alias : {}), clientId: Type.String({ pattern: CLIENT_ID_PATTERN }) });
       app.get(base, {
         schema: routeSchema(ctx, 'GET', base, { tags: [TAG_CLIENTS], summary: 'Freigegebene Maschinen-Clients', ...(aliasParam ? { params: Type.Object(Alias) } : {}), response: { 200: Type.Object({ items: Type.Array(Type.Ref('Client')) }) } }),
-      }, async req => { const t = await scope(req); return { items: await inTenant(t, tx => listClients(tx, S, roleOrder)) }; });
+      }, async req => { const t = await scope(req); return { items: await inTenant(t, async tx => listClients(tx, S, [...(await iam.access.modelIn(tx)).roles.keys()])) }; });
 
       app.put(`${base}/:clientId`, {
         schema: routeSchema(ctx, 'PUT', `${base}/:clientId`, {
@@ -121,7 +120,7 @@ export const clientsModule: IamModule = {
              RETURNING id`, [clientId, b.description?.trim() ?? '', t.actor.name, b.description === undefined ? null : b.description.trim()])).rows[0]!.id;
           await setOrgRoles(tx, { access: iam.access, tuples: iam.tuples, schema: S, acting: t, subject: `client:${id}`, roles: b.roles, createdBy: t.platform ? null : t.actor.principalId, actor: actorOf(req, t) });
           if (b.clearance !== undefined) await setClearance(tx, { access: iam.access, schema: S, acting: t, principalId: id, clearance: b.clearance });
-          const c = (await listClients(tx, S, roleOrder, clientId))[0]!;
+          const c = (await listClients(tx, S, [...(await iam.access.modelIn(tx)).roles.keys()], clientId))[0]!;
           await record(req, tx, t, 'client.granted', id, { clientId, roles: c.roles, clearance: c.clearance });
           return c;
         });
@@ -139,7 +138,7 @@ export const clientsModule: IamModule = {
           if (!id) throw notFound('Freigabe');
           const roles = (await tx.query<{ relation: string }>(`SELECT relation FROM ${S}.authz_tuple WHERE subject = $1 AND object_type = 'org'`, [`client:${id}`])).rows.map(r => r.relation);
           if (!roles.length) throw notFound('Freigabe');
-          await checkRoleChange(iam.access, t, roles);
+          await checkRoleChange(iam.access, t, roles, await iam.access.modelIn(tx));
           await iam.tuples.revokeSubject(tx, `client:${id}`, actorOf(req, t));
           await record(req, tx, t, 'client.revoked', id, { clientId });
         });

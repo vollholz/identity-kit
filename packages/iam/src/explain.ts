@@ -79,14 +79,14 @@ export class AccessInfo {
     // org-admin nur über die Plattform-Administration (/v1/platform/…); im Mandanten gibt die Realm-Rolle keine Rechte
     if (relation === ADMIN_ROLE) return new HttpError(403, 'Keine Berechtigung', `Die Rolle «${a.model.roles.get(ADMIN_ROLE)?.label}» vergibt und entzieht nur die Plattform-Administration.`, {}, { reason: 'platform-admin-only' });
     if (!a.decide(p, acl, 'access:admin', ref, hint, facts)) return a.missingPermission('access:admin', ref.type === ORG ? '' : ' an diesem Ort');
-    const missing = [...a.model.permissionsOf(relation, ref.type)].filter(perm => !a.decide(p, acl, perm, ref, hint, facts));
+    const missing = [...acl.model.permissionsOf(relation, ref.type)].filter(perm => !a.decide(p, acl, perm, ref, hint, facts));
     if (missing.length) return new HttpError(403, 'Keine Berechtigung', `Die Rolle enthält Rechte, die du hier nicht hast: ${missing.map(x => a.model.permissionText(x)).join(', ')}.`, {}, { reason: 'exceeds-own', missing });
     return null;
   }
 
   /** Relationen, die `p` an diesem Ort vergeben darf (ohne `owner`, das setzt nur die App). */
   grantable(p: Principal, acl: TenantAccess<any>, ref: ResourceRef, facts: Facts, hint?: string | null): string[] {
-    return this.access.model.relationsAt(ref.type).filter(r => r !== OWNER && !this.manageProblem(p, acl, ref, r, facts, hint));
+    return acl.model.relationsAt(ref.type).filter(r => r !== OWNER && !this.manageProblem(p, acl, ref, r, facts, hint));
   }
 
   /** Namen der Subjekte (Personen, Clients aus `principal`; Gruppen aus Graph; «Alle Mitglieder»). */
@@ -139,9 +139,9 @@ export class AccessInfo {
     for (let i = chain.length - 1; i >= 0; i--) {
       const step = chain[i]!, here = i === chain.length - 1;
       for (const t of a.at(acl, step)) {
-        if (!live(t, now) || !a.model.relationsAt(t.object_type).includes(t.relation)) continue;
+        if (!live(t, now) || !acl.model.relationsAt(t.object_type).includes(t.relation)) continue;
         if (here) list.push({ t, via: 'direct', removable: t.relation !== OWNER && !this.manageProblem(p, acl, ref, t.relation, facts, hint) });
-        else if (t.relation !== MEMBER && t.relation !== OWNER && a.model.roles.get(t.relation)?.permissions.includes(type.read)) list.push({ t, via: 'inherited', removable: false });
+        else if (t.relation !== MEMBER && t.relation !== OWNER && acl.model.roles.get(t.relation)?.permissions.includes(type.read)) list.push({ t, via: 'inherited', removable: false });
       }
     }
     for (const s of await this.scopeEntries(p.tenantId, acl, ref)) list.push(s);

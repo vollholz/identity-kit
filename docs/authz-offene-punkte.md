@@ -49,7 +49,7 @@ Abschlussbericht eines PRs, nicht durch Bauen.
 | O1 | Entra-Gruppen: Überlauf bei mehr als 200 Gruppen (Entra liefert dann keinen `groups`-Claim); ggf. Gruppen-Filter in der App-Registrierung oder Abfrage über Graph | Review #43 | offen, nach P1 |
 | O2 | Attribut `entra_groups` im Realm-User-Profile | P4 | entschieden: im Modul deklariert, nur admin, mehrwertig |
 | O4 | `catalog.platformJson()` ohne `roles`; `machine_clients` im Modul ohne `roles` | P4 | erledigt (#47) |
-| O5 | Eigene Rollen der Organisation (D3): später als Rollen aus Tabelle mit derselben API möglich | Person | zurückgestellt: entscheidet die Person später |
+| O5 | Eigene Rollen der Organisation (D3): später als Rollen aus Tabelle mit derselben API möglich | Person | entschieden (Person, «alle Punkte»): umgesetzt in iam 5.0, siehe O17 |
 | O6 | Besitz (`owner`) übertragen | P0 A7 | offen, nicht in diesem Vorhaben |
 | O7 | Release-Hinweis 1.0: neue Symbole `arrow`, `lock` in `IamIconName`; OpenAPI-Auszug in iam-web erneuern, sobald P1 eine OpenAPI liefert | P6 | an P7 |
 | O8 | Alte Dateien in packages/iam löschen (alte Module, Tests, Skripte, Fixtures; Liste in #47); bestehende Migrationen bleiben | P1 | erledigt (identity-kit#54) |
@@ -59,6 +59,7 @@ Abschlussbericht eines PRs, nicht durch Bauen.
 | O14 | `platform.reset` nur im Workflow-Protokoll (stdout), nicht in der Datenbank; bei Bedarf Plattform-Audit ohne Mandant (eigene Tabelle) | P12 #55 | offen, nur bei Bedarf |
 | O15 | Versionstabelle in docs/neue-app.md veraltet | P12 #55 | erledigt |
 | O16 | Environment «production» einer App ohne Pflicht-Reviewer: jeder Workflow-Start (auch reset) läuft sofort | – | Hinweis an die Betreiber der App |
+| O17 | Rollen zur Laufzeit (PPM UC-016 A2, BC AM.01.02): Organisationen stellen eigene Rollen aus den Rechten des Modells zusammen | PPM | umgesetzt in iam 5.0 / iam-web 2.2 mit konservativen Entscheiden: (a) eine eigene Rolle ergänzt nur, überschreibt nie eine Rolle des Modells (Schlüssel `c-…`, Rollen des Modells mit `c-` sind ein Modellfehler); (b) nur Rechte des Modells, keine, die nur org-admin hat (also nie `members:admin`, `roles:admin`, solange keine Rolle des Modells sie enthält); (c) niemand gibt mehr, als er hat – auch beim Ändern (Rechte vorher und nachher) und Löschen; (d) löschen und Orte entfernen nur unvergeben (409 `in-use`, Trigger), keine stille Entfernung von Vergaben; (e) Inhalt ändern wirkt sofort für alle Vergaben (keine Versionierung); (f) höchstens 50 je Organisation, Namen eindeutig; (g) ändert sich das Modell, fallen Rechte und Orte weg, nie mehr Rechte; (h) Standard an, abschaltbar mit `features.customRoles: false`; (i) Plattform-Administration darf ohne eigene Rechte zusammenstellen. Offen: Haken (`events`) für Änderungen am Inhalt einer Rolle (Personen informieren, deren Rechte sich ändern) |
 | O3 | IdP-Mapper `entra-groups` (oidc-user-attribute-idp-mapper, claim groups → entra_groups, FORCE) muss `idpRepresentation()` in packages/iam/src/entra.ts anlegen | P4 | erledigt (#47) |
 
 ## Verworfen

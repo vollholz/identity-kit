@@ -40,7 +40,7 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Konto', description: 'Angemeldete Person oder Maschine, Mandant und Rechte (`/v1/me`).' },
   { name: 'Anmeldung (Oberfläche)', description: 'Sitzung der Webapp (BFF): Anmelden, Abmelden, Mandant wechseln. Für API-Clients nicht nötig.' },
   { name: 'Zugriff', description: 'Wer hat Zugriff, warum, Freigaben an Orten (Wer – Rolle – Ort), Break-Glass.' },
-  { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder und Maschinen-Clients der eigenen Organisation: einladen, entfernen, Rollen an der Organisation und Freigabestufe setzen (Recht «Mitglieder und Rollen verwalten»).' },
+  { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder und Maschinen-Clients der eigenen Organisation: einladen, entfernen, Rollen an der Organisation und Freigabestufe setzen (Recht «Mitglieder und Rollen verwalten»); eigene Rollen der Organisation zusammenstellen (Recht «Rollen zusammenstellen»).' },
   { name: 'Verwaltung: Anmeldung über Microsoft Entra ID', description: 'Organisation mit ihrem Entra-Tenant verbinden, «Nur Entra» aktivieren, Personen aus Entra ID hinzufügen.' },
   { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },
   { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },

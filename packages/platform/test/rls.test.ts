@@ -39,7 +39,7 @@ const TENANT_TABLES: Record<string, (tx: Tx, tenantId: string) => Promise<string
 };
 
 /** Tabellen von @vollholz/iam mit tenant_id: RLS, Policies und Trennung prüft das Paket selbst (und die Prüfungen unten). */
-const KIT_TABLES = ['principal', 'authz_tuple', 'member_invitation', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent', 'entra_consent_link'];
+const KIT_TABLES = ['principal', 'authz_tuple', 'authz_role', 'member_invitation', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent', 'entra_consent_link'];
 
 /** Tabellen ohne tenant_id, auf die Laufzeit oder Worker Rechte haben – jede mit Begründung. */
 const WITHOUT_TENANT: Record<string, string> = {
@@ -55,6 +55,7 @@ const POLICIES = [
   'probe.tenant.tenant_self PERMISSIVE ALL probe_app USING (id = app.tenant_id()) CHECK (id = app.tenant_id())',
   "probe.entra_connection.entra_scan PERMISSIVE SELECT probe_owner USING (current_setting('app.entra_scan'::text, true) = 'on'::text) CHECK -",
   'probe.principal.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  'probe.authz_role.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'probe.authz_tuple.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'probe.audit_log.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   // Plattform (platform_001_core): Scheduler liest über alle Mandanten, schreibt ohne Kontext oder nur im gesetzten

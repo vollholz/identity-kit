@@ -465,7 +465,9 @@ erlaubt = Beziehung ergibt Recht  ∧  Klassifizierung ≤ Freigabestufe  ∧  S
 
 - Keine Verbote, keine Beschränkungen, kein `blocked`, keine Ausnahme für `org-admin` (D2). `org-admin` hat alle Rechte,
   weil die Rolle alle Rechte enthält; an der Klassifizierung scheitert auch diese Rolle (Break-Glass, [7.8](#78-klassifizierung-freigabestufe-und-break-glass)).
-- Keine eigenen Rollen der Organisation (D3); Rollen kommen nur aus dem Modell, Zuweisungen nur aus Tupeln (D6).
+- Rollen kommen aus dem Modell und, ab iam 5.0, aus eigenen Rollen der Organisation (D3 revidiert, O17): aus den
+  Rechten des Modells zusammengestellt, Schlüssel `c-…`, nie eine Rolle des Modells überschreibend, abschaltbar
+  (`features.customRoles`). Zuweisungen kommen nur aus Tupeln (D6).
 
 | Frage | Backend | Endpunkt |
 |---|---|---|

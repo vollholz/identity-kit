@@ -220,6 +220,32 @@ problem+json und die Module:
   Umgebungen denselben Speicher (z. B. E2E und lokale App), trennt `RATE_LIMIT_NAMESPACE` ihre Zähler: Die Schlüssel
   des Pakets lauten dann `<namespace>:<produkt>:…`.
 
+### Eigene Rollen der Organisation (Modul `roles`)
+
+Ab 5.0 stellt eine Organisation zur Laufzeit eigene Rollen aus den Rechten des Modells zusammen (Recht `roles:admin`,
+Seite «Rollen» in `@vollholz/iam-web`). Das Modell der App bleibt im Code; seine Rollen bleiben als Vorgabe. Abschalten:
+`defineModel({ …, features: { customRoles: false } })` (dann kein `roles:admin`, kein Modul `roles`, Relationen `c-…`
+lehnt die Datenbank ab).
+
+```ts
+// Modell der Organisation (Rollen des Modells + eigene), zwischengespeichert bis zur nächsten Änderung (acl_version)
+const m = await iam.access.modelOf(p.tenantId);
+m.isRole('c-pruefer'); m.permissionsForRoles(['c-pruefer']); m.relationsAt('folder');
+// Aus der App heraus anlegen (wie POST /v1/admin/roles), in einer Transaktion im Mandanten
+await withTenant(iam.db, { tenantId, principalId }, tx => iam.roles!.create(tx, { actor: p, platform: false }, actor,
+  { label: 'Prüfer:in', permissions: ['note:read'], places: ['org', 'folder'] }));
+```
+
+- Schlüssel immer `c-…` (aus dem Namen, wenn nicht angegeben); eine eigene Rolle überschreibt nie eine Rolle des Modells.
+- Erlaubt sind nur Rechte des Modells, keine, die nur org-admin hat; wer zusammenstellt, hat jedes Recht der Rolle
+  (beim Ändern vorher und nachher), ausser der Plattform-Administration.
+- `places`: Typen, an denen die Rolle hängen darf (`org` für die Organisation). Ein Trigger in der Datenbank lässt Tupel
+  `c-…` nur an diesen Orten zu und verhindert Löschen bzw. Entfernen eines Orts, solange die Rolle dort vergeben ist.
+- Entscheidung, Lesesicht (RLS), «Wer hat Zugriff?», «Warum?», Rollen setzen, Einladen, Freigaben und Clients lösen
+  eigene Rollen wie Rollen des Modells auf; `GET /v1/authz/catalog` liefert sie in der Organisation mit (`custom: true`).
+- Policies der App brauchen nichts Neues: Die Lesesicht (`app.permission_relations`, `app.read_relations` …) enthält die
+  eigenen Rollen.
+
 ### Ereignisse und Haken (`events`)
 
 `events` in `createIam` (und `MemberSync` im Worker; `@vollholz/platform`: `AppSpec.iamEvents` für beides) ist ein

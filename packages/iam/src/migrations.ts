@@ -30,7 +30,7 @@ import pg from 'pg';
 import { productIdent } from './config.ts';
 import { pgSsl, type DbSsl } from './db.ts';
 import { LOCKS } from './locks.ts';
-import { ADMIN_ROLE, ORG, type Model } from './model.ts';
+import { ADMIN_ROLE, CUSTOM_ROLE_SQL, ORG, type Model } from './model.ts';
 
 export interface Migration { name: string; sql: string; checksum: string }
 
@@ -149,11 +149,16 @@ export interface ModelChecksInput {
   types: readonly string[]; relations: readonly string[];
   /** Relationen je Typ (`relationsAt`): neue Tupel mit anderer Relation am Typ lehnt die Datenbank ab; bestehende bleiben (NOT VALID). */
   places?: Readonly<Record<string, readonly string[]>>;
+  /** Eigene Rollen der Organisationen zulassen (Relationen «c-…»; ihre Orte prüft der Trigger aus iam_019). */
+  customRoles?: boolean;
 }
 
 /** Typen und Relationen eines Modells (Relationen aller Typen und alle Rollen). */
-export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'>): ModelChecksInput {
-  return { types: [...model.types.keys()], relations: model.allRelations(), places: Object.fromEntries([...model.types].map(([k, t]) => [k, t.relations])) };
+export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'> & { features?: Pick<Model['features'], 'customRoles'> }): ModelChecksInput {
+  return {
+    types: [...model.types.keys()], relations: model.allRelations(), places: Object.fromEntries([...model.types].map(([k, t]) => [k, t.relations])),
+    ...(model.features?.customRoles ? { customRoles: true } : {}),
+  };
 }
 
 function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
@@ -162,7 +167,7 @@ function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
   for (const t of [...types, ...relations]) if (!TYPE.test(t)) throw new Error(`model: Schlüssel «${t}» ungültig`);
   const places = o?.places;
   if (places) for (const [t, rels] of Object.entries(places)) for (const x of [t, ...rels]) if (!TYPE.test(x)) throw new Error(`model: Schlüssel «${x}» ungültig`);
-  return { types, relations, ...(places ? { places } : {}) };
+  return { types, relations, ...(places ? { places } : {}), ...(o?.customRoles ? { customRoles: true } : {}) };
 }
 
 const lit = (v: string) => `'${v}'`;
@@ -175,13 +180,19 @@ const inCheck = (col: string, v: readonly string[]) => ({
 
 /** Bedingungen von `authz_tuple` zu Relationen und Typen: SQL zum Anlegen und die Form, die PostgreSQL ausgibt. */
 export function modelChecks(o?: ModelChecksInput): Record<string, { sql: string; def: string; tag?: string }> {
-  const { types, relations, places } = checkInput(o);
-  const out: Record<string, { sql: string; def: string; tag?: string }> = { authz_tuple_relation_check: inCheck('relation', relations), authz_tuple_object_type_check: inCheck('object_type', types) };
+  const { types, relations, places, customRoles } = checkInput(o);
+  const tagged = (sql: string) => ({ sql, def: '', tag: `model:${createHash('sha256').update(sql).digest('hex').slice(0, 16)}` });
+  // Eigene Rollen: Relationen «c-…» zusätzlich (ihre Orte prüft der Trigger authz_tuple_custom_role)
+  const custom = customRoles ? ` OR relation ~ '${CUSTOM_ROLE_SQL}'` : '';
+  const out: Record<string, { sql: string; def: string; tag?: string }> = {
+    authz_tuple_relation_check: customRoles ? tagged(`CHECK (relation IN (${relations.map(lit).join(', ')})${custom})`) : inCheck('relation', relations),
+    authz_tuple_object_type_check: inCheck('object_type', types),
+  };
   if (places) {
     // Je Typ nur seine Relationen; NOT VALID: bestehende Tupel (z. B. Rolle nach dem Begrenzen von `types.org.roles`) bleiben,
     // sie zählen in der Entscheidung nicht mehr, neue und geänderte werden abgelehnt.
-    const sql = `CHECK (${types.map(t => `(object_type = ${lit(t)} AND relation IN (${(places[t] ?? []).map(lit).join(', ') || "''"}))`).join(' OR ')}) NOT VALID`;
-    out.authz_tuple_type_relation_check = { sql, def: '', tag: `model:${createHash('sha256').update(sql).digest('hex').slice(0, 16)}` };
+    const sql = `CHECK (${types.map(t => `(object_type = ${lit(t)} AND (relation IN (${(places[t] ?? []).map(lit).join(', ') || "''"})${custom}))`).join(' OR ')}) NOT VALID`;
+    out.authz_tuple_type_relation_check = tagged(sql);
   }
   return out;
 }
@@ -193,7 +204,7 @@ export function modelChecks(o?: ModelChecksInput): Record<string, { sql: string;
  */
 export async function syncModelChecks(c: pg.ClientBase, schema: string, model?: ModelChecksInput | Pick<Model, 'types' | 'allRelations'>): Promise<string[]> {
   if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
-  const want = modelChecks(model && 'allRelations' in model ? modelChecksInput(model) : model);
+  const want = modelChecks(model && 'allRelations' in model ? modelChecksInput(model as Model) : model);
   if (!(await c.query('SELECT to_regclass($1) AS t', [`${schema}.authz_tuple`])).rows[0].t) return [];
   const have = new Map((await c.query<{ n: string; d: string }>(
     `SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = '${schema}.authz_tuple'::regclass AND conname = ANY ($1)`,

@@ -438,7 +438,7 @@ Kurzfassung der Analyse vom 2026-10-23; Details in den Dateien selbst.
 |---|---|---|
 | OpenFGA / SpiceDB | kein Gewinn bei List/Filter, zweite Wahrheit, Betrieb | ja, hinter derselben API, falls eine App Check-Last jenseits von Postgres braucht |
 | Verbote, Beschränkungen, `blocked` | brechen «Wer hat Zugriff?» und die Lesesicht; Klassifizierung und Zuständigkeit decken die Fälle | nein, bewusst |
-| Eigene Rollen der Organisation | «Rolle am Ort» + Freigaben ersetzen den Bedarf; Rollensatz bleibt klein (E4) | ja, als App-Modellerweiterung |
+| Eigene Rollen der Organisation | «Rolle am Ort» + Freigaben ersetzen den Bedarf; Rollensatz bleibt klein (E4) | umgesetzt in iam 5.0 (O17): Erweiterung des Modells je Organisation, nur ergänzend, abschaltbar |
 | Personen als Fachobjekte (Stellen, Rolleninhaber) | Attribut `user` bleibt der Anker | ja |
 | Folgen-Vorschau beim Ändern («12 mehr, 30 weniger») | teuer (Vorher/Nachher-Mengen), UX-Nutzen erst mit Zuständigkeit im Alltag belegt | ja, Panel zeigt Folgen nachher |
 | Zugriff anfragen, Genehmigung, Rezertifizierung, verborgene Nachbarn im Graph | Workflow-Produkt für sich; verborgene Platzhalter geben Existenz preis | ja |

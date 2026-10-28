@@ -33,7 +33,7 @@ import { notLinkable, type EntraGraph, type EntraUser } from './graph.ts';
 import { listClients } from './http/clients.ts';
 import { KeycloakAdmin, KeycloakError, type KcOrg, type KcUser } from './keycloak.ts';
 import { lockKey } from './locks.ts';
-import { ADMIN_ROLE, type Level, type Model } from './model.ts';
+import { ADMIN_ROLE, CUSTOM_ROLE_KEY, type Level, type Model } from './model.ts';
 import { ALIAS_PATTERN, asciiLower, type Account, type Principal, type PrincipalResolver } from './principal.ts';
 import { checkRoleChange, checkRoles, lastAdminGuard, setClearance, setOrgRoles, type Acting } from './rules.ts';
 import { displayName, orgMatches, pendingActions, syncTenantMembers, syncTenantName, type SyncContext } from './sync.ts';
@@ -171,7 +171,27 @@ export class AdminService {
 
   private get tenants(): TenantsContext { return { schema: this.deps.schema, audit: this.deps.audit, resolver: this.deps.resolver }; }
   private get sync(): SyncContext { return { schema: this.deps.schema, audit: this.deps.audit, events: this.deps.events ?? null }; }
-  private get roleOrder() { return [...this.deps.model.roles.keys()] as string[]; }
+  /** Reihenfolge der Rollen im Modell der Organisation (Rollen des Modells, dann eigene). */
+  private roleOrder(model: Model): string[] { return [...model.roles.keys()]; }
+
+  /**
+   * Rollen vor jeder Änderung prüfen (422, 403 ohne Aufruf bei Keycloak). Eigene Organisation: mit ihrem Modell; Plattform
+   * (Organisation erst unter der Sperre bekannt): Rollen des Modells hier, eigene Rollen in `setOrgRoles` unter der Sperre.
+   */
+  private async precheckRoles(s: Scope, wanted: string[], all = true): Promise<string[]> {
+    const a = this.deps.access;
+    if (!s.platform) {
+      const model = await a.modelOf(s.actor.tenantId);
+      const roles = checkRoles(a, wanted, '/roles', model);
+      // Neue Person: alle Rollen sind neu (beim Setzen zählen nur die Änderungen, in setOrgRoles)
+      if (all) await checkRoleChange(a, { actor: s.actor, platform: false }, roles, model);
+      return roles;
+    }
+    const custom = a.model.features.customRoles ? wanted.filter(r => CUSTOM_ROLE_KEY.test(r)) : [];
+    const own = checkRoles(a, wanted.filter(r => !custom.includes(r)));
+    if (all) await checkRoleChange(a, { actor: s.actor, platform: true }, own);
+    return [...new Set([...own, ...custom])];
+  }
 
   // ---------------------------------------------------------------- Organisation
   async org(alias: string, fresh = false): Promise<KcOrg> {
@@ -282,7 +302,7 @@ export class AdminService {
     return subject => {
       const mine = acl.tuples.filter(t => t.subject === subject);
       const roles = new Set(mine.filter(t => t.object_type === 'org' && (!t.expires_at || t.expires_at.getTime() > now)).map(t => t.relation));
-      return { roles: this.roleOrder.filter(r => roles.has(r)), places: mine.filter(t => t.object_type !== 'org').length };
+      return { roles: this.roleOrder(acl.model).filter(r => roles.has(r)), places: mine.filter(t => t.object_type !== 'org').length };
     };
   }
 
@@ -335,7 +355,7 @@ export class AdminService {
         const p = principals.get(i.user_id)!, tv = view(`user:${p.id}`);
         out.push(AdminService.invited(i, { principalId: p.id, roles: tv.roles, places: tv.places, clearance: p.clearance }, org.alias, inv.idpAlias));
       }
-      for (const c of await listClients(tx, this.S, this.roleOrder)) {
+      for (const c of await listClients(tx, this.S, this.roleOrder(await this.deps.access.modelIn(tx)))) {
         out.push({
           id: c.clientId, kind: 'client', principalId: c.principalId, username: c.clientId, name: c.clientId, email: null, status: 'active', roles: c.roles,
           clearance: c.clearance, breakGlassUntil: null, places: c.places, lastSeenAt: c.lastUsedAt, createdAt: c.createdAt, loginPath: null,
@@ -402,8 +422,7 @@ export class AdminService {
   async invite(s: Scope, input: { email: string; firstName?: string; lastName?: string; roles: string[] }): Promise<{ result: 'invitation-sent'; emailSent: boolean; member: Member }> {
     const email = input.email.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) throw invalid('E-Mail-Adresse ungültig', [{ path: '/email', message: 'Gültige E-Mail-Adresse angeben' }]);
-    const roles = checkRoles(this.deps.access, input.roles);
-    await checkRoleChange(this.deps.access, { actor: s.actor, platform: s.platform }, roles);
+    const roles = await this.precheckRoles(s, input.roles);
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     const name = [input.firstName, input.lastName].map(x => x?.trim()).filter(Boolean).join(' ') || email;
@@ -440,7 +459,8 @@ export class AdminService {
         // Ohne Angabe, ob das Konto neu ist: das Protokoll lesen auch Personen dieser Organisation
         await log({ action: 'member.invited', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent } });
         const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
-        return { result: 'invitation-sent' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: this.roleOrder.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, null) };
+        const order = this.roleOrder(await this.deps.access.modelIn(tx));
+        return { result: 'invitation-sent' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, null) };
       } catch (e) {
         // Nichts Halbes zurücklassen (Transaktion wird zurückgerollt): nur das mit dieser Einladung angelegte Konto löschen
         if (createdAccount && userId && await this.kc.deleteUser(userId).then(() => true, () => false)) {
@@ -483,8 +503,7 @@ export class AdminService {
    * Tupel. Antwort und Dauer gleich für neue und bestehende Konten (Mandantentrennung).
    */
   async addFromEntra(s: Scope, ent: EntraLink, input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; member: Member }> {
-    const roles = checkRoles(this.deps.access, input.roles);
-    await checkRoleChange(this.deps.access, { actor: s.actor, platform: s.platform }, roles);
+    const roles = await this.precheckRoles(s, input.roles);
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
     return this.padded(() => this.locked(s, org, { action: 'member.entra_add_failed', resourceType: 'member', resourceId: null }, async w => {
@@ -530,7 +549,8 @@ export class AdminService {
         const emailSent = input.sendEmail === false ? false : await this.sendEntraInvitation(user, c.idpAlias, org.alias);
         await w.log({ action: 'member.added_from_entra', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent, entraId: p.id } });
         const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
-        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: this.roleOrder.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, c.idpAlias) };
+        const order = this.roleOrder(await this.deps.access.modelIn(tx));
+        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, c.idpAlias) };
       } catch (e) {
         // Wie beim Einladen: ein selbst angelegtes Konto löschen, bei einem bestehenden nur zurücknehmen, was dieser
         // Aufruf geändert hat. Ein entferntes Passwort lässt sich nicht zurückgeben.
@@ -615,7 +635,7 @@ export class AdminService {
         if (userId === s.actor.subject && s.actor.kind === 'user') throw conflict('Du kannst dich nicht selbst aus der Organisation entfernen.', { reason: 'self' });
         const principalId = await this.principalIdOf(tx, userId);
         const roles = principalId ? await this.deps.tuples.rolesAtOrg(tx, `user:${principalId}`) : [];
-        await checkRoleChange(this.deps.access, acting, roles);
+        await checkRoleChange(this.deps.access, acting, roles, await this.deps.access.modelIn(tx));
         if (principalId && roles.includes(ADMIN_ROLE)) await lastAdminGuard(tx, this.S, principalId, this.deps.model.roles.get(ADMIN_ROLE)?.label, this.accountActive);
         // Haken der App vor jeder Änderung in Keycloak: lehnt er ab (wirft), bleibt alles, wie es war
         const event: MemberEventData = { memberId: t.id, userId, principalId, email: t.invitation?.email ?? t.user?.email ?? null, roles, invitation: !!t.invitation, platform: s.platform };
@@ -659,7 +679,7 @@ export class AdminService {
 
   /** Rollen einer Person (Mitglieds- oder Einladungs-ID) an der Organisation auf genau diese Liste setzen (Tupel). */
   async setRoles(s: Scope, id: string, wanted: string[]): Promise<Member> {
-    const roles = checkRoles(this.deps.access, wanted);
+    const roles = await this.precheckRoles(s, wanted, false);
     const org = await this.org(s.alias);
     await this.locked(s, org, null, async ({ tx, tenantId, log, acting }) => {
       const t = await this.target(tx, org, id);
@@ -667,7 +687,7 @@ export class AdminService {
       const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, isActive: this.accountActive, actor: this.eventActor(s) });
       if (!added.length && !removed.length) return;
       await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: principalId, data: { added, removed } });
-      if (!this.deps.model.permissionsForRoles(roles).has('members:admin')) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);
+      if (!(await this.deps.access.modelIn(tx)).permissionsForRoles(roles).has('members:admin')) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);
     });
     return this.member(s, id);
   }

@@ -30,6 +30,7 @@ const IAM_ROUTES = [
   ...['/v1/admin/members', '/v1/platform/organizations/{alias}/members'].flatMap(b => [`GET ${b}/entra-search`, `POST ${b}/entra`]),
   'POST /v1/admin/entra/test', 'POST /v1/platform/entra/refresh',
   'GET /v1/people', 'GET /v1/people/{id}',
+  ...['/v1/admin/roles', '/v1/platform/organizations/{alias}/roles'].flatMap(b => [`GET ${b}`, `POST ${b}`, `PUT ${b}/{key}`, `DELETE ${b}/{key}`]),
 ];
 
 describe('OpenAPI der Routen des Pakets', { skip }, () => {

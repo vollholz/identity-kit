@@ -13,6 +13,8 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 Ab 4.0.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md); die Liste hier endet mit 3.2.1.
 
+- **5.0.0:** Eigene Rollen der Organisation (Recht `roles:admin`, Modul `roles`, Migration `iam_019`). Details und
+  Migration: [CHANGELOG.md](CHANGELOG.md).
 - **4.0.0:** Haken der App `events: { before, after }` (Entfernen eines Mitglieds, Rollen an Orten, Abgleich),
   `migrate` mit TLS nach `DATABASE_SSL`. Breaking: Form von `IamEvents`. Details und Migration: [CHANGELOG.md](CHANGELOG.md).
 - **3.2.1:** `iamWarnings` warnt auch im Worker vor `KEYCLOAK_MGMT_CLIENT_SECRET` statt privatem Schlüssel: Ab

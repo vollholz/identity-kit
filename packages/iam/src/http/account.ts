@@ -34,6 +34,7 @@ export function authzCatalogSchema(model: Model) {
     roles: Type.Array(Type.Object({
       key: Type.String(), label: Type.String(), description: Type.String({ description: 'Nennt alle Rechtegruppen der Rolle' }),
       permissions: Type.Array(PermissionT), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }),
+      custom: Type.Optional(Type.Literal(true, { description: 'Eigene Rolle der Organisation (`roles:admin`); fehlt bei Rollen des Modells' })),
     })),
     scopes: Type.Array(Type.Object({ key: Type.String(), text: Type.String(), permissions: Type.Array(PermissionT) }), { description: 'OAuth-Scopes für Maschinen-Clients und MCP' }),
     types: Type.Array(Type.Object({
@@ -157,12 +158,15 @@ export const accountModule: IamModule = {
       config: { iam: { contexts: ['tenant', 'account'] } },
       schema: routeSchema(ctx, 'GET', `${prefix}/authz/catalog`, {
         tags: [TAG_ACCOUNT], summary: 'Rechte, Rollen, Scopes und Orte mit Bezeichnungen',
-        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
+        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). In einer Organisation mit ihren eigenen Rollen (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
         response: { 200: authzCatalogSchema(iam.model) },
       }),
     }, async (req, reply) => {
-      if (!req.account) req.requirePrincipal();
       reply.header('Vary', 'Accept-Language');
+      // In einer Organisation: Modell der App mit ihren eigenen Rollen
+      const p = req.principal;
+      if (p && iam.model.features.customRoles) return (await iam.access.modelOf(p.tenantId)).toJSON();
+      if (!req.account) req.requirePrincipal();
       return json;
     });
   },

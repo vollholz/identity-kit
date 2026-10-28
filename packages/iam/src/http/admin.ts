@@ -51,7 +51,7 @@ const Organization = Type.Object({
 
 /** Recht aus dem Modell der App, als enum im OpenAPI (Typen für die Apps). */
 const permission = (perms: readonly string[]) => Type.Unsafe<string>({ type: 'string', enum: [...perms] });
-const statusRole = (model: Model) => Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(permission(model.permissions)), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }) });
+const statusRole = (model: Model) => Type.Object({ key: Type.String(), label: Type.String(), description: Type.String(), permissions: Type.Array(permission(model.permissions)), adminOnly: Type.Boolean({ description: 'Nur die Plattform-Administration vergibt diese Rolle' }), custom: Type.Optional(Type.Literal(true, { description: 'Eigene Rolle der Organisation (fehlt bei Rollen des Modells)' })) });
 const Roles = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true });
 const ALIAS = Type.String({ minLength: 1, maxLength: 63, pattern: '^[a-z0-9][a-z0-9_-]{0,62}$' });
 const UserParams = Type.Object({ id: Type.String({ format: 'uuid' }) });
@@ -110,8 +110,10 @@ export const adminModule: IamModule = {
         }) },
       }),
     }, async req => {
-      const roles = iam.model.toJSON().roles.filter(r => iam.model.relationsAt(ORG).includes(r.key));
       const p = req.requirePrincipal();
+      // Modell der Organisation: Rollen des Modells, dann ihre eigenen Rollen
+      const model = await iam.access.modelOf(p.tenantId);
+      const roles = model.toJSON().roles.filter(r => model.relationsAt(ORG).includes(r.key));
       const isPerson = p.kind === 'user' && !p.scopeBound;
       return {
         enabled: !!svc, reason: svc ? null : OFF_DETAIL, organization: p.tenantAlias, platformAdmin: isPerson && p.platformAdmin,

@@ -11,7 +11,7 @@ export {
 } from './migrations.ts';
 export { schemaSnapshot, diffSnapshots, IAM_TABLES, IAM_FUNCTIONS, type SchemaSnapshot } from './schema.ts';
 export {
-  defineModel, ModelError, ADMIN_ROLE, ADMIN_LABEL, PLATFORM_ADMIN_ROLE, ORG, MEMBER, OWNER, RELATION_LABELS, CLASSIFICATIONS, RESERVED_PERMISSIONS, RESERVED_GROUPS,
+  defineModel, ModelError, CUSTOM_ROLE_KEY, CUSTOM_ROLE_LIMIT, type CustomRoleDef, ADMIN_ROLE, ADMIN_LABEL, PLATFORM_ADMIN_ROLE, ORG, MEMBER, OWNER, RELATION_LABELS, CLASSIFICATIONS, RESERVED_PERMISSIONS, RESERVED_GROUPS,
   type Model, type ModelInput, type PermissionDef, type GroupDef, type RoleDef, type TypeDef, type TypeInfo, type McpToolDef, type PermissionInfo, type AuthzCatalogJson,
   type Level, type ReservedPermission, type Register, type RegisteredPermission,
 } from './model.ts';
@@ -21,10 +21,11 @@ export {
   type Account, type Principal,
 } from './principal.ts';
 export {
-  AccessService, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
+  AccessService, loadCustomRoles, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
   type TenantAccess, type Tuple, type Who, type Facts, type Belong, type PersonEdge, type PersonGrants, type Reason, type ClearanceRow,
 } from './access.ts';
 export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput, type TupleActor } from './tuples.ts';
+export { CustomRoles, customRoleKey, type CustomRole, type CustomRoleInput } from './roles.ts';
 export { SYSTEM_ACTOR, type IamEvents, type IamEvent, type IamEventMap, type IamEventType, type IamBeforeType, type IamAfterType, type AccessEventData, type MemberEventData, type MemberLeftEventData } from './events.ts';
 export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, type ExplainOut, type GroupNames, type AccessSubjectOut } from './explain.ts';
 export { checkRoles, checkRoleChange, activeAdmins, lastAdminGuard, setOrgRoles, setClearance, type Acting } from './rules.ts';

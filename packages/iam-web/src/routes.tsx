@@ -15,7 +15,7 @@ import { useIamText } from './texts/react.tsx';
 import { useIamUi } from './ui/context.tsx';
 import type { IamIconName } from './ui/icons.ts';
 
-export type IamRouteId = 'members' | 'entra' | 'entraConsent' | 'entraTest' | 'organizations' | 'organization';
+export type IamRouteId = 'members' | 'roles' | 'entra' | 'entraConsent' | 'entraTest' | 'organizations' | 'organization';
 
 export interface IamRoute {
   id: IamRouteId;
@@ -50,6 +50,8 @@ export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatur
   const param = o.param ?? ((name: string) => `:${name}`);
   const all: IamRoute[] = [
     { id: 'members', path: p.members, need: { perm: 'members:admin' }, get title() { return t('iam.members.title'); }, icon: 'users', nav: true, load: () => pages().then(m => ({ default: m.MembersScreen })) },
+    // Eigene Rollen: ohne roles:admin (z. B. abgeschaltet im Modell der App) nicht in der Navigation
+    { id: 'roles', path: p.roles, need: { perm: 'roles:admin' }, get title() { return t('iam.roles.page.title'); }, icon: 'key', nav: true, load: () => pages().then(m => ({ default: m.RolesScreen })) },
     { id: 'entra', path: p.entra, need: { perm: 'members:admin' }, get title() { return t('iam.entra.title'); }, icon: 'shield', nav: true, load: () => pages().then(m => ({ default: m.EntraScreen })) },
     // Rückkehrseiten (bei Microsoft registriert): die API prüft selbst, die Testanmeldung darf jede Person der Organisation
     { id: 'entraConsent', path: `${p.entra}/zustimmung`, need: null, get title() { return t('iam.entra.connectTitle'); }, icon: 'shield', nav: false, load: () => pages().then(m => ({ default: m.EntraConsentReturn })) },

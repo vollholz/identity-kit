@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { KeycloakFake, startMockIdp, type FakeOrg, type FakeUser, type MockIdp } from '@vollholz/iam-testkit';
 import type { IamEvent } from '../src/events.ts';
+import { setContext } from '../src/db.ts';
 import { CUSTOM_ROLE_LIMIT, defineModel } from '../src/model.ts';
 import { customRoleKey } from '../src/roles.ts';
 import { skipDb } from './support/db.ts';
@@ -122,6 +123,28 @@ describe('Eigene Rollen der Organisation', { skip }, () => {
     await assert.rejects(full(t.runtime, demoId, tx => tx.query("DELETE FROM notes.authz_role WHERE key = 'c-pruefer-in-aerzte'")), /noch vergeben/);
     await assert.rejects(full(t.runtime, demoId, tx => tx.query("UPDATE notes.authz_role SET key = 'c-anders' WHERE key = 'c-pruefer-in-aerzte'")), /lässt sich nicht ändern/);
     await assert.rejects(grant(t.runtime, demoId, 'org:members', 'c-pruefer-in-aerzte', { type: 'view', id: viewId }), /nicht zulässig/);
+  });
+
+  test('gleichzeitig vergeben und löschen: das Löschen wartet auf die Vergabe (FOR SHARE), danach in-use; Schlüssel mit alten Vergaben nicht neu vergeben', async () => {
+    ok(await call('anna', 'POST', '/v1/admin/roles', { key: 'c-race', label: 'Wettlauf', permissions: ['note:read'], places: ['org'] }), 201);
+    const c1 = await t.runtime.connect(), c2 = await t.runtime.connect();
+    try {
+      await c1.query('BEGIN'); await setContext(c1, { tenantId: demoId });
+      await c1.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'c-race', 'org')", [demoId]);
+      await c2.query('BEGIN'); await setContext(c2, { tenantId: demoId }); await c2.query("SET LOCAL lock_timeout = '300ms'");
+      await assert.rejects(c2.query("DELETE FROM notes.authz_role WHERE key = 'c-race'"), /lock timeout|Sperrzeitüberschreitung|canceling statement/i, 'Löschen wartet auf die offene Vergabe');
+      await c2.query('ROLLBACK');
+      await c1.query('COMMIT');
+    } finally { c1.release(); c2.release(); }
+    assert.equal((await call('anna', 'DELETE', '/v1/admin/roles/c-race')).body.reason, 'in-use');
+    // Vergaben ohne Rolle (z. B. aus einem Lauf vor der Sperre): ein neuer Schlüssel bindet sie nie
+    await t.inspect.query("SET session_replication_role = replica");
+    await t.inspect.query("INSERT INTO notes.authz_tuple (tenant_id, subject, relation, object_type) VALUES ($1, 'org:members', 'c-waise', 'org')", [demoId]);
+    await t.inspect.query("SET session_replication_role = origin");
+    const r = await call('anna', 'POST', '/v1/admin/roles', { key: 'c-waise', label: 'Waise', permissions: ['note:read'], places: ['org'] });
+    assert.deepEqual([r.status, r.body.reason], [409, 'in-use']);
+    await t.inspect.query("DELETE FROM notes.authz_tuple WHERE relation IN ('c-race', 'c-waise')");
+    ok(await call('anna', 'DELETE', '/v1/admin/roles/c-race'), 204);
   });
 
   test('Regeln: nur Rechte des Modells, keine nur von org-admin, Namen eindeutig, Höchstzahl; Rollen des Modells unverändert', async () => {

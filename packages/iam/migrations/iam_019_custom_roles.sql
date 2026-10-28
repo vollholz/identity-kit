@@ -46,11 +46,16 @@ END $$;
 CREATE TRIGGER authz_role_guard BEFORE UPDATE OR DELETE ON {{schema}}.authz_role
   FOR EACH ROW EXECUTE FUNCTION app.custom_role_guard();
 
--- Tupel mit eigener Rolle nur an ihren Orten (im selben Mandanten)
+-- Tupel mit eigener Rolle nur an ihren Orten (im selben Mandanten). FOR SHARE sperrt die Zeile der Rolle bis zum Ende
+-- der Transaktion: ein gleichzeitiges Löschen oder Ändern der Orte wartet und sieht danach das Tupel (sonst bliebe ein
+-- Tupel ohne Rolle zurück, und eine spätere Rolle mit demselben Schlüssel gäbe seine Rechte ungeprüft weiter).
 CREATE FUNCTION app.custom_role_place() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NEW.relation LIKE 'c-%' AND NOT EXISTS (SELECT 1 FROM {{schema}}.authz_role r WHERE r.tenant_id = NEW.tenant_id AND r.key = NEW.relation AND NEW.object_type = ANY (r.places)) THEN
-    RAISE EXCEPTION 'Rolle % ist an % nicht zulässig', NEW.relation, NEW.object_type USING ERRCODE = 'check_violation';
+  IF NEW.relation LIKE 'c-%' THEN
+    PERFORM 1 FROM {{schema}}.authz_role r WHERE r.tenant_id = NEW.tenant_id AND r.key = NEW.relation AND NEW.object_type = ANY (r.places) FOR SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Rolle % ist an % nicht zulässig', NEW.relation, NEW.object_type USING ERRCODE = 'check_violation';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;

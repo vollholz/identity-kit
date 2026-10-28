@@ -40,7 +40,7 @@ describe('IAM-Migrationen: Parameter', () => {
   'iam_016_person_scope.sql': 'a6e82cebe810b9f1a32328ccf4bb20c38be89f24add4a919d78cd12b2b430123',
   'iam_017_account.sql': '918a2dd121d903f7b9f093e8dc8ec8fb80f825c0a9eb86b7eecb0a5eeead4185',
   'iam_018_has_permission.sql': 'fcd19fba6755454d67d456e1701706b85ec883eeff23f726c82db0d5583a9fbe',
-  'iam_019_custom_roles.sql': '553f152b891ddd9439f435648011219b64c70104cf2ebfe86559fc4ee9bae7b9',
+  'iam_019_custom_roles.sql': '7f7c2deca355ac700d19678e3b10dfc84585e0c94a7baf9d52dc347e68347dc4',
     };
     const now = new Map(iamMigrations({ product: 'notes' }).migrations.map(m => [m.name, m.checksum]));
     for (const [name, sum] of Object.entries(pinned)) {

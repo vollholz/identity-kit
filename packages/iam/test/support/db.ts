@@ -8,7 +8,7 @@
  * Umgebung wie das Test-Kit: `TEST_POSTGRES_URL` oder `POSTGRES_SUPERUSER_PASSWORD` (+ `POSTGRES_PORT`, Standard 5433).
  */
 import pg from 'pg';
-import { testDatabases, type TestDatabases } from '@vollholz/iam-testkit';
+import { postgresSkip, testDatabases, type TestDatabases } from '@vollholz/iam-testkit';
 import { productIdent } from '../../src/config.ts';
 import { iamMigrations, migrate, type IamMigrationOptions, type MigrationSource } from '../../src/migrations.ts';
 
@@ -29,8 +29,8 @@ export async function reachable(): Promise<boolean> {
   try { await c.connect(); await c.end(); return true; } catch { return false; }
 }
 
-/** Grund zum Überspringen, falls keine Datenbank erreichbar ist. */
-export const skipDb = async () => !(await reachable()) && 'PostgreSQL nicht erreichbar (POSTGRES_SUPERUSER_PASSWORD, POSTGRES_PORT)';
+/** Grund zum Überspringen ohne konfigurierte Datenbank; konfiguriert, aber nicht erreichbar: Fehler (`postgresSkip`). */
+export const skipDb = () => postgresSkip();
 
 /** Rollen eines Produkts (clusterweit, idempotent, auch bei parallelen Testdateien). */
 export async function ensureRoles(product: string): Promise<void> {

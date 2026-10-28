@@ -1,4 +1,5 @@
-export { testDatabases, withDb, type TestDatabaseOptions, type TestDatabases, type TestDb } from './db.ts';
+export { dbTests, type DbTests } from './db-tests.ts';
+export { NO_POSTGRES, postgresSkip, superuserUrlFrom, testDatabases, withDb, type TestDatabaseOptions, type TestDatabases, type TestDb } from './db.ts';
 export { startMockIdp, dpopKey, type MockIdp, type MockIdpOptions } from './idp.ts';
 export { claimsFor, type ClaimsOptions, type PersonClaims, type ServiceAccountClaims } from './claims.ts';
 export { KeycloakFake, type FakeIdp, type FakeOrg, type FakeUser } from './keycloak-fake.ts';

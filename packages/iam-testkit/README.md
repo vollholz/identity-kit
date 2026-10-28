@@ -6,7 +6,8 @@ Beispiele nutzen die Notiz-App `notes`.
 
 | Baustein | Inhalt |
 |---|---|
-| `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })` | Wegwerf-Datenbank je Testdatei mit den Migrationen der App: `superuserUrl`, `dbAvailable`, `createTestDb`, `testDbName`, `sweepStaleTestDbs`. Umgebung `POSTGRES_SUPERUSER_PASSWORD`/`POSTGRES_PORT` oder `TEST_POSTGRES_URL`, `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` |
+| `testDatabases({ prefix, owner, connect, migrate, runtime, closeRuntime })` | Wegwerf-Datenbank je Testdatei mit den Migrationen der App: `superuserUrl`, `dbAvailable`, `dbSkip`, `createTestDb`, `testDbName`, `sweepStaleTestDbs`. Umgebung `POSTGRES_SUPERUSER_PASSWORD`/`POSTGRES_PORT` oder `TEST_POSTGRES_URL`, `DATABASE_URL`, `DATABASE_ADMIN_URL`, `DATABASE_WORKER_URL` |
+| `postgresSkip(env?)`, `dbTests(skip)`, `NO_POSTGRES` | Datenbank-Tests sichtbar überspringen: `const { describe, test, before, after } = dbTests(await postgresSkip())`. Ohne Konfiguration zählt jeder Test als übersprungen (Grund `NO_POSTGRES`), die Hooks laufen nicht; konfiguriert, aber nicht erreichbar, scheitert der Lauf. `describe(…, { skip })` zählt die Tests darin nicht (Lauf «grün» mit weniger Tests) |
 | `startMockIdp({ audience, realm?, exchange? })`, `dpopKey()` | Discovery, JWKS, Tokens, Token Exchange (RFC 8693) mit DPoP, DPoP-Proofs |
 | `claimsFor({ personClientId })` | `user()` und `client()`: Claims wie Keycloak (Organisationen, Gruppen aus Entra als Objekt-IDs, Scopes, Service Accounts); nie Rollen – Rollen sind Tupel in der App |
 | `KeycloakFake` | Admin-API als `fetch`-Ersatz: Organisationen, Konten, Mitgliedschaft (`member(org, user)` ohne Rollen), Einladungen, Identity Provider mit Mappern, Realm-Rollen |

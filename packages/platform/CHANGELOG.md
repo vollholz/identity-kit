@@ -9,6 +9,19 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.1] – 2026-10-28
+
+### Behoben
+
+- Start der API wuchs mit Routen × gemeinsamen Schemas (`app.addSchema`): Fastify baut je Route den Antwort-Serialisierer,
+  und fast-json-stringify prüfte dabei jedes Mal alle gemeinsamen Schemas neu (in Apps mit vielen Modulen 30 bis 80 s
+  bis «Server listening», `/readyz` so lange 503; auch jeder `testApi()` zahlte das). `fastifyOptions` setzt jetzt
+  `schemaController.compilersFactory.buildSerializer`: Der erste Serialisierer prüft alle gemeinsamen Schemas wie
+  bisher, jeder weitere bekommt nur die Schemas, auf die er über `$ref` (auch mittelbar) verweist; lässt sich ein
+  Verweis nicht eindeutig zuordnen, alle wie bisher. Gleicher erzeugter Code, gleiche Antworten und Filterung
+  (`additionalProperties`), gleiche Fehler bei ungültigen Schemas. Messung: 100 gemeinsame Schemas und 400 Routen
+  19,8 s → 1,8 s; Test-App des Pakets (81 Routen, 19 Schemas) `testApi()` 2,4 s → 1,3 s. Für die App nichts zu tun.
+
 ## [0.6.0] – 2026-10-28
 
 ### Breaking

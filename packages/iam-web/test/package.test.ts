@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Das gebaute Paket (`dist`, nach `npm run build`) lässt sich ohne Bundler in Node laden, exportiert dasselbe wie die
- * Quellen und enthält das Stylesheet; `npm pack` liefert nur `dist` und README.
+ * Quellen und enthält das Stylesheet; `npm pack` liefert nur `dist`, README und CHANGELOG.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -35,11 +35,11 @@ describe('Paket', () => {
     expect(readFileSync(join(dist, 'styles.css'), 'utf8')).toMatch(/@layer iam/);
   });
 
-  it('npm pack enthält nur dist, README, LICENSE, NOTICE und package.json', () => {
+  it('npm pack enthält nur dist, README, CHANGELOG, LICENSE, NOTICE und package.json', () => {
     const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: root, encoding: 'utf8' });
     const files = (JSON.parse(out) as { files: { path: string }[] }[])[0]!.files.map(f => f.path);
-    expect(files.filter(f => !f.startsWith('dist/') && !['README.md', 'LICENSE', 'NOTICE', 'package.json'].includes(f))).toEqual([]);
-    expect(files).toEqual(expect.arrayContaining(['LICENSE', 'NOTICE']));
+    expect(files.filter(f => !f.startsWith('dist/') && !['README.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'package.json'].includes(f))).toEqual([]);
+    expect(files).toEqual(expect.arrayContaining(['CHANGELOG.md', 'LICENSE', 'NOTICE']));
     expect(files).toContain('dist/index.d.ts');
     expect(files).toContain('dist/styles.css');
   });

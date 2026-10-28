@@ -51,4 +51,8 @@ test('Vergleich nach SemVer', () => {
   assert.equal(compareVersions('3.10.0', '3.9.9'), 1);
   assert.equal(compareVersions('4.0.0-rc.1', '4.0.0'), -1);
   assert.equal(compareVersions('1.2.3', '1.2.3'), 0);
+  assert.equal(compareVersions('1.0.0-rc.10', '1.0.0-rc.2'), 1, 'numerische Kennungen numerisch');
+  assert.equal(compareVersions('1.0.0-alpha', '1.0.0-alpha.1'), -1, 'längere Liste hat Vorrang');
+  assert.equal(compareVersions('1.0.0-1', '1.0.0-alpha'), -1, 'numerisch vor alphanumerisch');
+  assert.equal(compareVersions('1.0.0-beta', '1.0.0-alpha.9'), 1);
 });

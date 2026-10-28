@@ -23,11 +23,23 @@ export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'da
 TypeRegistry.Set('NullExakt', (_s, v) => v === null);
 const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
 /**
- * Wert oder `null`: `anyOf [null (genau), X, null]`. Mit `coerceTypes` (Plattform) machte `anyOf [X, null]` aus null
- * den Wert von X (0, "", false), `anyOf [null, X]` aus 0, "" und false null. Der erste Zweig nimmt null unverändert,
- * alle anderen Werte prüfen und wandeln X und `null` wie bisher.
+ * Wert oder `null`: `anyOf [null (genau), X]`, also X und zusätzlich `null`. Mit `coerceTypes` (Fastify) wandelt
+ * nur X um; was X ablehnt, ergibt 400. Bis 0.6.3 machte ein Zweig `{ type: 'null' }` auch ungültige Eingaben
+ * (0, "", false) zu null, davor `anyOf [X, null]` null zu 0, "" oder false. Leere Formularfelder: `EmptyAsNull`.
+ * Gleich wie in @vollholz/iam.
  */
-export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, Type.Null()]);
+export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s]);
+/**
+ * Genau "", als `null` weitergegeben: AJV prüft `const ""`, dann wandelt `type: 'null'` "" in null (andere Werte scheitern
+ * schon an `const`). Ohne Umwandlung (TypeBox `Value`, AJV ohne `coerceTypes`) trifft der Zweig nie zu.
+ */
+TypeRegistry.Set('LeerAlsNull', () => false);
+const EmptyToNull = Type.Unsafe<null>({ [Kind]: 'LeerAlsNull', allOf: [{ const: '' }, { type: 'null' }] });
+/**
+ * Wie `Nullable`, dazu "" als `null` (leere Felder aus Formularen, z. B. Datum). Nur "", nicht 0 oder false.
+ * `Value.Check` von TypeBox wandelt nicht um und lehnt "" ab.
+ */
+export const EmptyAsNull = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, EmptyToNull]);
 export const IdParams = Type.Object({ id: Uuid }, { additionalProperties: false });
 export const Limit = Type.Integer({ minimum: 1, maximum: 200, default: 50, description: 'Seitengrösse (höchstens 200).' });
 export const Cursor = Type.String({ maxLength: 512, description: 'Opaker Cursor aus `nextCursor` der vorherigen Seite.' });

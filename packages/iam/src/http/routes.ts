@@ -112,11 +112,12 @@ export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'da
 TypeRegistry.Set('NullExakt', (_s, v) => v === null);
 const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
 /**
- * Wert oder `null`: `anyOf [null (genau), X, null]`. Mit `coerceTypes` (Standard von Fastify) machte `anyOf [X, null]`
- * aus null den Wert von X (0, "", false), `anyOf [null, X]` aus 0, "" und false null. Der erste Zweig nimmt null
- * unverändert, alle anderen Werte prüfen und wandeln X und `null` wie bisher. Gleich wie in @vollholz/platform.
+ * Wert oder `null`: `anyOf [null (genau), X]`, also X und zusätzlich `null`. Mit `coerceTypes` (Fastify) wandelt
+ * nur X um; was X ablehnt, ergibt 400. Bis 5.0.2 machte ein Zweig `{ type: 'null' }` auch ungültige Eingaben
+ * (0, "", false) zu null, davor `anyOf [X, null]` null zu 0, "" oder false. Gleich wie in @vollholz/platform
+ * (dort auch `EmptyAsNull` für leere Formularfelder).
  */
-export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, Type.Null()]);
+export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s]);
 export const IdParams = Type.Object({ id: Uuid });
 export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
 

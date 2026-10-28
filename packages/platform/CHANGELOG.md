@@ -9,6 +9,35 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.7.0] – 2026-10-28
+
+### Hinzugefügt
+
+- `EmptyAsNull(X)`: wie `Nullable(X)`, dazu `""` als `null`, wo X `""` ablehnt (leere Felder aus Formularen, z. B.
+  Datum). Nur `""`, nie 0 oder `false`. OpenAPI: dritter Zweig `{ allOf: [{ const: "" }, { type: "null" }] }`.
+
+### Behoben
+
+- `Nullable(X)` machte mit `coerceTypes` aus **ungültigen** Eingaben `null` statt 400: Der letzte Zweig
+  `{ type: 'null' }` (seit 0.6.2, davor `anyOf [X, null]` gleich) wandelt 0, `""` und `false` in null, wenn X sie
+  ablehnt. Beispiele: `Nullable(Integer({ minimum: 1 }))` mit 0, `Nullable(Object)` mit `""`, `Nullable(DateTime)` mit
+  `""`. In einer App entfernte so `""` einen Eintrag oder hiess «ohne Grenze». Neu `anyOf [{ const: null }, X]`:
+  genau X (mit dessen Umwandlung und Ablehnung) und zusätzlich `null`.
+
+  Vorher (0.6.3) → nachher, nur die Abweichungen (alle anderen Eingaben unverändert):
+
+  | X | Eingabe | 0.6.3 | 0.7.0 |
+  |---|---|---|---|
+  | Number, Integer, Boolean, Literal | `""` | null | 400 |
+  | Integer `minimum: 1` | 0, `"0"`, `false`, `""` | null | 400 |
+  | String `minLength: 1` | `""` | null | 400 |
+  | DateTime, Uuid | `""` | null | 400 |
+  | Object | 0, `false`, `""` | null | 400 |
+
+  Migration: Schickt ein Client `""` für «leer» (Formulare, z. B. Datum), dort `EmptyAsNull` statt `Nullable`; dann
+  wieder `""` → null, aber 0 und `false` weiterhin 400. Sonst ist nichts zu tun. OpenAPI: der Zweig `{ type: "null" }`
+  entfällt (`anyOf [{ enum: [null] }, X]`), erzeugte Typen bleiben `X | null`.
+
 ## [0.6.3] – 2026-10-28
 
 ### Behoben

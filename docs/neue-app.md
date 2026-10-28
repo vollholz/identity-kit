@@ -21,11 +21,11 @@ Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Det
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 5.0.2 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 5.0.3 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 2.2.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.4.4 | GitHub Packages |
-| `@vollholz/create-iam-app` (Gerüst) | 0.5.4 | GitHub Packages |
-| `@vollholz/platform` (Querschnitt, optional) | 0.6.3 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.4.5 | GitHub Packages |
+| `@vollholz/create-iam-app` (Gerüst) | 0.5.5 | GitHub Packages |
+| `@vollholz/platform` (Querschnitt, optional) | 0.7.0 | GitHub Packages |
 | `product-realm` (OpenTofu) | 2.0.0 | Git-Tag `product-realm-v2.0.0` (im Gerüst eingesetzt) |
 | `product-realm-bootstrap` (OpenTofu) | 0.1.1 | Git-Tag `product-realm-bootstrap-v0.1.1` (im Gerüst eingesetzt) |
 

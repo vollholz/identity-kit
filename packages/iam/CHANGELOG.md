@@ -50,11 +50,16 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
   Ändern vorher und nachher); Name eindeutig (409 `duplicate-label`); höchstens 50 (409 `limit`); löschen und Orte
   entfernen nur unvergeben (409 `in-use`, auch per Trigger in der Datenbank); Audit `role.created`, `role.updated`,
   `role.deleted` (`data.key`). Vergaben melden die Haken wie jede Rolle (`access.granted`, `access.revoked`).
+- Gleichzeitiges Vergeben und Löschen bzw. Orte entfernen: Der Trigger `authz_tuple_custom_role` sperrt die Zeile der
+  Rolle (`FOR SHARE`), das Löschen wartet und lehnt dann ab (`in-use`); ein Schlüssel, unter dem noch Vergaben ohne
+  Rolle stehen, wird nicht neu vergeben (409 `in-use`). So erbt nie jemand ungeprüft die Rechte einer neuen Rolle.
 - `checkRoles(…, model)`, `checkRoleChange(…, model)`, `TupleStore.check(t, model)`, `TupleStore.modelFor(tx, relation)`:
   optionales Modell der Organisation.
 
 ### Geändert
 
+- Eigene Rollen wieder abschalten (`customRoles: false`, nachdem es schon Vergaben gab): zuerst alle Tupel mit
+  Relation `c-…` löschen, sonst bricht `syncModelChecks` beim nächsten `migrate` ab (wie bei entfernten Rollen).
 - Eine eigene Rolle überschreibt nie eine Rolle des Modells (Schlüssel immer `c-…`); ändert sich das Modell, fallen
   Rechte und Orte, die es nicht mehr gibt oder die nur org-admin hat, aus eigenen Rollen weg (nie mehr Rechte).
 

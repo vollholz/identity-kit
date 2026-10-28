@@ -107,6 +107,10 @@ export class CustomRoles {
     const def: CustomRoleDef = { key, label: input.label.trim(), description: (input.description ?? '').trim(), permissions: [...new Set(input.permissions)], places: [...new Set(input.places)] };
     this.check(def);
     await this.owns(a, def.permissions);
+    // Tupel mit diesem Schlüssel ohne Rolle (z. B. aus einer früheren Rolle): nie an eine neue Rolle binden
+    if ((await tx.query(`SELECT 1 FROM ${this.S}.authz_tuple WHERE relation = $1 LIMIT 1`, [def.key])).rowCount) {
+      throw conflict('Unter diesem Schlüssel bestehen noch Vergaben einer früheren Rolle. Anderen Schlüssel wählen oder die Vergaben zuerst entfernen.', { reason: 'in-use' });
+    }
     await this.guarded(tx, () => tx.query(
       `INSERT INTO ${this.S}.authz_role (tenant_id, key, label, description, permissions, places, created_by) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6)`,
       [def.key, def.label, def.description, def.permissions, def.places, a.platform ? null : a.actor.principalId]));

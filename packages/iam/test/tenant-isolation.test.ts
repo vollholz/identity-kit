@@ -79,6 +79,13 @@ const FOREIGN: { route: string; label: string; call: (i: Ids) => Call }[] = [
   { route: 'DELETE /v1/platform/organizations/{alias}/entra/consent-links/{id}', label: 'Link der Entra-Administration von A widerrufen', call: i => ({ method: 'DELETE', url: `/v1/platform/organizations/${i.alias}/entra/consent-links/${crypto.randomUUID()}` }) },
   { route: 'GET /v1/platform/organizations/{alias}/members/entra-search', label: 'Entra-Suche in A', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/members/entra-search?q=alice` }) },
   { route: 'POST /v1/platform/organizations/{alias}/members/entra', label: 'Person aus Entra in A', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/members/entra`, body: { id: crypto.randomUUID() } }) },
+  // Eigene Rollen von A: über die eigenen Routen von B (Schlüssel gilt je Organisation) und die Plattform-Routen
+  { route: 'PUT /v1/admin/roles/{key}', label: 'eigene Rolle von A ändern', call: i => ({ method: 'PUT', url: `/v1/admin/roles/${i.role}`, body: { label: 'fremd', permissions: ['note:read'], places: ['org'] } }) },
+  { route: 'DELETE /v1/admin/roles/{key}', label: 'eigene Rolle von A löschen', call: i => ({ method: 'DELETE', url: `/v1/admin/roles/${i.role}` }) },
+  { route: 'GET /v1/platform/organizations/{alias}/roles', label: 'eigene Rollen von A über die Plattform-Route', call: i => ({ method: 'GET', url: `/v1/platform/organizations/${i.alias}/roles` }) },
+  { route: 'POST /v1/platform/organizations/{alias}/roles', label: 'eigene Rolle in A über die Plattform-Route', call: i => ({ method: 'POST', url: `/v1/platform/organizations/${i.alias}/roles`, body: { label: 'fremd', permissions: ['note:read'], places: ['org'] } }) },
+  { route: 'PUT /v1/platform/organizations/{alias}/roles/{key}', label: 'eigene Rolle von A über die Plattform-Route ändern', call: i => ({ method: 'PUT', url: `/v1/platform/organizations/${i.alias}/roles/${i.role}`, body: { label: 'fremd', permissions: ['note:read'], places: ['org'] } }) },
+  { route: 'DELETE /v1/platform/organizations/{alias}/roles/{key}', label: 'eigene Rolle von A über die Plattform-Route löschen', call: i => ({ method: 'DELETE', url: `/v1/platform/organizations/${i.alias}/roles/${i.role}` }) },
   { route: 'DELETE /v1/access/{id}', label: 'Tupel von A löschen', call: i => ({ method: 'DELETE', url: `/v1/access/${i.tuple}` }) },
 ];
 
@@ -93,6 +100,7 @@ const LISTS: { route: string; url: string }[] = [
   { route: 'GET /v1/admin/status', url: '/v1/admin/status' },
   { route: 'GET /v1/admin/members', url: '/v1/admin/members' },
   { route: 'GET /v1/admin/entra', url: '/v1/admin/entra' },
+  { route: 'GET /v1/admin/roles', url: '/v1/admin/roles' },
   { route: 'GET /v1/notes', url: '/v1/notes' },
   { route: 'GET /v1/people', url: '/v1/people' },
   { route: 'GET /v1/people', url: '/v1/people?q=alice' },
@@ -175,13 +183,20 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     a.tuple = JSON.parse(e.text).id;
     // Gruppe aus Entra an org (ohne Verbindung direkt angelegt): ihre Objekt-ID darf B nie sehen
     a.groupTuple = await grant(t.runtime, A, `group:${GROUP_A}`, 'viewer');
+    // Eigene Rolle in A, an einem Ordner vergeben: weder ihr Name noch ihr Schlüssel dürfen B erreichen
+    const role = await as('alice', { method: 'POST', url: '/v1/admin/roles', body: { key: 'c-rolle-a', label: 'GEHEIM-A Rolle', permissions: ['note:read'], places: ['org', 'folder'] } });
+    assert.equal(role.status, 201, role.text);
+    a.role = 'c-rolle-a';
+    const rt = await as('alice', { method: 'POST', url: '/v1/access', body: { subject: 'org:members', relation: a.role, type: 'folder', id: a.folder } });
+    assert.equal(rt.status, 201, rt.text);
+    a.roleTuple = JSON.parse(rt.text).id;
   });
   after(async () => { await n?.app.close(); await idp?.close(); await t?.drop(); });
 
   test('1. fremde IDs: gleiche Antwort wie eine unbekannte ID, ohne Daten von A', async () => {
     const problems: string[] = [];
     for (const f of FOREIGN) {
-      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : k === 'alias' ? unknownKey('org') : crypto.randomUUID()) });
+      const foreign = idSource(a), unknown = idSource(null, { unknown: k => (k === 'client' ? unknownKey('client') : k === 'alias' ? unknownKey('org') : k === 'role' ? 'c-unbekannt' : crypto.randomUUID()) });
       const cf = f.call(foreign.ids), cu = f.call(unknown.ids);
       const rf = await as('gus', cf), ru = await as('gus', cu);
       for (const [r, c] of [[rf, cf], [ru, cu]] as const) { const u = unreached(r, c.method, f.route); if (u) problems.push(`${f.label}: ${u}`); }
@@ -199,6 +214,8 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.authz_tuple WHERE id = $1 AND expires_at IS NULL', [a.tuple])).rows[0].n, 1, 'Ablauf unverändert');
     assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.authz_tuple WHERE subject = 'client:' || $1", [a.clientPrincipal])).rows[0].n, 1, 'Freigabe von A unverändert');
     assert.deepEqual(await rolesOfAlice(), ['org-admin'], 'Rollen von alice in A unverändert');
+    assert.deepEqual((await t.inspect.query("SELECT r.label, r.permissions FROM notes.authz_role r JOIN notes.tenant x ON x.id = r.tenant_id WHERE x.alias = 'acme'")).rows, [{ label: 'GEHEIM-A Rolle', permissions: ['note:read'] }], 'eigene Rolle von A unverändert');
+    assert.equal((await t.inspect.query("SELECT count(*)::int AS n FROM notes.authz_role r JOIN notes.tenant x ON x.id = r.tenant_id WHERE x.alias = 'globex'")).rows[0].n, 0, 'keine Rolle in B');
     assert.deepEqual((await t.inspect.query('SELECT clearance FROM notes.principal WHERE id = $1', [a.person])).rows[0].clearance, 2, 'Freigabestufe von alice unverändert');
     assert.ok(kc.orgMembers.get(orgA.id)!.has(alice.id) && orgA.enabled && orgA.name === 'GEHEIM-A AG', 'Mitgliedschaft und Organisation A unverändert');
     assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.member_invitation WHERE id = $1 AND accepted_at IS NULL', [a.invitation])).rows[0].n, 1, 'Einladung von A offen');
@@ -239,6 +256,23 @@ describe('Mandantentrennung über die Routen des Pakets', { skip }, () => {
     assert.ok(kc.users.has(alice.id), 'Konto von alice bleibt');
     assert.deepEqual(await rolesOfAlice(), ['org-admin'], 'Rollen von alice in A unverändert');
     covered.set('POST /v1/admin/members', 'Eindeutigkeit nur im Mandanten (Einladung einer Adresse aus A)');
+  });
+
+  test('3b. eigene Rollen: gleicher Schlüssel und Name wie in A legt eine Rolle in B an; A und ihre Vergaben unverändert, keine Rolle von A vergebbar', async () => {
+    const created = await as('gus', { method: 'POST', url: '/v1/admin/roles', body: { key: a.role, label: 'GEHEIM-A Rolle', permissions: ['team:read'], places: ['org'] } });
+    assert.equal(created.status, 201, created.text);
+    assert.deepEqual(leaks(created.text, { markers: MARKERS.filter(m => !['GEHEIM-A'].includes(m)), ids: Object.values(a).filter(v => v !== a.role) }), []);
+    const rows = (await t.inspect.query<{ alias: string; permissions: string[] }>("SELECT x.alias, r.permissions FROM notes.authz_role r JOIN notes.tenant x ON x.id = r.tenant_id WHERE r.key = $1 ORDER BY x.alias", [a.role])).rows;
+    assert.deepEqual(rows, [{ alias: 'acme', permissions: ['note:read'] }, { alias: 'globex', permissions: ['team:read'] }]);
+    // B gibt die Rolle mit dem Schlüssel von A an einem Ort von A: Ort unbekannt (wie jede fremde ID)
+    const r = await as('gus', { method: 'POST', url: '/v1/access', body: { subject: 'org:members', relation: a.role, type: 'folder', id: a.folder } });
+    assert.equal(r.status, 404, r.text);
+    assert.equal((await t.inspect.query('SELECT count(*)::int AS n FROM notes.authz_tuple WHERE id = $1', [a.roleTuple])).rows[0].n, 1);
+    // Ohne Zeile in B lehnt die Datenbank eine Vergabe einer fremden Rolle ab (Trigger je Mandant)
+    const B = (await t.inspect.query<{ id: string }>("SELECT id FROM notes.tenant WHERE alias = 'globex'")).rows[0]!.id;
+    await t.inspect.query("DELETE FROM notes.authz_role WHERE key = $1 AND tenant_id = $2", [a.role, B]);
+    await assert.rejects(grant(t.runtime, B, 'org:members', a.role!), /ist an org nicht zulässig/);
+    covered.set('POST /v1/admin/roles', 'Schlüssel und Namen je Organisation; Vergabe nur mit eigener Zeile (Trigger)');
   });
 
   test('4. Vollständigkeit: jede Route des Pakets geprüft, Routen der App begründet ausgenommen', () => {

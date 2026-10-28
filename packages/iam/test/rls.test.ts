@@ -30,6 +30,7 @@ const POLICIES = [
   // Erste Organisation (iam-org-bootstrap, A20): die Besitzer-Rolle schreibt im Kontext des Mandanten
   'notes.principal.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.authz_tuple.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  'notes.authz_role.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.audit_log.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
 ];
 

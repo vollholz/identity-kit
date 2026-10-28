@@ -15,31 +15,34 @@ import type { Actor } from './audit.ts';
 import { live } from './access.ts';
 import type { Tx } from './db.ts';
 import { conflict, HttpError, invalid } from './errors.ts';
-import { ADMIN_ROLE, ORG, type Level } from './model.ts';
+import { ADMIN_ROLE, ORG, type Level, type Model } from './model.ts';
 import type { Principal } from './principal.ts';
 import type { TupleStore } from './tuples.ts';
 
 /** Wer handelt: Person mit Principal im Zielmandanten, oder Plattform-Administration (aus einem anderen Mandanten). */
 export interface Acting { actor: Principal; platform: boolean }
 
-/** Rollen der Liste prüfen (nur Rollen des Modells, keine Doppelten). */
-export function checkRoles(access: AccessService, roles: string[], path = '/roles'): string[] {
-  const unknown = roles.filter(r => !access.model.isRole(r));
+/**
+ * Rollen der Liste prüfen (nur Rollen des Modells bzw. eigene Rollen der Organisation, keine Doppelten). `model`:
+ * Modell der Organisation (`access.modelIn(tx)`), sonst das der App.
+ */
+export function checkRoles(access: AccessService, roles: string[], path = '/roles', model: Model = access.model): string[] {
+  const unknown = roles.filter(r => !model.isRole(r));
   if (unknown.length) throw invalid(`Unbekannte Rolle: ${unknown.join(', ')}`, unknown.map(r => ({ path, message: `«${r}» ist keine Rolle des Modells` })));
-  const here = access.model.relationsAt(ORG);
+  const here = model.relationsAt(ORG);
   const bad = roles.filter(r => !here.includes(r));
   if (bad.length) throw invalid(`Rolle an der Organisation nicht zulässig: ${bad.join(', ')}`, bad.map(r => ({ path, message: `«${r}» darf an der Organisation nicht hängen` })));
   return [...new Set(roles)];
 }
 
-/** Rollen vergeben oder entziehen: platform-admin-only, exceeds-own (an org). */
-export async function checkRoleChange(access: AccessService, a: Acting, changed: string[]): Promise<void> {
+/** Rollen vergeben oder entziehen: platform-admin-only, exceeds-own (an org). `model` wie bei `checkRoles`. */
+export async function checkRoleChange(access: AccessService, a: Acting, changed: string[], model: Model = access.model): Promise<void> {
   if (changed.includes(ADMIN_ROLE) && !a.platform) {
     throw new HttpError(403, 'Keine Berechtigung', `Die Rolle «${access.model.roles.get(ADMIN_ROLE)?.label}» vergibt und entzieht nur die Plattform-Administration.`, {}, { reason: 'platform-admin-only' });
   }
   if (a.platform || !changed.length) return;
   const mine = new Set(access.orgPermissions(a.actor, await access.load(a.actor.tenantId)));
-  const missing = [...new Set(changed.flatMap(r => [...access.model.permissionsOf(r, 'org')]))].filter(p => !mine.has(p));
+  const missing = [...new Set(changed.flatMap(r => [...model.permissionsOf(r, 'org')]))].filter(p => !mine.has(p));
   if (missing.length) {
     throw new HttpError(403, 'Keine Berechtigung', `Die Rolle enthält Rechte, die du nicht hast: ${missing.map(x => access.model.permissionText(x)).join(', ')}.`, {}, { reason: 'exceeds-own', missing });
   }
@@ -78,14 +81,15 @@ export async function lastAdminGuard(tx: Tx, schema: string, principalId: string
  * @returns hinzugefügte und entfernte Rollen
  */
 export async function setOrgRoles(tx: Tx, o: { access: AccessService; tuples: TupleStore; schema: string; acting: Acting; subject: string; roles: string[]; createdBy: string | null; isActive?: ActiveCheck; actor?: Actor }): Promise<{ added: string[]; removed: string[] }> {
-  const roles = checkRoles(o.access, o.roles);
+  const model = await o.access.modelIn(tx);
+  const roles = checkRoles(o.access, o.roles, '/roles', model);
   const current = (await tx.query<{ id: string; relation: string; expires_at: Date | null }>(
     `SELECT id, relation, expires_at FROM ${o.schema}.authz_tuple WHERE subject = $1 AND object_type = 'org'`, [o.subject])).rows;
   // Abgelaufene, noch nicht aufgeräumte Tupel zählen nicht; sie werden ersetzt
   const have = current.filter(t => live(t)).map(t => t.relation);
   const added = roles.filter(r => !have.includes(r)), removed = have.filter(r => !roles.includes(r));
   if (!added.length && !removed.length) return { added, removed };
-  await checkRoleChange(o.access, o.acting, [...added, ...removed]);
+  await checkRoleChange(o.access, o.acting, [...added, ...removed], model);
   const who = o.actor ? { ...o.actor, audit: false } : undefined;
   if (removed.includes(ADMIN_ROLE) && o.subject.startsWith('user:')) await lastAdminGuard(tx, o.schema, o.subject.slice(5), o.access.model.roles.get(ADMIN_ROLE)?.label, o.isActive);
   for (const t of current) {

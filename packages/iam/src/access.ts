@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto';
 import { schemaName, withTenant, type Db, type Tx } from './db.ts';
 import { forbidden, HttpError } from './errors.ts';
-import { MEMBER, ORG, OWNER, type Level, type Model, type TypeInfo } from './model.ts';
+import { MEMBER, ORG, OWNER, type CustomRoleDef, type Level, type Model, type TypeInfo } from './model.ts';
 import type { Principal } from './principal.ts';
 import { flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
 
@@ -37,9 +37,13 @@ export const TUPLE_COLS = 'id, subject, relation, object_type, object_id, expire
 /** Gespeicherte Freigabestufe eines Principals mit Break-Glass. */
 export interface ClearanceRow { clearance: Level; boost: Level | null; until: Date | null }
 
-/** Stand eines Mandanten: Tupel, Freigabestufen (nur ≠ 0 oder mit Break-Glass), Zustand der Kette. */
+/** Stand eines Mandanten: Tupel, Freigabestufen (nur ≠ 0 oder mit Break-Glass), Zustand der Kette, eigene Rollen. */
 export interface TenantAccess<S = unknown> {
   version: string;
+  /** Modell der Organisation: Modell der App mit ihren eigenen Rollen (`withRoles`). */
+  model: Model;
+  /** Eigene Rollen der Organisation (`authz_role`), wie gespeichert. */
+  roles: readonly CustomRoleDef[];
   tuples: readonly Tuple[];
   /** Tupel je Ort (`<type>:<id>`). */
   byPlace: ReadonlyMap<string, Tuple[]>;
@@ -102,6 +106,11 @@ export function fullView(model: Model): Record<string, string> {
   return { 'app.read_all': 'on', 'app.write_all': 'on', 'app.clearance': '2', 'app.org_permissions': pgArray(model.permissions), 'app.permission_relations': JSON.stringify(rel) };
 }
 
+/** Eigene Rollen der Organisation aus `authz_role` (Transaktion im Mandanten). */
+export async function loadCustomRoles(tx: Pick<Tx, 'query'>, schema: string): Promise<CustomRoleDef[]> {
+  return (await tx.query<CustomRoleDef>(`SELECT key, label, description, permissions, places FROM ${schemaName(schema)}.authz_role ORDER BY created_at, key`)).rows;
+}
+
 export class AccessService<P extends string = string, S = unknown> {
   private readonly cache = new Map<string, TenantAccess<S>>();
   private readonly db: Db;
@@ -157,13 +166,22 @@ export class AccessService<P extends string = string, S = unknown> {
         `SELECT id, clearance, clearance_boost AS boost, clearance_until AS until FROM ${this.schema}.principal WHERE clearance > 0 OR clearance_boost IS NOT NULL`)).rows
         .map(x => [x.id, { clearance: x.clearance, boost: x.boost, until: x.until }]));
       const state = (r?.load ? await r.load(tx) : null) as S;
-      const loaded: TenantAccess<S> = { version: v, tuples, byPlace, clearances, state };
+      const roles = this.model.features.customRoles ? await loadCustomRoles(tx, this.schema) : [];
+      const loaded: TenantAccess<S> = { version: v, model: this.model.withRoles(roles) as Model, tuples, byPlace, clearances, state, roles };
       this.cache.set(tenantId, loaded);
       return loaded;
     });
   }
 
   invalidate(tenantId: string) { this.cache.delete(tenantId); }
+
+  /** Modell der Organisation (mit eigenen Rollen), zwischengespeichert wie `load`. */
+  async modelOf(tenantId: string): Promise<Model> { return (await this.load(tenantId)).model; }
+
+  /** Modell der Organisation aus der laufenden Transaktion (sieht auch eigene Rollen, die sie eben angelegt hat). */
+  async modelIn(tx: Pick<Tx, 'query'>): Promise<Model> {
+    return this.model.features.customRoles ? this.model.withRoles(await loadCustomRoles(tx, this.schema)) as Model : this.model;
+  }
 
   // ---------------------------------------------------------------- Bausteine
   /** Gespeicherte Freigabestufe (ohne Break-Glass). */
@@ -201,13 +219,14 @@ export class AccessService<P extends string = string, S = unknown> {
     return acl.byPlace.get(refKey({ type: ref.type, id: ref.type === ORG ? null : ref.id ?? null })) ?? [];
   }
 
-  /** Rechte einer Relation an einem Typ (Rolle, owner; member: keine). */
-  private grants(relation: string, type: string, perm: string): boolean {
+  /** Rechte einer Relation an einem Typ (Rolle des Modells der Organisation, owner; member: keine). */
+  private grants(acl: TenantAccess<S>, relation: string, type: string, perm: string): boolean {
+    const m = acl.model;
     if (relation === MEMBER) return false;
-    if (relation === OWNER) return !!this.model.types.get(type)?.owner && this.model.permissionsOf(OWNER, type).has(perm as P);
+    if (relation === OWNER) return !!m.types.get(type)?.owner && m.permissionsOf(OWNER, type).has(perm);
     // Tupel mit einer Rolle, die am Typ nicht (mehr) zulässig ist (z. B. nach `types.org.roles` als Liste), zählen nicht
-    if (!this.model.relationsAt(type).includes(relation)) return false;
-    return this.model.roles.get(relation)?.permissions.includes(perm as P) ?? false;
+    if (!m.relationsAt(type).includes(relation)) return false;
+    return m.roles.get(relation)?.permissions.includes(perm) ?? false;
   }
 
   /** Wege über Tupel (Regeln 1 und 4), ohne Scope. */
@@ -221,8 +240,8 @@ export class AccessService<P extends string = string, S = unknown> {
       for (const t of this.at(acl, step)) {
         if (!subjects.has(t.subject) || !live(t, now)) continue;
         if (t.relation === OWNER) {
-          if (here && this.grants(OWNER, step.type, perm)) out.push({ via: 'owner', relation: OWNER, place: { type: step.type, id: step.id ?? null }, tupleId: t.id, matched: t.subject });
-        } else if (this.grants(t.relation, step.type, perm)) {
+          if (here && this.grants(acl, OWNER, step.type, perm)) out.push({ via: 'owner', relation: OWNER, place: { type: step.type, id: step.id ?? null }, tupleId: t.id, matched: t.subject });
+        } else if (this.grants(acl, t.relation, step.type, perm)) {
           out.push({ via: here ? 'direct' : 'inherited', relation: t.relation, place: { type: step.type, id: step.id ?? null }, tupleId: t.id, matched: t.subject });
         }
       }
@@ -398,7 +417,7 @@ export class AccessService<P extends string = string, S = unknown> {
       if (t.relation === MEMBER) {
         // Zuständigkeit: irgendein Typ mit scope, dessen Lese- oder Schreibrecht perm ist
         if (this.unitEdges?.unit === t.object_type && this.scopeTypes.some(st => perm === st.read || perm === st.write)) return true;
-      } else if (this.grants(t.relation, t.object_type, perm)) return true;
+      } else if (this.grants(acl, t.relation, t.object_type, perm)) return true;
     }
     return false;
   }
@@ -416,8 +435,8 @@ export class AccessService<P extends string = string, S = unknown> {
   rolesAtOrg(who: Pick<Who, 'subjects'>, acl: TenantAccess<S>): string[] {
     const subjects = new Set(who.subjects), now = Date.now();
     const have = new Set(this.at(acl, { type: ORG }).filter(t => subjects.has(t.subject) && live(t, now)).map(t => t.relation));
-    const here = this.model.relationsAt(ORG);
-    return [...this.model.roles.keys()].filter(r => have.has(r) && here.includes(r));
+    const here = acl.model.relationsAt(ORG);
+    return [...acl.model.roles.keys()].filter(r => have.has(r) && here.includes(r));
   }
 
   /** Rechte an org (∧ Scope), in Reihenfolge des Modells. */
@@ -436,7 +455,7 @@ export class AccessService<P extends string = string, S = unknown> {
   /** Regel 6: Client mit mindestens einem nicht abgelaufenen Tupel `client:<id> <rolle> org`. */
   clientGranted(acl: TenantAccess<S>, principalId: string): boolean {
     const s = `client:${principalId}`, now = Date.now();
-    return this.at(acl, { type: ORG }).some(t => t.subject === s && this.model.relationsAt(ORG).includes(t.relation) && live(t, now));
+    return this.at(acl, { type: ORG }).some(t => t.subject === s && acl.model.relationsAt(ORG).includes(t.relation) && live(t, now));
   }
 
   /**
@@ -455,21 +474,21 @@ export class AccessService<P extends string = string, S = unknown> {
 
   // ---------------------------------------------------------------- Lesesicht (Kap. 7.6)
   /** Relationen, die ein Recht enthalten (Rollen, owner wo zulässig, nie member). */
-  relationsWith(perm: string): string[] {
-    const out: string[] = this.model.rolesWith(perm);
-    if ([...this.model.types.values()].some(t => t.owner && this.model.permissionsOf(OWNER, t.key).has(perm as P))) out.push(OWNER);
+  relationsWith(perm: string, model: Model = this.model): string[] {
+    const out: string[] = model.rolesWith(perm);
+    if ([...model.types.values()].some(t => t.owner && model.permissionsOf(OWNER, t.key).has(perm))) out.push(OWNER);
     return out;
   }
 
   /** Einstellungen der Lesesicht für eine Anfrage (units(p) über `edges` in eigener Transaktion mit voller Sicht). */
   async readView(tenantId: string, who: Who, acl: TenantAccess<S>): Promise<Record<string, string>> {
-    const m = this.model, leaf = m.leaf;
+    const m = acl.model, leaf = this.model.leaf;
     const orgPerms = this.orgPermissions(who, acl);
     const allowed = (perm: string | null) => !!perm && this.scopeAllows(who, perm);
     const rel: Record<string, string[]> = {};
     // org: nur über `app.org_permissions`; an den übrigen Typen zählen nur Relationen, die an irgendeinem von ihnen zulässig sind
     const below = new Set([...m.types.keys()].filter(k => k !== ORG).flatMap(k => m.relationsAt(k)));
-    for (const perm of m.permissions) if (allowed(perm)) rel[perm] = this.relationsWith(perm).filter(r => below.has(r));
+    for (const perm of m.permissions) if (allowed(perm)) rel[perm] = this.relationsWith(perm, m).filter(r => below.has(r));
     const out: Record<string, string> = {
       'app.subjects': pgArray(who.subjects),
       'app.clearance': String(this.clearanceOf(who, acl)),
@@ -480,7 +499,7 @@ export class AccessService<P extends string = string, S = unknown> {
       const readAll = !!leaf.read && orgPerms.includes(leaf.read), writeAll = !!leaf.write && orgPerms.includes(leaf.write);
       out['app.read_all'] = readAll ? 'on' : 'off';
       out['app.write_all'] = writeAll ? 'on' : 'off';
-      const atLeaf = (perm: string | null) => (allowed(perm) ? this.relationsWith(perm!).filter(r => m.relationsAt(leaf.key).includes(r)) : []);
+      const atLeaf = (perm: string | null) => (allowed(perm) ? this.relationsWith(perm!, m).filter(r => m.relationsAt(leaf.key).includes(r)) : []);
       out['app.read_relations'] = pgArray(atLeaf(leaf.read));
       out['app.write_relations'] = pgArray(atLeaf(leaf.write));
       if (leaf.parent && leaf.parent !== ORG) {

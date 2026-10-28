@@ -185,7 +185,7 @@ export const accessModule: IamModule = {
       const p = personOf(req);
       const b = req.body as { subject: string; relation: string; type: string; id?: string | null; expiresAt?: string | null };
       const { ref, acl, hint, facts } = await place(p, { type: b.type, id: b.id ?? null });
-      if (!access.model.relationsAt(ref.type).includes(b.relation) || b.relation === OWNER) {
+      if (!acl.model.relationsAt(ref.type).includes(b.relation) || b.relation === OWNER) {
         throw invalid('Relation am Typ nicht zulässig', [{ path: '/relation', message: b.relation === OWNER ? '«owner» setzt nur die App' : `«${b.relation}» darf an «${ref.type}» nicht hängen` }]);
       }
       if (!SUBJECT_PATTERN.test(b.subject)) throw invalid('Subjekt ungültig', [{ path: '/subject', message: 'user:<id>, group:<entra-object-id> oder org:members' }]);

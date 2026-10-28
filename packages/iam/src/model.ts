@@ -41,10 +41,11 @@ export const RESERVED_PERMISSIONS = {
   'members:admin': { label: 'Mitglieder und Rollen verwalten', group: 'members', description: 'Mitglieder einladen und entfernen, Rollen an der Organisation vergeben, Freigabestufen setzen, Anmeldung einrichten, Maschinen-Clients freigeben.' },
   'access:admin': { label: 'Zugriff verwalten', group: 'access', description: 'Freigaben an einem Ort anlegen, ändern und entfernen; «Warum?» für andere.' },
   'audit:read': { label: 'Protokoll lesen', group: 'audit', description: 'Das Audit-Protokoll durchsuchen und prüfen.' },
+  'roles:admin': { label: 'Rollen zusammenstellen', group: 'members', description: 'Eigene Rollen der Organisation aus den Rechten der App zusammenstellen, ändern und löschen.' },
 } as const;
 export type ReservedPermission = keyof typeof RESERVED_PERMISSIONS;
 /** Rechte, die in keinem Scope stehen dürfen (Rechteverwaltung nur durch Personen, Kap. 8.2). */
-const PERSON_ONLY: readonly string[] = ['members:admin', 'access:admin'];
+const PERSON_ONLY: readonly string[] = ['members:admin', 'access:admin', 'roles:admin'];
 
 /** Reservierte Rechtegruppen mit Label und Stichwort für Rollenbeschreibungen. */
 export const RESERVED_GROUPS: Record<string, { label: string; match: string }> = {
@@ -76,6 +77,26 @@ export interface GroupDef {
 }
 
 export interface RoleDef<P extends string = string> { label: string; description: string; permissions: readonly P[] | '*' }
+
+/**
+ * Schlüssel einer Rolle, die eine Organisation zur Laufzeit zusammenstellt (`features.customRoles`): immer mit «c-»,
+ * damit sie nie eine Rolle des Modells überschreibt (konservativ: nur ergänzen, docs/authz-offene-punkte.md O17).
+ */
+export const CUSTOM_ROLE_KEY = /^c-[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+/** Muster für SQL (CHECK und Trigger von `authz_tuple`, `authz_role`). */
+export const CUSTOM_ROLE_SQL = '^c-[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$';
+/** Höchstzahl eigener Rollen je Organisation. */
+export const CUSTOM_ROLE_LIMIT = 50;
+
+/** Eigene Rolle einer Organisation (Tabelle `authz_role`): Name, Rechte aus dem Modell und Orte, an denen sie hängen darf. */
+export interface CustomRoleDef {
+  key: string;
+  label: string;
+  description: string;
+  permissions: readonly string[];
+  /** Typen des Modells (mit `org`), an denen die Rolle vergeben werden darf. */
+  places: readonly string[];
+}
 
 export interface TypeDef<P extends string = string, R extends string = string, T extends string = string> {
   label: string;
@@ -122,7 +143,11 @@ export interface ModelInput<P extends string = string, R extends string = string
   /** Fähigkeit → Recht je Typ (Felder `can` der Antworten). */
   capabilities?: Partial<Record<NoInfer<T> | 'org', Record<string, NoInfer<P> | ReservedPermission>>>;
   mcpTools?: Record<string, McpToolDef<NoInfer<P> | ReservedPermission>>;
-  features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean };
+  /**
+   * `customRoles` (Standard true, braucht `members`): Organisationen stellen eigene Rollen aus den Rechten des Modells
+   * zusammen (Recht `roles:admin`, Modul `roles`); die Rollen des Modells bleiben als Vorgabe. `false` schaltet es ab.
+   */
+  features?: { members?: boolean; tenantSettings?: boolean; audit?: boolean; customRoles?: boolean };
 }
 
 export class ModelError extends Error {
@@ -148,7 +173,7 @@ export interface TypeInfo<P extends string = string> {
 export interface AuthzCatalogJson {
   permissions: { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly?: true }[];
   groups: { key: string; label: string; match?: string }[];
-  roles: { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean }[];
+  roles: { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean; custom?: true }[];
   scopes: { key: string; text: string; permissions: string[] }[];
   types: {
     key: string; label: string; parent: string | null; self?: true; roles: string[]; relations: string[];
@@ -185,7 +210,11 @@ export interface Model<P extends string = string, R extends string = string, T e
   readonly mcpTools: Readonly<Record<string, McpToolDef<P>>>;
   /** Rechte, die bei keiner Rolle ausser `org-admin` stehen (ihre Rolle vergibt nur `platform-admin`). */
   readonly adminOnly: ReadonlySet<P>;
-  readonly features: { members: boolean; tenantSettings: boolean; audit: boolean };
+  readonly features: { members: boolean; tenantSettings: boolean; audit: boolean; customRoles: boolean };
+  /** Eigene Rollen der Organisation in diesem Modell (`withRoles`); im Modell der App leer. */
+  readonly customRoles: ReadonlySet<string>;
+  /** Grundmodell der App (ohne eigene Rollen); beim Modell der App es selbst. */
+  readonly base: Model<P, R, T>;
   /** SOLL-Abweichungen (z. B. fehlender Lese-Scope). */
   readonly warnings: readonly string[];
   isPermission(v: string): v is P;
@@ -208,6 +237,14 @@ export interface Model<P extends string = string, R extends string = string, T e
   toJSON(): AuthzCatalogJson;
   /** Inhalt von `infra/keycloak/platform.json` für das Realm-Modul: nur Scopes (O4). */
   platformJson(): string;
+  /**
+   * Modell einer Organisation: das Modell der App plus ihre eigenen Rollen (nach den Rollen des Modells, an den Orten aus
+   * `places`). Ungültige Teile (Recht nicht mehr im Modell oder nur für org-admin, Ort unbekannt) fallen weg, damit eine
+   * Änderung des Modells nie mehr Rechte gibt. Ohne `features.customRoles` das Modell selbst.
+   */
+  withRoles(roles: readonly CustomRoleDef[]): Model<P, string, T>;
+  /** Befunde zu einer eigenen Rolle (leer: gültig) – Schlüssel, Name, Rechte des Modells ohne Rechte nur von org-admin, Orte. */
+  customRoleProblems(role: CustomRoleDef): string[];
 }
 
 /** Typen des Modells der App für die Signaturen des Pakets: `declare module '@vollholz/iam' { interface Register { model: typeof model } }`. */
@@ -221,7 +258,8 @@ export function defineModel<const P extends string, const R extends string, cons
   type RR = R | typeof ADMIN_ROLE;
   type TT = T | typeof ORG;
   const errors: string[] = [], warnings: string[] = [];
-  const features = { members: true, tenantSettings: false, audit: false, ...input.features };
+  const features = { members: true, tenantSettings: false, audit: false, customRoles: true, ...input.features };
+  if (!features.members) features.customRoles = false;
   const typesIn = Object.entries(input.types ?? {}) as [string, TypeDef][];
   const hasPlaces = typesIn.some(([k]) => k !== ORG);
 
@@ -256,6 +294,7 @@ export function defineModel<const P extends string, const R extends string, cons
   if (features.members) reservedWanted.push('members:admin');
   if (hasPlaces) reservedWanted.push('access:admin');
   if (features.audit) reservedWanted.push('audit:read');
+  if (features.customRoles) reservedWanted.push('roles:admin');
   const given = new Set(own.map(([k]) => k));
   const front: [string, PermissionDef][] = [], back: [string, PermissionDef][] = [];
   for (const k of reservedWanted) {
@@ -335,6 +374,7 @@ export function defineModel<const P extends string, const R extends string, cons
     if (key === ADMIN_ROLE) continue;
     if (!NAME_KEY.test(key)) errors.push(`Rolle «${key}»: Schlüssel nicht ${NAME_KEY} (M1)`);
     if (key === PLATFORM_ADMIN_ROLE || key === MEMBER || key === OWNER) errors.push(`Rolle «${key}»: reservierter Name, kein Rollenschlüssel (M1)`);
+    if (key.startsWith('c-')) errors.push(`Rolle «${key}»: «c-» ist eigenen Rollen der Organisationen vorbehalten (M1)`);
     if (!r.label?.trim()) errors.push(`Rolle «${key}»: Label fehlt (M3)`);
     if (!r.description?.trim()) errors.push(`Rolle «${key}»: Beschreibung fehlt (M3)`);
     if (r.permissions === '*') { errors.push(`Rolle «${key}»: «*» nur bei ${ADMIN_ROLE} (M3)`); continue; }
@@ -454,6 +494,24 @@ export function defineModel<const P extends string, const R extends string, cons
 
   if (errors.length) throw new ModelError(errors);
 
+  return assemble<Q, RR, TT>({ product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })), roles, scopes, types, leaf: leaves[0] ?? null, classifications, capabilities, mcpTools, adminOnly, features, warnings, readScope, custom: new Set() }, null);
+}
+
+interface Parts<Q extends string> {
+  product: string; permissions: Q[]; info: Map<Q, PermissionInfo>;
+  groups: { key: string; label: string; match: RegExp | null }[];
+  roles: Map<string, { label: string; description: string; permissions: readonly Q[] }>;
+  scopes: Map<string, { text: string; permissions: readonly Q[] }>;
+  types: Map<string, TypeInfo<Q>>; leaf: TypeInfo<Q> | null;
+  classifications: readonly [string, string, string]; capabilities: Record<string, Record<string, Q>>; mcpTools: Record<string, McpToolDef<Q>>;
+  adminOnly: Set<Q>; features: Model['features']; warnings: string[]; readScope: string;
+  /** Eigene Rollen der Organisation (Schlüssel). */
+  custom: Set<string>;
+}
+
+/** Modell aus geprüften Teilen (`defineModel`, `withRoles`). `base`: Modell der App, null beim Modell der App selbst. */
+function assemble<Q extends string, RR extends string, TT extends string>(o: Parts<Q>, base: Model<Q, RR, TT> | null): Model<Q, RR, TT> {
+  const { permissions, info, groups, roles, scopes, types, classifications, capabilities, mcpTools, readScope } = o;
   const permissionsForRoles = (rs: readonly string[]) => {
     const out = new Set<Q>();
     for (const r of rs) for (const p of roles.get(r)?.permissions ?? []) out.add(p);
@@ -476,14 +534,51 @@ export function defineModel<const P extends string, const R extends string, cons
     return scope && scope !== readScope ? scope : null;
   };
   const permissionText = (p: string) => `«${info.get(p as Q)?.label ?? p}» (${p})`;
-  const leaf = leaves[0] ?? null;
   const allRelations = () => [...new Set([...roles.keys(), ...[...types.values()].flatMap(t => t.relations)])];
 
-  return {
-    product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })),
+  const customRoleProblems = (r: CustomRoleDef): string[] => {
+    const out: string[] = [];
+    if (!o.features.customRoles) return ['Eigene Rollen sind in dieser App abgeschaltet'];
+    if (!CUSTOM_ROLE_KEY.test(r.key)) out.push(`Schlüssel «${r.key}» ungültig (c-, Kleinbuchstaben, Ziffern, Bindestriche, höchstens 42 Zeichen)`);
+    if (!r.label?.trim() || r.label.trim().length > 80) out.push('Name fehlt oder ist länger als 80 Zeichen');
+    if ((r.description ?? '').length > 500) out.push('Beschreibung länger als 500 Zeichen');
+    if (!r.permissions.length) out.push('ohne Rechte');
+    for (const p of r.permissions) {
+      if (!info.has(p as Q)) out.push(`Recht «${p}» nicht im Modell der App`);
+      else if (o.adminOnly.has(p as Q)) out.push(`Recht «${p}» hat nur die Rolle ${ADMIN_ROLE}`);
+    }
+    if (!r.places.length) out.push('ohne Ort');
+    for (const t of r.places) if (!types.has(t)) out.push(`Ort «${t}» nicht im Modell der App`);
+    return out;
+  };
+
+  const withRoles = (defs: readonly CustomRoleDef[]): Model<Q, string, TT> => {
+    const root = (base ?? self) as Model<Q, string, TT>;
+    if (!o.features.customRoles || !defs.length) return root;
+    const r2 = new Map(roles), custom = new Set<string>();
+    const at = new Map<string, string[]>();
+    for (const d of defs) {
+      if (!CUSTOM_ROLE_KEY.test(d.key) || r2.has(d.key)) continue;
+      const perms = [...new Set(d.permissions)].filter(p => info.has(p as Q) && !o.adminOnly.has(p as Q)) as Q[];
+      r2.set(d.key, { label: d.label, description: d.description, permissions: perms });
+      custom.add(d.key);
+      for (const t of new Set(d.places)) if (types.has(t)) at.set(t, [...(at.get(t) ?? []), d.key]);
+    }
+    const t2 = new Map<string, TypeInfo<Q>>();
+    for (const [k, t] of types) {
+      const extra = at.get(k) ?? [];
+      const own = t.relations.filter(x => roles.has(x));
+      t2.set(k, extra.length ? { ...t, roles: [...t.roles, ...extra], relations: [...own, ...extra, ...t.relations.filter(x => !roles.has(x))] } : t);
+    }
+    return assemble<Q, string, TT>({ ...o, roles: r2, types: t2, leaf: o.leaf ? t2.get(o.leaf.key)! : null, custom }, root);
+  };
+
+  const self: Model<Q, RR, TT> = {
+    product: o.product, permissions, info, groups,
     roles: roles as Map<RR, { label: string; description: string; permissions: readonly Q[] }>, scopes,
-    types: types as Map<TT, TypeInfo<Q>>, leaf, classifications, capabilities: capabilities as Partial<Record<TT, Record<string, Q>>>, mcpTools, adminOnly, features, warnings,
-    isPermission, isRole: (v: string): v is RR => roles.has(v), isType: (v: string): v is TT => types.has(v),
+    types: types as Map<TT, TypeInfo<Q>>, leaf: o.leaf, classifications, capabilities: capabilities as Partial<Record<TT, Record<string, Q>>>, mcpTools, adminOnly: o.adminOnly, features: o.features, warnings: o.warnings,
+    customRoles: o.custom, get base() { return base ?? self; },
+    isPermission: (v: string): v is Q => info.has(v as Q), isRole: (v: string): v is RR => roles.has(v), isType: (v: string): v is TT => types.has(v),
     permissionsForRoles, permissionsForScopes, permissionsOf, scopeForPermission, permissionText,
     relationsAt: type => types.get(type)?.relations ?? [],
     rolesWith: perm => [...roles].filter(([, r]) => r.permissions.includes(perm as Q)).map(([k]) => k as RR),
@@ -494,7 +589,7 @@ export function defineModel<const P extends string, const R extends string, cons
         return { key: i.key, label: i.label, group: i.group, description: i.description, resources: i.resources, adminOnly: i.adminOnly, ...(i.personOnly ? { personOnly: true as const } : {}) };
       }),
       groups: groups.map(g => ({ key: g.key, label: g.label, ...(g.match ? { match: g.match.source } : {}) })),
-      roles: [...roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...r.permissions], adminOnly: key === ADMIN_ROLE })),
+      roles: [...roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...r.permissions], adminOnly: key === ADMIN_ROLE, ...(o.custom.has(key) ? { custom: true as const } : {}) })),
       scopes: [...scopes].map(([key, s]) => ({ key, text: s.text, permissions: [...s.permissions] })),
       types: [...types.values()].map(t => ({
         key: t.key, label: t.label, parent: t.parent, ...(t.self ? { self: true as const } : {}), roles: [...t.roles], relations: [...t.relations],
@@ -505,5 +600,7 @@ export function defineModel<const P extends string, const R extends string, cons
       mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly, openWorld: t.openWorld ?? false })),
     }),
     platformJson: () => `${JSON.stringify({ scopes: [...scopes.keys()] }, null, 2)}\n`,
+    withRoles, customRoleProblems,
   };
+  return self;
 }

@@ -55,7 +55,7 @@ describe('defineModel', () => {
     assert.deepEqual(checkModel(notesModel.toJSON(), { product: 'notes', platformJson: notesModel.platformJson() }), { errors: [], warnings: [] });
     assert.deepEqual(checkModel(simpleModel.toJSON()).errors, []);
     assert.deepEqual(a.permissions.slice(0, 2), ['tenant:read', 'tenant:admin']);
-    assert.deepEqual(a.permissions.slice(-2), ['members:admin', 'audit:read']);
+    assert.deepEqual(a.permissions.slice(-3), ['members:admin', 'audit:read', 'roles:admin']);
     assert.deepEqual([...a.roles.keys()][0], 'org-admin');
     assert.equal(a.roles.get('org-admin')!.permissions.length, a.permissions.length);
     assert.deepEqual(a.groups.map(g => g.key), ['tenant', 'catalog', 'views', 'members', 'access', 'audit']);
@@ -66,7 +66,7 @@ describe('defineModel', () => {
     assert.deepEqual(a.relationsAt('org'), ['org-admin', 'schema-admin', 'editor', 'viewer']);
     assert.deepEqual([...a.permissionsOf('owner', 'view')], ['view:read', 'view:write', 'access:admin']);
     assert.deepEqual(a.rolesWith('object:write'), ['org-admin', 'schema-admin', 'editor']);
-    assert.deepEqual([...a.adminOnly].sort(), ['audit:read', 'members:admin', 'tenant:admin']);
+    assert.deepEqual([...a.adminOnly].sort(), ['audit:read', 'members:admin', 'roles:admin', 'tenant:admin']);
     // Stufe «einfach»: ohne Orte kein access:admin
     assert.ok(!simpleModel.isPermission('access:admin'));
     assert.deepEqual([...simpleModel.types.keys()], ['org']);
@@ -80,7 +80,7 @@ describe('defineModel', () => {
     assert.deepEqual(j.types[0], { key: 'org', label: 'Organisation', parent: null, roles: ['org-admin', 'editor', 'viewer'], relations: ['org-admin', 'editor', 'viewer'], read: 'tenant:read' });
     assert.deepEqual(j.classifications, [{ level: 0, label: 'intern' }, { level: 1, label: 'vertraulich' }, { level: 2, label: 'streng vertraulich' }]);
     assert.deepEqual(j.roles.map(r => [r.key, r.adminOnly]), [['org-admin', true], ['editor', false], ['viewer', false]]);
-    assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'access:admin', 'members:admin']);
+    assert.deepEqual(j.permissions.filter(p => p.personOnly).map(p => p.key), ['note:share', 'access:admin', 'members:admin', 'roles:admin']);
   });
 
   test('mcpTools im Katalog: Scope aus dem Recht, openWorld ohne Angabe false', () => {
@@ -173,6 +173,41 @@ describe('defineModel', () => {
     const errs = errorsOf(m => { m.roles.viewer.permissions = []; delete m.types.view.read; });
     assert.equal(errs.length, 2);
   });
+
+  test('eigene Rollen (withRoles): nach den Rollen des Modells, nur an ihren Orten, nie Rechte nur von org-admin', () => {
+    const m = notesModel.withRoles([
+      { key: 'c-pruefer', label: 'Prüfer:in', description: 'Liest Notizen.', permissions: ['note:read', 'tenant:read', 'members:admin', 'nix:da'], places: ['org', 'folder', 'gibts-nicht'] },
+      { key: 'editor', label: 'Überschreiben', description: '', permissions: ['note:read'], places: ['org'] },
+    ]);
+    assert.deepEqual([...m.roles.keys()], ['org-admin', 'editor', 'viewer', 'c-pruefer']);
+    assert.equal(m.roles.get('editor')!.label, 'Bearbeiter:in', 'eine Rolle des Modells wird nie überschrieben');
+    assert.deepEqual([...m.permissionsForRoles(['c-pruefer'])], ['note:read', 'tenant:read'], 'unbekannte Rechte und Rechte nur von org-admin fallen weg');
+    assert.deepEqual(m.relationsAt('folder'), ['editor', 'viewer', 'c-pruefer']);
+    assert.deepEqual(m.relationsAt('view'), ['editor', 'viewer', 'owner'], 'nur an den eigenen Orten');
+    assert.ok(m.relationsAt('org').includes('c-pruefer'));
+    assert.deepEqual([...m.customRoles], ['c-pruefer']);
+    assert.equal(m.base, notesModel);
+    assert.equal(m.withRoles([]), notesModel);
+    assert.equal(m.toJSON().roles.find(r => r.key === 'c-pruefer')!.custom, true);
+    assert.equal(m.toJSON().roles.find(r => r.key === 'editor')!.custom, undefined);
+    assert.deepEqual(notesModel.customRoles.size, 0);
+    assert.ok(m.rolesWith('note:read').includes('c-pruefer'));
+  });
+
+  test('eigene Rollen: Prüfung, Schlüssel nur mit «c-», abschaltbar; Rolle des Modells mit «c-» ist ein Fehler', () => {
+    const ok = { key: 'c-leser', label: 'Leser:in Ordner', description: '', permissions: ['note:read'], places: ['folder'] };
+    assert.deepEqual(notesModel.customRoleProblems(ok), []);
+    assert.deepEqual(notesModel.customRoleProblems({ ...ok, key: 'leser', permissions: ['members:admin', 'x:y'], places: [], label: ' ' }), [
+      'Schlüssel «leser» ungültig (c-, Kleinbuchstaben, Ziffern, Bindestriche, höchstens 42 Zeichen)', 'Name fehlt oder ist länger als 80 Zeichen',
+      'Recht «members:admin» hat nur die Rolle org-admin', 'Recht «x:y» nicht im Modell der App', 'ohne Ort']);
+    const off = defineModel({ ...notesInput(), features: { audit: true, customRoles: false } });
+    assert.equal(off.features.customRoles, false);
+    assert.ok(!off.permissions.includes('roles:admin' as never), 'ohne eigene Rollen kein roles:admin');
+    assert.equal(off.withRoles([ok]), off);
+    assert.deepEqual(off.customRoleProblems(ok), ['Eigene Rollen sind in dieser App abgeschaltet']);
+    const i = notesInput();
+    assert.throws(() => defineModel({ ...i, roles: { ...i.roles, 'c-x': { label: 'X', description: 'Liest Notizen.', permissions: ['note:read'] } } } as never), /«c-» ist eigenen Rollen der Organisationen vorbehalten/);
+  });
 });
 
 describe('syncModelChecks', { skip }, () => {
@@ -184,7 +219,10 @@ describe('syncModelChecks', { skip }, () => {
   test('CHECKs aus dem Modell; neue Rolle ohne Migration; entfernte Rolle mit Tupeln bricht ab', async () => {
     const defs = async () => new Map((await t.inspect.query<{ n: string; d: string }>("SELECT conname AS n, pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = 'notes.authz_tuple'::regclass AND conname LIKE 'authz_tuple_%_check'")).rows.map(r => [r.n, r.d]));
     const want = modelChecks({ types: [...notesModel.types.keys()], relations: notesModel.allRelations() });
-    assert.equal((await defs()).get('authz_tuple_relation_check'), want.authz_tuple_relation_check!.def);
+    // Mit eigenen Rollen (Standard): Relationen des Modells oder «c-…»
+    const rel = (await defs()).get('authz_tuple_relation_check')!;
+    for (const r of notesModel.allRelations()) assert.match(rel, new RegExp(`'${r}'`), r);
+    assert.match(rel, /relation ~ '\^c-/);
     assert.equal((await defs()).get('authz_tuple_object_type_check'), want.authz_tuple_object_type_check!.def);
     const A = await tenant(t.runtime, 'acme');
     await assert.rejects(grant(t.runtime, A, 'org:members', 'boss'), /authz_tuple_relation_check/);

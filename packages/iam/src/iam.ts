@@ -20,6 +20,7 @@ import type { ResourceModel } from './resources.ts';
 import { MemoryReplayStore, PgReplayStore, type ReplayStore } from './state.ts';
 import { OidcProvider, TokenVerifier } from './tokens.ts';
 import { TupleStore } from './tuples.ts';
+import { CustomRoles } from './roles.ts';
 import type { IamEvents } from './events.ts';
 
 export type { IamEvents } from './events.ts';
@@ -70,6 +71,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly access: AccessService<P, S>;
   /** Tupel lesen und schreiben (z. B. `owner` beim Anlegen einer Ressource). */
   readonly tuples: TupleStore;
+  /** Eigene Rollen der Organisation (Modul `roles`); null mit `features.customRoles: false`. */
+  readonly roles: CustomRoles | null;
   /** «Wer hat Zugriff?», «Warum?», wer vergeben darf. */
   readonly info: AccessInfo;
   /** Anmeldung der Oberfläche (`SessionBridge` des Plugins, Modul `bff`) oder null. */
@@ -131,6 +134,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
     cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
+    roles: o.model.features.customRoles ? new CustomRoles({ schema, access: access as AccessService, audit }) : null,
     async tx(p, fn) {
       const acl = await access.load(p.tenantId);
       const settings = await access.readView(p.tenantId, p, acl);

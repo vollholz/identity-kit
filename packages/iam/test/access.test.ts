@@ -14,7 +14,7 @@ import { pgAudit } from '../src/audit.ts';
 import { resourceProblems } from '../src/iam.ts';
 import { defineModel } from '../src/model.ts';
 import { withTenant } from '../src/db.ts';
-import type { Level } from '../src/model.ts';
+import type { Level, Model } from '../src/model.ts';
 import type { Principal } from '../src/principal.ts';
 import { refKey } from '../src/resources.ts';
 import { expireAccess } from '../src/sync.ts';
@@ -38,10 +38,10 @@ const state: NotesState = {
 let seq = 0;
 const tuple = (subject: string, relation: string, type = 'org', id: string | null = null, expires: Date | null = null): Tuple =>
   ({ id: U(900 + ++seq), subject, relation, object_type: type, object_id: id, expires_at: expires, created_at: new Date(), created_by: null });
-function acl(tuples: Tuple[], clearances: [string, { clearance: Level; boost: Level | null; until: Date | null }][] = []): TenantAccess<NotesState> {
+function acl(tuples: Tuple[], clearances: [string, { clearance: Level; boost: Level | null; until: Date | null }][] = [], model: Model = notesModel): TenantAccess<NotesState> {
   const byPlace = new Map<string, Tuple[]>();
   for (const t of tuples) { const k = refKey({ type: t.object_type, id: t.object_id }); byPlace.set(k, [...byPlace.get(k) ?? [], t]); }
-  return { version: '1', tuples, byPlace, clearances: new Map(clearances), state };
+  return { version: '1', model, roles: [], tuples, byPlace, clearances: new Map(clearances), state };
 }
 const me = `user:${U(1)}`;
 const N1 = { type: 'note', id: U(21) }, N2 = { type: 'note', id: U(22) }, F1 = { type: 'folder', id: U(11) }, F2 = { type: 'folder', id: U(12) };
@@ -83,7 +83,7 @@ describe('Entscheidung (ohne Datenbank)', () => {
   test('canSomewhere über Zuständigkeit gilt für jeden Typ mit scope, nicht nur den ersten', () => {
     const two = twoScoped();
     const a2 = new AccessService(null as never, { model: two, schema: 'notes', resources: notesResources });
-    const a = acl([tuple(me, 'member', 'team', U(31))]);
+    const a = acl([tuple(me, 'member', 'team', U(31))], [], two);
     for (const perm of ['note:read', 'note:write', 'doc:read', 'doc:write']) assert.equal(a2.somewhere(p({ subjects: [me] }), a, perm), true, perm);
     assert.equal(a2.somewhere(p({ subjects: [me] }), a, 'team:read'), false, 'member gibt kein Recht an der Einheit');
   });

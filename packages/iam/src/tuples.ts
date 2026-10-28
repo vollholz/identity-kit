@@ -6,11 +6,11 @@
  * Für die App: `iam.tuples.grant(tx, …)` setzt z. B. `owner` beim Anlegen einer Ressource (A7).
  */
 import type { AuditPort, Actor } from './audit.ts';
-import { TUPLE_COLS, type Tuple } from './access.ts';
+import { loadCustomRoles, TUPLE_COLS, type Tuple } from './access.ts';
 import { schemaName, type Tx } from './db.ts';
 import { conflict, invalid } from './errors.ts';
 import { emitAfter, SYSTEM_ACTOR, type AccessEventData, type IamEvents } from './events.ts';
-import { ORG, type Model } from './model.ts';
+import { CUSTOM_ROLE_KEY, ORG, type Model } from './model.ts';
 import type { ResourceRef } from './resources.ts';
 
 /** Muster gültiger Subjekte (wie der CHECK in der Datenbank). */
@@ -46,18 +46,24 @@ export class TupleStore {
     await emitAfter(this.events, tx, { type, subject: row.subject, actor: who, data: { tupleId: row.id, ...accessData(row), ...extra } });
   }
 
-  /** Form prüfen: Subjekt, Relation am Typ (ohne Regeln, wer vergeben darf). */
-  check(t: TupleInput) {
+  /** Modell der Organisation aus der Transaktion, wenn die Relation eine eigene Rolle ist; sonst das der App. */
+  async modelFor(tx: Tx, relation: string): Promise<Model> {
+    if (!this.model.features.customRoles || !CUSTOM_ROLE_KEY.test(relation)) return this.model;
+    return this.model.withRoles(await loadCustomRoles(tx, this.S)) as Model;
+  }
+
+  /** Form prüfen: Subjekt, Relation am Typ (ohne Regeln, wer vergeben darf). `model`: Modell der Organisation (`modelFor`). */
+  check(t: TupleInput, model: Model = this.model) {
     if (!SUBJECT_PATTERN.test(t.subject)) throw invalid('Subjekt ungültig', [{ path: '/subject', message: 'user:<id>, client:<id>, group:<id> oder org:members' }]);
-    if (!this.model.types.has(t.place.type as never)) throw invalid('Typ unbekannt', [{ path: '/type', message: `«${t.place.type}» ist kein Typ des Modells` }]);
-    if (!this.model.relationsAt(t.place.type).includes(t.relation)) throw invalid('Relation am Typ nicht zulässig', [{ path: '/relation', message: `«${t.relation}» darf an «${t.place.type}» nicht hängen` }]);
+    if (!model.types.has(t.place.type as never)) throw invalid('Typ unbekannt', [{ path: '/type', message: `«${t.place.type}» ist kein Typ des Modells` }]);
+    if (!model.relationsAt(t.place.type).includes(t.relation)) throw invalid('Relation am Typ nicht zulässig', [{ path: '/relation', message: `«${t.relation}» darf an «${t.place.type}» nicht hängen` }]);
     if ((t.place.type === ORG) !== !t.place.id) throw invalid('Ort ungültig', [{ path: '/id', message: 'id leer genau bei org' }]);
     if (t.subject.startsWith('client:') && t.place.type !== ORG) throw invalid('Clients nur an der Organisation', [{ path: '/subject', message: 'Clients erhalten Rollen nur an org (A3)' }]);
   }
 
   /** Tupel anlegen; gleiches Tupel (auch abgelaufen) → 409 `duplicate`. Mit `actor` Audit `access.granted`; Ereignis `access.granted`. */
   async grant(tx: Tx, t: TupleInput, actor?: TupleActor): Promise<Tuple> {
-    this.check(t);
+    this.check(t, await this.modelFor(tx, t.relation));
     const r = await tx.query<Tuple>(
       `INSERT INTO ${this.S}.authz_tuple (tenant_id, subject, relation, object_type, object_id, expires_at, created_by)
        VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6) ON CONFLICT ON CONSTRAINT authz_tuple_unique DO NOTHING RETURNING ${TUPLE_COLS}`,

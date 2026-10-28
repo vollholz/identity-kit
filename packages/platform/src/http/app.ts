@@ -20,6 +20,7 @@ import { metrics } from '../ops/metrics.ts';
 import type { ApiTag, PlatformModule } from '../module.ts';
 import { registerIdempotency } from './idempotency.ts';
 import { registerPublicRoutes } from './public-route.ts';
+import { emptyAsNullDocs } from './route-kit.ts';
 import { buildSerializer } from './serializer.ts';
 
 /** Abhängigkeiten der Module, einmal gebaut in der Kompositionswurzel. */
@@ -139,7 +140,7 @@ export async function buildApp(deps: Deps, o: BuildOptions): Promise<App> {
       tags: apiTags(o.modules),
     },
     refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) },
-    transformObject: optionalBodies as never,
+    transformObject: ((doc: Parameters<typeof optionalBodies>[0]) => emptyAsNullDocs(optionalBodies(doc))) as never,
   });
   await app.register(swaggerUi, {
     routePrefix: '/v1/docs',

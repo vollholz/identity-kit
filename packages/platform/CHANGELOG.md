@@ -14,7 +14,8 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 ### Hinzugefügt
 
 - `EmptyAsNull(X)`: wie `Nullable(X)`, dazu `""` als `null`, wo X `""` ablehnt (leere Felder aus Formularen, z. B.
-  Datum). Nur `""`, nie 0 oder `false`. OpenAPI: dritter Zweig `{ allOf: [{ const: "" }, { type: "null" }] }`.
+  Datum). Nur `""`, nie 0 oder `false`. Im Schema ist der dritte Zweig `allOf [{ const: "" }, { type: "null" }]` (AJV
+  wandelt `""` in null); die OpenAPI von `buildApp` beschreibt ihn als gültige Eingabe `{ enum: [""] }`.
 
 ### Behoben
 

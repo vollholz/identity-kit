@@ -10,7 +10,10 @@ import { before, describe, test } from 'node:test';
 import { FormatRegistry, Kind, Type, type TSchema } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { Value } from '@sinclair/typebox/value';
+import swagger from '@fastify/swagger';
+import { optionalBodies } from '@vollholz/iam';
 import Fastify from 'fastify';
+import { emptyAsNullDocs } from '../src/http/route-kit.ts';
 import { DateTime, EmptyAsNull, fastifyOptions, Nullable, Uuid, type PlatformConfig } from '../src/index.ts';
 
 const cfg = { app: { logLevel: 'silent', http: { trustProxy: false, bodyLimit: 1_048_576 } } } as unknown as PlatformConfig;
@@ -80,6 +83,20 @@ describe('Nullable und EmptyAsNull mit AJV (coerceTypes)', () => {
       assert.deepEqual(JSON.parse(JSON.stringify(Nullable(s))), { anyOf: [{ const: null }, x] });
       assert.deepEqual(JSON.parse(JSON.stringify(EmptyAsNull(s))), { anyOf: [{ const: null }, x, { allOf: [{ const: '' }, { type: 'null' }] }] });
     }
+  });
+});
+
+describe('EmptyAsNull in der OpenAPI', () => {
+  test('"" als gültige Eingabe beschrieben (wie in buildApp), Nullable unverändert', async () => {
+    const app = Fastify({ ...fastifyOptions(cfg), logger: false });
+    await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 't', version: '1' } }, transformObject: (d => emptyAsNullDocs(optionalBodies(d))) as never });
+    app.patch('/x', { schema: { body: Type.Object({ bis: EmptyAsNull(DateTime), id: Nullable(Uuid) }) } }, async () => null);
+    await app.ready();
+    const props = (app.swagger() as any).paths['/x'].patch.requestBody.content['application/json'].schema.properties;
+    assert.deepEqual(props.bis.anyOf, [{ enum: [null] }, { type: 'string', format: 'date-time' }, { enum: [''], description: 'Leer (""), gilt als `null`.' }]);
+    assert.deepEqual(props.id.anyOf, [{ enum: [null] }, { type: 'string', format: 'uuid' }]);
+    assert.ok(!JSON.stringify(app.swagger()).includes('allOf'), 'kein unerfüllbares allOf');
+    await app.close();
   });
 });
 

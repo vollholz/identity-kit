@@ -47,13 +47,16 @@ describe('postgresSkip und dbSkip', () => {
     assert.equal(d.test, nt.test);
     assert.equal(d.before, nt.before);
     assert.equal(dbTests('x').describe, nt.describe);
+    const { test } = dbTests('x');
+    for (const k of ['only', 'skip', 'todo'] as const) assert.equal(typeof test[k], 'function', k);
+    assert.equal(test.test, test, 'test.test ist die umhüllte Funktion');
   });
 
   test('Lauf von node --test: ohne Datenbank als übersprungen gezählt, nicht erreichbar scheitert', () => {
     const run = (env: NodeJS.ProcessEnv) => spawnSync(process.execPath, ['--test', '--test-reporter=spec', join(import.meta.dirname, 'fixtures', 'db-skip-probe.ts')], { env, encoding: 'utf8' });
     const none = run(bare());
     assert.equal(none.status, 0, none.stdout + none.stderr);
-    assert.match(none.stdout, /ℹ skipped 2/, 'jeder Datenbank-Test gezählt');
+    assert.match(none.stdout, /ℹ skipped 4/, 'jeder Datenbank-Test gezählt, auch test.only und test.todo');
     assert.match(none.stdout, /ℹ pass 1/);
     assert.match(none.stdout, /ℹ fail 0/, 'Hooks laufen nicht');
     assert.ok(none.stdout.includes(NO_POSTGRES), 'Grund in der Ausgabe');

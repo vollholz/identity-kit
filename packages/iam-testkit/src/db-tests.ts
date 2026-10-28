@@ -21,20 +21,35 @@ export interface DbTests {
 
 type Fn = (...args: unknown[]) => unknown;
 
-/** Test-Funktion mit `skip` in den Optionen (Formen von node:test: Name, Optionen, Funktion je optional). */
-function skipping<F>(fn: F, skip: string): F {
-  return ((...args: unknown[]) => {
+const HOOKS = new Set(['before', 'after', 'beforeEach', 'afterEach']);
+const VARIANTS = new Set(['only', 'skip', 'todo']);
+const none = (() => undefined) as never;
+
+/** Aufruf mit `skip` in den Optionen (Formen von node:test: Name, Optionen, Funktion je optional). */
+function inject(fn: Fn, skip: string): Fn {
+  return (...args: unknown[]) => {
     const i = args.findIndex(a => typeof a === 'object' && a !== null);
     if (i >= 0) args[i] = { ...(args[i] as object), skip: (args[i] as { skip?: unknown }).skip || skip };
     else args.splice(typeof args[0] === 'string' ? 1 : 0, 0, { skip });
-    return (fn as Fn)(...args);
-  }) as F;
+    return fn(...args);
+  };
+}
+
+/**
+ * `test` bzw. `it` mit `skip`, dazu die Methoden: `only`, `skip`, `todo` ebenso übersprungen, `test`/`it` auf die
+ * umhüllte Funktion, Hooks (`test.before` …) laufen nicht, alles andere (`describe`, `mock` …) unverändert.
+ */
+function skipping<F>(fn: F, skip: string): F {
+  const wrapped = inject(fn as Fn, skip) as Fn & Record<string, unknown>;
+  for (const [k, v] of Object.entries(fn as object)) {
+    wrapped[k] = HOOKS.has(k) ? none : VARIANTS.has(k) ? inject(v as Fn, skip) : k === 'test' || k === 'it' ? wrapped : v;
+  }
+  return wrapped as F;
 }
 
 /** Ohne Grund (`false`) die Funktionen von node:test unverändert. */
 export function dbTests(skip: false | string): DbTests {
   const { describe, test, it, before, after, beforeEach, afterEach } = nodeTest;
   if (!skip) return { skip, describe, test, it, before, after, beforeEach, afterEach };
-  const none = (() => undefined) as never;
   return { skip, describe, test: skipping(test, skip), it: skipping(it, skip), before: none, after: none, beforeEach: none, afterEach: none };
 }

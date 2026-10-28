@@ -444,6 +444,8 @@ npx iam-org-bootstrap --file init.json
 
 ## Upgrade
 
-Pakete `@vollholz/*` erhöhen (Renovate), `npx @vollholz/create-iam-app@<version> sync` für die verwalteten Dateien,
+Vor dem Anheben die Release Notes lesen: `CHANGELOG.md` im Paket bzw. GitHub Releases `<paket>-v<version>` des
+identity-kit, alle Abschnitte zwischen der gepinnten und der neuen Version; Schritte unter **Breaking** sind Pflicht
+für die App. Das Kit veröffentlicht keine Version ohne diesen Eintrag. Dann Pakete `@vollholz/*` erhöhen (Renovate), `npx @vollholz/create-iam-app@<version> sync` für die verwalteten Dateien,
 dann `npx iam-conformity-test`. Ausserhalb des unterstützten Fensters (aktuelle und vorherige Hauptversion,
 Spezifikation [15.5](spezifikation.md#155-unterstützte-versionen)) meldet der Test einen Fehler.

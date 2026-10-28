@@ -11,7 +11,7 @@
     "./preload": { "types": "./dist/ops/preload.d.ts", "default": "./dist/ops/preload.js" },
     "./package.json": "./package.json"
   },
-  "files": ["dist", "migrations", "README.md", "LICENSE", "NOTICE"],
+  "files": ["dist", "migrations", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"],
   "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

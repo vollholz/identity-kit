@@ -12,7 +12,7 @@
     "./package.json": "./package.json"
   },
   "bin": { "iam-conformity-test": "dist/bin/conformity-test.js" },
-  "files": ["dist", "schema", "README.md", "LICENSE", "NOTICE"],
+  "files": ["dist", "schema", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"],
   "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

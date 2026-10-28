@@ -45,12 +45,19 @@ einhält, zeigt `npx iam-conformity-test`.
 | `packages/platform` | **0.1.1** – herausgelöst aus nachtschicht: Prozesse `api`, `worker`, `mcp`, Befehle `migrate`, `tenant`, `rotate-keys`, Migration `platform_001_core.sql` mit Übernahme ([README](packages/platform/README.md)) |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
-übersprungen). Veröffentlichen: Version des Pakets erhöhen und mergen – der Workflow «Release» veröffentlicht neue
-Versionen auf GitHub Packages und setzt das Tag `<paket>-v<version>`. Einbinden in eine App, auch ohne Zugang zur
+übersprungen). Veröffentlichen: Version des Pakets erhöhen, Abschnitt in `packages/<paket>/CHANGELOG.md` schreiben und
+mergen – der Workflow «Release» veröffentlicht neue Versionen auf GitHub Packages, setzt das Tag `<paket>-v<version>`
+und legt dazu ein GitHub Release mit dem Abschnitt aus CHANGELOG.md an. Einbinden in eine App, auch ohne Zugang zur
 Registry: [docs/ausrollen.md](docs/ausrollen.md).
 
-Versionierung: je Paket eine semantische Version; npm-Pakete über GitHub Packages (`@vollholz/*`), Module als
-Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`). Brechende Änderungen: Hinweise im README des jeweiligen Pakets bzw. Moduls.
+Versionierung: je Paket eine semantische Version (Breaking = Major); npm-Pakete über GitHub Packages (`@vollholz/*`),
+Module als Git-Quelle mit Tag (`?ref=<modul>-vX.Y.Z`).
+
+**Release Notes: keine neue Version ohne CHANGELOG-Eintrag.** Jedes Paket führt `packages/<paket>/CHANGELOG.md` nach
+[Keep a Changelog](https://keepachangelog.com/de/1.1.0/) mit den Abschnitten Breaking (mit Migrationsschritten für
+Apps), Hinzugefügt, Geändert, Entfernt, Behoben. Die CI (`node scripts/changelog.ts check`) ist rot, wenn die Version
+eines Pakets keinen Abschnitt `## [<version>] – <datum>` zuoberst hat. Jede Änderung, die eine App anpassen muss, steht
+unter Breaking mit Migrationshinweis. Module: Hinweise im README des Moduls.
 
 ## Lizenz
 

@@ -36,12 +36,12 @@ einhält, zeigt `npx iam-conformity-test`.
 
 | Teil | Stand |
 |---|---|
-| `packages/iam` | **5.0.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, Rollen als Tupel in der Datenbank der App, Verwaltung, Abgleich, MCP, Migrationen, Haken der App vor und nach Änderungen (`events`), eigene Rollen der Organisation; Entra ID mit eigener App der Organisation; `iam-org-bootstrap` (mit Einladung «Passwort festlegen», `--manifest`, ohne Datenbank nur ausdrücklich), `iam-reset` ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
+| `packages/iam` | **5.0.1** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, Rollen als Tupel in der Datenbank der App, Verwaltung, Abgleich, MCP, Migrationen, Haken der App vor und nach Änderungen (`events`), eigene Rollen der Organisation; Entra ID mit eigener App der Organisation; `iam-org-bootstrap` (mit Einladung «Passwort festlegen», `--manifest`, ohne Datenbank nur ausdrücklich), `iam-reset` ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
 | `packages/iam-web` | **2.2.0** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» (mit «Rollen») ([README](packages/iam-web/README.md)) |
-| `packages/iam-testkit` | **2.4.2** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Konformitätstest `iam-conformity-test` (Repository, Datenbank, Realm) ([README](packages/iam-testkit/README.md)) |
+| `packages/iam-testkit` | **2.4.3** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Konformitätstest `iam-conformity-test` (Repository, Datenbank, Realm) ([README](packages/iam-testkit/README.md)) |
 | `modules/product-realm` | **2.0.0** – Realm-Soll als OpenTofu-Modul für jede Keycloak-Instanz (`keycloak_url` Pflicht), ohne Rollen (Rollen stehen nur in der Datenbank der App), Maschinen-Clients als Code (`machine_clients`); gegen Keycloak 26.8.1 ([README](modules/product-realm/README.md)) |
 | `modules/product-realm-bootstrap` | **0.1.1** – Anlage von Realm und `<produkt>-iac` |
-| `packages/create-iam-app` | **0.5.2** – `init` (mit Vorgaben des Betreibers), `sync`, `check`, `keys`; Vorlagen für `product-realm` 2.0.0 ([README](packages/create-iam-app/README.md)) |
+| `packages/create-iam-app` | **0.5.3** – `init` (mit Vorgaben des Betreibers), `sync`, `check`, `keys`; Vorlagen für `product-realm` 2.0.0 ([README](packages/create-iam-app/README.md)) |
 | `packages/platform` | **0.6.2** – herausgelöst aus nachtschicht: Prozesse `api`, `worker`, `mcp`, Befehle `migrate`, `tenant`, `rotate-keys`, Migration `platform_001_core.sql` mit Übernahme ([README](packages/platform/README.md)) |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank

@@ -9,6 +9,17 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.3] – 2026-10-28
+
+### Behoben
+
+- `Nullable` (seit 0.6.2) mit `Value.Check`, `Value.Errors` und dem TypeCompiler von TypeBox: Der Zweig `{ const: null }`
+  hatte die Kind «Unsafe», TypeBox warf «Unknown type» (in einer App mit `Value.Check` auf ein Schema mit `Nullable`:
+  500). Neu eigene Kind `NullExakt` in der TypeRegistry (prüft `=== null`); TypeBox liefert für jede Eingabe dasselbe
+  Ergebnis wie AJV (ohne Umwandlung) und wie vor 0.6.2. OpenAPI unverändert. Voraussetzung: die App
+  benutzt dieselbe Kopie von `@sinclair/typebox` wie dieses Paket (0.34.52; `npm ls @sinclair/typebox`), sonst kennt
+  ihre TypeRegistry die Kind nicht.
+
 ## [0.6.2] – 2026-10-28
 
 ### Behoben

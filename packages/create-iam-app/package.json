@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/create-iam-app",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Gerüst einer App mit dem Identity-Kit: Manifest identity.app.json, verwaltete Dateien (Realm, Workflows) mit Lock-Datei, Schlüsselpaare",
   "type": "module",
   "license": "Apache-2.0",
@@ -16,10 +16,10 @@
     "test": "node --test --test-reporter=spec 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "@vollholz/iam-testkit": "2.4.3"
+    "@vollholz/iam-testkit": "2.4.4"
   },
   "devDependencies": {
-    "@vollholz/iam": "5.0.1",
+    "@vollholz/iam": "5.0.2",
     "pg": "8.23.1"
   }
 }

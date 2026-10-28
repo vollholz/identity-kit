@@ -6,7 +6,8 @@
  */
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { CURRENT, LOCK_FILE, MANIFEST_FILE, fileHash, formatLock, lockErrors, manifestErrors, type Lock, type Manifest } from '@vollholz/iam-testkit';
+import { CURRENT, LOCK_FILE, MANIFEST_FILE, fileHash, formatLock, lockErrors, manifestErrors, type Lock, type Manifest, type OperatorDefaults } from '@vollholz/iam-testkit';
+import { realmFromOperator, THEME_TEXTS_FILE, themeTextsFile } from './operator.ts';
 
 const PKG = join(import.meta.dirname, '..');
 export const KIT_VERSION = (JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as { version: string }).version;
@@ -103,6 +104,8 @@ export interface InitOptions {
   admin?: { alias: string; name?: string; email: string };
   /** Konto des Betriebs (Realm-Rolle platform-admin, ohne Organisation); nie dieselbe Adresse wie `admin`. */
   operator?: { email: string };
+  /** Vorgaben des Betreibers (`--operator-defaults`): `realm.smtp`, `realm.theme`, `realm.themeTexts`. */
+  operatorDefaults?: OperatorDefaults;
 }
 
 /** Manifest aus den Angaben von `init`. */
@@ -110,7 +113,7 @@ export function newManifest(o: InitOptions): Manifest {
   const m: Manifest = {
     $schema: './node_modules/@vollholz/iam-testkit/schema/identity-app.schema.json',
     product: o.product, displayName: o.displayName, publicBaseUrl: o.publicBaseUrl, keycloakUrl: o.keycloakUrl,
-    realm: { entra: o.entra ?? false, m2m: false, mcp: false, smtp: null },
+    realm: { entra: o.entra ?? false, m2m: false, mcp: false, smtp: null, ...(o.operatorDefaults ? realmFromOperator(o.operatorDefaults, o.displayName) : {}) },
     ...(o.state ? { state: o.state } : {}),
     ...(o.operator ? { operators: [{ email: o.operator.email }] } : {}),
     ...(o.admin ? { organizations: [{ alias: o.admin.alias, ...(o.admin.name ? { name: o.admin.name } : {}), admins: [{ email: o.admin.email }] }] } : {}),
@@ -131,9 +134,10 @@ export function readManifest(dir: string): Manifest {
 
 /**
  * Dateien der App, nur wenn sie fehlen: Modell (Stufe «einfach»), passende `platform.json`, Ordner der Migrationen,
- * `.npmrc` für GitHub Packages; in `package.json` die Pakete des Kits (exakt) und Skripte. Liefert die angelegten Pfade.
+ * `.npmrc` für GitHub Packages, mit Vorgaben des Betreibers `infra/keycloak/theme-texts.json`; in `package.json` die
+ * Pakete des Kits (exakt) und Skripte. Liefert die angelegten Pfade.
  */
-export function appFiles(dir: string, m: Manifest): string[] {
+export function appFiles(dir: string, m: Manifest, operatorDefaults: OperatorDefaults | null = null): string[] {
   const created: string[] = [];
   const add = (path: string, content: string) => {
     const file = join(dir, path);
@@ -149,6 +153,8 @@ export function appFiles(dir: string, m: Manifest): string[] {
   add(`${m.paths?.migrations ?? 'db/migrations'}/.gitkeep`, '');
   add('.npmrc', '@vollholz:registry=https://npm.pkg.github.com\n');
   add('.nvmrc', '24\n');
+  // Texte des Themes (Vorlage des Betreibers oder Grundgerüst), wenn das Manifest auf die Datei zeigt
+  if (m.realm?.themeTexts === THEME_TEXTS_FILE) add(THEME_TEXTS_FILE, themeTextsFile(m, operatorDefaults));
 
   const pkgFile = join(dir, 'package.json');
   const pkg: Record<string, unknown> = existsSync(pkgFile) ? JSON.parse(readFileSync(pkgFile, 'utf8')) as Record<string, unknown> : { name: m.product, private: true, type: 'module' };

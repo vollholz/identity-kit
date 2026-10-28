@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import {
-  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, fileHash, formatLock, formatMarkdown, manifestErrors, realmChecks, repoChecks, versionProblem,
+  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, OperatorDefaultsSchema, operatorDefaultsErrors, fileHash, formatLock, formatMarkdown, manifestErrors, realmChecks, repoChecks, versionProblem,
   type AdminReader, type Finding, type Manifest,
 } from '../src/index.ts';
 
@@ -80,6 +80,14 @@ describe('Manifest', () => {
   test('mitgeliefertes JSON Schema entspricht der Prüfung', () => {
     const { $schema: _draft, ...shipped } = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'schema', 'identity-app.schema.json'), 'utf8'));
     assert.deepEqual(shipped, JSON.parse(JSON.stringify(ManifestSchema)));
+  });
+
+  test('mitgeliefertes JSON Schema der Vorgaben des Betreibers entspricht der Prüfung', () => {
+    const { $schema: _draft, ...shipped } = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'schema', 'operator-defaults.schema.json'), 'utf8'));
+    assert.deepEqual(shipped, JSON.parse(JSON.stringify(OperatorDefaultsSchema)));
+    assert.deepEqual(operatorDefaultsErrors({ smtp: { host: 'mail.example.ch', from: 'noreply@example.ch', user: 'noreply@example.ch' }, theme: 't', themeTexts: { de: { 'themeSub.login': '{displayName}' } } }), []);
+    assert.match(operatorDefaultsErrors({ smtp: { host: 'x', from: 'x', user: 'u' } }).join(), /\/smtp\/from/);
+    assert.match(operatorDefaultsErrors({ smtp: { host: 'x', from: 'a@b.ch', user: 'u', password: 'nie' } }).join(), /smtp/, 'kein Passwort in den Vorgaben');
   });
 });
 

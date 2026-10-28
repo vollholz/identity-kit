@@ -166,6 +166,14 @@ function settingsFinding(m: Manifest): Finding {
   return { level: 'repo', check: 'Einstellungen der App', zone: 'einstellbar', source: MANIFEST_FILE, status: 'ok', details };
 }
 
+/** Ohne Mailversand des Realms gibt es keine Einladung «Passwort festlegen» (Warnung, kein Fehler). */
+function smtpFinding(m: Manifest): Finding {
+  const base = { level: 'repo', check: 'E-Mail-Versand des Realms', zone: 'einstellbar', source: `${MANIFEST_FILE} › realm.smtp` } as const;
+  return m.realm?.smtp
+    ? { ...base, status: 'ok', details: [`${m.realm.smtp.from} über ${m.realm.smtp.host}`] }
+    : { ...base, status: 'warn', details: ['realm.smtp fehlt: Keycloak sendet keine Einladung «Passwort festlegen» und keine E-Mail zum Zurücksetzen. Vorgaben des Betreibers übernehmen (docs/neue-app.md › Vorgaben des Betreibers) oder realm.smtp eintragen, Secret SMTP_PASSWORD.'] };
+}
+
 export interface RepoOptions {
   /** Modell nicht laden (z. B. ohne installierte Abhängigkeiten). */
   skipModel?: boolean;
@@ -188,7 +196,7 @@ export async function repoChecks(dir: string, o: RepoOptions = {}): Promise<{ fi
   findings.push(...packageFindings(dir, manifest ? resolved(manifest).packages : ['package.json']));
   findings.push(moduleFinding(dir));
   if (manifest) {
-    findings.push(settingsFinding(manifest));
+    findings.push(settingsFinding(manifest), smtpFinding(manifest));
     if (o.skipModel) findings.push({ level: 'repo', check: 'Modell nach den Regeln M1–M13', zone: 'app', source: resolved(manifest).model, status: 'skip', details: ['--skip-model'] });
     else findings.push(...await modelFindings(dir, manifest));
   }

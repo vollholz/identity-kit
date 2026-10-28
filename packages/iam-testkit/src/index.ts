@@ -13,6 +13,7 @@ export {
   openApiPath, routeCollector, installProbes, unreached, leaks, idSource, unknownKey, normalize, coverageProblems, routesOf,
   ROUTE_HEADER, HANDLER_HEADER, type ProbeResponse,
 } from './isolation.ts';
+export { OperatorDefaultsSchema, operatorDefaultsErrors, themeTextsFor, THEME_TEXT_KEY, THEME_TEXT_VARS, type OperatorDefaults } from './conformity/operator.ts';
 export { MANIFEST_FILE, LOCK_FILE, ManifestSchema, RealmSettingsSchema, manifestErrors, resolved as resolvedManifest, productIdent, BUILTIN_CLIENTS, type Manifest } from './conformity/manifest.ts';
 export { LockSchema, MANAGED_MARK, fileHash, formatLock, lockErrors, type Lock } from './conformity/lock.ts';
 export { CURRENT, MINIMUM, compareVersions, versionProblem, type Part } from './conformity/support.ts';

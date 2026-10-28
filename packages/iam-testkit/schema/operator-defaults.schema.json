@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vollholz/identity-kit/packages/iam-testkit/schema/operator-defaults.schema.json",
+  "title": "Vorgaben des Betreibers für Apps mit dem Identity-Kit (create-iam-app --operator-defaults)",
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "smtp"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "smtp": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "from",
+        "user"
+      ],
+      "properties": {
+        "host": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "port": {
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Standard 587",
+          "type": "integer"
+        },
+        "starttls": {
+          "description": "Standard true",
+          "type": "boolean"
+        },
+        "ssl": {
+          "description": "Standard false",
+          "type": "boolean"
+        },
+        "from": {
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Absender aller Apps (z. B. noreply@…); Anzeigename = displayName der App",
+          "type": "string"
+        },
+        "replyTo": {
+          "type": "string"
+        },
+        "user": {
+          "minLength": 1,
+          "description": "Konto beim Mailserver; Passwort nur als Secret SMTP_PASSWORD der App",
+          "type": "string"
+        }
+      }
+    },
+    "theme": {
+      "minLength": 1,
+      "description": "Theme auf der Keycloak-Instanz",
+      "type": "string"
+    },
+    "themeTexts": {
+      "description": "Vorlage der Texte des Themes je Sprache; Platzhalter {displayName}, {product}, {publicBaseUrl}",
+      "type": "object",
+      "patternProperties": {
+        "^[a-z]{2}(-[A-Z]{2})?$": {
+          "type": "object",
+          "patternProperties": {
+            "^theme[A-Z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9-]*)?$": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

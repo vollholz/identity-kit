@@ -36,7 +36,10 @@ export function sections(text: string): Section[] {
   return out;
 }
 
-/** Vergleich nach SemVer (Vorabversionen vor der Version selbst, sonst lexikalisch). */
+/**
+ * Vergleich nach SemVer 2.0.0 (Abschnitt 11): Vorabversionen vor der Version selbst; deren Kennungen einzeln, numerische
+ * numerisch und vor alphanumerischen, sonst lexikalisch (ASCII); bei gleichem Anfang hat die längere Liste Vorrang.
+ */
 export function compareVersions(a: string, b: string): number {
   const x = SEMVER.exec(a), y = SEMVER.exec(b);
   if (!x || !y) throw new Error(`keine semantische Version: ${!x ? a : b}`);
@@ -44,7 +47,17 @@ export function compareVersions(a: string, b: string): number {
   if (x[4] === y[4]) return 0;
   if (!x[4]) return 1;
   if (!y[4]) return -1;
-  return x[4] < y[4] ? -1 : 1;
+  const p = x[4].split('.'), q = y[4].split('.');
+  const num = /^\d+$/;
+  for (let i = 0; i < Math.min(p.length, q.length); i++) {
+    const m = p[i]!, n = q[i]!;
+    if (m === n) continue;
+    if (num.test(m) && num.test(n)) return Math.sign(Number(m) - Number(n));
+    if (num.test(m)) return -1;
+    if (num.test(n)) return 1;
+    return m < n ? -1 : 1;
+  }
+  return Math.sign(p.length - q.length);
 }
 
 interface Pkg { dir: string; name: string; version: string }

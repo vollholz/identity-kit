@@ -96,7 +96,8 @@ export interface PermissionInfo {
 }
 export interface PermissionGroupInfo { key: string; label: string; match?: string }
 /** `adminOnly`: nur die Plattform-Administration vergibt die Rolle. */
-export interface CatalogRole { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
+/** Rolle im Katalog; `custom`: eigene Rolle der Organisation (nach den Rollen des Modells), sonst fehlt das Feld. */
+export interface CatalogRole { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }
 export interface ScopeInfo { key: string; text: string; permissions: Permission[] }
 /** Werkzeug des MCP-Dienstes (12.2) mit dem Recht und dem Scope, die es braucht. */
 export interface McpToolInfo { name: string; title: string; permission: Permission; scope: string | null; readOnly: boolean; openWorld: boolean }
@@ -243,7 +244,19 @@ export interface SignupInput { email: string; firstName?: string; lastName?: str
 export interface SignupResult { result: 'signup-received' }
 
 /** Rolle in `GET /v1/admin/status`: Rollen an der Organisation mit ihren Rechten. */
-export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean }
+export interface RoleInfo { key: string; label: string; description: string; permissions: Permission[]; adminOnly: boolean; custom?: boolean }
+
+/**
+ * Eigene Rolle der Organisation (`/v1/admin/roles`, Recht `roles:admin`): aus Rechten des Modells zusammengestellt,
+ * vergebbar an den Typen in `places`. `assignments`: Zahl der Vergaben (löschen erst bei 0).
+ */
+export interface CustomRole {
+  key: string; label: string; description: string; permissions: Permission[]; places: string[];
+  assignments: number; createdAt: string; updatedAt: string;
+}
+export interface CustomRoleList { items: CustomRole[] }
+/** `POST /v1/admin/roles` (ohne `key`: aus dem Namen) bzw. `PUT /v1/admin/roles/{key}` (ohne `key`). */
+export interface CustomRoleInput { key?: string; label: string; description?: string; permissions: Permission[]; places: string[] }
 
 /** Person oder freigegebener Maschinen-Client der Organisation (9.6). */
 export interface Member {

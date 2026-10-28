@@ -72,6 +72,19 @@ OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen
 `<modul>-v<version>`. Die App bezieht das Modul über
 `source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.
 
+## Umstieg auf `@vollholz/iam` 5.0 (`@vollholz/iam-web` 2.2, `@vollholz/platform` 0.6)
+
+Eigene Rollen der Organisation (O17). Vollständig: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (5.0.0),
+[packages/iam-web/CHANGELOG.md](../packages/iam-web/CHANGELOG.md) (2.2.0). Kurz:
+
+- **Recht `roles:admin`** kommt ins Modell (org-admin hat es). Tests mit genauen Rechtelisten anpassen oder eigene Rollen
+  abschalten: `defineModel({ …, features: { customRoles: false } })`.
+- **Migration `iam_019`** (Tabelle `authz_role`, RLS, Trigger) läuft mit dem nächsten `migrate`; RLS-Matrizen der App um
+  `authz_role` (Tabelle des Baukastens) und ihre Policy `owner_tenant` ergänzen.
+- **Neue Routen** `/v1/admin/roles…` und `/v1/platform/organizations/{alias}/roles…` in den Isolations-Durchlauf aufnehmen.
+- **Oberfläche:** Route `roles` (`paths.roles`, `/verwalten/rollen`) einhängen, wenn die App Routen nicht aus
+  `iamRoutes` baut. Policies der App bleiben unverändert (die Lesesicht kennt die eigenen Rollen).
+
 ## Umstieg auf `@vollholz/iam` 4.0 (`@vollholz/platform` 0.5)
 
 Vollständig mit allen Schritten: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (4.0.0) und

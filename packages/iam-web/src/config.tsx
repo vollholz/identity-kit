@@ -11,6 +11,8 @@ export interface IamPaths {
   home: string;
   loggedOut: string;
   members: string;
+  /** Seite «Rollen»: eigene Rollen der Organisation zusammenstellen (Recht `roles:admin`). */
+  roles: string;
   /**
    * Seite «Anmeldung» (Entra ID). Die Rückkehrseiten liegen darunter: `<entra>/zustimmung` (Zustimmung bei Microsoft)
    * und `<entra>/test` (Testanmeldung). Beide müssen zu den Redirect-URIs der Entra-App und zu `ENTRA_*` des Servers
@@ -27,6 +29,7 @@ export const DEFAULT_PATHS: IamPaths = {
   home: '/',
   loggedOut: '/abgemeldet',
   members: '/verwalten/mitglieder',
+  roles: '/verwalten/rollen',
   entra: '/verwalten/anmeldung',
   organizations: '/verwalten/organisationen',
   signup: '/registrieren',

@@ -9,6 +9,15 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.0] – 2026-10-28
+
+### Breaking
+
+- Setzt `@vollholz/iam` 5.0.0 voraus (Peer `^5.0.0`).
+  Migration: `@vollholz/iam` auf 5.0.0 anheben und dessen Breaking-Schritte umsetzen (Recht `roles:admin`, Migration
+  `iam_019`, Modul `roles`). Eigene Rollen schaltet die App im Modell ab (`definePlatform` mit
+  `defineModel({ …, features: { customRoles: false } })`).
+
 ## [0.5.0] – 2026-10-28
 
 ### Breaking

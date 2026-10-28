@@ -5,10 +5,16 @@ import { useIamText } from '../texts/react.tsx';
 import { EntraPage } from './Entra.tsx';
 import { MembersPage } from './Members.tsx';
 import { OrganizationPage, OrganizationsPage } from './Organizations.tsx';
+import { RolesPage } from './Roles.tsx';
 
 export function MembersScreen() {
   useIamText();
   return <Requires perm="members:admin" title={t('iam.members.title')} icon="users"><MembersPage /></Requires>;
+}
+
+export function RolesScreen() {
+  useIamText();
+  return <Requires perm="roles:admin" title={t('iam.roles.page.title')} icon="key"><RolesPage /></Requires>;
 }
 
 /** Organisationen prüfen die Plattform-Administration selbst (Status mit `platformAdmin`, ohne «Recht fehlt»). */

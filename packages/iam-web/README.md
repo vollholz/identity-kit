@@ -2,7 +2,7 @@
 
 Oberfläche (React) für Apps mit dem IAM-Baukasten: Sitzung und Organisation je Tab, Rechte-Bausteine, Kontomenü, die
 Bausteine «Zugriff» an jedem Ort der App (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit und Break-Glass
-sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
+sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Rollen der Organisation, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
 Entscheide: [docs/entwurf.md](docs/entwurf.md). Produktneutral: keine Annahmen über eine bestimmte App.
 
 Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt sie aus ihren Design-Tokens. Alle Texte
@@ -25,7 +25,7 @@ BFF unter `/auth/*`, API unter `/v1/…`) an derselben Herkunft. iam-web 1.0 lä
 | Import | Inhalt |
 |---|---|
 | `@vollholz/iam-web` | `IamProvider`, Hooks (`useIam`, `useAuthz`, `useResourceCan` …), Rechte-Bausteine, Kontomenü, `AccessSheet`, `GrantDialog`, `WhyDialog`, `ClassificationBadge`, `BreakGlassBanner`, `useBreakGlass`, Hooks für Zugriff (`useAccessList`, `useMyAccess`, `useExplain`, `useGrant` …), Grundkomponenten, `iamRoutes`, `IamNav`, `PersonName`, Client (`iamFetch`, `iamMiddleware`) |
-| `@vollholz/iam-web/pages` | Verwalten-Seiten ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …), per `lazy()` geladen |
+| `@vollholz/iam-web/pages` | Verwalten-Seiten ohne Guard (`MembersPage`, `RolesPage` …) und mit Guard (`MembersScreen`, `RolesScreen` …), per `lazy()` geladen |
 | `@vollholz/iam-web/testing` | `StaticIam`, `mockIamApi`, `staticResources`, Beispielkatalog `CATALOG` und `ME` |
 | `@vollholz/iam-web/styles.css` | einmal importieren; alles in `@layer iam` |
 

@@ -9,6 +9,55 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [5.0.0] – 2026-10-28
+
+### Breaking
+
+- **Eigene Rollen der Organisation sind Standard** (`features.customRoles`, Standard true mit `features.members`): Das
+  Modell erhält das reservierte Recht **`roles:admin`** «Rollen zusammenstellen» (Gruppe `members`, nur Personen, ohne
+  Rolle der App nur bei org-admin). Kataloge, `adminOnly` und Rechte von org-admin ändern sich dadurch.
+  Migration: Tests der App, die Rechtelisten von org-admin, `adminOnly` oder den Katalog genau vergleichen, um
+  `roles:admin` ergänzen – oder eigene Rollen mit `features: { customRoles: false }` in `defineModel` abschalten (dann
+  ändert sich nichts ausser der Migration `iam_019`).
+- **Migration `iam_019_custom_roles.sql`** (läuft mit dem nächsten `migrate`): Tabelle `<schema>.authz_role` (RLS ENABLE
+  + FORCE, `tenant_isolation`, Policy `owner_tenant` für die Besitzer-Rolle), Trigger `authz_role_guard`,
+  `authz_role_acl_version` und `authz_tuple_custom_role`.
+  Migration: Prüfungen der App, die alle Tabellen bzw. Policies aufzählen (RLS-Matrix), um `authz_role` (Tabelle des
+  Baukastens) und `authz_role.owner_tenant` ergänzen.
+- **CHECK `authz_tuple_relation_check`** lässt mit eigenen Rollen zusätzlich Relationen `c-…` zu und trägt wie
+  `authz_tuple_type_relation_check` eine Marke im Kommentar (`syncModelChecks` passt beide beim nächsten Lauf an).
+  Migration: Tests, die die Definition des CHECKs mit `pg_get_constraintdef` vergleichen, auf die Relationen prüfen.
+- **Neues Modul `roles`** mit den Routen `GET/POST /v1/admin/roles`, `PUT/DELETE /v1/admin/roles/{key}` und denselben unter
+  `/v1/platform/organizations/{alias}/roles` (Standard geladen, wenn eigene Rollen an sind).
+  Migration: im Isolations-Durchlauf der App (`coverageProblems`) aufnehmen oder ausnehmen; wer `modules` ausdrücklich
+  angibt, ergänzt `'roles'`, um sie anzubieten.
+- **Rollen des Modells mit Schlüssel `c-…`** sind ein Fehler im Modell (`ModelError`, der Präfix gehört eigenen Rollen).
+  Migration: solche Rollen umbenennen (Tupel mit Migration nachführen).
+- **`TenantAccess`** hat die Felder `model` (Modell der Organisation) und `roles` (eigene Rollen).
+  Migration: nur Tests, die `TenantAccess` von Hand bauen: `model: <modell>, roles: []` ergänzen.
+
+### Hinzugefügt
+
+- **Rollen zur Laufzeit** (docs/authz-offene-punkte.md O17, PPM UC-016 A2): `model.withRoles(defs)` (Modell der
+  Organisation), `model.customRoleProblems(def)`, `CUSTOM_ROLE_KEY`, `CUSTOM_ROLE_LIMIT` (50), Typ `CustomRoleDef`;
+  `iam.roles` (`CustomRoles`: `list`, `get`, `create`, `update`, `remove`), `customRoleKey(label)`,
+  `loadCustomRoles(tx, schema)`, `access.modelOf(tenantId)`, `access.modelIn(tx)`.
+- Entscheidung, Lesesicht (RLS), «Wer hat Zugriff?», «Warum?», Rollen setzen, Einladen, Freigaben an Orten und Clients
+  lösen eigene Rollen wie Rollen des Modells auf. `GET /v1/authz/catalog` liefert in einer Organisation ihre eigenen
+  Rollen mit (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten); `GET /v1/admin/status`
+  ebenso.
+- Regeln: nur Rechte des Modells, keine nur von org-admin (422); niemand gibt mehr, als er hat (403 `exceeds-own`, beim
+  Ändern vorher und nachher); Name eindeutig (409 `duplicate-label`); höchstens 50 (409 `limit`); löschen und Orte
+  entfernen nur unvergeben (409 `in-use`, auch per Trigger in der Datenbank); Audit `role.created`, `role.updated`,
+  `role.deleted` (`data.key`). Vergaben melden die Haken wie jede Rolle (`access.granted`, `access.revoked`).
+- `checkRoles(…, model)`, `checkRoleChange(…, model)`, `TupleStore.check(t, model)`, `TupleStore.modelFor(tx, relation)`:
+  optionales Modell der Organisation.
+
+### Geändert
+
+- Eine eigene Rolle überschreibt nie eine Rolle des Modells (Schlüssel immer `c-…`); ändert sich das Modell, fallen
+  Rechte und Orte, die es nicht mehr gibt oder die nur org-admin hat, aus eigenen Rollen weg (nie mehr Rechte).
+
 ## [4.0.0] – 2026-10-28
 
 ### Breaking

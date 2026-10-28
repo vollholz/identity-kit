@@ -7,7 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { iamFetch } from './client.ts';
 import type {
-  AdminStatus, Client, ClientInput, ClientList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
+  AdminStatus, Client, ClientInput, ClientList, CustomRole, CustomRoleInput, CustomRoleList, ConsentLinkCreated, ConsentLinkInput, ConsentLinkList, EntraAddInput, EntraAddResult, EntraCandidateList, EntraConnection, EntraConsentReturn,
   EntraConsentStart, EntraPreview, EntraResult, EntraStatus, InviteInput, InviteResult, Level, Member, MemberList, Organization, OrganizationInput,
   EntraOwnAppInput, HandoverCredentialsInput, HandoverInfo, HandoverToken, HandoverResult, HandoverStart, OrganizationList, OrganizationPatch, RemoveResult, ResendResult,
 } from './contract.ts';
@@ -54,6 +54,22 @@ export function clientApi(alias: string | null) {
 
 export function useClients(alias: string | null, enabled = true) {
   return useQuery({ queryKey: iamKeys.clients(alias), enabled, queryFn: ({ signal }) => clientApi(alias).list(signal) });
+}
+
+/** Eigene Rollen der Organisation (Recht `roles:admin`); `alias` = Organisation der Plattform-Administration, sonst die eigene. */
+export function roleApi(alias: string | null) {
+  const base = alias ? `/v1/platform/organizations/${encodeURIComponent(alias)}/roles` : '/v1/admin/roles';
+  const one = (key: string) => `${base}/${encodeURIComponent(key)}`;
+  return {
+    list: (signal?: AbortSignal) => iamFetch<CustomRoleList>(base, { signal }).then(r => r.items),
+    create: (body: CustomRoleInput) => iamFetch<CustomRole>(base, { method: 'POST', body }),
+    update: (key: string, body: Omit<CustomRoleInput, 'key'>) => iamFetch<CustomRole>(one(key), { method: 'PUT', body }),
+    remove: (key: string) => iamFetch<void>(one(key), { method: 'DELETE' }),
+  };
+}
+
+export function useCustomRoles(alias: string | null, enabled = true) {
+  return useQuery({ queryKey: iamKeys.customRoles(alias), enabled, queryFn: ({ signal }) => roleApi(alias).list(signal) });
 }
 
 /** Organisationen der Plattform-Administration (9.2). */

@@ -31,4 +31,5 @@ export const RESERVED = {
   membersAdmin: 'members:admin',
   accessAdmin: 'access:admin',
   auditRead: 'audit:read',
+  rolesAdmin: 'roles:admin',
 } as const;

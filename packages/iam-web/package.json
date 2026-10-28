@@ -1,6 +1,6 @@
 {
   "name": "@vollholz/iam-web",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Oberfläche für Apps mit dem IAM-Baukasten (React): Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten",
   "type": "module",
   "license": "Apache-2.0",

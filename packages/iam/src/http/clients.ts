@@ -119,7 +119,7 @@ export const clientsModule: IamModule = {
              VALUES (app.tenant_id(), 'client', $1, $1, $1, $2, $3, NULL)
              ON CONFLICT (tenant_id, kind, subject) DO UPDATE SET description = coalesce($4, p.description), removed_at = NULL
              RETURNING id`, [clientId, b.description?.trim() ?? '', t.actor.name, b.description === undefined ? null : b.description.trim()])).rows[0]!.id;
-          await setOrgRoles(tx, { access: iam.access, tuples: iam.tuples, schema: S, acting: t, subject: `client:${id}`, roles: b.roles, createdBy: t.platform ? null : t.actor.principalId });
+          await setOrgRoles(tx, { access: iam.access, tuples: iam.tuples, schema: S, acting: t, subject: `client:${id}`, roles: b.roles, createdBy: t.platform ? null : t.actor.principalId, actor: actorOf(req, t) });
           if (b.clearance !== undefined) await setClearance(tx, { access: iam.access, schema: S, acting: t, principalId: id, clearance: b.clearance });
           const c = (await listClients(tx, S, roleOrder, clientId))[0]!;
           await record(req, tx, t, 'client.granted', id, { clientId, roles: c.roles, clearance: c.clearance });

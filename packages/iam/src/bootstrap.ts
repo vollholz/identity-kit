@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import pg from 'pg';
-import { schemaName } from './db.ts';
+import { pgSsl, schemaName, type DbSsl } from './db.ts';
 import { ADMIN_ROLE } from './model.ts';
 import { seg, type KeycloakAdmin } from './keycloak.ts';
 import { ALIAS_PATTERN } from './principal.ts';
@@ -44,7 +44,7 @@ export interface OrgBootstrapOptions {
    * Schritt auf dem Server der Datenbank). Fehlt die Angabe, bricht der Lauf ab (ausser im Probelauf): sonst entstünde
    * still eine Organisation ohne Admin.
    */
-  database?: { url: string; schema: string } | null;
+  database?: { url: string; schema: string; /** TLS wie `DATABASE_SSL`; Standard `disable`. */ ssl?: DbSsl } | null;
   /** Realm-Rolle des Betriebs (PLATFORM_ADMIN_ROLE): eine Person mit dieser Rolle wird nie Admin einer Organisation. */
   operatorRole?: string | null;
   initialPassword?: { realm: string; secretDir: string } | null;
@@ -350,9 +350,9 @@ async function invite(kc: KeycloakAdmin, userId: string, email: string, o: Pick<
  * Datenbank der App (A20): als Besitzer-Rolle im Kontext des Mandanten (Policies `owner_tenant`) Mandant, Principal,
  * Tupel `org-admin` an org und Freigabestufe 2; Audit `tenant.provisioned` beim ersten Mal. Idempotent.
  */
-async function provisionDb(d: { url: string; schema: string }, o: { alias: string; name: string; orgId: string; userId: string; email: string; displayName: string; dry: boolean; step: (m: string) => void }): Promise<{ tenantId: string | null; principalId: string | null }> {
+async function provisionDb(d: { url: string; schema: string; ssl?: DbSsl }, o: { alias: string; name: string; orgId: string; userId: string; email: string; displayName: string; dry: boolean; step: (m: string) => void }): Promise<{ tenantId: string | null; principalId: string | null }> {
   const S = schemaName(d.schema);
-  const c = new pg.Client({ connectionString: d.url, application_name: 'iam-org-bootstrap' });
+  const c = new pg.Client({ connectionString: d.url, application_name: 'iam-org-bootstrap', ssl: pgSsl(d.ssl) });
   await c.connect();
   try {
     await c.query('BEGIN');

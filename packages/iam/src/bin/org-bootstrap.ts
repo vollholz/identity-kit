@@ -24,7 +24,7 @@
  * gültig 7 Tage); `--resend` auch an bestehende ohne Passwort, `--no-email` keine. Scheitert der Versand (kein SMTP),
  * meldet der Lauf das am Schluss und endet trotzdem mit 0. Nicht zusammen mit `--initial-password` (Alternative).
  * Anmeldung bei Keycloak: siehe src/bin/env.ts.
- * Datenbank: DATABASE_ADMIN_URL (Besitzer-Rolle, wie die Migrationen); Schema `--schema`, Standard der Realm mit «_».
+ * Datenbank: DATABASE_ADMIN_URL (Besitzer-Rolle, wie die Migrationen), TLS nach DATABASE_SSL; Schema `--schema`, Standard der Realm mit «_».
  * Weiter: PLATFORM_ADMIN_ROLE (Standard `platform-admin`), IDENTITY_SECRET_DIR (Standard `~/.identity`, für
  * `--initial-password`).
  */
@@ -33,7 +33,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { initFileErrors, inviteErrors, manifestInitFile, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OrgBootstrapResult } from '../bootstrap.ts';
-import { defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
+import { dbSslOrFail, defaultSchema, keycloakFromEnv, realmFromEnv } from './env.ts';
 
 const env = process.env;
 const fail = (m: string): never => { console.error(m); process.exit(64); };
@@ -106,7 +106,7 @@ const operatorsOnly = a.operator || (!!file && !(file.organizations ?? []).lengt
 const dbUrl: string | null | undefined = a['keycloak-only'] ? null : env.DATABASE_ADMIN_URL || (a['dry-run'] || operatorsOnly ? undefined : fail('DATABASE_ADMIN_URL fehlt (Besitzer-Rolle der Datenbank der App); nur Keycloak ausdrücklich mit --keycloak-only'));
 const kc = keycloakFromEnv(env, fail);
 const common = {
-  database: typeof dbUrl === 'string' ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm) } : dbUrl,
+  database: typeof dbUrl === 'string' ? { url: dbUrl, schema: a.schema ?? defaultSchema(realm), ssl: dbSslOrFail(env, fail) } : dbUrl,
   initialPassword: a['initial-password'] ? { realm, secretDir: env.IDENTITY_SECRET_DIR || join(homedir(), '.identity') } : null,
   sendEmail: !a['no-email'], resend: a.resend, invite,
   dryRun: a['dry-run'], log: (m: string) => console.log(m),

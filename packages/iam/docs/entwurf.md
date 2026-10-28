@@ -89,7 +89,7 @@ dieselbe Instanz auch ausserhalb von Fastify nutzen (Tests, MCP-Dienst, Skripte)
 | `schema` | ✓ | Schema der Tabellen (`<produkt>`), geprüft `^[a-z][a-z0-9_]{0,62}$` |
 | `resources` | mit Zugriffsregeln | `ResourceModel` ([5.4](#54-ressourcen-resourcemodel)) |
 | `audit` | ✓ | `AuditPort` ([5.2](#52-audit)); Standard-Umsetzung `pgAudit({ schema })` |
-| `events` | – | `(tx, type, subject, data) => Promise<void>`: Ereignis zu einer IAM-Änderung (z. B. Outbox `acl.changed`) |
+| `events` | – | `{ before?, after? }` (ab 4.0): Haken vor und nach Änderungen in deren Transaktion – `member.removing` (darf ablehnen), `member.removed`, `access.granted`, `access.revoked`, `access.expired`, `member.left` ([backend.md](backend.md#ereignisse-und-haken-events)) |
 | `replay` | – | `ReplayStore`; sonst nach `SHARED_STATE` (`postgres` → Tabelle `replay_guard`) |
 | `fetch`, `entraFetch` | – | Abruf der Keycloak-Admin-API bzw. von Microsoft (Tests: `KeycloakFake` aus dem Test-Kit) |
 | `entraRetryMs` | – | Wartezeiten nach der Admin-Zustimmung (Tests: `[0]`) |

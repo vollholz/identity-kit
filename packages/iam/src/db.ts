@@ -9,8 +9,27 @@ import type { IamConfig } from './config.ts';
 export type Db = pg.Pool;
 export type Tx = pg.PoolClient;
 
+/** TLS zur Datenbank (`DATABASE_SSL`). */
+export type DbSsl = IamConfig['db']['ssl'];
+export const DB_SSL_MODES: readonly DbSsl[] = ['disable', 'require', 'verify-full'];
+
+/** Einstellung `ssl` für pg nach `DATABASE_SSL`: `require` verschlüsselt ohne Prüfung des Zertifikats, `verify-full` prüft es. */
+export function pgSsl(mode: DbSsl | undefined): pg.ClientConfig['ssl'] {
+  return !mode || mode === 'disable' ? false : mode === 'require' ? { rejectUnauthorized: false } : { rejectUnauthorized: true };
+}
+
+/**
+ * `DATABASE_SSL` aus der Umgebung für Befehle ohne geladene Konfiguration (Migrationen, Einrichtung); Standard
+ * `disable` wie in der Konfiguration. Unbekannter Wert → Fehler.
+ */
+export function dbSslFromEnv(env: NodeJS.ProcessEnv = process.env): DbSsl {
+  const v = env.DATABASE_SSL?.trim() || 'disable';
+  if (!DB_SSL_MODES.includes(v as DbSsl)) throw new Error(`DATABASE_SSL «${v}» ungültig (${DB_SSL_MODES.join(', ')})`);
+  return v as DbSsl;
+}
+
 export function createPool(url: string, cfg: Pick<IamConfig, 'db'>, applicationName: string): Db {
-  const ssl = cfg.db.ssl === 'disable' ? false : cfg.db.ssl === 'require' ? { rejectUnauthorized: false } : { rejectUnauthorized: true };
+  const ssl = pgSsl(cfg.db.ssl);
   const pool = new pg.Pool({
     connectionString: url, max: cfg.db.poolMax, ssl, application_name: applicationName,
     statement_timeout: cfg.db.statementTimeoutMs, idle_in_transaction_session_timeout: Math.max(cfg.db.statementTimeoutMs * 2, 60_000),

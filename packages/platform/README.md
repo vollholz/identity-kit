@@ -48,8 +48,21 @@ export const app = defineApp({
   modules: [schichtartModule],
   people: { permissions: ['schichtart:read'] },
   migrations: { dir: join(import.meta.dirname, '..', 'db', 'migrations') },
+  // Haken an den Baukasten (optional): in API, Worker (ctx.admin) und Abgleich gleich, je in der Transaktion der Änderung
+  iamEvents: {
+    before: async (tx, e) => { /* member.removing: ablehnen mit throw conflict('…', { reason: '…' }) */ },
+    after: (tx, e) => platform.emit(tx, `iam.${e.type}`, e.subject, e.data),   // in die Outbox der App
+  },
 });
 ```
+
+`iamEvents` sind die `events` von `@vollholz/iam` ([Ereignisse und Haken](../iam/docs/backend.md#ereignisse-und-haken-events)):
+`member.removing` vor dem Entfernen eines Mitglieds (darf ablehnen, 409 als problem+json), danach `member.removed`,
+je Rolle an einem Ort `access.granted`/`access.revoked`, aus dem Abgleich `member.left` und `access.expired`.
+`defineApp` gibt sie an `createIam` der API und der Verwaltung im Worker sowie an `MemberSync`.
+
+Die Befehle `migrate`, `tenant` und `rotate-keys` verbinden mit TLS nach `DATABASE_SSL` (`disable`, `require`,
+`verify-full`) wie API und Worker; ein `sslmode` in der Adresse gilt weiterhin vorrangig.
 
 ```ts
 // src/cli.ts – Startbefehl des Images: node --import @vollholz/platform/preload src/cli.ts api|worker|mcp|migrate|tenant|rotate-keys
@@ -188,6 +201,8 @@ Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POS
 `POSTGRES_PORT`) oder `TEST_POSTGRES_URL`; ohne Datenbank übersprungen, in CI nie.
 
 ## Änderungen
+
+Ab 0.5.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md).
 
 - **0.4.0:** Worker-Bausteine. `SMTP_URL` und `MAIL_FROM` sind bei `MAIL_ADAPTER=smtp` nur im Dienst `worker` Pflicht
   (`services: ['worker']`); API, MCP und Migration starten ohne sie, `cfg.app.mail.adapter` bleibt überall gesetzt,

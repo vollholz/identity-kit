@@ -3,7 +3,7 @@
  * Migrationen, OpenAPI-Export, Doku der Konfiguration, Mandanten und Rotation – je aus denselben Modulen. Die
  * Einstiegspunkte der App sind damit eine Zeile (`await app.startApi()`).
  */
-import { createIam, type IamOptions, type Keyring, type MigrationResult, type Service, type VarSpec } from '@vollholz/iam';
+import { createIam, type DbSsl, type IamEvents, type IamOptions, type Keyring, type MigrationResult, type Service, type VarSpec } from '@vollholz/iam';
 import type { FastifyServerOptions } from 'fastify';
 import { configOrExit, loadPlatformConfig, platformVars, type ConfigCheck, type PlatformConfig } from './config/env.ts';
 import { envDocs, type EnvDocsOptions } from './config/docs.ts';
@@ -39,6 +39,12 @@ export interface AppSpec {
   migrations?: Omit<RunMigrationsOptions, 'log'>;
   /** Werte der Doku-Umgebung beim OpenAPI-Export (Pflichtvariablen der App, abweichende Adressen). */
   openapiEnv?: Record<string, string>;
+  /**
+   * Haken der App an den Baukasten (`events` von `createIam`): vor und nach dem Entfernen eines Mitglieds, je Rolle an
+   * einem Ort, Austritt und Ablauf aus dem Abgleich. Gilt in API, Worker (Verwaltung im JobContext) und Abgleich
+   * (`MemberSync`). Für die Outbox: `after: (tx, e) => platform.emit(tx, 'iam.' + e.type, e.subject, e.data)`.
+   */
+  iamEvents?: IamEvents;
 }
 
 export interface CreateApiOptions {
@@ -64,7 +70,10 @@ export interface PlatformApp {
   /** Worker mit Verwaltung (`JobContext.admin`), sofern `KEYCLOAK_MGMT_CLIENT_ID` samt Schlüssel bzw. Geheimnis gesetzt ist. */
   createWorker(cfg: PlatformConfig, db: Db, log: Log, o?: CreateWorkerOptions): Worker;
   buildMcp(cfg: PlatformConfig, o?: { fetch?: typeof fetch; logger?: boolean }): ReturnType<typeof buildMcpApp>;
-  migrate(adminUrl: string, log?: (m: string) => void): Promise<MigrationResult>;
+  /** Migrationen; `ssl` wie `DATABASE_SSL` (die Befehlszeile liest es aus der Umgebung). */
+  migrate(adminUrl: string, o?: ((m: string) => void) | { log?: (m: string) => void; ssl?: DbSsl }): Promise<MigrationResult>;
+  /** Haken der App an den Baukasten (AppSpec.iamEvents) oder null. */
+  readonly iamEvents: IamEvents | null;
   openApi(): Promise<Record<string, unknown>>;
   envDocs(o?: EnvDocsOptions): { env: string; md: string };
   rotateKeys(o: { db: Db; keys: Keyring; dryRun?: boolean }): Promise<Record<string, number>>;
@@ -80,11 +89,12 @@ export interface PlatformApp {
 export function defineApp(spec: AppSpec): PlatformApp {
   const { platform } = spec;
   const ctx = platform.context;
+  const events = spec.iamEvents ?? null;
   // Verwaltung im Worker über dessen Pool; ohne Zugang zu Keycloak (der Worker bekommt das Geheimnis nur, wenn er es braucht) null
   const workerAdmin = (cfg: PlatformConfig, db: Db, o: CreateWorkerOptions) => {
     const m = cfg.mgmt;
     if (!m.clientId || !(m.privateKey || m.clientSecret)) return null;
-    return createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, bff: false, ...o.iam }).admin;
+    return createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, bff: false, ...o.iam }).admin;
   };
   checkModules(spec.modules);
   checkPublicRoutes(spec.modules.flatMap(m => m.publicRoutes ?? []), platform.model.scopes);
@@ -95,11 +105,11 @@ export function defineApp(spec: AppSpec): PlatformApp {
   const people = spec.people ? { people: spec.people } : {};
 
   return {
-    platform, modules, vars, tools,
+    platform, modules, vars, tools, iamEvents: events,
     loadConfig: (env, service) => loadPlatformConfig(env, service, vars, spec.check),
     configOrExit: (env, service) => configOrExit(env, service, vars, spec.check),
     async createApi(cfg, db, o = {}) {
-      const iam = createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, ...o.iam });
+      const iam = createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, ...o.iam });
       const app = await buildApp({ platform: ctx, cfg, db, iam, ready: o.ready ?? (() => true) }, { modules, ...people, ...(o.fastify ? { fastify: o.fastify } : {}) });
       return { app, iam };
     },
@@ -109,7 +119,7 @@ export function defineApp(spec: AppSpec): PlatformApp {
       tasks: [purgeSharedStateTask, retentionTask, outboxTask(spec.modules.flatMap(m => m.consumers ?? [])), ...spec.modules.flatMap(m => m.tasks ?? [])],
     }),
     buildMcp: (cfg, o = {}) => buildMcpApp({ platform: ctx, model: platform.model, tools }, cfg, o),
-    migrate: (adminUrl, log) => runMigrations(adminUrl, ctx, platform.model, { ...spec.migrations, ...(log ? { log } : {}) }),
+    migrate: (adminUrl, o = {}) => runMigrations(adminUrl, ctx, platform.model, { ...spec.migrations, ...(typeof o === 'function' ? { log: o } : o) }),
     openApi: () => exportOpenApi({
       platform: ctx, model: platform.model, resources: platform.resources, audit: platform.audit, vars, modules, ...people,
       ...(spec.openapiEnv ? { env: spec.openapiEnv } : {}),

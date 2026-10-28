@@ -72,6 +72,25 @@ OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen
 `<modul>-v<version>`. Die App bezieht das Modul über
 `source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.
 
+## Umstieg auf `@vollholz/iam` 4.0 (`@vollholz/platform` 0.5)
+
+Vollständig mit allen Schritten: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (4.0.0) und
+[packages/platform/CHANGELOG.md](../packages/platform/CHANGELOG.md) (0.5.0). Kurz:
+
+- **`events` ist ein Objekt** `{ before?, after? }` statt einer Funktion `(tx, type, subject, data)`. Die alte Funktion
+  rief das Paket nie auf; wer sie übergab, schreibt `events: { after: async (tx, e) => alt(tx, e.type, e.subject, e.data) }`
+  oder lässt sie weg.
+- **`after` erhält ab jetzt Ereignisse:** `access.granted`, `access.revoked`, `access.expired` je Rolle an einem Ort
+  (auch für Aufrufe der App über `iam.tuples`), `member.removed`, `member.left`. Eigene `access.changed` der App (O10)
+  entfallen oder werden aus diesen gebildet, sonst doppelt.
+- **Ablehnen beim Entfernen:** `before` mit `member.removing` gilt für die Verwalten-Seiten und `iam.admin.removeMember`
+  gleichermassen; ein geworfenes `HttpError` geht als problem+json zurück.
+- **Worker:** dieselben Haken an `MemberSync` geben (`@vollholz/platform`: `AppSpec.iamEvents`, wirkt überall).
+- **TLS:** `migrate`, `iam-org-bootstrap`, `iam-reset` sowie `migrate`, `tenant` und `rotate-keys` der Plattform halten
+  `DATABASE_SSL` ein. Wer dort bisher `verify-full` setzte, ohne dass das Zertifikat prüfbar ist, setzt die CA bzw.
+  `require`.
+- **Test-Kit 2.2:** unterstütztes Fenster für `@vollholz/iam` ab 3.0.0 (aktuelle und vorherige Hauptversion).
+
 ## Umstieg auf `@vollholz/iam` 3.0 und `@vollholz/iam-web` 2.0
 
 Brechende Änderungen (Konto ohne Organisation, Spezifikation [6.3](spezifikation.md#63-konto-ohne-organisation)):

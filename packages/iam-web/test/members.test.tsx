@@ -320,6 +320,21 @@ describe('Aktionen je Person', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(calls.some(x => x.method === 'DELETE')).toBe(false);
   });
+
+  it('lehnt die App das Entfernen ab (409 aus ihrem Haken member.removing): Begründung in der Rückfrage, Person bleibt', async () => {
+    const detail = 'Carla Check ist noch Projektleiterin in 2 Projekten. Zuerst die Rollen neu besetzen.';
+    setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, CARLA] }),
+      [`DELETE /v1/admin/members/${CARLA.id}`]: () => new Response(JSON.stringify({ type: 'http://api.test/probleme/409', title: 'Konflikt', status: 409, detail, reason: 'open-tasks' }), { status: 409, headers: { 'content-type': 'application/problem+json' } }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Carla Check' }));
+    await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Person entfernen …' }));
+    const c = await screen.findByRole('alertdialog', { name: 'Carla Check aus «Demo AG» entfernen?' });
+    await userEvent.click(within(c).getByRole('button', { name: 'Person entfernen' }));
+    expect(await within(c).findByRole('alert')).toHaveTextContent(detail);
+    expect(screen.queryByText(/Carla Check aus «Demo AG» entfernt/)).toBeNull();
+    expect(screen.getAllByText('carla@demo.example').length).toBeGreaterThan(0);
+  });
 });
 
 describe('Einladen', () => {

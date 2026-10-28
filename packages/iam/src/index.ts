@@ -1,13 +1,13 @@
 export { IAM_VARS, PRODUCT_PATTERN, checkProduct, productIdent, readVars, iamConfigErrors, iamConfig, loadIamConfig, iamWarnings, parseDuration, parseEncryptionKeys, ConfigError, type IamConfig, type VarSpec, type RawVars, type Service, type Mode } from './config.ts';
 export { HttpError, notFound, forbidden, conflict, invalid, problemBody } from './errors.ts';
 export { box, unbox, Sealer, primaryKey, keyById, validateKeyring, NoEncryptionKeyError, type MasterKey, type Keyring } from './crypto.ts';
-export { createPool, withTx, withTenant, setContext, schemaName, type Db, type Tx, type DbContext } from './db.ts';
+export { createPool, withTx, withTenant, setContext, schemaName, pgSsl, dbSslFromEnv, DB_SSL_MODES, type Db, type Tx, type DbContext, type DbSsl } from './db.ts';
 export { MemoryReplayStore, PgReplayStore, pgRateLimitStore, purgeSharedState, type ReplayStore } from './state.ts';
 export { pgAudit, withPlatformAudit, writePlatformAudit, type AuditPort, type AuditEntry, type Actor, type PlatformAuditEntry, type Source } from './audit.ts';
 export { LOCKS, lockKey } from './locks.ts';
 export {
   migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR,
-  type Migration, type MigrationSource, type MigrationResult, type IamMigrationOptions, type Adoption, type ModelChecksInput,
+  type Migration, type MigrationSource, type MigrationResult, type MigrateOptions, type IamMigrationOptions, type Adoption, type ModelChecksInput,
 } from './migrations.ts';
 export { schemaSnapshot, diffSnapshots, IAM_TABLES, IAM_FUNCTIONS, type SchemaSnapshot } from './schema.ts';
 export {
@@ -24,11 +24,12 @@ export {
   AccessService, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
   type TenantAccess, type Tuple, type Who, type Facts, type Belong, type PersonEdge, type PersonGrants, type Reason, type ClearanceRow,
 } from './access.ts';
-export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput } from './tuples.ts';
+export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput, type TupleActor } from './tuples.ts';
+export { SYSTEM_ACTOR, type IamEvents, type IamEvent, type IamEventMap, type IamEventType, type IamBeforeType, type IamAfterType, type AccessEventData, type MemberEventData, type MemberLeftEventData } from './events.ts';
 export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, type ExplainOut, type GroupNames, type AccessSubjectOut } from './explain.ts';
 export { checkRoles, checkRoleChange, activeAdmins, lastAdminGuard, setOrgRoles, setClearance, type Acting } from './rules.ts';
 export { flatResources, flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
-export { createIam, readinessChecks, resourceProblems, type Iam, type IamOptions, type IamEvents } from './iam.ts';
+export { createIam, readinessChecks, resourceProblems, type Iam, type IamOptions } from './iam.ts';
 export { iamPlugin, need, needsToken, requestPath, type IamContext, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
 export { problem, problemResponses, registerProblemSchemas, registerErrorHandler, PROBLEM_SCHEMAS } from './http/problems.ts';
 export { IAM_API_TAGS, routeSchema, personOf, platformActor, platformOf, optionalBodies, encodeCursor, decodeCursor, likePattern, etag, ifMatchVersion, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';

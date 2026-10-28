@@ -10,7 +10,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dirMigrations, iamMigrations, migrate, migration, render, type MigrationResult, type MigrationSource, type Model } from '@vollholz/iam';
+import { dirMigrations, iamMigrations, migrate, migration, render, type DbSsl, type MigrationResult, type MigrationSource, type Model } from '@vollholz/iam';
 import type pg from 'pg';
 import type { PlatformContext } from '../context.ts';
 
@@ -66,6 +66,8 @@ export interface RunMigrationsOptions extends PlatformMigrationOptions {
   /** Übernahme der IAM-Migrationen (siehe `iamMigrations`). */
   iamAdopted?: Parameters<typeof iamMigrations>[0]['adopted'];
   log?: (m: string) => void;
+  /** TLS zur Datenbank wie `DATABASE_SSL`; Standard `disable`. */
+  ssl?: DbSsl;
 }
 
 /** Alle Migrationen ausführen: IAM, Plattform, App. */
@@ -75,5 +77,5 @@ export function runMigrations(adminUrl: string, ctx: PlatformContext, model: Mod
     platformMigrations(ctx, o),
     ...(o.dir ? [dirMigrations(o.dir)] : []),
   ];
-  return migrate(adminUrl, sources, o.log);
+  return migrate(adminUrl, sources, { ...(o.log ? { log: o.log } : {}), ...(o.ssl ? { ssl: o.ssl } : {}) });
 }

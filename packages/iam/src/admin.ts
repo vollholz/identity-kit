@@ -28,6 +28,7 @@ import { writePlatformAudit, type Actor, type AuditEntry, type AuditPort, type S
 import type { IamConfig } from './config.ts';
 import { schemaName, setContext, withTenant, withTx, type Db, type Tx } from './db.ts';
 import { conflict, HttpError, invalid, notFound } from './errors.ts';
+import { emitAfter, emitBefore, type IamEvents, type MemberEventData } from './events.ts';
 import { notLinkable, type EntraGraph, type EntraUser } from './graph.ts';
 import { listClients } from './http/clients.ts';
 import { KeycloakAdmin, KeycloakError, type KcOrg, type KcUser } from './keycloak.ts';
@@ -54,6 +55,8 @@ export interface AdminDeps {
   readonly resolver: Pick<PrincipalResolver, 'forgetPrincipal' | 'forgetTenant' | 'forgetEntra'>;
   readonly access: AccessService<any, any>;
   readonly tuples: TupleStore;
+  /** Haken der App (`member.removing`, `member.removed`; Rollen über `tuples`). */
+  readonly events?: IamEvents | null;
 }
 
 /** Wer handelt und in welcher Organisation. */
@@ -167,7 +170,7 @@ export class AdminService {
   }
 
   private get tenants(): TenantsContext { return { schema: this.deps.schema, audit: this.deps.audit, resolver: this.deps.resolver }; }
-  private get sync(): SyncContext { return { schema: this.deps.schema, audit: this.deps.audit }; }
+  private get sync(): SyncContext { return { schema: this.deps.schema, audit: this.deps.audit, events: this.deps.events ?? null }; }
   private get roleOrder() { return [...this.deps.model.roles.keys()] as string[]; }
 
   // ---------------------------------------------------------------- Organisation
@@ -208,6 +211,12 @@ export class AdminService {
       principal: { kind: p.kind, principalId: p.principalId, name: p.name, clientId: p.clientId }, source: s.source, correlationId: s.correlationId,
       data: s.platform ? { platformAdmin: true } : {},
     };
+  }
+
+  /** Wer handelt, wie im Audit (für Ereignisse an die App). */
+  private eventActor(s: Scope): Actor {
+    const a = this.actorOf(s);
+    return { principal: a.principal, source: a.source, correlationId: a.correlationId };
   }
 
   /** Protokolleintrag mit den Kennzeichen der Plattform-Administration aus `a.data`. */
@@ -418,7 +427,7 @@ export class AdminService {
           w.done({ step: 'membership_added' }, true);
         }
         const principalId = await this.principalOf(tx, userId, name, email);
-        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
+        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, actor: this.eventActor(s) });
         const emailSent = createdAccount
           ? await this.kc.sendActionsEmail(userId, ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], { lifespanSec: this.deps.cfg.mgmt.inviteLifespanSec, clientId: this.deps.cfg.oidc.bffClientId })
           : await this.inviteExisting(org.id, userId);
@@ -512,7 +521,7 @@ export class AdminService {
         // Passwort eines bestehenden Kontos: nur für die Plattform protokolliert (verriete sonst das Konto)
         if (c.stage === 'enforced' && !createdAccount) await ent.removeFirstFactor({ done: st => w.done(st, true) }, user);
         const principalId = await this.principalOf(tx, user.id, name.slice(0, 200), email);
-        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId });
+        await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting: w.acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, actor: this.eventActor(s) });
         const inv = (await tx.query<Invitation>(
           `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account, entra) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, true)
            ON CONFLICT (tenant_id, user_id) DO UPDATE SET id = gen_random_uuid(), email = excluded.email, display_name = excluded.display_name, created_at = now(),
@@ -608,6 +617,10 @@ export class AdminService {
         const roles = principalId ? await this.deps.tuples.rolesAtOrg(tx, `user:${principalId}`) : [];
         await checkRoleChange(this.deps.access, acting, roles);
         if (principalId && roles.includes(ADMIN_ROLE)) await lastAdminGuard(tx, this.S, principalId, this.deps.model.roles.get(ADMIN_ROLE)?.label, this.accountActive);
+        // Haken der App vor jeder Änderung in Keycloak: lehnt er ab (wirft), bleibt alles, wie es war
+        const event: MemberEventData = { memberId: t.id, userId, principalId, email: t.invitation?.email ?? t.user?.email ?? null, roles, invitation: !!t.invitation, platform: s.platform };
+        const subject = principalId ? `user:${principalId}` : null;
+        await emitBefore(this.deps.events, tx, { type: 'member.removing', tenantId, subject, actor: this.eventActor(s), data: event });
         if (t.member) { await this.kc.removeMember(org.id, userId); done({ step: 'membership_removed' }); }
         // Verknüpfung mit Entra ID dieser Organisation lösen: sonst bliebe die Anmeldung über Entra bestehen
         const idp = (await tx.query<{ idp_alias: string }>(`SELECT idp_alias FROM ${this.S}.entra_connection`)).rows[0]?.idp_alias;
@@ -627,6 +640,8 @@ export class AdminService {
         await this.revokeConsentLinksOf({ tx, tenantId, log }, userId);
         await log({ action: t.invitation ? 'member.invitation_withdrawn' : 'member.removed', resourceType: 'member', resourceId: t.id,
           data: { email: t.invitation?.email ?? t.user?.email ?? null, roles, ...(s.platform ? { accountDeleted } : {}) } });
+        // Nach allen Änderungen, in derselben Transaktion (Tupel schon entzogen: je Tupel `access.revoked` vorher)
+        await emitAfter(this.deps.events, tx, { type: 'member.removed', tenantId, subject, actor: this.eventActor(s), data: event });
         return { accountDeleted: s.platform && accountDeleted, tenantId, userId };
       });
       // Nach dem Commit: vorher sähe eine gleichzeitige Anfrage den Austritt noch nicht und legte ihn neu in den Cache
@@ -649,7 +664,7 @@ export class AdminService {
     await this.locked(s, org, null, async ({ tx, tenantId, log, acting }) => {
       const t = await this.target(tx, org, id);
       const principalId = await this.principalOf(tx, t.userId, t.user ? displayName(t.user) : t.invitation?.display_name ?? null, t.user?.email ?? t.invitation?.email ?? null);
-      const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, isActive: this.accountActive });
+      const { added, removed } = await setOrgRoles(tx, { access: this.deps.access, tuples: this.deps.tuples, schema: this.S, acting, subject: `user:${principalId}`, roles, createdBy: s.platform ? null : s.actor.principalId, isActive: this.accountActive, actor: this.eventActor(s) });
       if (!added.length && !removed.length) return;
       await log({ action: 'member.roles_changed', resourceType: 'member', resourceId: principalId, data: { added, removed } });
       if (!this.deps.model.permissionsForRoles(roles).has('members:admin')) await this.revokeConsentLinksOf({ tx, tenantId, log }, t.userId);

@@ -11,6 +11,10 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 ## Änderungen
 
+Ab 4.0.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md); die Liste hier endet mit 3.2.1.
+
+- **4.0.0:** Haken der App `events: { before, after }` (Entfernen eines Mitglieds, Rollen an Orten, Abgleich),
+  `migrate` mit TLS nach `DATABASE_SSL`. Breaking: Form von `IamEvents`. Details und Migration: [CHANGELOG.md](CHANGELOG.md).
 - **3.2.1:** `iamWarnings` warnt auch im Worker vor `KEYCLOAK_MGMT_CLIENT_SECRET` statt privatem Schlüssel: Ab
   `@vollholz/platform` 0.4.0 nutzt der Worker den Verwaltungs-Client (`JobContext.admin`). Sonst unverändert.
 - **3.2.0:** Migration `iam_018_has_permission`: `app.has_permission(recht)` und `app.has_permission(recht, typ, id)`

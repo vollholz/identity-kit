@@ -46,7 +46,7 @@ export async function startWorker(a: PlatformApp, env: NodeJS.ProcessEnv = proce
   const db = createPool(cfg.db.workerUrl, cfg, `${a.platform.context.product}-worker`);
   const runtime = createRuntime({ service: 'worker', shutdownDelayMs: cfg.app.ops.shutdownDelayMs, shutdownTimeoutMs: cfg.app.ops.shutdownTimeoutMs, log });
   const worker = a.createWorker(cfg, db, log);
-  const sync = cfg.memberSync.clientId && cfg.memberSync.intervalMs > 0 ? startMemberSync(a.platform.context, a.platform.audit, cfg, db, log) : null;
+  const sync = cfg.memberSync.clientId && cfg.memberSync.intervalMs > 0 ? startMemberSync(a.platform.context, a.platform.audit, cfg, db, log, a.iamEvents) : null;
   const ops = await startOpsServer({
     port: cfg.app.ops.port, ready: () => runtime.ready, metrics: cfg.app.ops.metrics, log,
     checks: async () => ({ datenbank: await db.query('SELECT 1').then(() => true, () => false) }),

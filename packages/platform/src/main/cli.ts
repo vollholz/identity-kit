@@ -11,11 +11,12 @@
  *   tenant delete <alias> --confirm <alias>
  *   rotate-keys [--dry-run]                 Geheimnisse mit dem ersten Schlüssel aus ENCRYPTION_KEYS neu verpacken
  *
- * Verbindungen je auch als `_FILE`: DATABASE_ADMIN_URL (Besitzer), DATABASE_URL (Laufzeit).
+ * Verbindungen je auch als `_FILE`: DATABASE_ADMIN_URL (Besitzer), DATABASE_URL (Laufzeit); TLS aller Verbindungen nach
+ * DATABASE_SSL (disable | require | verify-full, wie API und Worker).
  */
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { parseEncryptionKeys, validateKeyring, type Keyring } from '@vollholz/iam';
+import { dbSslFromEnv, parseEncryptionKeys, pgSsl, validateKeyring, type DbSsl, type Keyring } from '@vollholz/iam';
 import pg from 'pg';
 import type { PlatformApp } from '../app.ts';
 import { startApi, startMcp, startWorker } from './start.ts';
@@ -25,6 +26,9 @@ const USAGE = 'Befehl: api | worker | mcp | migrate | tenant <list|create|suspen
 export async function runCli(app: PlatformApp, argv: string[] = process.argv.slice(2), env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const read = (k: string) => env[k] || (env[`${k}_FILE`] ? readFileSync(env[`${k}_FILE`]!, 'utf8').trim() : '');
   const fail = (msg: string, code: number): never => { console.error(JSON.stringify({ level: 'error', msg })); process.exit(code); };
+  let sslMode: DbSsl = 'disable';
+  try { sslMode = dbSslFromEnv({ ...env, DATABASE_SSL: read('DATABASE_SSL') }); } catch (e) { fail((e as Error).message, 78); }
+  const ssl = pgSsl(sslMode);
   const { values: a, positionals: [cmd, sub, alias] } = parseArgs({
     args: argv, allowPositionals: true,
     options: { name: { type: 'string' }, reason: { type: 'string' }, confirm: { type: 'string' }, 'dry-run': { type: 'boolean' } },
@@ -37,7 +41,7 @@ export async function runCli(app: PlatformApp, argv: string[] = process.argv.sli
     case 'migrate': {
       const url = read('DATABASE_ADMIN_URL') || fail('DATABASE_ADMIN_URL (bzw. _FILE) fehlt – Verbindung der Besitzer-Rolle für Migrationen', 78);
       try {
-        const r = await app.migrate(url);
+        const r = await app.migrate(url, { ssl: sslMode });
         console.log(JSON.stringify({ level: 'info', msg: 'Migrationen ausgeführt', applied: r.applied, adopted: r.adopted, skipped: r.skipped }));
       } catch (e) { fail((e as Error).message, 1); }
       return;
@@ -47,7 +51,7 @@ export async function runCli(app: PlatformApp, argv: string[] = process.argv.sli
       if (sub !== 'list' && !alias) fail(`tenant ${sub}: Alias fehlt`, 64);
       const adminUrl = read('DATABASE_ADMIN_URL') || fail('DATABASE_ADMIN_URL (bzw. _FILE) fehlt', 78);
       const runtimeUrl = read('DATABASE_URL') || (sub === 'list' || sub === 'delete' ? adminUrl : fail('DATABASE_URL (bzw. _FILE) fehlt', 78));
-      const d = { admin: new pg.Pool({ connectionString: adminUrl, max: 2 }), runtime: new pg.Pool({ connectionString: runtimeUrl, max: 2 }) };
+      const d = { admin: new pg.Pool({ connectionString: adminUrl, max: 2, ssl }), runtime: new pg.Pool({ connectionString: runtimeUrl, max: 2, ssl }) };
       try {
         const out = sub === 'list' ? await app.tenants.list(d)
           : sub === 'create' ? await app.tenants.create(d, alias!, a.name)
@@ -66,7 +70,7 @@ export async function runCli(app: PlatformApp, argv: string[] = process.argv.sli
       let keys: Keyring = [];
       try { keys = parseEncryptionKeys(raw); validateKeyring(keys); } catch (e) { fail(`ENCRYPTION_KEYS: ${(e as Error).message}`, 78); }
       const dryRun = a['dry-run'] ?? false;
-      const db = new pg.Pool({ connectionString: url, max: 2 });
+      const db = new pg.Pool({ connectionString: url, max: 2, ssl });
       try {
         const counts = await app.rotateKeys({ db, keys, dryRun });
         console.log(JSON.stringify({ level: 'info', msg: dryRun ? 'Probelauf: neu zu verpacken' : 'Geheimnisse neu verpackt', primary: keys[0]!.id, counts }));

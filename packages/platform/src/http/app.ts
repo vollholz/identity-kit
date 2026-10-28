@@ -20,6 +20,7 @@ import { metrics } from '../ops/metrics.ts';
 import type { ApiTag, PlatformModule } from '../module.ts';
 import { registerIdempotency } from './idempotency.ts';
 import { registerPublicRoutes } from './public-route.ts';
+import { buildSerializer } from './serializer.ts';
 
 /** Abhängigkeiten der Module, einmal gebaut in der Kompositionswurzel. */
 export interface Deps {
@@ -78,6 +79,8 @@ export function fastifyOptions(cfg: PlatformConfig): FastifyServerOptions {
     routerOptions: { maxParamLength: 256 },
     // Unbekannte Felder ergeben 422 statt still zu verschwinden (Voraussetzung von @vollholz/iam)
     ajv: { customOptions: { removeAdditional: false, coerceTypes: 'array', useDefaults: true } },
+    // Serialisierer je Route nur mit den gemeinsamen Schemas, die sie braucht (Start wächst sonst mit Routen × Schemas)
+    schemaController: { compilersFactory: { buildSerializer: buildSerializer() as never } },
   };
 }
 

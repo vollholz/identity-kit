@@ -9,6 +9,21 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [5.0.1] – 2026-10-28
+
+### Behoben
+
+- `Nullable(X)` mit `coerceTypes` (Standard von Fastify, auch in `@vollholz/platform`): `anyOf [X, null]` machte aus
+  `null` den Wert von X, wenn er dort gültig ist (0, `""`, `false`). Neu `anyOf [{ const: null }, X, { type: 'null' }]`
+  wie in `@vollholz/platform` 0.6.2: `null` bleibt `null`, alle anderen Eingaben wie bisher. In den Routen des Pakets
+  war der Fehler nicht sichtbar (Uuid und Datum lehnen `""` ab; die Beschreibung der Organisation wird mit `null` ohnehin
+  geleert); betroffen waren eigene Routen der App mit `Nullable` aus diesem Paket.
+
+### Geändert
+
+- OpenAPI: Jedes `Nullable` hat vorne einen Zweig `{ "enum": [null] }` (aus `const: null`). Aus der Doku erzeugte
+  Typen bleiben `X | null` (openapi-typescript).
+
 ## [5.0.0] – 2026-10-28
 
 ### Breaking

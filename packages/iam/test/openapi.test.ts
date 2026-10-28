@@ -106,7 +106,7 @@ describe('OpenAPI der Routen des Pakets', { skip }, () => {
     assert.ok(!s.properties.groups.items.required.includes('match') && s.properties.groups.items.properties.match);
     for (const f of ['leaf', 'classified', 'owner', 'scope', 'self', 'read', 'write']) assert.ok(!s.properties.types.items.required.includes(f) && s.properties.types.items.properties[f], f);
     assert.deepEqual(s.properties.types.items.properties.key.enum, ['org', 'folder', 'note', 'team', 'view']);
-    assert.match(s.properties.mcpTools.items.properties.scope.anyOf[0].description, /Standard-Scope `notes:read`/);
+    assert.match(s.properties.mcpTools.items.properties.scope.anyOf[1].description, /Standard-Scope `notes:read`/);
   });
 
   test('GET /v1/authz/catalog liefert genau toJSON() (Serialisierung entfernt nichts)', async () => {

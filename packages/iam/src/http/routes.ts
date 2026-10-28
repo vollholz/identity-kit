@@ -104,7 +104,14 @@ export const HIDDEN = { hide: true } as FastifySchema;
 
 export const Uuid = Type.String({ format: 'uuid' });
 export const DateTime = Type.Unsafe<string | Date>({ type: 'string', format: 'date-time' });
-export const Nullable = <T extends TSchema>(s: T) => Type.Union([s, Type.Null()]);
+/** Genau null, ohne Umwandlung durch AJV (`const` wandelt nicht um, `type: 'null'` schon: 0, "" und false → null). */
+const ExactlyNull = Type.Unsafe<null>({ const: null });
+/**
+ * Wert oder `null`: `anyOf [null (genau), X, null]`. Mit `coerceTypes` (Standard von Fastify) machte `anyOf [X, null]`
+ * aus null den Wert von X (0, "", false), `anyOf [null, X]` aus 0, "" und false null. Der erste Zweig nimmt null
+ * unverändert, alle anderen Werte prüfen und wandeln X und `null` wie bisher. Gleich wie in @vollholz/platform.
+ */
+export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s, Type.Null()]);
 export const IdParams = Type.Object({ id: Uuid });
 export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
 

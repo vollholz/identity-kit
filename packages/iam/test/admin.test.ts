@@ -470,6 +470,10 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.deepEqual([r.name, r.domains], ['Neu Holding AG', ['neu.example', 'neu-holding.example']]);
     assert.equal((await t.inspect.query("SELECT name FROM notes.tenant WHERE alias = 'neu'")).rows[0].name, 'Neu Holding AG');
     assert.deepEqual((await auditOf('neu', 'organization.updated')).at(-1)!.data.domains.added, ['neu-holding.example']);
+    // Beschreibung setzen und mit null leeren (in Keycloak als leere Zeichenkette)
+    assert.equal(ok(await call('paula', 'PATCH', '/v1/platform/organizations/neu', { description: 'Holding' })).description, 'Holding');
+    assert.ok(!ok(await call('paula', 'PATCH', '/v1/platform/organizations/neu', { description: null })).description);
+    assert.ok(!ok(await call('paula', 'GET', '/v1/platform/organizations/neu')).description);
     // Mandant scheitert nach der Organisation in Keycloak (gleichzeitig an eine andere Organisation gebunden): Organisation wieder gelöscht
     const racing = await notesApp({ db: t.runtime, issuer: idp.issuer, env: MGMT, keycloakFetch: async (i, init) => {
       const r = await kc.fetch(i, init);

@@ -303,6 +303,7 @@
       "enum": [
        "active",
        "invited",
+       "not-sent",
        "disabled"
       ],
       "type": "string"
@@ -3359,6 +3360,20 @@
           "emailSent": {
            "type": "boolean"
           },
+          "emailError": {
+           "anyOf": [
+            {
+             "enum": [
+              "mail-not-configured",
+              "mail-failed"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
           "member": {
            "$ref": "#/components/schemas/Member"
           },
@@ -3372,6 +3387,7 @@
          "required": [
           "result",
           "emailSent",
+          "emailError",
           "member"
          ],
          "type": "object"
@@ -3492,6 +3508,20 @@
           "emailSent": {
            "type": "boolean"
           },
+          "emailError": {
+           "anyOf": [
+            {
+             "enum": [
+              "mail-not-configured",
+              "mail-failed"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
           "member": {
            "$ref": "#/components/schemas/Member"
           },
@@ -3505,6 +3535,7 @@
          "required": [
           "result",
           "emailSent",
+          "emailError",
           "member"
          ],
          "type": "object"
@@ -7293,6 +7324,20 @@
           "emailSent": {
            "type": "boolean"
           },
+          "emailError": {
+           "anyOf": [
+            {
+             "enum": [
+              "mail-not-configured",
+              "mail-failed"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
           "member": {
            "$ref": "#/components/schemas/Member"
           },
@@ -7306,6 +7351,7 @@
          "required": [
           "result",
           "emailSent",
+          "emailError",
           "member"
          ],
          "type": "object"
@@ -7448,6 +7494,20 @@
           "emailSent": {
            "type": "boolean"
           },
+          "emailError": {
+           "anyOf": [
+            {
+             "enum": [
+              "mail-not-configured",
+              "mail-failed"
+             ],
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
           "member": {
            "$ref": "#/components/schemas/Member"
           },
@@ -7461,6 +7521,7 @@
          "required": [
           "result",
           "emailSent",
+          "emailError",
           "member"
          ],
          "type": "object"

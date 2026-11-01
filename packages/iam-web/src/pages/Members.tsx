@@ -24,10 +24,11 @@ import { clientApi, memberApi, useAdminStatus, useEntra, useMembers } from '../a
 import { useAccessFeature, useAuthz, useAuthzCatalog } from '../authz.ts';
 import { authLink } from '../client.ts';
 import { useIamConfig } from '../config.tsx';
-import type { EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Level, Member, RoleInfo } from '../contract.ts';
+import type { EmailError, EntraAddInput, EntraAddResult, EntraCandidate, InviteInput, InviteResult, Level, Member, RoleInfo } from '../contract.ts';
 import { fmtDate, fmtDateTime, relTime } from '../format.ts';
 import { iamKeys } from '../keys.ts';
 import { ADMIN_ROLE as ADMIN, ORG_TYPE, type Permission } from '../permissions.ts';
+import { ApiError } from '../problem.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { RightsOverview, roleSummary } from '../rights/RightsOverview.tsx';
 import { RoleCompare, RoleMatrix } from '../rights/RoleMatrix.tsx';
@@ -44,8 +45,18 @@ import { Empty, ErrorBox, ErrorState, Loading, SkeletonRows } from '../ui/states
 const STATUS = {
   active: ['iam.members.status.active', 'iam-st-ok', 'iam.members.status.activeWhy'],
   invited: ['iam.members.status.invited', 'iam-st-warn', 'iam.members.status.invitedWhy'],
+  'not-sent': ['iam.members.status.notSent', 'iam-st-bad', 'iam.members.status.notSentWhy'],
   disabled: ['iam.members.status.disabled', 'iam-st-bad', 'iam.members.status.disabledWhy'],
 } as const;
+
+/** Grund der Antwort 502 von «Einladung erneut senden» (`reason`), sonst null. */
+const resendError = (e: unknown): EmailError | null => {
+  const r = e instanceof ApiError && e.status === 502 ? e.problem.reason : null;
+  return r === 'mail-not-configured' || r === 'mail-failed' ? r : null;
+};
+
+/** Offene Einladung: eingeladen oder Einladung nicht versendet (zurückziehen, erneut senden). */
+const pending = (m: Member) => m.status === 'invited' || m.status === 'not-sent';
 
 /** Alle Mitgliederlisten (eigene Organisation und Plattformansicht), für die Invalidierung nach Änderungen. */
 const MEMBER_LISTS = ['iam', 'admin', 'members'] as const;
@@ -187,11 +198,18 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
 
   const resend = useMutation({
     mutationFn: (m: Member) => api.resend(m.id),
-    // ohne Versand (kein E-Mail-Versand im Realm) nicht «gesendet» melden
-    onSuccess: (r, m) => (r.emailSent
-      ? toast.show(t('iam.members.resent', { org: orgLabel, who: m.email ?? m.name }))
-      : toast.show(t('iam.members.resentNoMail', { who: m.email ?? m.name }), { tone: 'error' })),
-    onError: e => toast.error(e, t('iam.members.resendFailed')),
+    // ohne Versand (kein E-Mail-Versand im Realm) nicht «gesendet» melden; Status «nicht versendet» danach neu laden
+    onSuccess: async (r, m) => {
+      if (r.emailSent) toast.show(t('iam.members.resent', { org: orgLabel, who: m.email ?? m.name }));
+      else toast.show(t('iam.members.resentNoMail', { who: m.email ?? m.name }), { tone: 'error' });
+      if (m.status === 'not-sent') await refresh();
+    },
+    // Grund des Servers als eigener Satz statt «Einladung nicht gesendet: Einladung nicht versendet – …»
+    onError: (e, m) => {
+      const why = resendError(e);
+      if (why) toast.show(t(why === 'mail-failed' ? 'iam.members.resendMailFailed' : 'iam.members.resendNoMailConfig', { who: m.email ?? m.name }), { tone: 'error' });
+      else toast.error(e, t('iam.members.resendFailed'));
+    },
   });
   const remove = useMutation({
     mutationFn: async (m: Member) => (m.kind === 'client' ? (await clientApi(alias).revoke(m.id), { accountDeleted: false }) : api.remove(m.id)),
@@ -199,7 +217,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
       setRemoving(null);
       await refresh();
       toast.show(m.kind === 'client' ? t('iam.members.client.revoked', { id: m.id, org: orgLabel })
-        : m.status === 'invited' ? t(r.accountDeleted ? 'iam.members.withdrawnDeleted' : 'iam.members.withdrawn', { name: m.name, org: orgLabel })
+        : pending(m) ? t(r.accountDeleted ? 'iam.members.withdrawnDeleted' : 'iam.members.withdrawn', { name: m.name, org: orgLabel })
           : t('iam.members.removed', { name: m.name, org: orgLabel }));
     },
   });
@@ -229,6 +247,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
   const admins = all.filter(m => m.kind === 'user' && m.roles.includes(ADMIN) && m.status === 'active').length;
   const people = all.filter(m => m.kind === 'user');
   const invited = people.filter(m => m.status === 'invited').length;
+  const notSent = people.filter(m => m.status === 'not-sent').length;
   const clients = all.length - people.length;
   /** Warum die API Entfernen, Zurückziehen bzw. Entziehen ablehnen würde (403/409), sonst null. */
   const removeBlock = (m: Member): string | null => {
@@ -237,7 +256,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
       return over.length ? t('iam.members.block.exceeds', { perms: listAnd([...new Set(over)].map(p => `«${authz.permLabel(p)}»`)) }) : null;
     }
     if (!platform && m.id === ctx.self) return t('iam.members.block.self');
-    if (!platform && m.roles.includes(ADMIN)) return m.status === 'invited' ? t('iam.members.block.adminInvite', { role: adminLabel }) : t('iam.members.block.admin', { role: adminLabel });
+    if (!platform && m.roles.includes(ADMIN)) return pending(m) ? t('iam.members.block.adminInvite', { role: adminLabel }) : t('iam.members.block.admin', { role: adminLabel });
     if (lastAdmin(m, admins)) return t('iam.members.block.last', { role: adminLabel });
     return null;
   };
@@ -247,7 +266,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
   const { features } = useIamConfig();
   const connected = !!useEntra(alias, !!features.entra).data?.connection;
   const addLabel = t(connected ? 'iam.members.add' : 'iam.members.invite');
-  const count = q.data ? [tn('iam.members.people', people.length), invited ? t('iam.members.ofInvited', { n: invited }) : '', clients ? `, ${tn('iam.members.clients', clients)}` : ''].join('') : '';
+  const count = q.data ? [tn('iam.members.people', people.length), invited ? t('iam.members.ofInvited', { n: invited }) : '', notSent ? tn('iam.members.ofNotSent', notSent) : '', clients ? `, ${tn('iam.members.clients', clients)}` : ''].join('') : '';
 
   return (
     <section aria-labelledby={`${fid}-h`}>
@@ -295,7 +314,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
             <tbody>
               {rows.map(m => {
                 const [st, cls, why] = STATUS[m.status];
-                const inv = m.status === 'invited';
+                const inv = pending(m);
                 const client = m.kind === 'client';
                 const link = authLink(m.loginPath);
                 const fixed = !platform && m.roles.includes(ADMIN);
@@ -358,7 +377,7 @@ export function MemberList({ alias: aliasProp, platform = false, orgLabel: orgPr
 /** Entfernen, Einladung zurückziehen bzw. Freigabe eines Clients entziehen: Folgen klar benannt, Fokus startet auf «Abbrechen». */
 function RemoveConfirm({ member: m, orgLabel, busy, error, onClose, onConfirm }: { member: Member; orgLabel: string; busy: boolean; error: Error | null; onClose: () => void; onConfirm: () => void }) {
   const v = { name: m.name, org: orgLabel, id: m.id };
-  const kind = m.kind === 'client' ? 'client' : m.status !== 'invited' ? 'remove' : m.loginPath ? 'withdrawEntra' : 'withdraw';
+  const kind = m.kind === 'client' ? 'client' : !pending(m) ? 'remove' : m.loginPath ? 'withdrawEntra' : 'withdraw';
   const [title, confirm, text, note] = {
     client: ['iam.members.client.revoke.title', 'iam.members.client.revoke.confirm', 'iam.members.client.revoke.text', 'iam.members.client.revoke.note'],
     remove: ['iam.members.remove.title', 'iam.members.remove.confirm', 'iam.members.remove.text', 'iam.members.remove.note'],
@@ -578,7 +597,7 @@ function EntraAddDialog({ ctx, onClose, onDone, onEmail }: DialogProps & { onEma
     return (
       <Dialog title={t('iam.entraAdd.doneTitle', { name: result.member.name })} onClose={onClose} width={560} footer={<Button variant="primary" data-autofocus onClick={onClose}>{t('iam.common.close')}</Button>}>
         <p>{t(names.length ? (names.length === 1 ? 'iam.entraAdd.doneRole' : 'iam.entraAdd.doneRoles') : 'iam.entraAdd.done', { name: result.member.name, org: orgLabel, roles: names.join(', ') })}</p>
-        {sendEmail ? <div className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t('iam.entraAdd.noMail')}</span></div> : null}
+        {sendEmail ? <div className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t(result.emailError === 'mail-failed' ? 'iam.entraAdd.mailFailed' : result.emailError === 'mail-not-configured' ? 'iam.entraAdd.noMailConfig' : 'iam.entraAdd.noMail')}</span></div> : null}
         {link ? <>
           <label htmlFor={`${fid}-link`}>{t('iam.entraAdd.link')}</label>
           <div className="iam-entra-link">
@@ -662,7 +681,7 @@ function InviteDialog({ ctx, onClose, onDone }: DialogProps) {
     return (
       <Dialog title={t('iam.invite.doneTitle')} onClose={onClose} width={520} footer={<Button variant="primary" data-autofocus onClick={onClose}>{t('iam.common.close')}</Button>}>
         <p>{t(names.length ? (names.length === 1 ? 'iam.invite.doneRole' : 'iam.invite.doneRoles') : 'iam.invite.done', { name: result.member.name, org: orgLabel, roles: names.join(', ') })}</p>
-        <div className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t('iam.invite.noMail')}</span></div>
+        <div className="iam-warnbox" role="alert"><Icon name="warn" className="iam-ico" /><span>{t(result.emailError === 'mail-failed' ? 'iam.invite.mailFailed' : result.emailError === 'mail-not-configured' ? 'iam.invite.noMailConfig' : 'iam.invite.noMail')}</span></div>
       </Dialog>
     );
   }

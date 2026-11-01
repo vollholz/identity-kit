@@ -189,7 +189,7 @@ describe('Personen aus Microsoft Entra ID hinzufügen', { skip }, () => {
     kc.links.get(u.carl.id)!.clear();
     const mails = kc.mails.length;
     const n = ok(await add(oid.carl, [], { sendEmail: false }), 202);
-    assert.deepEqual([n.emailSent, n.member.loginPath, kc.mails.length], [false, '/auth/entra/entra-001?org=demo', mails]);
+    assert.deepEqual([n.emailSent, n.emailError, n.member.loginPath, kc.mails.length], [false, null, '/auth/entra/entra-001?org=demo', mails], 'ohne E-Mail verlangt: kein Grund');
   });
 
   test('erneut senden: wieder der Link zu Microsoft (VERIFY_EMAIL, kein Passwort); ohne SMTP 502', async () => {

@@ -118,6 +118,8 @@ const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
  * (dort auch `EmptyAsNull` für leere Formularfelder).
  */
 export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s]);
+/** Grund, wenn Keycloak eine E-Mail nicht senden konnte (Einladen, aus Entra hinzufügen). */
+export const EmailErrorT = Nullable(Type.Unsafe<'mail-not-configured' | 'mail-failed'>({ type: 'string', enum: ['mail-not-configured', 'mail-failed'], description: 'Nur ohne versendete E-Mail: `mail-not-configured` kein E-Mail-Versand im Realm, `mail-failed` eingerichtet, aber gescheitert (Mailserver, Keycloak); sonst null' }));
 export const IdParams = Type.Object({ id: Uuid });
 export const Deleted = { 204: Type.Null({ description: 'Gelöscht' }) };
 

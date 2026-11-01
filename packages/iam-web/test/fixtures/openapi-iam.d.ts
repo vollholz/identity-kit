@@ -1829,6 +1829,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             emailSent: boolean;
+                            emailError: ("mail-not-configured" | "mail-failed") | null;
                             member: components["schemas"]["Member"];
                             /** @enum {string} */
                             result: "invitation-sent";
@@ -1933,6 +1934,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             emailSent: boolean;
+                            emailError: ("mail-not-configured" | "mail-failed") | null;
                             member: components["schemas"]["Member"];
                             /** @enum {string} */
                             result: "added";
@@ -4520,6 +4522,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             emailSent: boolean;
+                            emailError: ("mail-not-configured" | "mail-failed") | null;
                             member: components["schemas"]["Member"];
                             /** @enum {string} */
                             result: "invitation-sent";
@@ -4634,6 +4637,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             emailSent: boolean;
+                            emailError: ("mail-not-configured" | "mail-failed") | null;
                             member: components["schemas"]["Member"];
                             /** @enum {string} */
                             result: "added";
@@ -7315,7 +7319,7 @@ export interface components {
             principalId: string | null;
             roles: string[];
             /** @enum {string} */
-            status: "active" | "invited" | "disabled";
+            status: "active" | "invited" | "not-sent" | "disabled";
             username: string;
         };
         /** Organization */

@@ -41,7 +41,7 @@ export { Bff, LoginExpired, safeReturnTo, scopesFor, isOrgAlias, safeEqual, deco
 export { loginErrorPage } from './http/bff.ts';
 export { KeycloakAdmin, KeycloakError, keyInfo, seg as keycloakSegment, type KcOrg, type KcUser, type KcOrgDomain, type KcIdp, type KcIdpMapper, type KcFederatedIdentity, type KcCredential } from './keycloak.ts';
 export { listTenants, findTenant, createTenant, setTenantStatus, relinkTenant, type TenantRow, type TenantActor, type TenantsContext } from './tenants.ts';
-export { AdminService, entraAddress, type EntraLink, entraLoginPath, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type Organization, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';
+export { AdminService, entraAddress, type EntraLink, entraLoginPath, type AdminDeps, type Scope as AdminScope, type Member, type MemberStatus, type EmailError, type Organization, type Step as AdminStep, type Work as AdminWork, type Failure as AdminFailure } from './admin.ts';
 export { MemberSync, syncAllMembers, syncTenantMembers, syncTenantName, expireAccess, expireAllAccess, orgMatches, pendingActions, displayName, type SyncContext, type SyncResult } from './sync.ts';
 export { defaultPeoplePermissions } from './http/people.ts';
 export { EntraService, brokerRedirectUri, brokerRedirectUris, ownAppAlias, encryptAppSecret, decryptAppSecret, rewrapEntraSecrets, type OwnAppGuide, type LinkKind, type ConsentLinkOut, consentPath, consentRedirectUri, testPath, entraFirstLoginFlow, idpRepresentation, entraGroupsMapper, ENTRA_GROUPS_MAPPER, slotAlias, type EntraConnection, type EntraConnectionOut, type EntraStatus, type EntraCandidate, type BindResult, type ConnectResult } from './entra.ts';

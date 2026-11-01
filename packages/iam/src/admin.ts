@@ -69,7 +69,14 @@ export interface Scope {
   correlationId: string;
 }
 
-export type MemberStatus = 'active' | 'invited' | 'disabled';
+/** `not-sent`: offene Einladung, deren E-Mail Keycloak nicht senden konnte (bis «Einladung erneut senden» gelingt). */
+export type MemberStatus = 'active' | 'invited' | 'not-sent' | 'disabled';
+/**
+ * Warum Keycloak eine E-Mail nicht senden konnte: `mail-not-configured` kein E-Mail-Versand im Realm, `mail-failed`
+ * eingerichtet, aber gescheitert (Mailserver lehnt ab oder ist nicht erreichbar, Keycloak lehnt die Anfrage ab).
+ * Sagt nur etwas über den Realm, nie über ein Konto.
+ */
+export type EmailError = 'mail-not-configured' | 'mail-failed';
 /** Person oder freigegebener Maschinen-Client der Organisation (Kap. 9.6). */
 export interface Member {
   /** Person: Keycloak-ID bzw. Einladungs-ID; Client: Client-ID. */
@@ -124,10 +131,11 @@ export interface EntraLink {
 
 /**
  * Offene Einladung in diesem Mandanten (`member_invitation`). `id`: nach aussen die ID der eingeladenen Person (neu je
- * Einladung); `user_id`: Konto in Keycloak (nur intern); `created_account`: diese Einladung hat das Konto angelegt.
+ * Einladung); `user_id`: Konto in Keycloak (nur intern); `created_account`: diese Einladung hat das Konto angelegt;
+ * `email_sent`: E-Mail der Einladung versendet (false → Status `not-sent`; aus Entra ID immer true).
  */
-interface Invitation { id: string; user_id: string; email: string; display_name: string; created_at: Date; created_account: boolean; entra: boolean }
-const INVITATION_COLS = 'id, user_id, email, display_name, created_at, created_account, entra';
+interface Invitation { id: string; user_id: string; email: string; display_name: string; created_at: Date; created_account: boolean; entra: boolean; email_sent: boolean }
+const INVITATION_COLS = 'id, user_id, email, display_name, created_at, created_account, entra, email_sent';
 
 /** Ziel von …/members/{id}: offene Einladung (Einladungs-ID) oder Mitglied (Keycloak-ID). `id`: ID nach aussen. */
 interface Target { id: string; userId: string; user: KcUser | null; member: boolean; invitation: Invitation | null }
@@ -309,10 +317,11 @@ export class AdminService {
   /**
    * Eingeladene Person: Angaben aus der Einladung dieses Mandanten, nicht aus dem Konto (gleich für neue und bestehende
    * Konten); ID der Einladung statt der Keycloak-ID (gleiche Keycloak-ID bei erneuter Einladung verriete ein Konto).
+   * Konnte Keycloak die E-Mail nicht senden: `not-sent` statt `invited`.
    */
   private static invited(i: Invitation, p: { principalId: string; roles: string[]; places: number; clearance: Level }, org: string, idpAlias: string | null): Member {
     return {
-      id: i.id, kind: 'user', principalId: p.principalId, username: i.email, name: i.display_name, email: i.email, status: 'invited', roles: p.roles,
+      id: i.id, kind: 'user', principalId: p.principalId, username: i.email, name: i.display_name, email: i.email, status: i.email_sent ? 'invited' : 'not-sent', roles: p.roles,
       clearance: p.clearance, breakGlassUntil: null, places: p.places, lastSeenAt: null, createdAt: i.created_at,
       loginPath: i.entra && idpAlias ? entraLoginPath(idpAlias, org) : null, clientId: null, scopes: null, description: null,
     };
@@ -413,13 +422,19 @@ export class AdminService {
     return r === 'sent' || (r === 'refused' && await this.kc.mailConfigured());
   }
 
+  /** Grund, wenn eine E-Mail nicht versendet wurde; Realm nicht lesbar: `mail-failed` (Versand ist nicht sicher aus). */
+  private async emailError(): Promise<EmailError> {
+    return await this.kc.mailConfigured().catch(() => true) ? 'mail-failed' : 'mail-not-configured';
+  }
+
   /**
    * Einladen. Besteht für die Adresse kein Konto: Konto ohne Passwort anlegen, als Mitglied eintragen, E-Mail «Passwort
    * setzen». Besteht eines (auch einer anderen Organisation): Keycloak sendet eine Einladung, Mitglied nach Annahme.
    * In beiden Fällen gleiche Antwort (202, «invitation-sent», eingeladene Person aus der Einladung). Die Einladung legt
-   * den Principal an und setzt die Rollen als Tupel (A16). Die App setzt nie ein Passwort.
+   * den Principal an und setzt die Rollen als Tupel (A16). Die App setzt nie ein Passwort. Konnte Keycloak die E-Mail
+   * nicht senden, bleibt die Einladung offen, die Person hat aber den Status `not-sent` (nicht «eingeladen»).
    */
-  async invite(s: Scope, input: { email: string; firstName?: string; lastName?: string; roles: string[] }): Promise<{ result: 'invitation-sent'; emailSent: boolean; member: Member }> {
+  async invite(s: Scope, input: { email: string; firstName?: string; lastName?: string; roles: string[] }): Promise<{ result: 'invitation-sent'; emailSent: boolean; emailError: EmailError | null; member: Member }> {
     const email = input.email.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) throw invalid('E-Mail-Adresse ungültig', [{ path: '/email', message: 'Gültige E-Mail-Adresse angeben' }]);
     const roles = await this.precheckRoles(s, input.roles);
@@ -452,15 +467,16 @@ export class AdminService {
           : await this.inviteExisting(org.id, userId);
         // Erneute Einladung (frühere angenommen): neue ID, damit sie sich nicht mit der früheren verknüpfen lässt
         const inv = (await tx.query<Invitation>(
-          `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account) VALUES (app.tenant_id(), $1, $2, $3, $4, $5)
+          `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account, email_sent) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, $6)
            ON CONFLICT (tenant_id, user_id) DO UPDATE SET id = gen_random_uuid(), email = excluded.email, display_name = excluded.display_name, created_at = now(),
-             created_by_name = excluded.created_by_name, created_account = excluded.created_account, accepted_at = NULL
-           RETURNING ${INVITATION_COLS}`, [userId, email, name, s.actor.name, createdAccount])).rows[0]!;
+             created_by_name = excluded.created_by_name, created_account = excluded.created_account, email_sent = excluded.email_sent, accepted_at = NULL
+           RETURNING ${INVITATION_COLS}`, [userId, email, name, s.actor.name, createdAccount, emailSent])).rows[0]!;
         // Ohne Angabe, ob das Konto neu ist: das Protokoll lesen auch Personen dieser Organisation
         await log({ action: 'member.invited', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent } });
         const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
         const order = this.roleOrder(await this.deps.access.modelIn(tx));
-        return { result: 'invitation-sent' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, null) };
+        const emailError = emailSent ? null : await this.emailError();
+        return { result: 'invitation-sent' as const, emailSent, emailError, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, null) };
       } catch (e) {
         // Nichts Halbes zurücklassen (Transaktion wird zurückgerollt): nur das mit dieser Einladung angelegte Konto löschen
         if (createdAccount && userId && await this.kc.deleteUser(userId).then(() => true, () => false)) {
@@ -502,7 +518,7 @@ export class AdminService {
    * verwendet, sonst eines ohne Passwort angelegt; dann Mitglied, über die Objekt-ID verknüpft, Principal und Rollen als
    * Tupel. Antwort und Dauer gleich für neue und bestehende Konten (Mandantentrennung).
    */
-  async addFromEntra(s: Scope, ent: EntraLink, input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; member: Member }> {
+  async addFromEntra(s: Scope, ent: EntraLink, input: { id: string; roles: string[]; sendEmail?: boolean }): Promise<{ result: 'added'; emailSent: boolean; emailError: EmailError | null; member: Member }> {
     const roles = await this.precheckRoles(s, input.roles);
     const org = await this.org(s.alias);
     if (!org.enabled) throw conflict('Die Organisation ist gesperrt.');
@@ -544,13 +560,14 @@ export class AdminService {
         const inv = (await tx.query<Invitation>(
           `INSERT INTO ${this.S}.member_invitation (tenant_id, user_id, email, display_name, created_by_name, created_account, entra) VALUES (app.tenant_id(), $1, $2, $3, $4, $5, true)
            ON CONFLICT (tenant_id, user_id) DO UPDATE SET id = gen_random_uuid(), email = excluded.email, display_name = excluded.display_name, created_at = now(),
-             created_by_name = excluded.created_by_name, created_account = excluded.created_account, entra = true, accepted_at = NULL
+             created_by_name = excluded.created_by_name, created_account = excluded.created_account, entra = true, email_sent = true, accepted_at = NULL
            RETURNING ${INVITATION_COLS}`, [user.id, email, name.slice(0, 200), s.actor.name, createdAccount])).rows[0]!;
         const emailSent = input.sendEmail === false ? false : await this.sendEntraInvitation(user, c.idpAlias, org.alias);
         await w.log({ action: 'member.added_from_entra', resourceType: 'member', resourceId: inv.id, data: { email, roles, emailSent, entraId: p.id } });
         const clearance = (await tx.query<{ clearance: Level }>(`SELECT clearance FROM ${this.S}.principal WHERE id = $1`, [principalId])).rows[0]!.clearance;
         const order = this.roleOrder(await this.deps.access.modelIn(tx));
-        return { result: 'added' as const, emailSent, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, c.idpAlias) };
+        const emailError = emailSent || input.sendEmail === false ? null : await this.emailError();
+        return { result: 'added' as const, emailSent, emailError, member: AdminService.invited(inv, { principalId, roles: order.filter(r => roles.includes(r)), places: 0, clearance }, org.alias, c.idpAlias) };
       } catch (e) {
         // Wie beim Einladen: ein selbst angelegtes Konto löschen, bei einem bestehenden nur zurücknehmen, was dieser
         // Aufruf geändert hat. Ein entferntes Passwort lässt sich nicht zurückgeben.
@@ -582,7 +599,10 @@ export class AdminService {
     return { id, userId: id, user: m, member: true, invitation: null };
   }
 
-  /** Einladung erneut senden (offene Einladung bzw. Mitglied ohne gesetztes Passwort); Mindestdauer wie beim Einladen. */
+  /**
+   * Einladung erneut senden (offene Einladung bzw. Mitglied ohne gesetztes Passwort); Mindestdauer wie beim Einladen.
+   * Gelingt es, ist eine Einladung mit Status `not-sent` wieder `invited`; sonst 502 mit `reason` (`EmailError`).
+   */
   async resendInvitation(s: Scope, id: string): Promise<{ emailSent: boolean }> {
     const org = await this.org(s.alias);
     let invitation = false;
@@ -601,7 +621,13 @@ export class AdminService {
         if (!pendingActions(t.user!) || await this.kc.hasPassword(t.userId)) throw conflict('Diese Person hat ihr Passwort bereits gesetzt.');
         emailSent = await this.kc.sendActionsEmail(t.userId, ['UPDATE_PASSWORD', 'VERIFY_EMAIL'], { lifespanSec: this.deps.cfg.mgmt.inviteLifespanSec, clientId: this.deps.cfg.oidc.bffClientId });
       }
-      if (!emailSent) throw new HttpError(502, 'Einladung nicht versendet', 'Keycloak konnte die E-Mail nicht senden (E-Mail-Versand im Realm einrichten).');
+      if (!emailSent) {
+        const reason = await this.emailError();
+        throw new HttpError(502, 'Einladung nicht versendet', reason === 'mail-not-configured'
+          ? 'Keycloak konnte die E-Mail nicht senden: Im Realm ist kein E-Mail-Versand eingerichtet.'
+          : 'Keycloak konnte die E-Mail nicht senden, obwohl der E-Mail-Versand eingerichtet ist: Der Mailserver lehnt ab oder ist nicht erreichbar (Protokoll von Keycloak prüfen).', {}, { reason });
+      }
+      if (t.invitation && !t.invitation.email_sent) await tx.query(`UPDATE ${this.S}.member_invitation SET email_sent = true WHERE id = $1`, [t.invitation.id]);
       await log({ action: 'member.invitation_resent', resourceType: 'member', resourceId: t.id, data: { email: t.invitation?.email ?? t.user?.email ?? null } });
       return { emailSent };
     }), () => invitation);

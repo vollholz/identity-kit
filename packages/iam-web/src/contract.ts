@@ -268,7 +268,8 @@ export interface Member {
   username: string;
   name: string;
   email: string | null;
-  status: 'active' | 'invited' | 'disabled';
+  /** `not-sent`: offene Einladung, deren E-Mail Keycloak nicht senden konnte (ab `@vollholz/iam` mit Migration iam_020). */
+  status: 'active' | 'invited' | 'not-sent' | 'disabled';
   /** Rollen an der Organisation. */
   roles: string[];
   /** Gespeicherte Freigabestufe, ohne Break-Glass. */
@@ -289,7 +290,13 @@ export interface Member {
 }
 export interface MemberList { items: Member[] }
 export interface InviteInput { email: string; firstName?: string; lastName?: string; roles?: string[] }
-export interface InviteResult { result: 'invitation-sent'; emailSent: boolean; member: Member }
+/**
+ * Warum Keycloak eine E-Mail nicht senden konnte: kein E-Mail-Versand im Realm oder eingerichtet, aber gescheitert. Auch
+ * `reason` der Antwort 502 von «Einladung erneut senden».
+ */
+export type EmailError = 'mail-not-configured' | 'mail-failed';
+/** `emailError`: nur ohne versendete E-Mail (fehlt bei älteren Servern). */
+export interface InviteResult { result: 'invitation-sent'; emailSent: boolean; emailError?: EmailError | null; member: Member }
 export interface RemoveResult { accountDeleted: boolean }
 export interface ResendResult { emailSent: boolean }
 export interface RolesInput { roles: string[] }
@@ -325,7 +332,7 @@ export interface EntraCandidate {
 }
 export interface EntraCandidateList { items: EntraCandidate[]; more: boolean }
 export interface EntraAddInput { id: string; roles?: string[]; sendEmail?: boolean }
-export interface EntraAddResult { result: 'added'; emailSent: boolean; member: Member }
+export interface EntraAddResult { result: 'added'; emailSent: boolean; emailError?: EmailError | null; member: Member }
 
 export interface EntraConnection {
   entraTenantId: string;

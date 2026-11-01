@@ -9,6 +9,34 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
 ## [Unveröffentlicht]
 
+### Breaking
+
+- **Neuer Status `not-sent`** (`Member.status`, `MemberStatus`; `GET …/members`, Antwort von «Person einladen»):
+  Konnte Keycloak die E-Mail einer Einladung nicht senden (`emailSent: false`), erscheint die Person nicht mehr als
+  `invited`, sondern als `not-sent`, bis «Einladung erneut senden» gelingt (dann `invited`; scheitert es: 502, Status
+  unverändert). Antwort und Dauer bleiben für neue und bestehende Konten gleich. Einladungen aus Entra ID behalten
+  `invited`.
+  Migration: `@vollholz/iam-web` mit `not-sent` verwenden (ältere Versionen zeigen die Mitgliederliste nicht an, sobald
+  eine Einladung nicht versendet ist); eigener Code, der `status` auswertet (`switch`, Tabelle je Status), behandelt
+  `not-sent` wie eine offene Einladung (zurückziehen, erneut senden).
+- **Migration `iam_020_invitation_email_sent.sql`** (läuft mit dem nächsten `migrate`): Spalte
+  `<schema>.member_invitation.email_sent` (Standard true). Bestand aus dem Protokoll: offene Einladungen mit Passwort,
+  deren `member.invited` `emailSent: false` zeigt und die nie erneut gesendet wurden, erhalten false und erscheinen
+  danach als `not-sent`. Schema-Abzüge der App (`schemaSnapshot`) um die Spalte ergänzen.
+
+### Hinzugefügt
+
+- **Grund, wenn keine E-Mail versendet wurde** (`EmailError`): `emailError` in der Antwort von «Person einladen» und
+  «Aus Entra hinzufügen» (`mail-not-configured`: kein E-Mail-Versand im Realm, `mail-failed`: eingerichtet, aber
+  gescheitert, z. B. Mailserver lehnt die Anmeldung ab; null, wenn versendet oder keine E-Mail verlangt). «Einladung
+  erneut senden» antwortet bei 502 mit `reason` (gleiche Werte) und passendem `detail`. Der Grund sagt nur etwas über
+  den Realm, nie über ein Konto (gleich für neue und bestehende Konten).
+
+### Geändert
+
+- 502 von «Einladung erneut senden» rät nicht mehr immer «E-Mail-Versand im Realm einrichten»: Mit eingerichtetem
+  Versand nennt `detail` den Mailserver und das Protokoll von Keycloak.
+
 ## [5.0.3] – 2026-10-28
 
 ### Behoben

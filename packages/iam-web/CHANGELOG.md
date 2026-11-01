@@ -9,6 +9,28 @@ der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
 ## [Unveröffentlicht]
 
+### Hinzugefügt
+
+- **Status «nicht versendet»** (`not-sent`, ab `@vollholz/iam` mit Migration `iam_020`) in «Benutzer und Rollen»:
+  rote Marke mit Hinweis auf «Mehr» › «Einladung erneut senden», im Kopf «n Einladungen nicht versendet» (zählt nicht
+  zu «davon n eingeladen»), Aktionen wie bei offenen Einladungen (erneut senden, zurückziehen). `Member.status` um
+  `'not-sent'` ergänzt; Texte `iam.members.status.notSent`, `iam.members.status.notSentWhy`,
+  `iam.members.ofNotSent_one`, `iam.members.ofNotSent_other`.
+  Hinweis: Eigener Code, der `Member.status` vollständig unterscheidet, ergänzt `not-sent`.
+
+### Geändert
+
+- Einladen ohne versendete E-Mail: Dialog «Einladung nicht versendet» statt «Einladung erfasst», ohne «… ist
+  eingeladen» (Texte `iam.invite.doneTitle`, `iam.invite.done`, `iam.invite.doneRole`, `iam.invite.doneRoles`).
+- Nach «Einladung erneut senden» einer nicht versendeten Einladung lädt die Liste neu (Status wieder «eingeladen»).
+- Ohne versendete E-Mail nennen die Hinweise den Grund des Servers (`emailError` bzw. `reason`): «kein E-Mail-Versand
+  eingerichtet» oder «eingerichtet, aber vom Mailserver nicht angenommen» statt immer «meist ist im Realm kein
+  E-Mail-Versand eingerichtet» (Einladen, Aus Entra hinzufügen, erneut senden). Ältere Server ohne Grund: neutraler
+  Hinweis. «Einladung erneut senden» meldet den Fehler in einem Satz statt «Einladung nicht gesendet: Einladung nicht
+  versendet – …». Neue Texte `iam.members.resendNoMailConfig`, `iam.members.resendMailFailed`,
+  `iam.invite.noMailConfig`, `iam.invite.mailFailed`, `iam.entraAdd.noMailConfig`, `iam.entraAdd.mailFailed`; Typ
+  `EmailError`, `InviteResult.emailError`, `EntraAddResult.emailError` (optional).
+
 ## [2.2.0] – 2026-10-28
 
 ### Hinzugefügt

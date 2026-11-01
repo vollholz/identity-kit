@@ -877,7 +877,9 @@ Break-Glass gilt allein dieses Kapitel.
     `<produkt>-platform`). Bestehendes Konto → Einladung von Keycloak, Mitglied erst nach Annahme. Rollen werden
     sofort als Tupel gesetzt: Die Einladung legt den Principal an (`subject` = Keycloak-ID) und gibt ihn zurück;
     Zurückziehen löscht seine Tupel (A16). Ohne SMTP entsteht das Konto trotzdem,
-    `emailSent: false`, später erneut senden.
+    `emailSent: false` mit Grund `emailError` (`mail-not-configured`: kein E-Mail-Versand im Realm, `mail-failed`:
+    eingerichtet, aber gescheitert); die Person erscheint dann mit Status `not-sent` statt `invited`
+    (`member_invitation.email_sent`, iam_020), bis «erneut senden» gelingt.
 12. **Entfernen** einer Person löscht ihre Tupel (alle Orte) in derselben Transaktion; der Abgleich (`removed_at`)
     löscht nichts, eine Rückkehr bringt die Rechte zurück (A17).
 13. Ohne `KEYCLOAK_MGMT_CLIENT_ID` sind Mitglieder aus: `GET /v1/admin/status` sagt das, die Endpunkte unter
@@ -1157,7 +1159,7 @@ interface Member {
   kind: 'user' | 'client';
   principalId: string;           // Subjekt user:<id> bzw. client:<id>; nie null, die Einladung legt den Principal an (A16)
   username: string; name: string; email: string | null;
-  status: 'active' | 'invited' | 'disabled';
+  status: 'active' | 'invited' | 'not-sent' | 'disabled';  // not-sent: offene Einladung, E-Mail nicht versendet
   roles: string[];               // Rollen an org
   clearance: Level;              // gespeicherte Stufe, ohne Break-Glass
   breakGlassUntil: string | null;
@@ -1177,11 +1179,11 @@ interface Client {
 | Endpunkt | Anfrage | Antwort | Fehler |
 |---|---|---|---|
 | `GET /v1/admin/members` | – | 200 `{ items: Member[] }` – Personen **und** freigegebene Clients | 503 ohne Verwaltung |
-| `POST /v1/admin/members` | wie bisher (`email`, `firstName`, `lastName`, `roles`; kein `sendEmail`) | 202 `{ result: 'invitation-sent', member: Member, … }` | 403 `exceeds-own`, `platform-admin-only`; 422 |
+| `POST /v1/admin/members` | wie bisher (`email`, `firstName`, `lastName`, `roles`; kein `sendEmail`) | 202 `{ result: 'invitation-sent', emailSent, emailError, member: Member }` | 403 `exceeds-own`, `platform-admin-only`; 422 |
 | `PUT /v1/admin/members/{id}/roles` | `{ roles: string[] }` (Rollen an org, vollständige Liste) | 200 `Member` | 403 `exceeds-own`, `platform-admin-only`; 404; 409 `last-admin`; 422 `roles` |
 | `PUT /v1/admin/members/{id}/clearance` | `{ clearance: Level }` | 200 `Member` | 403 `exceeds-own`, `self`; 404; 422 |
 | `DELETE /v1/admin/members/{id}` | – | wie bisher (`accountDeleted`); löscht alle Tupel der Person | 404; 409 `last-admin`, `self` |
-| `POST /v1/admin/members/{id}/invitation` | – | 200 `{ emailSent: boolean }` | 404 |
+| `POST /v1/admin/members/{id}/invitation` | – | 200 `{ emailSent: boolean }`; Status `not-sent` → `invited` | 404; 502 `mail-not-configured`, `mail-failed` (Status bleibt) |
 | `GET /v1/admin/clients` | – | 200 `{ items: Client[] }` | – |
 | `PUT /v1/admin/clients/{clientId}` | `{ roles: string[] (≥ 1); description?: string (≤ 500, fehlt: bleibt); clearance?: Level (fehlt: bleibt) }` | 200 `Client` (legt Principal an, falls neu, A18) | 403 `exceeds-own`, `platform-admin-only`; 422 |
 | `DELETE /v1/admin/clients/{clientId}` | – | 204; löscht alle Tupel des Clients | 404 |

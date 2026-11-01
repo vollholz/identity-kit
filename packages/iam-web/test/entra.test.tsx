@@ -394,7 +394,7 @@ describe('Person aus Entra ID hinzufügen', () => {
   it('mit E-Mail, aber nicht gesendet: Hinweis noMail und Link zum Weitergeben', async () => {
     members(PENDING, {
       'GET /v1/admin/members/entra-search': () => json(HITS),
-      'POST /v1/admin/members/entra': () => json({ result: 'added', emailSent: false, member: NINA }, 202),
+      'POST /v1/admin/members/entra': () => json({ result: 'added', emailSent: false, emailError: 'mail-not-configured', member: NINA }, 202),
     });
     await userEvent.click(await screen.findByRole('button', { name: 'Person hinzufügen' }));
     const dlg = await screen.findByRole('dialog', { name: 'Person zu «Demo AG» hinzufügen' });
@@ -402,7 +402,7 @@ describe('Person aus Entra ID hinzufügen', () => {
     await userEvent.click(await within(dlg).findByRole('button', { name: /Nina Neu/ }));
     await userEvent.click(within(dlg).getByRole('button', { name: 'Hinzufügen' }));
     const done = await screen.findByRole('dialog', { name: 'Nina Neu hinzugefügt' });
-    expect(within(done).getByRole('alert')).toHaveTextContent('konnte die Einladung nicht per E-Mail senden');
+    expect(within(done).getByRole('alert')).toHaveTextContent('konnte die Einladung nicht per E-Mail senden: Im Realm ist kein E-Mail-Versand eingerichtet.');
     expect(within(done).getByLabelText('Anmeldelink')).toHaveValue(`${window.location.origin}${NINA.loginPath}`);
   });
 

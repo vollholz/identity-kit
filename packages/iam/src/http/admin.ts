@@ -16,7 +16,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AdminService, Scope } from '../admin.ts';
 import { forbidden, HttpError } from '../errors.ts';
 import { ORG, type Level, type Model } from '../model.ts';
-import { DateTime, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, EmailErrorT, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG_MEMBERS = 'Verwaltung: Mitglieder und Rollen';
 const TAG_ORGS = 'Plattform: Organisationen';
@@ -29,7 +29,7 @@ const Member = Type.Object({
   username: Type.String(),
   name: Type.String(),
   email: Nullable(Type.String()),
-  status: Type.Unsafe<'active' | 'invited' | 'disabled'>({ type: 'string', enum: ['active', 'invited', 'disabled'], description: '`invited`: Passwort noch nicht gesetzt, noch nie angemeldet (aus Entra ID: noch nie zugegriffen); `disabled`: Konto in Keycloak gesperrt' }),
+  status: Type.Unsafe<'active' | 'invited' | 'not-sent' | 'disabled'>({ type: 'string', enum: ['active', 'invited', 'not-sent', 'disabled'], description: '`invited`: Passwort noch nicht gesetzt, noch nie angemeldet (aus Entra ID: noch nie zugegriffen); `not-sent`: offene Einladung, deren E-Mail Keycloak nicht senden konnte (bis «Einladung erneut senden» gelingt); `disabled`: Konto in Keycloak gesperrt' }),
   roles: Type.Array(Type.String(), { description: 'Rollen an der Organisation (Tupel)' }),
   clearance: LevelT,
   breakGlassUntil: Nullable(DateTime),
@@ -64,8 +64,9 @@ const Invite = Type.Object({
 }, { additionalProperties: false });
 const InviteResult = Type.Object({
   result: Type.Unsafe<'invitation-sent'>({ type: 'string', enum: ['invitation-sent'], description: 'Immer `invitation-sent` – gleich, ob für die Adresse schon ein Konto bestand (Mandantentrennung)' }),
-  emailSent: Type.Boolean({ description: 'false: Keycloak konnte die E-Mail nicht senden (meist kein E-Mail-Versand im Realm); Einladung bleibt offen, in der Liste erneut senden' }),
-  member: Type.Ref('Member', { description: 'Eingeladene Person (Status `invited`) mit den Angaben der Einladung' }),
+  emailSent: Type.Boolean({ description: 'false: Keycloak konnte die E-Mail nicht senden (Grund in `emailError`); Einladung bleibt offen mit Status `not-sent`, in der Liste erneut senden' }),
+  emailError: EmailErrorT,
+  member: Type.Ref('Member', { description: 'Eingeladene Person (Status `invited`, ohne versendete E-Mail `not-sent`) mit den Angaben der Einladung' }),
 });
 const DomainList = Type.Array(Type.String({ minLength: 3, maxLength: 253 }), { maxItems: 50 });
 /** Body von suspend/resume: optional (ohne Body gilt `{}`; `optionalBodies` weist `requestBody` als optional aus). */
@@ -133,7 +134,7 @@ export const adminModule: IamModule = {
       app.post(base, {
         schema: routeSchema(ctx, 'POST', base, {
           tags, summary: 'Person einladen', ...p1, body: Invite,
-          description: 'Antwortet immer gleich (202, mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME`), damit niemand erfährt, ob für die Adresse schon ein Konto besteht – etwa in einer anderen Organisation. Ohne Konto legt Keycloak eines ohne Passwort an und sendet «Passwort setzen»; sonst sendet Keycloak eine Einladung. Die Person erscheint als «eingeladen»; die Einladung legt den Principal an und setzt die Rollen als Tupel. Die App sieht und setzt keine Passwörter. Rolle org-admin nur für die Plattform-Administration.',
+          description: 'Antwortet immer gleich (202, mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME`), damit niemand erfährt, ob für die Adresse schon ein Konto besteht – etwa in einer anderen Organisation. Ohne Konto legt Keycloak eines ohne Passwort an und sendet «Passwort setzen»; sonst sendet Keycloak eine Einladung. Die Person erscheint als «eingeladen» (`invited`), konnte Keycloak die E-Mail nicht senden als «nicht versendet» (`not-sent`, `emailSent: false`); die Einladung legt den Principal an und setzt die Rollen als Tupel. Die App sieht und setzt keine Passwörter. Rolle org-admin nur für die Plattform-Administration.',
           response: { 202: InviteResult },
         }),
       }, async (req, reply) => {
@@ -167,7 +168,7 @@ export const adminModule: IamModule = {
       }, async req => { const sc = await scope(req); return on().removeMember(sc, id(req)); });
 
       app.post(`${base}/:id/invitation`, {
-        schema: routeSchema(ctx, 'POST', `${base}/:id/invitation`, { tags, summary: 'Einladung erneut senden', params: p2, description: 'Für offene Einladungen mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen). Einladung aus Entra ID: wieder die E-Mail mit dem Link zur Anmeldung über Microsoft.', response: { 200: Type.Object({ emailSent: Type.Boolean() }) } }),
+        schema: routeSchema(ctx, 'POST', `${base}/:id/invitation`, { tags, summary: 'Einladung erneut senden', params: p2, description: 'Für offene Einladungen mindestens `KEYCLOAK_MGMT_INVITE_MIN_TIME` (wie Einladen). Einladung aus Entra ID: wieder die E-Mail mit dem Link zur Anmeldung über Microsoft. Gelingt der Versand, hat eine Einladung mit Status `not-sent` wieder `invited`; sonst 502 mit `reason` `mail-not-configured` (kein E-Mail-Versand im Realm) oder `mail-failed` (eingerichtet, aber gescheitert), Status unverändert.', response: { 200: Type.Object({ emailSent: Type.Boolean() }) } }),
       }, async req => { const sc = await scope(req); return on().resendInvitation(sc, id(req)); });
     };
     memberRoutes(`${prefix}/admin/members`, [TAG_MEMBERS], own, false);

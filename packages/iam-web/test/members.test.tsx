@@ -246,6 +246,51 @@ describe('Aktionen je Person', () => {
     expect(screen.queryByText(/erneut gesendet/)).toBeNull();
   });
 
+  it('erneut senden scheitert (502 mit Grund): ein Satz je Grund statt doppeltem Titel; ohne Grund wie bisher', async () => {
+    let reason: string | undefined = 'mail-not-configured';
+    setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, NORA] }),
+      [`POST /v1/admin/members/${NORA.id}/invitation`]: () => json({ title: 'Einladung nicht versendet', status: 502, detail: 'Keycloak konnte die E-Mail nicht senden.', ...(reason ? { reason } : {}) }, 502),
+    });
+    const resend = async () => {
+      await userEvent.click(await screen.findByRole('button', { name: 'Mehr zu Nora Neu' }));
+      await userEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Einladung erneut senden' }));
+    };
+    await resend();
+    expect(await screen.findByText('Einladung an nora@demo.example nicht gesendet: Im Realm ist kein E-Mail-Versand eingerichtet.')).toBeInTheDocument();
+    reason = 'mail-failed';
+    await resend();
+    expect(await screen.findByText(/^Einladung an nora@demo\.example nicht gesendet: Der E-Mail-Versand ist eingerichtet, der Mailserver hat die E-Mail aber nicht angenommen\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Einladung nicht gesendet: Einladung nicht versendet/)).toBeNull();
+    reason = undefined;
+    await resend();
+    expect(await screen.findByText('Einladung nicht gesendet: Einladung nicht versendet – Keycloak konnte die E-Mail nicht senden.')).toBeInTheDocument();
+  });
+
+  it('Einladung nicht versendet: eigener Status statt «eingeladen», zählt nicht als eingeladen; erneut senden, zurückziehen; nach dem Senden neu geladen', async () => {
+    let nora: Member = { ...NORA, status: 'not-sent' };
+    const { calls } = setup(own(), {
+      'GET /v1/admin/members': () => json({ items: [ANNA, nora, CARLA] }),
+      [`POST /v1/admin/members/${NORA.id}/invitation`]: () => { nora = { ...nora, status: 'invited' }; return json({ emailSent: true }); },
+    });
+    const table = await screen.findByRole('table', { name: /^Mitglieder/ });
+    expect(screen.getByText('3 Personen, 1 Einladung nicht versendet')).toBeInTheDocument();
+    const row = within(table).getAllByRole('row').find(r => r.textContent!.includes('Nora Neu'))!;
+    const pill = within(row).getByText('nicht versendet');
+    expect(pill).toHaveClass('iam-st-bad');
+    expect(pill).toHaveAttribute('title', expect.stringMatching(/«Mehr» › «Einladung erneut senden»/));
+    expect(within(row).queryByText('eingeladen')).toBeNull();
+    await userEvent.click(within(row).getByRole('button', { name: 'Mehr zu Nora Neu' }));
+    expect(within(await screen.findByRole('menu')).getAllByRole('menuitem').map(i => i.getAttribute('aria-label'))).toEqual(['Freigabestufe setzen …', 'Einladung erneut senden', 'Einladung zurückziehen …']);
+    const lists = () => calls.filter(c => c.method === 'GET' && c.url.endsWith('/v1/admin/members')).length;
+    const before = lists();
+    await userEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Einladung erneut senden' }));
+    expect(await screen.findByText('Einladung zu «Demo AG» an nora@demo.example erneut gesendet')).toBeInTheDocument();
+    await waitFor(() => expect(lists()).toBeGreaterThan(before));
+    expect(await screen.findByText('3 Personen, davon 1 eingeladen')).toBeInTheDocument();
+    expect(within(table).getAllByRole('row').find(r => r.textContent!.includes('Nora Neu'))).toHaveTextContent('eingeladen');
+  });
+
   it('letzte aktive Person mit org-admin: offene Einladungen und deaktivierte zählen nicht (wie der Server)', async () => {
     const items = [ANNA, CARLA, { ...NORA, roles: ['org-admin'] }, { ...ERIK, roles: ['org-admin'] }];
     setup(platformList(), { 'GET /v1/platform/organizations/muster/members': () => json({ items }) }, { person: { subject: 'sub-plattform', name: 'Pia Plattform', email: null } });
@@ -341,7 +386,7 @@ describe('Einladen', () => {
   it('lädt eine Person zur Organisation ein; org-admin nur durch die Plattform, Hinweis dazu genau einmal; Prüfung beim Absenden', async () => {
     const { calls } = setup(own(), {
       'GET /v1/admin/members': () => json({ items: [ANNA] }),
-      'POST /v1/admin/members': () => json({ result: 'invitation-sent', emailSent: false, member: { ...NORA, roles: ['viewer', 'editor'] } }, 202),
+      'POST /v1/admin/members': () => json({ result: 'invitation-sent', emailSent: false, emailError: 'mail-failed', member: { ...NORA, status: 'not-sent', roles: ['viewer', 'editor'] } }, 202),
     });
     await screen.findByRole('table', { name: /^Mitglieder/ });
     await userEvent.click(screen.getByRole('button', { name: 'Person einladen' }));
@@ -372,9 +417,13 @@ describe('Einladen', () => {
     expect(within(dlg).getByText(`Darf 4 von ${N}`)).toBeInTheDocument();
     expect(await axeProblems(dlg)).toEqual([]);
     await userEvent.click(within(dlg).getByRole('button', { name: 'Einladen' }));
-    const done = await screen.findByRole('dialog', { name: 'Einladung erfasst' });
-    expect(done).toHaveTextContent('Nora Neu ist zu «Demo AG» eingeladen mit den Rollen Leser:in, Bearbeiter:in');
+    const done = await screen.findByRole('dialog', { name: 'Einladung nicht versendet' });
+    expect(done).toHaveTextContent('Die Einladung von Nora Neu zu «Demo AG» mit den Rollen Leser:in, Bearbeiter:in ist erfasst, aber nicht versendet. In der Liste steht die Person als «nicht versendet»');
+    expect(done).not.toHaveTextContent(/ist zu «Demo AG» eingeladen/);
     expect(within(done).getByRole('alert')).toHaveTextContent(/«Mehr» › «Einladung erneut senden»/);
+    // Grund des Servers: eingerichtet, aber gescheitert – kein Rat, den E-Mail-Versand einzurichten
+    expect(within(done).getByRole('alert')).toHaveTextContent('Der E-Mail-Versand ist eingerichtet, der Mailserver hat die E-Mail aber nicht angenommen.');
+    expect(within(done).getByRole('alert')).not.toHaveTextContent(/kein E-Mail-Versand eingerichtet/);
     const post = calls.find(c => c.method === 'POST')!;
     expect(await post.clone().json()).toEqual({ email: 'nora@demo.example', roles: ['viewer', 'editor'] });
     expect(post.headers.get('X-CSRF-Token')).toBe('csrf-123');

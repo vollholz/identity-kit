@@ -172,11 +172,12 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
 
   /** invitee: ID der Einladung (nach aussen), inviteeUser: Konto in Keycloak. */
   let invitee = '', inviteeUser = '';
-  test('Einladen: neues Konto ohne Passwort, Mitglied mit Rolle, E-Mail «Passwort setzen»; ohne SMTP klarer Hinweis', async () => {
+  test('Einladen: neues Konto ohne Passwort, Mitglied mit Rolle, E-Mail «Passwort setzen»; ohne SMTP «nicht versendet» statt «eingeladen»', async () => {
     const r = ok(await call('anna', 'POST', '/v1/admin/members', { email: 'Neu.Person@Demo.example', firstName: 'Nora', lastName: 'Neu', roles: ['viewer'] }), 202);
     assert.equal(r.result, 'invitation-sent');
     assert.equal(r.emailSent, false, 'kein SMTP');
-    assert.equal(r.member.status, 'invited');
+    assert.equal(r.emailError, 'mail-not-configured');
+    assert.equal(r.member.status, 'not-sent');
     assert.deepEqual(r.member.roles, ['viewer']);
     assert.equal(r.member.email, 'neu.person@demo.example');
     invitee = r.member.id;
@@ -192,12 +193,19 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal(a.at(-1)!.actor_name, 'Anna Admin');
     assert.deepEqual(a.at(-1)!.data.roles, ['viewer']);
     assert.equal(a.at(-1)!.data.emailSent, false);
-    // erst nach Annahme im Personenverzeichnis (gleich wie bei bestehendem Konto); in der Liste als eingeladen
-    assert.equal(ok(await call('anna', 'GET', '/v1/admin/members')).items.find((m: any) => m.id === invitee).status, 'invited');
+    // erst nach Annahme im Personenverzeichnis (gleich wie bei bestehendem Konto); in der Liste als nicht versendet
+    const statusOf = async () => ok(await call('anna', 'GET', '/v1/admin/members')).items.find((m: any) => m.id === invitee).status;
+    assert.equal(await statusOf(), 'not-sent');
     assert.ok(!(await people('demo')).some(p => p.subject === ku.id));
-    // erneut senden mit SMTP
+    // erneut senden ohne SMTP: 502 mit Grund, Status bleibt
+    const noSmtp = await call('anna', 'POST', `/v1/admin/members/${invitee}/invitation`);
+    assert.deepEqual([noSmtp.status, noSmtp.body.title, noSmtp.body.reason], [502, 'Einladung nicht versendet', 'mail-not-configured']);
+    assert.match(noSmtp.body.detail, /Im Realm ist kein E-Mail-Versand eingerichtet/);
+    assert.equal(await statusOf(), 'not-sent');
+    // erneut senden mit SMTP: eingeladen
     kc.smtp = true;
     assert.equal(ok(await call('anna', 'POST', `/v1/admin/members/${invitee}/invitation`)).emailSent, true);
+    assert.equal(await statusOf(), 'invited');
     const mail = kc.mails.at(-1)!;
     assert.deepEqual(mail.actions, ['UPDATE_PASSWORD', 'VERIFY_EMAIL']);
     assert.match(mail.query!, /client_id=notes-platform/);
@@ -351,7 +359,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
       }
       const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
       const rows = ['mona@muster.example', 'niemand@demo.example', 'kollision@demo.example'].map(e => list.find((m: any) => m.email === e));
-      for (const r of rows) assert.deepEqual([r.status, typeof r.principalId, r.lastSeenAt, r.roles], ['invited', 'string', null, ['viewer']]);
+      for (const r of rows) assert.deepEqual([r.status, typeof r.principalId, r.lastSeenAt, r.roles], ['not-sent', 'string', null, ['viewer']]);
       assert.equal(rows[0].name, 'mona@muster.example', 'nicht «Mona Muster» aus dem Konto');
       assert.ok(!JSON.stringify(list).includes('Mona') && !JSON.stringify(list).includes('jemand-anders'));
       assert.ok(!(await people('demo')).some(p => /muster\.example/.test(p.email ?? '')), 'Personenverzeichnis erst nach Annahme');
@@ -591,7 +599,7 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
           }
         }
         for (const r of rounds) assert.deepEqual(r.form, rounds[0]!.form, `gleiche Antworten (SMTP ${smtp})`);
-        assert.deepEqual(rounds[0]!.form, { inv: [202, neutral({ result: 'invitation-sent', emailSent: smtp, member: { kind: 'user', status: 'invited', roles: ['viewer'], principalId: '-', clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, loginPath: null, clientId: null, scopes: null, description: null } })], resend: smtp ? [200, true] : [502, 'Einladung nicht versendet'], del: [200, { accountDeleted: false }] });
+        assert.deepEqual(rounds[0]!.form, { inv: [202, neutral({ result: 'invitation-sent', emailSent: smtp, emailError: smtp ? null : 'mail-not-configured', member: { kind: 'user', status: smtp ? 'invited' : 'not-sent', roles: ['viewer'], principalId: '-', clearance: 0, breakGlassUntil: null, places: 0, lastSeenAt: null, loginPath: null, clientId: null, scopes: null, description: null } })], resend: smtp ? [200, true] : [502, 'Einladung nicht versendet'], del: [200, { accountDeleted: false }] });
         assert.equal(new Set(rounds.map(r => r.id)).size, rounds.length, 'jede Einladung eine neue ID');
         assert.ok(rounds.every(r => !kc.users.has(r.id) && ![u.mona.id, gesperrt.id].includes(r.id)), 'nie die ID des Kontos');
       }
@@ -653,6 +661,24 @@ describe('Verwaltung von Mitgliedern und Organisationen', { skip }, () => {
     assert.equal((await auditOf('demo', 'member.roles_change_failed')).length, 0);
     ok(await call('anna', 'PUT', `/v1/admin/members/${u.dana.id}/roles`, { roles: ['viewer'] }));
     assert.deepEqual(await rolesIn('demo', u.dana.id), ['viewer']);
+  });
+
+  test('E-Mail-Versand eingerichtet, Versand scheitert: «nicht versendet» mit Grund `mail-failed`, gleich für neues und bestehendes Konto', async () => {
+    kc.smtp = true;
+    kc.fail = [{ re: /^PUT \/users\/[^/]+\/execute-actions-email$/, status: 500 }, { re: /^POST \/organizations\/[^/]+\/members\/invite-existing-user$/, status: 500 }];
+    try {
+      const neu = ok(await call('anna', 'POST', '/v1/admin/members', { email: 'zustellung@demo.example', roles: ['viewer'] }), 202);
+      const alt = ok(await call('anna', 'POST', '/v1/admin/members', { email: 'mona@muster.example', roles: ['viewer'] }), 202);
+      for (const r of [neu, alt]) assert.deepEqual([r.emailSent, r.emailError, r.member.status], [false, 'mail-failed', 'not-sent']);
+      const again = await call('anna', 'POST', `/v1/admin/members/${neu.member.id}/invitation`);
+      assert.deepEqual([again.status, again.body.reason], [502, 'mail-failed']);
+      assert.match(again.body.detail, /obwohl der E-Mail-Versand eingerichtet ist/);
+      kc.fail = [];
+      assert.equal(ok(await call('anna', 'POST', `/v1/admin/members/${neu.member.id}/invitation`)).emailSent, true);
+      const list = ok(await call('anna', 'GET', '/v1/admin/members')).items;
+      assert.deepEqual([neu, alt].map(r => list.find((m: any) => m.id === r.member.id).status), ['invited', 'not-sent']);
+      for (const r of [neu, alt]) ok(await call('anna', 'DELETE', `/v1/admin/members/${r.member.id}`));
+    } finally { kc.fail = []; kc.smtp = false; }
   });
 
   test('V5: «Erneut senden» prüft das Passwort auch bei einem Mitglied mit offener Einladung', async () => {

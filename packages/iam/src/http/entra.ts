@@ -20,7 +20,7 @@ import type { AdminService, Scope } from '../admin.ts';
 import { consentPath, handoverPath } from '../entra.ts';
 import type { EntraService } from '../entra.ts';
 import { forbidden, HttpError } from '../errors.ts';
-import { DateTime, Deleted, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
+import { DateTime, Deleted, EmailErrorT, Nullable, personOf, platformOf, routeSchema, type IamModule, type ModuleContext } from './routes.ts';
 
 const TAG = 'Verwaltung: Anmeldung über Microsoft Entra ID';
 const OFF_DETAIL = 'Die Verwaltung von Organisationen und Mitgliedern ist in dieser Instanz nicht eingerichtet (KEYCLOAK_MGMT_CLIENT_ID). Bis dahin in der Keycloak-Konsole verwalten.';
@@ -36,7 +36,8 @@ const EntraAdd = Type.Object({
 }, { additionalProperties: false });
 const EntraAddResult = Type.Object({
   result: Type.Unsafe<'added'>({ type: 'string', enum: ['added'], description: 'Immer `added` – gleich, ob für die Adresse schon ein Konto bestand (Mandantentrennung)' }),
-  emailSent: Type.Boolean({ description: 'false: keine E-Mail verlangt oder Versand gescheitert; in der Liste erneut senden oder den Link weitergeben' }),
+  emailSent: Type.Boolean({ description: 'false: keine E-Mail verlangt oder Versand gescheitert (Grund in `emailError`); in der Liste erneut senden oder den Link weitergeben' }),
+  emailError: EmailErrorT,
   member: Type.Ref('Member', { description: 'Hinzugefügte Person (Status `invited` bis zum ersten Zugriff), mit `loginPath`' }),
 });
 const EntraCandidates = Type.Object({

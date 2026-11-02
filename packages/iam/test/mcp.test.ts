@@ -129,6 +129,20 @@ describe('MCP: DPoP und Token Exchange', () => {
     assert.equal(headerText('Gebundene «Tokens» – mit Umlaut ä und …\r\nNeue Zeile "x" \\'), "Gebundene 'Tokens' - mit Umlaut a und ... Neue Zeile x");
   });
 
+  test('Scopes für die Anmeldung: Standard Lesen, sonst `scopes` aus dem Katalog; Unbekanntes und leere Liste abgewiesen', () => {
+    const cfg = testConfig('http://idp.test/realms/notes', { MCP_PUBLIC_URL: PUBLIC });
+    const make = (scopes?: readonly string[]) => new McpAuth({ cfg, model: notesModel, verifier: undefined as never, exchanger: undefined as never, scopes });
+    assert.deepEqual(make().defaultScopes, ['openid', 'organization:*', 'notes:read'], 'ohne Option nur Lesen');
+    const rw = make(['notes:read', 'notes:write', 'notes:read']);
+    assert.deepEqual(rw.defaultScopes, ['openid', 'organization:*', 'notes:read', 'notes:write'], 'Reihenfolge wie angegeben, ohne Doppel');
+    assert.equal(rw.challenge(), 'Bearer resource_metadata="http://mcp.test/.well-known/oauth-protected-resource/mcp", scope="openid organization:* notes:read notes:write"');
+    assert.deepEqual(make(['notes:write']).defaultScopes, ['openid', 'organization:*', 'notes:write'], 'auch ohne Lese-Scope');
+    assert.deepEqual(rw.metadata().scopes_supported, ['openid', 'organization:*', 'notes:read', 'notes:write'], 'Metadaten unverändert: alle Scopes des Katalogs');
+    assert.throws(() => make(['notes:read', 'fremd:write']), (e: Error) => e instanceof ConfigError && /«fremd:write» nicht im Katalog/.test(e.message));
+    assert.throws(() => make(['openid', 'notes:read']), ConfigError, 'openid kommt immer dazu, nicht in die Liste');
+    assert.throws(() => make([]), ConfigError);
+  });
+
   test('exchangeScopes: bei der Anmeldung gewählte Organisation ausdrücklich anfordern', () => {
     const scopes = ['openid', 'organization', 'notes:read'];
     assert.deepEqual(exchangeScopes(scopes, { organization: { acme: { id: 'o1' } } }), ['openid', 'organization:acme', 'notes:read']);
@@ -192,6 +206,7 @@ describe('MCP: McpAuth gegen die REST-API', { skip }, () => {
     const noScope = await post(await hostToken('acme', 'viewer', 'openid organization'));
     assert.equal(noScope.status, 403);
     assert.match(noScope.headers.get('www-authenticate') ?? '', /insufficient_scope/);
+    assert.match((await noScope.json()).error.message, /Mindestens «notes:read» anfordern\.$/);
 
     for (const path of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp']) {
       const m = await (await fetch(new URL(path, mcpUrl))).json() as Record<string, any>;

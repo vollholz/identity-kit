@@ -341,6 +341,13 @@ app.route({ method: ['GET', 'POST', 'DELETE'], url: '/mcp', handler: async (req,
 - Getauschte Tokens werden bis kurz vor Ablauf zwischengespeichert (höchstens 10 000), die Rechte je Token und
   Mandant 60 s.
 - `allowedOrigins`: weitere Browser-Ursprünge neben dem von `MCP_PUBLIC_URL` (Schutz gegen DNS-Rebinding).
+- `scopes`: Scopes des Katalogs, die ein MCP-Host bei der Anmeldung anfordern soll (Header `WWW-Authenticate`,
+  Parameter `scope`; `openid` und `organization:*` kommen immer davor). Standard `<produkt>:read`. Mit schreibenden
+  Werkzeugen die Scopes dazu nennen, z. B. `scopes: ['notes:read', 'notes:write']`; Hosts wie Claude fordern sie bei
+  der nächsten Anmeldung an, ohne dass die Person Scopes wählen muss. Wirksam bleibt Rolle ∩ Scope. Keycloak muss die
+  Scopes dem Client des Hosts zuordnen (Modul `product-realm`: alle Scopes des Katalogs als optionale Scopes von
+  `<produkt>-mcp-cli`), sonst weist es die Anmeldung ab (`invalid_scope`). Die Metadaten (RFC 9728) nennen unter
+  `scopes_supported` weiterhin alle Scopes des Katalogs.
 
 ## 8. Betrieb
 

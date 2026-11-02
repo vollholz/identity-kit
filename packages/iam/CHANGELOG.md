@@ -31,6 +31,11 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
   gescheitert, z. B. Mailserver lehnt die Anmeldung ab; null, wenn versendet oder keine E-Mail verlangt). «Einladung
   erneut senden» antwortet bei 502 mit `reason` (gleiche Werte) und passendem `detail`. Der Grund sagt nur etwas über
   den Realm, nie über ein Konto (gleich für neue und bestehende Konten).
+- **Scopes für die Anmeldung am MCP-Dienst wählbar** (`McpAuthOptions.scopes`): Die App legt fest, welche Scopes
+  des Katalogs ein MCP-Host bei der Anmeldung anfordert (`scope` in `WWW-Authenticate`), z. B.
+  `scopes: ['assets:read', 'objects:write']`; `openid` und `organization:*` kommen immer davor. Ohne Option wie
+  bisher nur `<produkt>:read`. Hosts wie Claude fordern die Liste bei der nächsten Anmeldung an; wirksam bleibt
+  Rolle ∩ Scope. Unbekannte Scopes oder eine leere Liste ergeben beim Start `ConfigError`.
 
 ### Geändert
 

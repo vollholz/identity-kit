@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Model } from '../model.ts';
-import type { IamConfig } from '../config.ts';
+import { ConfigError, type IamConfig } from '../config.ts';
 import { HttpError } from '../errors.ts';
 import { ALIAS_PATTERN, orgAlias, orgsFromClaims } from '../principal.ts';
 import type { TokenVerifier, VerifiedToken } from '../tokens.ts';
@@ -43,6 +43,13 @@ export interface McpAuthOptions {
   allowedOrigins?: string[];
   /** Name in den Metadaten (RFC 9728), Standard «<produkt> (MCP)». */
   resourceName?: string;
+  /**
+   * Scopes des Katalogs, die ein MCP-Host bei der Anmeldung anfordern soll (`scope` in `WWW-Authenticate`), z. B.
+   * `['assets:read', 'objects:write']`; `openid` und `organization:*` kommen immer davor. Standard `<produkt>:read`
+   * (falls im Katalog). Was die Person darf, bleibt Rolle ∩ Scope: Schreibende Scopes geben nur frei, was ihre Rolle
+   * ohnehin erlaubt. Unbekannte Scopes oder eine leere Liste: `ConfigError`.
+   */
+  scopes?: readonly string[];
 }
 
 /**
@@ -65,6 +72,18 @@ export function headerText(s: string): string {
     .replace(/[«»„“”]/g, "'").replace(/[^\x20-\x7e]+/g, ' ').replace(/["\\]/g, '').trim();
 }
 
+/** Scopes des Katalogs für `defaultScopes`: `o.scopes` geprüft und ohne Doppel, sonst der Lese-Scope (falls im Katalog). */
+function requestedScopes(o: McpAuthOptions): string[] {
+  const { model } = o;
+  if (o.scopes === undefined) return model.scopes.has(`${model.product}:read`) ? [`${model.product}:read`] : [];
+  if (!o.scopes.length) throw new ConfigError('McpAuth: `scopes` ist leer. Mindestens einen Scope des Katalogs angeben (z. B. den Lese-Scope) oder die Option weglassen.');
+  const unknown = o.scopes.filter(s => !model.scopes.has(s));
+  if (unknown.length) {
+    throw new ConfigError(`McpAuth: ${unknown.map(s => `«${s}»`).join(', ')} nicht im Katalog (scopes). Erlaubt: ${[...model.scopes.keys()].join(', ')}; «openid» und «organization:*» kommen immer dazu.`);
+  }
+  return [...new Set(o.scopes)];
+}
+
 export class McpAuth {
   /** Resource Identifier (MCP_PUBLIC_URL). */
   readonly resource: string;
@@ -73,8 +92,8 @@ export class McpAuth {
   /** Pfade der Metadaten: an der Wurzel und mit Pfad des Resource Identifiers. */
   readonly metadataPaths: string[];
   /**
-   * Scopes, die ein MCP-Host anfordern soll (Anmeldung, alle Organisationen, Lesen; schreibende nach Bedarf).
-   * `organization:*`: alle Organisationen der Person ins Token, gewählt wird je Werkzeugaufruf.
+   * Scopes, die ein MCP-Host anfordern soll: Anmeldung, alle Organisationen und die Scopes des Katalogs aus `scopes`
+   * (Standard: Lesen). `organization:*`: alle Organisationen der Person ins Token, gewählt wird je Werkzeugaufruf.
    */
   readonly defaultScopes: string[];
   private readonly o: McpAuthOptions;
@@ -90,7 +109,7 @@ export class McpAuth {
     this.metadataPaths = [...new Set(['/.well-known/oauth-protected-resource', `/.well-known/oauth-protected-resource${path}`])];
     this.metadataUrl = `${u.origin}${this.metadataPaths.at(-1)}`;
     this.origins = new Set([u.origin, ...(o.allowedOrigins ?? [])]);
-    this.defaultScopes = ['openid', 'organization:*', ...(o.model.scopes.has(`${o.model.product}:read`) ? [`${o.model.product}:read`] : [])];
+    this.defaultScopes = ['openid', 'organization:*', ...requestedScopes(o)];
   }
 
   /** OAuth Protected Resource Metadata (RFC 9728) mit den Scopes des Katalogs. */
@@ -140,7 +159,8 @@ export class McpAuth {
     const v = await this.authenticate(req);
     const scopes = String(v.claims.scope ?? '').split(' ').filter(Boolean);
     if (!model.permissionsForScopes(scopes).size) {
-      throw new HttpError(403, 'Scope fehlt', `Das Token enthält keinen Scope für den Katalog. Mindestens «${this.defaultScopes.at(-1)}» anfordern.`, { 'WWW-Authenticate': this.challenge('insufficient_scope') });
+      const hint = this.defaultScopes.find(s => model.scopes.has(s));
+      throw new HttpError(403, 'Scope fehlt', `Das Token enthält keinen Scope für den Katalog. ${hint ? `Mindestens «${hint}» anfordern.` : 'Mindestens einen anfordern.'}`, { 'WWW-Authenticate': this.challenge('insufficient_scope') });
     }
     if (req.method !== 'POST') throw new HttpError(405, 'Nur POST', 'Dieser Dienst ist zustandslos: nur POST, kein SSE-Strom und keine Sitzungen.', { allow: 'POST' });
     // Keycloak tauscht keine sendergebundenen Tokens (DPoP/mTLS, d. h. Maschinen-Clients); klare Meldung statt

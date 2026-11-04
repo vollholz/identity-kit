@@ -48,4 +48,4 @@ Ab 0.3.0 stehen alle Änderungen in [CHANGELOG.md](CHANGELOG.md).
 - **0.2.1:** Neue Apps erhalten `@vollholz/iam` 3.2.0 und `@vollholz/iam-testkit` 2.1.1 (aus `CURRENT` des
   Test-Kits); keine Änderung an Vorlagen.
 - **0.1.0:** Erste Version: `init`, `sync`, `check`, `keys`; Manifest `identity.app.json`, Lock-Datei
-  `.identity-kit.lock`; Vorlagen für `product-realm` 3.0.0 und `product-realm-bootstrap` 0.1.1.
+  `.identity-kit.lock`; Vorlagen für `product-realm` 2.0.0 und `product-realm-bootstrap` 0.1.1.

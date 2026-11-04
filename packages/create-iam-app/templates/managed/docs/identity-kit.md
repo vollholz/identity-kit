@@ -38,6 +38,7 @@ Sie lesen ihre Werte aus `identity.app.json`: Eine geänderte Einstellung brauch
 | `realm.entra`, `realm.m2m`, `realm.mcp`, `realm.smtp` | Anmeldung über Entra ID je Organisation, Maschinen-Clients, MCP-Dienst, Mailkonto |
 | `realm.machineClients` | Maschinen-Clients als Code (öffentlicher Schlüssel in `infra/keycloak/keys/<client>.json`) |
 | `realm.theme`, `realm.themeTexts`, `realm.localization`, `realm.supportedLocales` | Aussehen und Texte der Anmeldeseiten |
+| `realm.frontendUrl` | eigene Domain des Realms (z. B. `https://auth.example.ch`), wenn der Betreiber sie eingerichtet hat; `keycloakUrl` dann gleich |
 | `state` | S3-Backend des OpenTofu-States |
 | `organizations` | erste Organisationen mit ihren Admins (`npx iam-org-bootstrap --manifest identity.app.json`) |
 | `exceptions` | begründete Abweichungen (eigene Dateien, Tabellen ohne `tenant_id`, SECURITY DEFINER); jede erscheint im Konformitätstest |

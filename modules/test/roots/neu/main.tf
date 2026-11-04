@@ -15,10 +15,12 @@ import {
 module "realm" {
   source = "../../../product-realm"
 
-  product            = var.product
-  display_name       = "Neu ${var.product}"
-  public_base_url    = "https://${var.product}.example.ch/"
-  keycloak_url       = var.keycloak_url
+  product         = var.product
+  display_name    = "Neu ${var.product}"
+  public_base_url = "https://${var.product}.example.ch/"
+  keycloak_url    = var.keycloak_url
+  # Mit allen Schaltern auch eine Frontend URL (wie eine eigene Domain; hier die Adresse der Wegwerf-Instanz)
+  frontend_url       = var.switches ? var.keycloak_url : null
   keycloak_base_path = var.keycloak_base_path
 
   catalog = {

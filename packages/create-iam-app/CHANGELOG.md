@@ -9,6 +9,14 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.7.0] – 2026-11-04
+
+### Hinzugefügt
+
+- `realm.frontendUrl` aus dem Manifest geht an `product-realm` 3.1.0 (`frontend_url`): eigene Domain des Realms
+  (Spezifikation 2.2). Vorlagen für `product-realm` 3.1.0 und `@vollholz/iam-testkit` 2.7.0; bestehende Apps:
+  `npx @vollholz/create-iam-app@0.7.0 sync`.
+
 ## [0.6.0] – 2026-11-04
 
 ### Breaking

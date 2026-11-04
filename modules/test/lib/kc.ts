@@ -5,8 +5,11 @@
  *
  *   node kc.ts keys <verzeichnis> <client> …           Schlüsselpaare: <client>.json (JWKS, öffentlich), <client>.pem
  *   node kc.ts wait                                     wartet, bis Keycloak antwortet (höchstens 180 s)
- *   node kc.ts product-hull <produkt> <jwks-datei>      wie der Betreiber: Realm (FGAP v2), <produkt>-iac
- *                                                      (private_key_jwt) und dessen realm-management/realm-admin
+ *   node kc.ts product-hull <produkt> <jwks-datei> [<frontend-url>]
+ *                                                      wie der Betreiber: Realm (FGAP v2, optional mit Frontend URL
+ *                                                      einer eigenen Domain), <produkt>-iac (private_key_jwt) und
+ *                                                      dessen realm-management/realm-admin
+ *   node kc.ts frontend-url <realm> <erwartet>          Frontend URL des Realms unverändert (leer: keine)
  *   node kc.ts rights <realm> <schlüssel-verz.> <smtp>  Rechte von <realm>-admin und <realm>-sync (Spezifikation 3.7):
  *                                                      was sie dürfen und was nicht (Realm, Abläufe, Schlüssel, Rollen)
  *
@@ -171,9 +174,9 @@ switch (cmd) {
   case 'product-hull': {
     // Wie der Betreiber (vollholz/identity › infra/keycloak/products.tf): Realm nur als Hülle mit FGAP v2, Client
     // <produkt>-iac mit private_key_jwt und realm-management/realm-admin; den Inhalt verwaltet danach product-realm
-    const [product, jwksFile] = args;
+    const [product, jwksFile, frontendUrl] = args;
     const token = await adminToken();
-    await api(token, 'POST', '', { realm: product, enabled: true, adminPermissionsEnabled: true });
+    await api(token, 'POST', '', { realm: product, enabled: true, adminPermissionsEnabled: true, ...(frontendUrl ? { attributes: { frontendUrl } } : {}) });
     await api(token, 'POST', `/${product}/clients`, {
       clientId: `${product}-iac`, name: 'OpenTofu (IaC)', protocol: 'openid-connect', publicClient: false, clientAuthenticatorType: 'client-jwt',
       standardFlowEnabled: false, implicitFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: true, frontchannelLogout: false,
@@ -187,6 +190,15 @@ switch (cmd) {
     const role = await api<{ id: string; name: string }>(token, 'GET', `/${product}/clients/${rm!.id}/roles/realm-admin`);
     await api(token, 'POST', `/${product}/users/${sa.id}/role-mappings/clients/${rm!.id}`, [role]);
     console.log(`Realm ${product}, ${product}-iac (realm-admin) angelegt`);
+    break;
+  }
+  case 'frontend-url': {
+    // Die Frontend URL setzt der Betreiber; product-realm darf sie nicht verändern
+    const [realm, want] = args;
+    const rep = await api<{ attributes?: Record<string, string> }>(await adminToken(), 'GET', `/${realm}`);
+    const got = rep.attributes?.frontendUrl ?? '';
+    if (got !== (want ?? '')) throw new Error(`Realm ${realm}: Frontend URL «${got}» statt «${want ?? ''}»`);
+    console.log(`Realm ${realm}: Frontend URL ${got || '(keine)'} unverändert`);
     break;
   }
   case 'rights': {

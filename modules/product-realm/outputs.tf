@@ -5,7 +5,7 @@ output "realm" {
 
 output "issuer" {
   description = "OIDC_ISSUER_URL der App."
-  value       = "${local.lookup_query.url}/realms/${keycloak_realm.this.realm}"
+  value       = "${coalesce(var.frontend_url, local.lookup_query.url)}/realms/${keycloak_realm.this.realm}"
 }
 
 output "clients" {

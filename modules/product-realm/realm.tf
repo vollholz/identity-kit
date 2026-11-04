@@ -15,6 +15,10 @@ resource "keycloak_realm" "this" {
   display_name          = var.display_name
   organizations_enabled = true
 
+  # Eigene Domain: die Frontend URL setzt der Betreiber beim Anlegen (Spezifikation 2.2); der Provider liest sie nicht
+  # ein und würde sie beim nächsten Apply leeren – deshalb führt das Modul sie im Soll (live geprüft, keycloak.sh)
+  attributes = var.frontend_url == null ? null : { frontendUrl = var.frontend_url }
+
   ssl_required             = "external"
   registration_allowed     = false
   login_with_email_allowed = true

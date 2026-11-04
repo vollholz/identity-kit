@@ -39,6 +39,7 @@ const MachineClient = Type.Object({
 /** Schalter des Realm-Moduls, die eine App setzen darf (Zone «Einstellbar»). */
 export const RealmSettingsSchema = Type.Object({
   theme: Type.Optional(Type.String({ minLength: 1, description: 'Theme auf der Keycloak-Instanz; leer: Standard-Theme' })),
+  frontendUrl: Type.Optional(Type.String({ pattern: '^https://([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$', description: 'Eigene Domain des Realms (Frontend URL), z. B. https://auth.example.ch, ohne Pfad; nur wenn der Betreiber sie eingerichtet hat; keycloakUrl dann gleich (Spezifikation 2.2)' })),
   themeTexts: Type.Optional(Type.String({ description: 'Pfad (ab Wurzel des Repositorys) zu einer JSON-Datei { "<sprache>": { "<schlüssel>": "<text>" } }' })),
   localization: Type.Optional(Type.String({ description: 'Pfad zu weiteren Realm-Texten je Sprache (JSON, wie themeTexts)' })),
   supportedLocales: Type.Optional(Type.Array(Type.String({ pattern: '^[a-z]{2}(-[A-Z]{2})?$' }), { minItems: 1, uniqueItems: true, description: 'Standard ["de", "en"]' })),

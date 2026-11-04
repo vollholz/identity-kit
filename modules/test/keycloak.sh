@@ -102,13 +102,16 @@ for variant in "neu true" "mini false"; do
   export TF_VAR_product="$p" TF_VAR_switches="$switches"
 
   step "Neu: $p (alle Schalter: $switches) – Realm, $p-iac und realm-admin wie beim Betreiber"
-  node lib/kc.ts product-hull "$p" "$work/keys/$p-iac.json"
+  # neu mit Frontend URL wie bei einer eigenen Domain (hier dieselbe Adresse, damit die Anmeldung gelingt)
+  frontend=""; [ "$switches" = true ] && frontend="$KC_URL"
+  node lib/kc.ts product-hull "$p" "$work/keys/$p-iac.json" $frontend
 
   step "Neu: $p – Realm als $p-iac"
   as_iac "$p"
   tf_init "$p" roots/neu "$p.tfstate"
   tf_apply "$p" roots/neu
   expect_no_changes "$p" roots/neu "$p-zweiter-plan"
+  node lib/kc.ts frontend-url "$p" "$frontend"
   tf "$p" roots/neu output -no-color clients | sed 's/^/  /'
 
   step "Neu: $p – Rechte von $p-admin und $p-sync"

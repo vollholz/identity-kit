@@ -31,6 +31,7 @@ module "realm" {
   jwks    = { for c in concat(["platform", "admin", "sync"], local.mcp ? ["mcp"] : []) : c => file("${path.module}/keys/${local.app.product}-${c}.json") }
 
   theme             = try(local.settings.theme, null)
+  frontend_url      = try(local.settings.frontendUrl, null)
   theme_texts       = try(local.settings.themeTexts, null) == null ? {} : jsondecode(file("${path.module}/../../${local.settings.themeTexts}"))
   localization      = try(local.settings.localization, null) == null ? {} : jsondecode(file("${path.module}/../../${local.settings.localization}"))
   supported_locales = try(local.settings.supportedLocales, ["de", "en"])

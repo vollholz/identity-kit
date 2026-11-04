@@ -42,6 +42,11 @@
           "description": "Theme auf der Keycloak-Instanz; leer: Standard-Theme",
           "type": "string"
         },
+        "frontendUrl": {
+          "pattern": "^https://([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$",
+          "description": "Eigene Domain des Realms (Frontend URL), z. B. https://auth.example.ch, ohne Pfad; nur wenn der Betreiber sie eingerichtet hat; keycloakUrl dann gleich (Spezifikation 2.2)",
+          "type": "string"
+        },
         "themeTexts": {
           "description": "Pfad (ab Wurzel des Repositorys) zu einer JSON-Datei { \"<sprache>\": { \"<schlüssel>\": \"<text>\" } }",
           "type": "string"

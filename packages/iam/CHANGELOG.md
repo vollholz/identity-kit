@@ -42,6 +42,15 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 - 502 von «Einladung erneut senden» rät nicht mehr immer «E-Mail-Versand im Realm einrichten»: Mit eingerichtetem
   Versand nennt `detail` den Mailserver und das Protokoll von Keycloak.
 
+### Behoben
+
+- OIDC-Discovery wiederholt einen Abruf, der mit einem Netzwerkfehler scheitert (z. B. `ECONNRESET`, wenn der
+  Anmeldedienst eine Keep-alive-Verbindung gerade schliesst, als sie wiederverwendet wird), genau einmal sofort. Davor
+  ergab schon ein einzelner abgebrochener Abruf 503 «Anmeldedienst nicht erreichbar» (beim ersten Request nach dem
+  Start, nach Ablauf des Zwischenspeichers und in `/readyz`). Bleibt der Fehler, wie bisher 503; `detail` nennt neu
+  den Code der Ursache (`Discovery fetch failed (ECONNRESET)`). Zeitüberschreitung und HTTP-Fehler werden nicht
+  wiederholt, das Zeitlimit gilt für beide Versuche zusammen.
+
 ## [5.0.3] – 2026-10-28
 
 ### Behoben

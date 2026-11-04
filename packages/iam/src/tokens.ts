@@ -52,8 +52,16 @@ export class OidcProvider {
   private async load(): Promise<Discovery> {
     // Netzwerkfehler, Zeitlimit und unlesbare Antworten → 503, nicht 401 (sonst gälten bei einem Ausfall alle als abgemeldet)
     const down = (why: string) => new HttpError(503, 'Anmeldedienst nicht erreichbar', `Discovery ${why}`);
+    const url = `${this.issuer}/.well-known/openid-configuration`;
+    // Ein Zeitlimit für beide Versuche: die Wiederholung verlängert die Wartezeit von Anfragen und /readyz nicht
+    const signal = AbortSignal.timeout(this.timeoutMs);
     let res: Response, d: Discovery;
-    try { res = await this.fetchImpl(`${this.issuer}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(this.timeoutMs) }); } catch (e) { throw down((e as Error).message); }
+    try { res = await this.fetchImpl(url, { signal }); } catch (e) {
+      // Netzwerkfehler (z. B. ECONNRESET: Keep-alive-Verbindung, die der Server gerade schliesst) genau einmal sofort
+      // wiederholen; Zeitüberschreitung nicht
+      if (!retryable(e, signal)) throw down(fetchFailure(e));
+      try { res = await this.fetchImpl(url, { signal }); } catch (e2) { throw down(fetchFailure(e2)); }
+    }
     if (!res.ok) throw down(String(res.status));
     try { d = await res.json() as Discovery; } catch { throw down('ohne JSON'); }
     if (typeof d?.issuer !== 'string') throw down('ohne issuer');
@@ -62,6 +70,23 @@ export class OidcProvider {
   }
 
   async keys(): Promise<JWTVerifyGetKey> { await this.discovery(); return this.jwks!; }
+}
+
+/** Code der Ursache eines Netzwerkfehlers von fetch (undici: `cause.code`), nur wenn er wie ein Fehlercode aussieht. */
+function causeCode(e: unknown): string | null {
+  const code = (e as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,40}$/.test(code) ? code : null;
+}
+
+/** Netzwerkfehler, den eine sofortige Wiederholung beheben kann: fetch wirft TypeError, ohne Zeitüberschreitung. */
+function retryable(e: unknown, signal: AbortSignal): boolean {
+  return e instanceof TypeError && !signal.aborted && !/TIME(D)?OUT/.test(causeCode(e) ?? '');
+}
+
+/** Grund für `detail`: Meldung von fetch und Code der Ursache (`fetch failed (ECONNRESET)`), ohne weitere Interna. */
+function fetchFailure(e: unknown): string {
+  const code = causeCode(e);
+  return `${(e as Error)?.message ?? String(e)}${code ? ` (${code})` : ''}`;
 }
 
 export interface VerifyOptions {

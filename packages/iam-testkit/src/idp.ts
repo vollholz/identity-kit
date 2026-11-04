@@ -71,6 +71,9 @@ export async function startMockIdp(o: MockIdpOptions): Promise<MockIdp> {
 
   const base = `/realms/${realm}`;
   const server: Server = createServer((req, res) => {
+    // Ohne Keep-alive: undici nähme sonst eine Verbindung wieder auf, die der Server nach keepAliveTimeout gerade
+    // schliesst (ECONNRESET), wenn die Ereignisschleife der Tests länger blockiert war
+    res.setHeader('connection', 'close');
     res.setHeader('content-type', 'application/json');
     if (req.method === 'POST' && req.url === `${base}/protocol/openid-connect/token` && o.exchange) {
       let body = '';

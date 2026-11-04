@@ -9,6 +9,19 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.5.1] – 2026-11-04
+
+### Behoben
+
+- Mock-IdP (`startMockIdp`) antwortet ohne Keep-alive (`Connection: close`). Bisher konnte der erste Abruf der
+  Discovery einer neu gebauten App gelegentlich mit `ECONNRESET` und 503 «Anmeldedienst nicht erreichbar» scheitern:
+  fetch nahm eine Verbindung wieder auf, die der Server nach 5 s Leerlauf gerade schloss, weil die Ereignisschleife
+  (z. B. beim Kompilieren der Routen-Schemas unter Last) länger blockiert war.
+
+### Geändert
+
+- `CURRENT` nennt `@vollholz/iam-testkit` 2.5.1 und `@vollholz/create-iam-app` 0.5.7.
+
 ## [2.5.0] – 2026-10-28
 
 ### Hinzugefügt

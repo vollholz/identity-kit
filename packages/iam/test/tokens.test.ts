@@ -132,8 +132,56 @@ describe('Token-Prüfung', () => {
     fail = true;
     (prov as unknown as { fetchedAt: number }).fetchedAt = 0;
     assert.equal(await prov.discovery(), a, 'alte Discovery bei Fehler');
-    assert.equal(calls, 2);
+    assert.equal(calls, 3, 'Abruf und eine Wiederholung');
     await rejects(new OidcProvider(idp.issuer, async () => { throw new TypeError('fetch failed'); }).discovery(), 503, /nicht erreichbar/, 'ohne bisherige');
+  });
+
+  test('Discovery: Netzwerkfehler (ECONNRESET) wird genau einmal sofort wiederholt', async () => {
+    let calls = 0;
+    const prov = new OidcProvider(idp.issuer, async (u, init) => {
+      if (++calls === 1) throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+      return fetch(u, init);
+    });
+    const d = await prov.discovery();
+    assert.equal(d.issuer, idp.issuer);
+    assert.equal(calls, 2);
+    // mit der Discovery aus der Wiederholung lassen sich Tokens prüfen
+    const v = await new TokenVerifier(prov, testConfig(idp.issuer), new MemoryReplayStore()).verify(await idp.token(claims.user({ org: 'acme', sub: 'u1' })), { audience: 'notes-api', method: 'GET', url: URL });
+    assert.equal(v.claims.sub, 'u1');
+    assert.equal(calls, 2, 'kein weiterer Abruf');
+  });
+
+  test('Discovery: dauerhafter Netzwerkfehler → 503 nach einer Wiederholung, Code der Ursache in detail', async () => {
+    let calls = 0;
+    const prov = new OidcProvider(idp.issuer, async () => { calls++; throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET', host: 'intern.example', stack: 'geheim' } }); });
+    await assert.rejects(prov.discovery(), (e: unknown) => {
+      assert.ok(e instanceof HttpError);
+      assert.equal(e.status, 503);
+      assert.match(e.message, /nicht erreichbar/);
+      assert.equal(e.detail, 'Discovery fetch failed (ECONNRESET)');
+      return true;
+    });
+    assert.equal(calls, 2);
+    // ohne lesbaren Code wie bisher, ohne Klammer
+    calls = 0;
+    const plain = new OidcProvider(idp.issuer, async () => { calls++; throw new TypeError('fetch failed', { cause: { code: 'kein Code <x>' } }); });
+    await assert.rejects(plain.probe(), (e: unknown) => e instanceof HttpError && e.status === 503 && e.detail === 'Discovery fetch failed');
+    assert.equal(calls, 2, 'auch /readyz wiederholt einmal');
+  });
+
+  test('Discovery: Zeitüberschreitung und HTTP-Fehler werden nicht wiederholt', async () => {
+    let calls = 0;
+    const hanging = new OidcProvider(idp.issuer, (_u, init) => { calls++; return new Promise((_r, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))); }, 50);
+    await rejects(hanging.discovery(), 503, /nicht erreichbar/, 'Zeitlimit');
+    assert.equal(calls, 1, 'Zeitlimit');
+    calls = 0;
+    const connectTimeout = new OidcProvider(idp.issuer, async () => { calls++; throw new TypeError('fetch failed', { cause: { code: 'UND_ERR_CONNECT_TIMEOUT' } }); });
+    await rejects(connectTimeout.discovery(), 503, /nicht erreichbar/, 'Verbindungsaufbau');
+    assert.equal(calls, 1, 'Zeitüberschreitung beim Verbindungsaufbau');
+    calls = 0;
+    const status = new OidcProvider(idp.issuer, async () => { calls++; return new Response('', { status: 502 }); });
+    await rejects(status.discovery(), 503, /nicht erreichbar/, 'HTTP 502');
+    assert.equal(calls, 1, 'HTTP-Fehler');
   });
 });
 

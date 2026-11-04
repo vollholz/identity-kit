@@ -6,7 +6,7 @@ ruft es auf, statt IaC zu kopieren. Spezifikation [Kap. 2, 3, 12, 15](../../docs
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version** in [`VERSION`](VERSION) (2.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (3.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -71,7 +71,7 @@ Namen aus `product`; ✓ immer, sonst mit dem Schalter.
 | Mapper | `aud-api` an den Personen-Clients, `entra-groups` an `<produkt>-platform` (`entra`; Benutzerattribut `entra_groups` → Claim `groups`, siehe [Gruppen aus Entra](#gruppen-aus-entra)), `aud-mcp` am Scope `<produkt>-mcp`, `identity-provider` (`entra`); Organisations-Mapper über `org-mapper.ts` |
 | Scopes | je Scope des Katalogs ein Client-Scope «<Produkt>: <scope>» ✓; vollständige Listen der Standard- und optionalen Scopes je Client |
 | Rollen ✓ | nur die Realm-Rolle `platform-admin`; keine Client-Rollen, keine Gruppe `/orgs` (Rollen der App: App-Datenbank) |
-| Service Accounts ✓ | `manage-realm` für `-admin` und `-sync`; FGAP v2 «`<produkt>-admin`: Benutzer» (Mitgliederverwaltung; keine Rechte auf Gruppen) mit Richtlinie «`<produkt>-admin`: Service Account» (`UNANIMOUS`); `manage-identity-providers` (`entra`) |
+| Service Accounts ✓ | kein `manage-realm`: `-admin` `manage-organizations` und `view-realm`, `-sync` `view-organizations`; FGAP v2 «`<produkt>-admin`: Benutzer» (`manage`, Richtlinie «`<produkt>-admin`: Service Account») und «`<produkt>`: Benutzer lesen» (`view`, Richtlinie «`<produkt>`: Service Accounts der Plattform»), je `UNANIMOUS`, keine Rechte auf Gruppen; `manage-identity-providers` (`entra`) |
 | Texte ✓ | eine Lokalisierung je Sprache: Standardtexte, dann `localization`, dann `theme_texts` |
 
 Alle Schalter an mit 17 Scopes: 57 Ressourcen. Ohne Schalter mit 2 Scopes: 23. (Vor 1.0.0 mit Rollen, Gruppe `/orgs` und Gruppenrecht: 68 bzw. 29.)
@@ -115,7 +115,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v2.0.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v3.0.0"
 
   product            = "notes"
   display_name       = "Notes"
@@ -167,6 +167,19 @@ keine Refresh-Tokens, Attribute `<produkt>.platform` und `<produkt>.m2m`, Zielgr
 - Der private Schlüssel bleibt beim Dienst, der den Client nutzt; im Repository der App liegt nur `keys/<client>.json`.
 - Nur für die REST-API: Der MCP-Dienst (`McpAuth`) tauscht keine sendergebundenen Tokens und nimmt nur Anmeldungen
   über die MCP-Hosts an (`MCP_HOST_CLIENT_IDS`); «MCP für Maschinen» (Spezifikation 12) ist deshalb noch offen.
+
+## Umstieg auf 3.0.0
+
+Breaking: braucht **Keycloak 26.8** oder neuer (Rollen `manage-organizations`, `view-organizations`). Die Service
+Accounts verlieren `manage-realm`: `<produkt>-admin` erhält `manage-organizations` und `view-realm`, `<produkt>-sync`
+`view-organizations` und FGAP v2 «Benutzer lesen» (Spezifikation 3.7). Der erste Plan zeigt dafür `2 to destroy`
+(die beiden Zuweisungen von `manage-realm`), neue Zuweisungen, eine neue Richtlinie und eine neue Berechtigung sowie
+eine Änderung an «`<produkt>-admin`: Benutzer» (nur noch `manage`) – sonst nichts. `@vollholz/iam` braucht keine
+Änderung (live geprüft: alle Aufrufe der Verwaltung und des Abgleichs). Hat die App eigene Aufrufe der Admin-API mit
+diesen Service Accounts, die `manage-realm` brauchten, scheitern sie danach mit 403.
+
+Neue Version des Moduls: `ref` erhöhen (bzw. `npx @vollholz/create-iam-app sync`), `kc.sh init -upgrade`, Plan prüfen
+und freigeben.
 
 ## Umstieg auf 2.0.0
 
@@ -230,5 +243,6 @@ Voraussetzungen ausserhalb des Moduls: In der Entra-App-Registrierung muss der G
 | Texte, Hilfsskripte | `node --test modules/product-realm/test/*.test.ts` | nein |
 | **frische Anlage** | `modules/test/keycloak.sh` | Docker, 26.8.1 |
 
-`keycloak.sh` legt in einer Wegwerf-Instanz zwei frische Produkte mit beiden Modulen an (Bootstrap als `<produkt>-tofu`, dann
-Realm als `<produkt>-iac`), einmal mit allen Schaltern, einmal ohne; der zweite Plan zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.
+`keycloak.sh` legt in einer Wegwerf-Instanz zwei frische Produkte an (Realm, `<produkt>-iac` und `realm-admin` wie
+beim Betreiber, dann Realm als `<produkt>-iac`), einmal mit allen Schaltern, einmal ohne; der zweite Plan zeigt je
+«No changes», die Rechte von `<produkt>-admin` und `<produkt>-sync` sind geprüft. Workflow: `.github/workflows/modules.yml`.

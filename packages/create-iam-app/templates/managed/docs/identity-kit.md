@@ -14,6 +14,13 @@ woher sie kommt und wer sie ändern darf.
 
 Was in keiner Zone «Einstellbar» oder «App-eigen» steht, ist **Fest**.
 
+## Keycloak-Instanz
+
+Den Realm `<produkt>`, den IaC-Client `<produkt>-iac` und dessen Rolle `realm-admin` legt der Betreiber der
+Keycloak-Instanz an (Spezifikation Kap. 2). Die App liefert dafür nur den öffentlichen Schlüssel von `<produkt>-iac`:
+`npx create-iam-app keys` gibt den Eintrag für den Betreiber aus. Den Inhalt des Realms wendet danach der Workflow
+«Keycloak» an. Die App hat keinen Zugang zum Realm `master`.
+
 ## Verwaltete Dateien (nicht von Hand ändern)
 
 Diese Dateien schreibt `npx @vollholz/create-iam-app sync`; ihre Prüfsummen stehen in `.identity-kit.lock`. Eine

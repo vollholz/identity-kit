@@ -9,6 +9,27 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.0] – 2026-11-04
+
+### Breaking
+
+- Kein Bootstrap mehr: Realm, `<produkt>-iac` und `realm-admin` legt der Betreiber der Keycloak-Instanz an
+  (Spezifikation Kap. 2). `infra/keycloak/bootstrap/main.tf` entfällt (`sync` löscht die Datei, wenn sie unverändert
+  ist), `kc.sh bootstrap` und `KEYCLOAK_TF_PRIVATE_KEY_B64` ebenso; `keys` erzeugt keinen Schlüssel für `<produkt>-tofu`
+  mehr. Bestehende Apps: State von `infra/keycloak/bootstrap` aufgeben (nichts in Keycloak löschen), privaten Schlüssel
+  von `<produkt>-tofu` löschen.
+
+### Hinzugefügt
+
+- `keys` gibt am Ende den Eintrag für den Betreiber aus: öffentlicher Schlüssel von `<produkt>-iac`, Name für seine
+  Liste der Produkte, `kid` zum Bestätigen über einen zweiten Kanal. `docs/identity-kit.md` beschreibt die Aufteilung.
+
+### Geändert
+
+- Vorlagen für `product-realm` 3.0.0 (Service Accounts ohne `manage-realm`, braucht Keycloak 26.8; Umstieg im README
+  des Moduls) und `@vollholz/iam-testkit` 2.6.0. Bestehende Apps: `npx @vollholz/create-iam-app@0.6.0 sync`, dann
+  `kc.sh init -upgrade` und den Plan prüfen.
+
 ## [0.5.7] – 2026-11-04
 
 ### Geändert

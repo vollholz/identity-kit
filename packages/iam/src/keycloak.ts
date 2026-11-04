@@ -212,7 +212,7 @@ export class KeycloakAdmin {
     const r = await this.call('POST', `/organizations/${seg(orgId)}/members/invite-existing-user`, undefined, { form: { id: userId }, ok: [400, 409, 500], what: 'Einladung senden' });
     return r.status < 300 ? 'sent' : r.status === 500 ? 'failed' : 'refused';
   }
-  /** E-Mail-Versand im Realm eingerichtet (SMTP-Server gesetzt)? Braucht view-realm (in manage-realm enthalten). */
+  /** E-Mail-Versand im Realm eingerichtet (SMTP-Server gesetzt)? Braucht view-realm (product-realm ab 3.0.0; ohne die Rolle fehlt smtpServer). */
   async mailConfigured(): Promise<boolean> {
     const r = await this.call<{ smtpServer?: { host?: string } }>('GET', '', undefined, { ok: [403, 404], what: 'Realm lesen' });
     return r.status < 300 && !!r.data?.smtpServer?.host;

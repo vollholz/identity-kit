@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Nachweis gegen eine lokale Wegwerf-Instanz von Keycloak 26.8.1 (Docker, start-dev), wiederholbar:
 #
-#   Frische Anlage mit product-realm-bootstrap und product-realm (roots/neu*), einmal mit allen Schaltern
-#      (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply muss je «No changes» zeigen.
+#   Frische Anlage wie beim Betreiber (Realm, <produkt>-iac, realm-admin; lib/kc.ts product-hull) und mit product-realm
+#      (roots/neu), einmal mit allen Schaltern (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply
+#      muss je «No changes» zeigen.
+#   Rechte von <produkt>-admin und <produkt>-sync (Spezifikation 3.7): erlaubte Aufrufe gehen, Realm-Einstellungen,
+#      Anmeldeabläufe, Schlüssel, Clients und Admin-Rollen nicht (lib/kc.ts rights); danach wieder «No changes».
 #
 # Testschlüssel und State entstehen nur im Arbeitsverzeichnis (gelöscht am Ende, ausser KEEP=1). Admin-Passwort und
 # State-Passphrase sind Wegwerf-Werte für diese Instanz.
@@ -43,11 +46,7 @@ trap cleanup EXIT
 
 step() { printf '\n=== %s\n' "$*"; }
 
-# Anmeldung des Providers wie kc.sh: Bootstrap als <produkt>-tofu (Realm master), sonst als <produkt>-iac
-as_tofu() {
-  export KEYCLOAK_REALM=master KEYCLOAK_CLIENT_ID="$1-tofu" KEYCLOAK_JWT_SIGNING_KEY="$(cat "$work/keys/$1-tofu.pem")"
-  unset KEYCLOAK_IAC_PRIVATE_KEY
-}
+# Anmeldung des Providers wie kc.sh: als <produkt>-iac
 as_iac() {
   export KEYCLOAK_REALM="$1" KEYCLOAK_CLIENT_ID="$1-iac" KEYCLOAK_IAC_PRIVATE_KEY="$(cat "$work/keys/$1-iac.pem")"
   export KEYCLOAK_JWT_SIGNING_KEY="$KEYCLOAK_IAC_PRIVATE_KEY"
@@ -79,9 +78,11 @@ expect_no_changes() { # <name> <verzeichnis> <log>
   printf '%s\t%s\n' "$3" "No changes" >>"$work/summary.tsv"
 }
 step "Keycloak starten ($image)"
-docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
+# Git Bash unter Windows: Pfad für Docker als C:/… und ohne Umschreiben der Argumente (sonst fehlt das Theme)
+theme_mount="$theme"; if command -v cygpath >/dev/null 2>&1; then theme_mount="$(cygpath -m "$theme")"; fi
+MSYS_NO_PATHCONV=1 docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="$KC_ADMIN_USER" -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
-  -v "$theme:/opt/keycloak/themes/beispiel:ro" \
+  -v "$theme_mount:/opt/keycloak/themes/beispiel:ro" \
   "$image" start-dev >/dev/null
 node lib/kc.ts wait
 grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || true
@@ -89,7 +90,7 @@ grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || 
 step "Testschlüssel"
 clients=()
 for p in neu mini; do
-  for c in tofu iac platform admin sync mcp m2m; do clients+=("$p-$c"); done
+  for c in iac platform admin sync mcp m2m; do clients+=("$p-$c"); done
 done
 node lib/kc.ts keys "$work/keys" "${clients[@]}"
 echo "${#clients[@]} Schlüsselpaare in $work/keys"
@@ -100,13 +101,8 @@ for variant in "neu true" "mini false"; do
   read -r p switches <<<"$variant"
   export TF_VAR_product="$p" TF_VAR_switches="$switches"
 
-  step "Neu: $p (alle Schalter: $switches) – Bootstrap als $p-tofu"
-  node lib/kc.ts product-tofu "$p" "$work/keys/$p-tofu.json"
-  as_tofu "$p"
-  tf_init "$p-bootstrap" roots/neu-bootstrap "$p-bootstrap.tfstate"
-  tf_apply "$p-bootstrap" roots/neu-bootstrap
-  expect_no_changes "$p-bootstrap" roots/neu-bootstrap "$p-bootstrap-zweiter-plan"
-  node lib/kc.ts grant-realm-admin "$p" "$p-iac"
+  step "Neu: $p (alle Schalter: $switches) – Realm, $p-iac und realm-admin wie beim Betreiber"
+  node lib/kc.ts product-hull "$p" "$work/keys/$p-iac.json"
 
   step "Neu: $p – Realm als $p-iac"
   as_iac "$p"
@@ -114,6 +110,11 @@ for variant in "neu true" "mini false"; do
   tf_apply "$p" roots/neu
   expect_no_changes "$p" roots/neu "$p-zweiter-plan"
   tf "$p" roots/neu output -no-color clients | sed 's/^/  /'
+
+  step "Neu: $p – Rechte von $p-admin und $p-sync"
+  node lib/kc.ts rights "$p" "$work/keys" "$switches"
+  printf '%s\t%s\n' "$p-rechte-admin-sync" "wie erwartet" >>"$work/summary.tsv"
+  expect_no_changes "$p" roots/neu "$p-plan-nach-rechte-test"
 done
 
 step "Ergebnis"

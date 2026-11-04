@@ -58,7 +58,7 @@ variable "keycloak_base_path" {
 }
 
 variable "iac_client_id" {
-  description = "IaC-Client des Produkts (Service Account mit realm-admin, angelegt von product-realm-bootstrap). Leer: <produkt>-iac."
+  description = "IaC-Client des Produkts (Service Account mit realm-admin, angelegt vom Betreiber der Keycloak-Instanz). Leer: <produkt>-iac."
   type        = string
   default     = null
 }

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # {{MARK}}
 #
-# OpenTofu für den Realm der App (Module product-realm und product-realm-bootstrap aus vollholz/identity-kit).
-# Produkt, Keycloak-Instanz und State-Backend kommen aus identity.app.json.
+# OpenTofu für den Realm der App (Modul product-realm aus vollholz/identity-kit). Produkt, Keycloak-Instanz und
+# State-Backend kommen aus identity.app.json. Den Realm, <produkt>-iac und dessen realm-admin legt der Betreiber der
+# Keycloak-Instanz an (Spezifikation Kap. 2); hier wird nur der Inhalt verwaltet.
 #
 #   ./kc.sh init | plan | apply | import | <beliebiger tofu-Befehl>   Realm-Inhalt (infra/keycloak) als <produkt>-iac
 #   ./kc.sh apply-plan <datei>                                     gespeicherten Plan anwenden
 #   ./kc.sh smtp-test <empfänger>                                  Testmail über die SMTP-Einstellungen des Realms
-#   ./kc.sh bootstrap init | plan | apply                          Realm und <produkt>-iac anlegen (bootstrap/, nur lokal)
 #
 # Anmeldung des Providers nur über die Umgebung (steht nicht im gespeicherten Plan):
 #   infra/keycloak:  <produkt>-iac, private_key_jwt – KEYCLOAK_IAC_PRIVATE_KEY (PEM) oder KEYCLOAK_IAC_PRIVATE_KEY_B64
-#   bootstrap/:      <produkt>-tofu im Realm master – KEYCLOAK_TF_PRIVATE_KEY (PEM) oder KEYCLOAK_TF_PRIVATE_KEY_B64
 # Ausserdem S3_ACCESS_KEY, S3_SECRET_KEY, TF_STATE_PASSPHRASE, mit SMTP SMTP_PASSWORD; KEYCLOAK_TF_URL nur, um
 # keycloakUrl des Manifests zu übersteuern. Werte aus der Umgebung oder der .env im Hauptcheckout (nie ausgegeben).
 set -euo pipefail
@@ -32,7 +31,7 @@ load() {
   line="${line#*=}"; line="${line%$'\r'}"; line="${line#\"}"; line="${line%\"}"
   export "$name=$line"
 }
-for v in KEYCLOAK_TF_URL KEYCLOAK_TF_PRIVATE_KEY_B64 KEYCLOAK_IAC_PRIVATE_KEY_B64 S3_ACCESS_KEY S3_SECRET_KEY TF_STATE_PASSPHRASE SMTP_PASSWORD; do load "$v"; done
+for v in KEYCLOAK_TF_URL KEYCLOAK_IAC_PRIVATE_KEY_B64 S3_ACCESS_KEY S3_SECRET_KEY TF_STATE_PASSPHRASE SMTP_PASSWORD; do load "$v"; done
 [ -z "${SMTP_PASSWORD:-}" ] || export TF_VAR_smtp_password="$SMTP_PASSWORD"
 need() { [ -n "${!1:-}" ] || { echo "kc.sh: $1 fehlt (Umgebung oder $ENV_FILE)" >&2; exit 1; }; }
 
@@ -41,8 +40,8 @@ state_env() {
   export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" TF_VAR_state_passphrase="$TF_STATE_PASSPHRASE"
 }
 
-# Backend aus identity.app.json › state als Datei für -backend-config (keine Geheimnisse); Schlüssel je Teil:
-# state.key bzw. state.bootstrapKey, Standard <produkt>/keycloak.tfstate bzw. <produkt>/keycloak-bootstrap.tfstate
+# Backend aus identity.app.json › state als Datei für -backend-config (keine Geheimnisse); Schlüssel state.key,
+# Standard <produkt>/keycloak.tfstate
 backend_file() {
   local bucket region endpoint key file
   bucket="$(m state.bucket)"; region="$(m state.region)"; endpoint="$(m state.endpoint)"; key="$(m "state.$2")"
@@ -82,28 +81,8 @@ login_iac() {
   unset KEYCLOAK_CLIENT_SECRET
 }
 
-login_tofu() {
-  url_env
-  if [ -z "${KEYCLOAK_TF_PRIVATE_KEY:-}" ] && [ -n "${KEYCLOAK_TF_PRIVATE_KEY_B64:-}" ]; then
-    KEYCLOAK_TF_PRIVATE_KEY="$(printf '%s' "$KEYCLOAK_TF_PRIVATE_KEY_B64" | base64 -d)"
-  fi
-  need KEYCLOAK_TF_PRIVATE_KEY
-  export KEYCLOAK_REALM=master KEYCLOAK_CLIENT_ID="$PRODUCT-tofu" KEYCLOAK_JWT_SIGNING_KEY="$KEYCLOAK_TF_PRIVATE_KEY"
-  unset KEYCLOAK_CLIENT_SECRET
-}
-
 cmd="${1:-plan}"; shift || true
 case "$cmd" in
-  bootstrap)
-    cd bootstrap
-    sub="${1:-plan}"; shift || true
-    state_env; login_tofu
-    case "$sub" in
-      init) cfg="$(backend_file keycloak-bootstrap bootstrapKey)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
-      plan|apply) exec tofu "$sub" -input=false "$@" ;;
-      *) exec tofu "$sub" "$@" ;;
-    esac
-    ;;
   init) state_env; cfg="$(backend_file keycloak key)"; exec tofu init -input=false -backend-config="$cfg" "$@" ;;
   apply-plan) state_env; login_iac; exec tofu apply -input=false "$@" ;;
   smtp-test) login_iac

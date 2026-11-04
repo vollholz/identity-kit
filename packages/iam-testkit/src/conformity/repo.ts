@@ -117,7 +117,6 @@ function moduleFinding(dir: string): Finding {
   const refs = moduleRefs(dir);
   const problems: string[] = [];
   if (!refs.some(r => r.module === 'product-realm')) problems.push('infra/keycloak: Modul product-realm nicht eingebunden');
-  if (!refs.some(r => r.module === 'product-realm-bootstrap')) problems.push('infra/keycloak/bootstrap: Modul product-realm-bootstrap nicht eingebunden');
   for (const r of refs) {
     if (r.module !== r.tag) problems.push(`${r.file}: Modul ${r.module} mit Tag ${r.tag}-v${r.version}`);
     else if (!(r.module in MINIMUM)) problems.push(`${r.file}: unbekanntes Modul ${r.module}`);

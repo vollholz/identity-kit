@@ -1,6 +1,7 @@
 # Realm des Produkts: Organisationen, sichere Voreinstellungen, Brute-Force-Schutz, feingranulare Admin-Rechte v2
 # (für den Verwaltungs-Client), Admin- und Anmeldeereignisse, SMTP für Einladungen und Passwort-Mails (var.smtp).
-# Angelegt hat ihn product-realm-bootstrap; der Aufrufer übernimmt ihn mit einem import-Block (README.md › Aufruf).
+# Angelegt hat ihn der Betreiber der Keycloak-Instanz (Spezifikation Kap. 2); der Aufrufer übernimmt ihn mit einem
+# import-Block (README.md › Aufruf).
 
 locals {
   realm_name    = coalesce(var.realm, var.product)

@@ -73,10 +73,24 @@ jobs:
           node packages/create-iam-app/src/bin/create-iam-app.ts keys --dir "$app" --secret-dir "$RUNNER_TEMP/keys" >/dev/null
           bash -n "$app/infra/keycloak/kc.sh"
           tofu fmt -check -recursive -diff "$app/infra/keycloak"
-          for d in "$app/infra/keycloak" "$app/infra/keycloak/bootstrap"; do
-            tofu -chdir="$d" init -backend=false -input=false >/dev/null
-            tofu -chdir="$d" validate
+          # Neue Modulversion: das Tag entsteht erst beim Release nach dem Merge (release.yml). Bis dahin prüft das
+          # Gerüst gegen das Modul aus diesem Stand – also genau das, was veröffentlicht wird.
+          for m in product-realm; do
+            tag="$m-v$(cat "modules/$m/VERSION")"
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "$tag noch nicht veröffentlicht: Gerüst mit modules/$m aus diesem Stand"
+              src="git::https://github.com/vollholz/identity-kit.git//modules/$m?ref=$tag"
+              # Lokale Modulquellen müssen relativ sein (./ oder ../)
+              for f in $(grep -rlF --include='*.tf' "$src" "$app/infra/keycloak"); do
+                rel="$(realpath --relative-to="$(dirname "$f")" "$GITHUB_WORKSPACE/modules/$m")"
+                case "$rel" in ../*) ;; *) rel="./$rel" ;; esac
+                sed -i "s#$src#$rel#" "$f"
+              done
+            fi
           done
+          tofu -chdir="$app/infra/keycloak" init -backend=false -input=false >/dev/null
+          tofu -chdir="$app/infra/keycloak" validate
+          [ ! -e "$app/infra/keycloak/bootstrap" ] || { echo "Gerüst enthält noch infra/keycloak/bootstrap" >&2; exit 1; }
           (cd "$app/infra/keycloak" && tflint --init >/dev/null && tflint --format compact)
 
   keycloak:

@@ -41,7 +41,6 @@ const manifest: Manifest = {
 
 const managed: Record<string, string> = {
   'infra/keycloak/main.tf': '# Verwaltet von identity-kit\nmodule "realm" {\n  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v2.0.0"\n}\n',
-  'infra/keycloak/bootstrap/main.tf': '# Verwaltet von identity-kit\nmodule "bootstrap" {\n  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm-bootstrap?ref=product-realm-bootstrap-v0.1.1"\n}\n',
   '.github/workflows/keycloak.yml': '# Verwaltet von identity-kit\nname: Keycloak\n',
 };
 

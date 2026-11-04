@@ -74,8 +74,13 @@ run "ohne_schalter" {
     error_message = "Realm-Rolle platform-admin; keine Client-Rollen, keine Gruppe /orgs mehr"
   }
   assert {
-    condition     = keys(keycloak_openid_client_authorization_permission.admin) == ["users"]
-    error_message = "FGAP v2 für <produkt>-admin nur auf Benutzer, nicht auf Gruppen"
+    condition = (keys(keycloak_openid_client_authorization_permission.admin) == ["users", "users_view"]
+    && alltrue([for p in keycloak_openid_client_authorization_permission.admin : p.resource_type == "Users"]))
+    error_message = "FGAP v2 nur auf Benutzer (manage für -admin, view für -admin und -sync), nicht auf Gruppen"
+  }
+  assert {
+    condition     = join(",", sort([for r in keycloak_openid_client_service_account_role.service : r.role])) == "manage-organizations,view-organizations,view-realm"
+    error_message = "Service Accounts ohne manage-realm: -admin manage-organizations und view-realm, -sync view-organizations"
   }
   assert {
     condition     = keycloak_openid_client_scope.permission["notes:write"].description == "Beispiel: notes:write"

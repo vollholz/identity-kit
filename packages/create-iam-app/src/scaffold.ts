@@ -16,7 +16,6 @@ const TEMPLATES = join(PKG, 'templates');
 /** Teile, deren Versionen in die verwalteten Dateien eingesetzt werden. */
 export const VERSIONS = {
   'product-realm': CURRENT['product-realm'],
-  'product-realm-bootstrap': CURRENT['product-realm-bootstrap'],
   '@vollholz/iam': CURRENT['@vollholz/iam'],
   '@vollholz/iam-testkit': CURRENT['@vollholz/iam-testkit'],
 };
@@ -35,7 +34,7 @@ const render = (text: string, vars: Record<string, string>) => text.replace(/\{\
 export function managedFiles(): Map<string, string> {
   const files = walk(join(TEMPLATES, 'managed'));
   const list = files.map(f => `- \`${f}\``).join('\n');
-  const vars = { MARK: managedMark(), KIT: KIT_VERSION, PRODUCT_REALM: VERSIONS['product-realm'], BOOTSTRAP: VERSIONS['product-realm-bootstrap'], MANAGED_FILES: list };
+  const vars = { MARK: managedMark(), KIT: KIT_VERSION, PRODUCT_REALM: VERSIONS['product-realm'], MANAGED_FILES: list };
   return new Map(files.map(f => [f, render(readFileSync(join(TEMPLATES, 'managed', f), 'utf8'), vars)]));
 }
 

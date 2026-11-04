@@ -126,7 +126,7 @@ describe('sync und check', () => {
 });
 
 describe('keys', () => {
-  test('öffentlich ins Repository (tofu nicht), privat 0600 in ein eigenes Verzeichnis; bestehende bleiben', async () => {
+  test('öffentlich ins Repository, privat 0600 in ein eigenes Verzeichnis; kein <produkt>-tofu; Eintrag für den Betreiber; bestehende bleiben', async () => {
     const dir = newApp('keys');
     assert.equal((await init(dir)).code, 0);
     const secret = join(root, 'geheim');
@@ -138,7 +138,11 @@ describe('keys', () => {
       assert.ok(!('d' in jwks.keys[0]), 'nur öffentlich');
       assert.equal(statSync(join(secret, `notes-${c}.pem`)).mode & 0o777, 0o600);
     }
-    assert.ok(!existsSync(join(dir, 'infra/keycloak/keys/notes-tofu.json')) && existsSync(join(secret, 'notes-tofu.json')));
+    assert.ok(!existsSync(join(dir, 'infra/keycloak/keys/notes-tofu.json')) && !existsSync(join(secret, 'notes-tofu.json')) && !existsSync(join(secret, 'notes-tofu.pem')), 'kein <produkt>-tofu mehr');
+    const kid = JSON.parse(readFileSync(join(dir, 'infra/keycloak/keys/notes-iac.json'), 'utf8')).keys[0].kid as string;
+    assert.match(r.out, /envs\/<instanz>\/keys\/notes-iac\.json/);
+    assert.match(r.out, /products: +notes = \{\}/);
+    assert.ok(r.out.includes(kid), 'kid von notes-iac im Eintrag für den Betreiber');
     assert.equal(statSync(secret).mode & 0o777, 0o700);
     assert.ok(!existsSync(join(secret, 'notes-mcp.pem')), 'ohne MCP kein Schlüssel');
     const before = readFileSync(join(dir, 'infra/keycloak/keys/notes-iac.json'), 'utf8');

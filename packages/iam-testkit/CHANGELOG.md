@@ -9,6 +9,13 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.6.0] – 2026-11-04
+
+### Geändert
+
+- Kennt `product-realm` 3.0.0 (`CURRENT`): Service Accounts ohne `manage-realm`, braucht Keycloak 26.8. Unterstützt
+  bleiben `product-realm` 2.x und 3.x.
+
 ## [2.5.1] – 2026-11-04
 
 ### Behoben

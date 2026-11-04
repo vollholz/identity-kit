@@ -290,16 +290,19 @@ Test prüft, dass die Datei aktuell ist. Die Modul-Variable `catalog.roles` entf
 
 ### 3.7 Rechte der Service Accounts
 
-Keycloak 26 kennt in FGAP v2 die Typen *Users*, *Groups*, *Clients*, *Roles*, aber **keine Organisationen**. Alle
-Endpunkte unter `/organizations` (auch lesen) verlangen `realm-management/manage-realm`. Daraus (live geprüft mit 26.6):
+Keycloak 26 kennt in FGAP v2 die Typen *Users*, *Groups*, *Clients*, *Roles*, aber **keine Organisationen**. Dafür
+gibt es ab Keycloak 26.8 die Rollen `realm-management/manage-organizations` und `view-organizations` (mit 26.6
+verlangten alle Endpunkte unter `/organizations` noch `manage-realm`). Kein Service Account des Produkts hat
+`manage-realm`: damit liessen sich Anmeldeabläufe, Schlüssel und Realm-Einstellungen ändern. Daraus (live geprüft mit
+26.8.1, `modules/test/keycloak.sh`, ab `product-realm` 3.0.0):
 
 | Client | Rechte | Bewusst nicht |
 |---|---|---|
-| `<produkt>-admin` | `realm-management/manage-realm`; FGAP v2 *Users* (alle): `view`, `manage`; Richtlinie «nur dieser Client», Strategie `UNANIMOUS` | FGAP v2 *Groups* und `manage-group-membership` (keine Rollengruppen mehr, A21); `realm-admin`, `manage-users`, `manage-clients`, `create-client`, `impersonation`, `map-roles`, `reset-password`; `manage-identity-providers` nur mit Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) |
-| `<produkt>-sync` | nur `manage-realm` | Benutzer, Gruppen, Clients (403 geprüft) |
+| `<produkt>-admin` | `manage-organizations`; `view-realm` (nur lesen: ist der E-Mail-Versand eingerichtet? ohne die Rolle liefert Keycloak den Realm ohne SMTP); FGAP v2 *Users* (alle): `manage` mit Richtlinie «nur dieser Client», `view` mit Richtlinie «`-admin` oder `-sync`», je Strategie `UNANIMOUS` | `manage-realm` (Realm-Einstellungen, Abläufe, Schlüssel: 403 geprüft); FGAP v2 *Groups* und `manage-group-membership` (keine Rollengruppen mehr, A21); `realm-admin`, `manage-users`, `manage-clients`, `create-client`, `impersonation`, `map-roles`, `reset-password`; `manage-identity-providers` nur mit Anmeldung über Entra ID ([9.4](#94-anmeldung-über-den-idp-der-organisation-kann)) |
+| `<produkt>-sync` | `view-organizations`; FGAP v2 *Users* (alle): `view` | Organisationen und Konten ändern, Realm-Einstellungen, Gruppen, Clients (403 geprüft) |
 
-Legt jemand weitere v2-Berechtigungen für *alle Benutzer* an, müssen deren Richtlinien `<produkt>-admin` einschliessen
-(`UNANIMOUS`).
+Je Scope gibt es genau eine v2-Berechtigung über *alle Benutzer*. Legt jemand weitere an, müssen deren Richtlinien
+`<produkt>-admin` (`manage`) bzw. `<produkt>-admin` und `<produkt>-sync` (`view`) einschliessen (`UNANIMOUS`).
 
 ### 3.8 Fremde Clients
 
@@ -1772,7 +1775,7 @@ Gelten für jedes Produkt, bis sie eigens entschieden werden.
 
 | Thema | Grenze bzw. Restrisiko | Umgang |
 |---|---|---|
-| `manage-realm` der Service Accounts | Keycloak 26 kennt keine Rechte je Organisation; wer den Schlüssel von `-admin` hat, beherrscht faktisch den Realm des Produkts (nicht andere Realms) | eigener Realm, Schlüssel nur im API-Prozess, kurze Tokens, Admin-Ereignisse, Audit der App; Admin-Ereignisse ausserhalb `organizations`, `users`, `groups` überwachen; ersetzen, sobald FGAP v2 Organisationen kennt |
+| `manage-organizations` und Konten von `-admin` | Keycloak kennt keine Rechte je Organisation; wer den Schlüssel von `-admin` hat, verwaltet alle Organisationen und Konten des Realms (nicht Realm-Einstellungen, Abläufe, Schlüssel, Clients; ab `product-realm` 3.0.0, davor `manage-realm`) | eigener Realm, Schlüssel nur im API-Prozess, kurze Tokens, Admin-Ereignisse, Audit der App; Admin-Ereignisse ausserhalb `organizations`, `users`, `groups` überwachen; ersetzen, sobald FGAP v2 Organisationen kennt |
 | `create-realm` von `<produkt>-tofu` | fast Realm-Admin am eigenen Realm, dauerhaft; kann weitere Realms anlegen | Schlüssel nur lokal, Admin-Ereignisse im Realm `master` (beim Betreiber) |
 | `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | bewusstes Restrisiko des Betreibers der Keycloak-Instanz |
 | Zwischenspeicher | Entfernen einer Person wirkt nach ≤ 5 min, Gruppen aus Entra mit dem nächsten Token; Tupel sofort (`acl_version`) | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |

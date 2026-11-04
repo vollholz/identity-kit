@@ -3,6 +3,8 @@
 #
 #   Frische Anlage mit product-realm-bootstrap und product-realm (roots/neu*), einmal mit allen Schaltern
 #      (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply muss je «No changes» zeigen.
+#   Rechte von <produkt>-admin und <produkt>-sync (Spezifikation 3.7): erlaubte Aufrufe gehen, Realm-Einstellungen,
+#      Anmeldeabläufe, Schlüssel, Clients und Admin-Rollen nicht (lib/kc.ts rights); danach wieder «No changes».
 #
 # Testschlüssel und State entstehen nur im Arbeitsverzeichnis (gelöscht am Ende, ausser KEEP=1). Admin-Passwort und
 # State-Passphrase sind Wegwerf-Werte für diese Instanz.
@@ -79,9 +81,11 @@ expect_no_changes() { # <name> <verzeichnis> <log>
   printf '%s\t%s\n' "$3" "No changes" >>"$work/summary.tsv"
 }
 step "Keycloak starten ($image)"
-docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
+# Git Bash unter Windows: Pfad für Docker als C:/… und ohne Umschreiben der Argumente (sonst fehlt das Theme)
+theme_mount="$theme"; if command -v cygpath >/dev/null 2>&1; then theme_mount="$(cygpath -m "$theme")"; fi
+MSYS_NO_PATHCONV=1 docker run -d --name "$container" -p "127.0.0.1:$port:8080" \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="$KC_ADMIN_USER" -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
-  -v "$theme:/opt/keycloak/themes/beispiel:ro" \
+  -v "$theme_mount:/opt/keycloak/themes/beispiel:ro" \
   "$image" start-dev >/dev/null
 node lib/kc.ts wait
 grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || true
@@ -114,6 +118,11 @@ for variant in "neu true" "mini false"; do
   tf_apply "$p" roots/neu
   expect_no_changes "$p" roots/neu "$p-zweiter-plan"
   tf "$p" roots/neu output -no-color clients | sed 's/^/  /'
+
+  step "Neu: $p – Rechte von $p-admin und $p-sync"
+  node lib/kc.ts rights "$p" "$work/keys" "$switches"
+  printf '%s\t%s\n' "$p-rechte-admin-sync" "wie erwartet" >>"$work/summary.tsv"
+  expect_no_changes "$p" roots/neu "$p-plan-nach-rechte-test"
 done
 
 step "Ergebnis"

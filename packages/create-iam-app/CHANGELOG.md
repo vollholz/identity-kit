@@ -9,6 +9,14 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.6.0] – 2026-11-04
+
+### Geändert
+
+- Vorlagen für `product-realm` 3.0.0 (Service Accounts ohne `manage-realm`, braucht Keycloak 26.8; Umstieg im README
+  des Moduls) und `@vollholz/iam-testkit` 2.6.0. Bestehende Apps: `npx @vollholz/create-iam-app@0.6.0 sync`, dann
+  `kc.sh init -upgrade` und den Plan prüfen.
+
 ## [0.5.7] – 2026-11-04
 
 ### Geändert

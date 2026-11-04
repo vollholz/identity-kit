@@ -9,7 +9,8 @@
 #   «Run workflow» mit Aktion abgleich:
 #       Plan gegen Keycloak (nach Freigabe); weicht der Realm vom Repository ab (z. B. Änderung von Hand in der
 #       Konsole), schlägt der Lauf mit Zusammenfassung fehl. Ändert nichts.
-# Anmeldung als <produkt>-iac (realm-admin im Realm der App). Anlage/Neuaufbau des Realms (bootstrap/) läuft von Hand.
+# Anmeldung als <produkt>-iac (realm-admin im Realm der App). Realm und <produkt>-iac legt der Betreiber der
+# Keycloak-Instanz an (Spezifikation Kap. 2).
 # Secrets (Environment «production»): KEYCLOAK_IAC_PRIVATE_KEY, S3_ACCESS_KEY, S3_SECRET_KEY, TF_STATE_PASSPHRASE,
 # mit SMTP SMTP_PASSWORD.
 name: Keycloak

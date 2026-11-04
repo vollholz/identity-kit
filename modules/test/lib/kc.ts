@@ -1,12 +1,12 @@
 /**
  * Hilfen für den Keycloak-Nachweis (keycloak.sh) gegen eine lokale Wegwerf-Instanz. Übernimmt, was in Produktion
- * der Betreiber der Instanz als Server-Admin erledigt (Spezifikation Kap. 2, Schritte 1, 2, 5), und erzeugt Testschlüssel.
+ * der Betreiber der Instanz als Server-Admin erledigt (Spezifikation Kap. 2, Schritt 2), und erzeugt Testschlüssel.
  * Anmeldung als Admin des Realms master mit Passwort – nur hier, nur gegen die lokale Instanz.
  *
  *   node kc.ts keys <verzeichnis> <client> …           Schlüsselpaare: <client>.json (JWKS, öffentlich), <client>.pem
  *   node kc.ts wait                                     wartet, bis Keycloak antwortet (höchstens 180 s)
- *   node kc.ts product-tofu <produkt> <jwks-datei>      Service Account <produkt>-tofu im Realm master, nur create-realm
- *   node kc.ts grant-realm-admin <realm> <client>       realm-management/realm-admin für den Service Account
+ *   node kc.ts product-hull <produkt> <jwks-datei>      wie der Betreiber: Realm (FGAP v2), <produkt>-iac
+ *                                                      (private_key_jwt) und dessen realm-management/realm-admin
  *   node kc.ts rights <realm> <schlüssel-verz.> <smtp>  Rechte von <realm>-admin und <realm>-sync (Spezifikation 3.7):
  *                                                      was sie dürfen und was nicht (Realm, Abläufe, Schlüssel, Rollen)
  *
@@ -168,33 +168,25 @@ switch (cmd) {
     }
     throw new Error('Keycloak antwortet nicht');
   }
-  case 'product-tofu': {
-    // Wie beim Betreiber: Client <produkt>-tofu im Realm master, nur create-realm
+  case 'product-hull': {
+    // Wie der Betreiber (vollholz/identity › infra/keycloak/products.tf): Realm nur als Hülle mit FGAP v2, Client
+    // <produkt>-iac mit private_key_jwt und realm-management/realm-admin; den Inhalt verwaltet danach product-realm
     const [product, jwksFile] = args;
     const token = await adminToken();
-    await api(token, 'POST', '/master/clients', {
-      clientId: `${product}-tofu`, protocol: 'openid-connect', publicClient: false, clientAuthenticatorType: 'client-jwt',
-      standardFlowEnabled: false, implicitFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: true,
+    await api(token, 'POST', '', { realm: product, enabled: true, adminPermissionsEnabled: true });
+    await api(token, 'POST', `/${product}/clients`, {
+      clientId: `${product}-iac`, name: 'OpenTofu (IaC)', protocol: 'openid-connect', publicClient: false, clientAuthenticatorType: 'client-jwt',
+      standardFlowEnabled: false, implicitFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: true, frontchannelLogout: false,
       attributes: {
-        'use.jwks.url': 'false', 'use.jwks.string': 'true', 'jwks.string': JSON.stringify(JSON.parse(readFileSync(jwksFile!, 'utf8'))),
-        'token.endpoint.auth.signing.alg': 'ES256', 'access.token.lifespan': '300',
+        [`${product}.platform`]: 'true', 'use.jwks.url': 'false', 'use.jwks.string': 'true', 'jwks.string': JSON.stringify(JSON.parse(readFileSync(jwksFile!, 'utf8'))),
+        'token.endpoint.auth.signing.alg': 'ES256', 'access.token.lifespan': '300', 'pkce.code.challenge.method': 'S256',
       },
     });
-    const sa = await serviceAccount(token, 'master', `${product}-tofu`);
-    const role = await api<{ id: string; name: string }>(token, 'GET', '/master/roles/create-realm');
-    await api(token, 'POST', `/master/users/${sa.id}/role-mappings/realm`, [role]);
-    console.log(`${product}-tofu: create-realm`);
-    break;
-  }
-  case 'grant-realm-admin': {
-    // Wie beim Betreiber: realm-admin für <produkt>-iac
-    const [realm, clientId] = args;
-    const token = await adminToken();
-    const sa = await serviceAccount(token, realm!, clientId!);
-    const [rm] = await api<{ id: string }[]>(token, 'GET', `/${realm}/clients?clientId=realm-management`);
-    const role = await api<{ id: string; name: string }>(token, 'GET', `/${realm}/clients/${rm!.id}/roles/realm-admin`);
-    await api(token, 'POST', `/${realm}/users/${sa.id}/role-mappings/clients/${rm!.id}`, [role]);
-    console.log(`${clientId}: realm-admin im Realm ${realm}`);
+    const sa = await serviceAccount(token, product!, `${product}-iac`);
+    const [rm] = await api<{ id: string }[]>(token, 'GET', `/${product}/clients?clientId=realm-management`);
+    const role = await api<{ id: string; name: string }>(token, 'GET', `/${product}/clients/${rm!.id}/roles/realm-admin`);
+    await api(token, 'POST', `/${product}/users/${sa.id}/role-mappings/clients/${rm!.id}`, [role]);
+    console.log(`Realm ${product}, ${product}-iac (realm-admin) angelegt`);
     break;
   }
   case 'rights': {

@@ -243,5 +243,6 @@ Voraussetzungen ausserhalb des Moduls: In der Entra-App-Registrierung muss der G
 | Texte, Hilfsskripte | `node --test modules/product-realm/test/*.test.ts` | nein |
 | **frische Anlage** | `modules/test/keycloak.sh` | Docker, 26.8.1 |
 
-`keycloak.sh` legt in einer Wegwerf-Instanz zwei frische Produkte mit beiden Modulen an (Bootstrap als `<produkt>-tofu`, dann
-Realm als `<produkt>-iac`), einmal mit allen Schaltern, einmal ohne; der zweite Plan zeigt je «No changes». Workflow: `.github/workflows/modules.yml`.
+`keycloak.sh` legt in einer Wegwerf-Instanz zwei frische Produkte an (Realm, `<produkt>-iac` und `realm-admin` wie
+beim Betreiber, dann Realm als `<produkt>-iac`), einmal mit allen Schaltern, einmal ohne; der zweite Plan zeigt je
+«No changes», die Rechte von `<produkt>-admin` und `<produkt>-sync` sind geprüft. Workflow: `.github/workflows/modules.yml`.

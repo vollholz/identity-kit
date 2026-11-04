@@ -22,7 +22,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { existsSync } from 'node:fs';
 import { MANIFEST_FILE } from '@vollholz/iam-testkit';
-import { generateKeys } from '../keys.ts';
+import { generateKeys, operatorEntry } from '../keys.ts';
 import { loadOperatorDefaults, operatorHints } from '../operator.ts';
 import { appFiles, applySync, KIT_VERSION, newManifest, planSync, readManifest, writeManifest, type PlannedFile } from '../scaffold.ts';
 
@@ -77,11 +77,11 @@ try {
     console.log(`
 Nächste Schritte (docs/identity-kit.md, Leitfaden: identity-kit › docs/neue-app.md):
   1. npm install
-  2. npx create-iam-app keys            Schlüsselpaare; ${m.product}-tofu.json an den Betreiber der Keycloak-Instanz
+  2. npx create-iam-app keys            Schlüsselpaare und Eintrag für den Betreiber der Keycloak-Instanz
   3. identity.app.json › state           S3-Backend des OpenTofu-States${m.state ? ' (gesetzt)' : ' (fehlt noch)'}
      identity.app.json › realm.smtp      Mailversand${m.realm?.smtp ? ' (gesetzt; Secret SMTP_PASSWORD ins Environment production)' : ' (fehlt: --operator-defaults oder von Hand; ohne keine Einladung «Passwort festlegen»)'}
-  4. infra/keycloak/kc.sh bootstrap init && infra/keycloak/kc.sh bootstrap apply   (lokal, als ${m.product}-tofu)
-  5. Betreiber: realm-admin für ${m.product}-iac; dann Workflow «Keycloak»
+  4. Betreiber der Keycloak-Instanz: Realm ${m.product}, ${m.product}-iac und realm-admin anlegen (Eintrag aus Schritt 2)
+  5. GitHub-Secret KEYCLOAK_IAC_PRIVATE_KEY (Environment production), dann Workflow «Keycloak»
   6. Migrationen, dann npm run identity:first-org und npx iam-conformity-test --all`);
   } else if (cmd === 'sync' || cmd === 'check') {
     hints(operatorHints(readManifest(dir), defaults));
@@ -104,10 +104,10 @@ Nächste Schritte (docs/identity-kit.md, Leitfaden: identity-kit › docs/neue-a
     for (const s of r.skipped) console.log(`  vorhanden    ${s}`);
     console.log(`
 Private Schlüssel liegen nur in ${secretDir} (nie ins Repository):
-  - ${m.product}-tofu: öffentlichen Teil ${join(secretDir, `${m.product}-tofu.json`)} an den Betreiber (PR in dessen Repository);
-    privat nur lokal als KEYCLOAK_TF_PRIVATE_KEY_B64 in .env – nie als CI-Secret
   - ${m.product}-iac: GitHub-Secret KEYCLOAK_IAC_PRIVATE_KEY (Environment production), lokal KEYCLOAK_IAC_PRIVATE_KEY_B64
   - ${m.product}-platform / -admin / -sync${m.realm?.mcp ? ' / -mcp' : ''}: Konfiguration der App (OIDC_BFF_PRIVATE_KEY, KEYCLOAK_MGMT_PRIVATE_KEY, KEYCLOAK_SYNC_PRIVATE_KEY)`);
+    const entry = operatorEntry(dir, m);
+    if (entry) console.log(`\n${entry}`);
   }
 } catch (e) {
   fail((e as Error).message, 1);

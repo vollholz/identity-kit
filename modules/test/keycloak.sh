@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Nachweis gegen eine lokale Wegwerf-Instanz von Keycloak 26.8.1 (Docker, start-dev), wiederholbar:
 #
-#   Frische Anlage mit product-realm-bootstrap und product-realm (roots/neu*), einmal mit allen Schaltern
-#      (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply muss je «No changes» zeigen.
+#   Frische Anlage wie beim Betreiber (Realm, <produkt>-iac, realm-admin; lib/kc.ts product-hull) und mit product-realm
+#      (roots/neu), einmal mit allen Schaltern (m2m, mcp, entra, SMTP), einmal ohne; der zweite Plan nach dem Apply
+#      muss je «No changes» zeigen.
 #   Rechte von <produkt>-admin und <produkt>-sync (Spezifikation 3.7): erlaubte Aufrufe gehen, Realm-Einstellungen,
 #      Anmeldeabläufe, Schlüssel, Clients und Admin-Rollen nicht (lib/kc.ts rights); danach wieder «No changes».
 #
@@ -45,11 +46,7 @@ trap cleanup EXIT
 
 step() { printf '\n=== %s\n' "$*"; }
 
-# Anmeldung des Providers wie kc.sh: Bootstrap als <produkt>-tofu (Realm master), sonst als <produkt>-iac
-as_tofu() {
-  export KEYCLOAK_REALM=master KEYCLOAK_CLIENT_ID="$1-tofu" KEYCLOAK_JWT_SIGNING_KEY="$(cat "$work/keys/$1-tofu.pem")"
-  unset KEYCLOAK_IAC_PRIVATE_KEY
-}
+# Anmeldung des Providers wie kc.sh: als <produkt>-iac
 as_iac() {
   export KEYCLOAK_REALM="$1" KEYCLOAK_CLIENT_ID="$1-iac" KEYCLOAK_IAC_PRIVATE_KEY="$(cat "$work/keys/$1-iac.pem")"
   export KEYCLOAK_JWT_SIGNING_KEY="$KEYCLOAK_IAC_PRIVATE_KEY"
@@ -93,7 +90,7 @@ grep -m 1 -o 'Keycloak [0-9.]* on JVM' <<<"$(docker logs "$container" 2>&1)" || 
 step "Testschlüssel"
 clients=()
 for p in neu mini; do
-  for c in tofu iac platform admin sync mcp m2m; do clients+=("$p-$c"); done
+  for c in iac platform admin sync mcp m2m; do clients+=("$p-$c"); done
 done
 node lib/kc.ts keys "$work/keys" "${clients[@]}"
 echo "${#clients[@]} Schlüsselpaare in $work/keys"
@@ -104,13 +101,8 @@ for variant in "neu true" "mini false"; do
   read -r p switches <<<"$variant"
   export TF_VAR_product="$p" TF_VAR_switches="$switches"
 
-  step "Neu: $p (alle Schalter: $switches) – Bootstrap als $p-tofu"
-  node lib/kc.ts product-tofu "$p" "$work/keys/$p-tofu.json"
-  as_tofu "$p"
-  tf_init "$p-bootstrap" roots/neu-bootstrap "$p-bootstrap.tfstate"
-  tf_apply "$p-bootstrap" roots/neu-bootstrap
-  expect_no_changes "$p-bootstrap" roots/neu-bootstrap "$p-bootstrap-zweiter-plan"
-  node lib/kc.ts grant-realm-admin "$p" "$p-iac"
+  step "Neu: $p (alle Schalter: $switches) – Realm, $p-iac und realm-admin wie beim Betreiber"
+  node lib/kc.ts product-hull "$p" "$work/keys/$p-iac.json"
 
   step "Neu: $p – Realm als $p-iac"
   as_iac "$p"

@@ -1,5 +1,9 @@
 # Modul product-realm-bootstrap
 
+> **Abgelöst** (2026-11-04, `create-iam-app` 0.6.0): Realm und `<produkt>-iac` legt der Betreiber der
+> Keycloak-Instanz an (Spezifikation Kap. 2); `<produkt>-tofu` mit `create-realm` gibt es nicht mehr. Das Modul bleibt
+> nur, damit bestehende States lesbar sind; neue Apps verwenden es nicht. Umstieg: Spezifikation Kap. 2.
+
 Legt den Realm einer App und ihren IaC-Client `<produkt>-iac` an (Spezifikation
 [Kap. 2](../../docs/spezifikation.md#2-anbindung-an-die-keycloak-instanz), Schritt 4) – einmalig bzw. beim
 Neuaufbau, als Service Account `<produkt>-tofu` im Realm `master` (nur `create-realm`, eingerichtet vom Betreiber der

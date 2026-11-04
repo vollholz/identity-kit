@@ -15,6 +15,8 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 - Kennt `product-realm` 3.0.0 (`CURRENT`): Service Accounts ohne `manage-realm`, braucht Keycloak 26.8. Unterstützt
   bleiben `product-realm` 2.x und 3.x.
+- Konformität (Repository): `product-realm-bootstrap` ist nicht mehr Pflicht – Realm und `<produkt>-iac` legt der
+  Betreiber an (Spezifikation Kap. 2). Ist das Modul noch eingebunden, gilt weiter das Fenster der Versionen.
 
 ## [2.5.1] – 2026-11-04
 

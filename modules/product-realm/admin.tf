@@ -38,8 +38,8 @@ resource "keycloak_openid_client" "service" {
 }
 
 # Interne IDs der eingebauten Clients über scripts/lookup.ts: data "keycloak_openid_client" liest das Client-Secret, was
-# Keycloak ab 26.8 verweigert (403). admin-permissions entsteht mit admin_permissions_enabled, das
-# product-realm-bootstrap schon bei der Anlage setzt. Bewusst ohne Bezug auf die Realm-Ressource: sonst wären die IDs
+# Keycloak ab 26.8 verweigert (403). admin-permissions entsteht mit admin_permissions_enabled, das der Betreiber
+# schon bei der Anlage setzt (Spezifikation Kap. 2). Bewusst ohne Bezug auf die Realm-Ressource: sonst wären die IDs
 # bei jeder Realm-Änderung unbekannt und OpenTofu würde die Zuweisungen neu anlegen.
 locals {
   lookup_query = {

@@ -10,7 +10,8 @@ locals {
   mcp      = try(local.settings.mcp, false)
 }
 
-# Den Realm hat bootstrap/ angelegt; hier wird er übernommen (ohne Wirkung, wenn er schon im State ist)
+# Den Realm (Hülle), <produkt>-iac und dessen realm-admin legt der Betreiber der Keycloak-Instanz an (Spezifikation
+# Kap. 2); hier wird der Realm übernommen (ohne Wirkung, wenn er schon im State ist)
 import {
   to = module.realm.keycloak_realm.this
   id = local.app.product

@@ -97,8 +97,8 @@ Die Cloud-Session legt alles, was die Person oder eine lokale Session braucht, *
 | 8 | GitHub-Environment `production` füllen (Abschnitt 4) | Person oder lokale Session | – |
 | 9 | DB-VM einrichten (`deploy/hetzner/db/setup.sh` über `betrieb@<app>`), CA in `secrets.sops.yaml`, Push auf den PR | lokale Session | – |
 | 10 | `DEPLOY_KNOWN_HOSTS` holen, Gate mit dem Deploy-Schlüssel prüfen (nur erlaubte Befehle) | lokale Session | – |
-| 11 | PR in `vollholz/identity`: `infra/keycloak/keys/<produkt>-tofu.json` und `products` mit `grant_realm_admin = false` | Cloud | `kid` über zweiten Kanal bestätigen, Merge (Workflow «Keycloak» läuft danach von selbst) |
-| 12 | Realm-Bootstrap mit `<produkt>-tofu` (privater Schlüssel nur lokal), danach zweiter PR in `vollholz/identity` mit `grant_realm_admin = true` | lokale Session, Cloud | Merge |
+| 11 | PR in `vollholz/identity` mit dem Eintrag aus `npx create-iam-app keys`: `envs/<instanz>/keys/<produkt>-iac.json` und `<produkt> = {}` in `envs/<instanz>/keycloak.tfvars › products` | Cloud | `kid` über zweiten Kanal bestätigen, Merge; der Workflow «Keycloak» des Betreibers legt Realm, `<produkt>-iac` und `realm-admin` an (Freigabe) |
+| 12 | Workflow «Keycloak» der App (Realm mit `product-realm`) | Cloud | «Approve» |
 | 13 | Erster Rollout: Workflow «Deploy» › `deploy` mit dem Digest aus CI auf `main` (Zusammenfassung des Jobs «Image») | Cloud startet | «Approve» |
 | 14 | Erste Organisation und Betrieb (`npm run identity:first-org`), Rauchtest (`npm run smoke`) | lokale Session | – |
 | 15 | PITR einmal auf einer Wegwerf-VM üben, Ergebnis in `docs/betrieb.md` | lokale Session | – |

@@ -6,7 +6,7 @@ jeder App gleich ist, und hält es danach aktuell:
 | Was | Wer besitzt es | Wie |
 |---|---|---|
 | `identity.app.json` (Manifest) | App (Zone «Einstellbar») | einmal angelegt, danach nur von der App geändert |
-| verwaltete Dateien: `infra/keycloak/*.tf`, `kc.sh`, `platform.ts`, `bootstrap/main.tf`, Workflows `keycloak.yml` und `identity-conformity.yml`, `docs/identity-kit.md` | Kit (Zone «Fest») | Kopf «Verwaltet von identity-kit», Prüfsumme in `.identity-kit.lock`, `sync` schreibt sie neu |
+| verwaltete Dateien: `infra/keycloak/*.tf`, `kc.sh`, `platform.ts`, Workflows `keycloak.yml` und `identity-conformity.yml`, `docs/identity-kit.md` | Kit (Zone «Fest») | Kopf «Verwaltet von identity-kit», Prüfsumme in `.identity-kit.lock`, `sync` schreibt sie neu |
 | Modell `src/authz/model.ts` (Stufe «einfach»), `platform.json`, `db/migrations/`, `.npmrc`, `.nvmrc`, Skripte in `package.json` | App (Zone «App-eigen») | nur angelegt, wenn sie fehlen |
 
 Die verwalteten OpenTofu-Dateien lesen ihre Werte zur Laufzeit aus `identity.app.json` (Produkt, Adressen, Schalter,
@@ -28,8 +28,9 @@ npx create-iam-app sync      # verwaltete Dateien auf diese Version (nach einem 
 - Eine verwaltete Datei, die von Hand geändert wurde oder schon bestand, überschreibt weder `init` noch `sync` ohne
   `--force`; eine Datei, die eine frühere Version verwaltete, löscht `sync` nur unverändert.
 - `keys` erzeugt nur, was fehlt (EC P-256, `kid` = JWK-Thumbprint), private Schlüssel 0600 in einem Verzeichnis 0700,
-  nie überschrieben. Der öffentliche Schlüssel von `<produkt>-tofu` landet nicht im Repository, sondern geht an den
-  Betreiber der Keycloak-Instanz.
+  nie überschrieben. Am Ende der Eintrag für den Betreiber der Keycloak-Instanz: öffentlicher Schlüssel von
+  `<produkt>-iac`, Name für seine Liste der Produkte und `kid` (er legt damit Realm, `<produkt>-iac` und `realm-admin`
+  an; Spezifikation Kap. 2). Einen Schlüssel für `<produkt>-tofu` gibt es nicht mehr.
 - `--operator-defaults <datei|url>`: Vorgaben des Betreibers (Format `OperatorDefaultsSchema` aus `@vollholz/iam-testkit`)
   ergeben `realm.smtp`, `realm.theme` und `realm.themeTexts` samt `infra/keycloak/theme-texts.json`; bei einem
   bestehenden Manifest (auch mit `sync`/`check`) nur Hinweise, nie Änderungen ([Leitfaden](../../docs/neue-app.md#vorgaben-des-betreibers)).

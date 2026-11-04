@@ -43,7 +43,7 @@ Vertraulichkeit und Scopes, Verwaltung von Mitgliedern und Organisationen in der
 ```
                          Keycloak-Instanz, z. B. id.example.ch (Betreiber)
                          ┌──────────────────────────────────────────────────────────┐
-                         │ Realm master: IaC des Betreibers, <produkt>-tofu         │
+                         │ Realm master: IaC des Betreibers (legt Realm-Hüllen an)  │
                          │ Realm <produkt> (gehört dem Produkt, IaC im Produkt):    │
                          │   Organisationen = Mandanten (ohne Rollen, ohne Gruppen),│
                          │   Clients <produkt>-platform|-api|-admin|-sync|(-mcp…)   │
@@ -128,31 +128,37 @@ Regeln:
 
 ## 2. Anbindung an die Keycloak-Instanz
 
-Ablauf zwischen dem Betreiber der Keycloak-Instanz und dem Produkt. Modul `modules/product-realm-bootstrap`. Wie der
-Betreiber seine Schritte umsetzt (Repository, Werkzeuge, Freigaben), ist dessen Sache; der Baukasten setzt nur das
-Ergebnis voraus.
+Ablauf zwischen dem Betreiber der Keycloak-Instanz und dem Produkt: ein Durchgang, nur in eine Richtung. Die **Hülle**
+(Realm, IaC-Client, dessen `realm-admin`) gehört dem Betreiber, den **Inhalt** des Realms verwaltet das Produkt mit dem
+Modul `product-realm`. Wie der Betreiber seine Schritte umsetzt (Repository, Werkzeuge, Freigaben), ist dessen Sache;
+der Baukasten setzt nur das Ergebnis voraus. Das Produkt hat keinen Zugang zum Realm `master`.
 
 | # | Wer | Schritt | Ergebnis |
 |---|---|---|---|
-| 1 | Betreiber | Schlüsselpaar für `<produkt>-tofu` erzeugen (ES256) | öffentlicher Schlüssel beim Betreiber; privater Schlüssel an die Betriebsverantwortlichen des Produkts übergeben, beim Betreiber danach löschen |
-| 2 | Betreiber | Service Account für das Produkt einrichten | Service Account `<produkt>-tofu` im Realm `master` mit Rolle `create-realm`, `private_key_jwt` (ES256) |
-| 3 | Produkt | Schlüsselpaar für `<produkt>-iac` erzeugen, `infra/keycloak/keys/<produkt>-iac.json` | öffentlicher Schlüssel versioniert; privater in `.env` (`KEYCLOAK_IAC_PRIVATE_KEY_B64`) und GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY` |
-| 4 | Produkt | `infra/keycloak/kc.sh bootstrap init && kc.sh bootstrap apply` als `<produkt>-tofu` | Realm `<produkt>` (nur Anlage, `admin_permissions_enabled = true`, `prevent_destroy`, `ignore_changes = all`) und Client `<produkt>-iac` (Service Account, `private_key_jwt`) |
-| 5 | Betreiber | dem IaC-Client des Produkts Realm-Admin geben | `<produkt>-iac` hat `realm-management/realm-admin` am Realm `<produkt>` (mit FGAP v2 darf das nur ein Server-Admin) |
-| 6 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm`; zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
-| 7 | Produkt | `iam-org-bootstrap --operator --email …` und `iam-org-bootstrap --alias <alias> --name … --email …`, oder beides mit `iam-org-bootstrap --file <init.json>` | Konto des Betriebs mit `platform-admin`, **ohne Organisation** ([6.3](#63-konto-ohne-organisation)); erste Organisation mit erster Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail), nie mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
+| 1 | Produkt | Schlüsselpaar für `<produkt>-iac` erzeugen (`create-iam-app keys`, ES256) | öffentlicher Schlüssel versioniert in `infra/keycloak/keys/<produkt>-iac.json`; privater in `.env` (`KEYCLOAK_IAC_PRIVATE_KEY_B64`) und GitHub-Secret `KEYCLOAK_IAC_PRIVATE_KEY`; `keys` gibt den Eintrag für den Betreiber aus (Datei, Name, `kid`) |
+| 2 | Betreiber | Realm, IaC-Client und Rechte anlegen (mit dem öffentlichen Schlüssel aus Schritt 1; `kid` über einen zweiten Kanal bestätigen) | Realm `<produkt>` (nur Hülle: `enabled`, `admin_permissions_enabled = true`), Client `<produkt>-iac` (Service Account, `private_key_jwt` ES256 mit diesem Schlüssel) mit `realm-management/realm-admin` (mit FGAP v2 darf das nur ein Server-Admin) |
+| 3 | Produkt | `infra/keycloak/kc.sh init && kc.sh apply` als `<produkt>-iac` mit dem Modul `product-realm` (übernimmt den Realm per `import`); zweiter `kc.sh plan` zeigt «No changes» | Realm vollständig nach [Kapitel 3](#3-realm-des-produkts) |
+| 4 | Produkt | `iam-org-bootstrap --operator --email …` und `iam-org-bootstrap --alias <alias> --name … --email …`, oder beides mit `iam-org-bootstrap --file <init.json>` | Konto des Betriebs mit `platform-admin`, **ohne Organisation** ([6.3](#63-konto-ohne-organisation)); erste Organisation mit erster Person (ohne Passwort, Pflichtaktion «Passwort festlegen», Einladung per E-Mail), nie mit `platform-admin`; dazu schreibt das Skript direkt in die Datenbank der App (`DATABASE_ADMIN_URL`, Migrationsrolle) den Mandanten, den Principal, das Tupel `user:<id> org-admin org` und Freigabestufe 2, Audit `tenant.provisioned` (A20); mit `--file` mehrere Organisationen mit je mehreren Admins ([Kommandozeilen](#21-kommandozeilen)) |
+
+Neuaufbau einer Instanz: Der Betreiber legt alle Hüllen wieder an (Schritt 2), jedes Produkt wendet seinen Realm an
+(Schritt 3); Konten und Daten kommen aus dem Backup der Instanz. Schlüsselwechsel von `<produkt>-iac`: neues Paar,
+öffentlicher Schlüssel an den Betreiber, danach das Secret umstellen.
+
+Bis `product-realm` 2.x und `create-iam-app` 0.5.x legte das Produkt Realm und IaC-Client selbst an, mit
+`<produkt>-tofu` (Rolle `create-realm` im Realm `master`) und dem Modul `product-realm-bootstrap`. Das ist abgelöst:
+`create-realm` erlaubte beliebige neue Realms und gab dauerhaft fast alle Admin-Rollen am eigenen Realm. Bestehende Apps
+geben den State von `infra/keycloak/bootstrap` auf (`removed { … lifecycle { destroy = false } }` oder Ordner und State
+entfernen, nichts in Keycloak löschen) und löschen den privaten Schlüssel von `<produkt>-tofu`; den Realm übernimmt der
+Betreiber.
 
 Regeln:
 
-- Der Schlüssel von `<produkt>-tofu` wird nur für Bootstrap, Neuaufbau und den Wechsel des Schlüssels von
-  `<produkt>-iac` gebraucht. Er liegt nur lokal (Tresor, für den Bootstrap in der `.env`), **nie** als GitHub-Secret
-  und nie in einem Workflow.
 - Im laufenden Betrieb verwaltet das Produkt seinen Realm ausschliesslich mit `<produkt>-iac` aus seinem Repository
   (Workflow `keycloak.yml`: fmt, validate, tflint, Tests → Plan nach Freigabe, verschlüsselt als Artefakt → Apply genau
   dieses Plans nach zweiter Freigabe → Kontrollplan «No changes»). Ein manueller Lauf «abgleich» plant nur und schlägt
   bei Abweichungen fehl.
 - OpenTofu mit Provider `keycloak/keycloak` (Version gepinnt, Lockfile), State im S3-Bucket des Produkts, eigener Key
-  für `infra/keycloak` und `infra/keycloak/bootstrap`, clientseitig verschlüsselt (`TF_STATE_PASSPHRASE`). Die
+  für `infra/keycloak`, clientseitig verschlüsselt (`TF_STATE_PASSPHRASE`). Die
   Anmeldung des Providers kommt nur aus der Umgebung (`kc.sh`), nie aus dem gespeicherten Plan.
 - Variable `keycloak_url` (Adresse der Keycloak-Instanz, z. B. `https://id.example.ch`) ohne Vorgabe, Pflicht (ab `product-realm` 2.0.0).
 - Variable `realm` mit Validierung: nicht `master`; der Realm eines anderen Produkts ist ebenfalls nicht erlaubt.
@@ -1533,7 +1539,6 @@ Geheimnisse auch als `…_FILE`.
 | `<produkt>-mcp`-Schlüssel | | | ✓ | |
 | `ENCRYPTION_KEYS` | ✓ | ✓ | | |
 | `<produkt>-iac`-Schlüssel | | | | GitHub-Secret + lokale `.env` |
-| `<produkt>-tofu`-Schlüssel | | | | nur lokal (Tresor) |
 
 Schlüssel erzeugen: EC P-256 (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`), öffentlicher Teil als
 JWKS (`kid` = JWK-Thumbprint) in `infra/keycloak/keys/<client>.json`, privater verschlüsselt (sops/age). Wechsel:
@@ -1686,10 +1691,11 @@ app.get('/v1/notes/:id', { preHandler: iam.need('note:read', r => ({ type: 'note
 
 ### 15.3 Ausrollen
 
-1. **Anbindung** an die Keycloak-Instanz durch deren Betreiber ([Kapitel 2](#2-anbindung-an-die-keycloak-instanz), Schritte 1–2, 5).
-2. `npx @vollholz/create-iam-app init` im Repository der App: Manifest, verwaltete Dateien, Dateien der App
+1. `npx @vollholz/create-iam-app init` im Repository der App: Manifest, verwaltete Dateien, Dateien der App
    ([15.4](#154-manifest-gerüst-und-lock-datei)); `create-iam-app keys` für die Schlüsselpaare; danach Modell und Ressourcen füllen.
-3. Realm: Bootstrap (`kc.sh bootstrap`, lokal) und Workflow «Keycloak» mit dem Modul (Schritte 3–6).
+2. **Anbindung** an die Keycloak-Instanz: Eintrag aus `keys` an deren Betreiber, der Realm, `<produkt>-iac` und
+   `realm-admin` anlegt ([Kapitel 2](#2-anbindung-an-die-keycloak-instanz), Schritte 1–2).
+3. Realm: Workflow «Keycloak» mit dem Modul (Schritt 3).
 4. Pakete einbinden (Backend, Frontend), Migration ausführen, Konfiguration und Geheimnisse ([Kapitel 13](#13-konfiguration-und-geheimnisse)).
 5. Erste Organisation mit `iam-org-bootstrap --manifest identity.app.json` (im Backend-Paket enthalten): Keycloak und
    in der Datenbank der App Principal, Tupel `org-admin` und Freigabestufe 2 (A20; ohne `DATABASE_ADMIN_URL` Abbruch).
@@ -1714,7 +1720,7 @@ Versionierung und Pflege:
 Test-Kit): die einzige Stelle, an der eine App ihr Setup beschreibt – genau die Zone «Einstellbar»
 ([1.2](#12-zonen-fest-einstellbar-app-eigen)). Felder: `product`, `displayName`, `publicBaseUrl`, `keycloakUrl`,
 `realm` (Schalter des Realm-Moduls), `paths` (`model`, `migrations`, `packages`), `database.schema`, `state`
-(S3-Backend; `key`/`bootstrapKey` nur für bestehende Apps mit bisherigem Schlüssel),
+(S3-Backend; `key` nur für bestehende Apps mit bisherigem Schlüssel; `bootstrapKey` unbeachtet seit dem Wegfall des Bootstraps),
 `organizations` (erste Admins), `exceptions`. Unbekannte Felder sind ein Fehler.
 
 **Verwaltete Dateien** schreibt `create-iam-app` aus seinen Vorlagen; sie tragen in den ersten Zeilen den Kopf
@@ -1725,7 +1731,6 @@ Instanz und State-Backend). Deshalb hängt ihr Inhalt nur von der Version des Ki
 | Datei | Inhalt |
 |---|---|
 | `infra/keycloak/main.tf`, `versions.tf`, `variables.tf`, `outputs.tf` | Aufruf von `product-realm` (Version fest), `import` des Realms, Backend S3, Verschlüsselung von State und Plan |
-| `infra/keycloak/bootstrap/main.tf` | Aufruf von `product-realm-bootstrap` (lokal als `<produkt>-tofu`) |
 | `infra/keycloak/kc.sh`, `infra/keycloak/platform.ts` | OpenTofu mit Anmeldung nur aus der Umgebung; `platform.json` aus dem Modell |
 | `.github/workflows/keycloak.yml` | Prüfen (inkl. Konformität) → Plan → Freigabe → Apply → Kontrollplan; Abgleich |
 | `.github/workflows/identity-conformity.yml` | Konformitätstest je Pull Request; live (Realm, Datenbank) auf Anforderung |
@@ -1752,7 +1757,7 @@ Ein Prüfpunkt gilt als erfüllt, wenn sein Kriterium nachweisbar (Test, Screens
 
 | # | Prüfpunkt | Kriterium |
 |---|---|---|
-| P1 | Anbindung | `<produkt>-tofu` nur mit `create-realm`, Schlüssel nicht in GitHub; `<produkt>-iac` mit `realm-admin`; zweiter Plan «No changes» (Umstellung: erster Plan nur Verschiebungen); Workflow mit zwei Freigaben |
+| P1 | Anbindung | Realm und `<produkt>-iac` mit `realm-admin` vom Betreiber, kein Zugang zum Realm `master`; zweiter Plan «No changes» (Umstellung: erster Plan nur Verschiebungen); Workflow mit zwei Freigaben |
 | P2 | Realm | Einstellungen, Richtlinien, Clients, Mapper, Scopes nach Kapitel 3 (keine Rollen, keine Rollengruppen); Login, Konto und E-Mails im Theme aus `theme` mit Name, Claim und Akzent des Produkts |
 | P3 | Keine Geheimnisse | alle vertraulichen Clients `private_key_jwt`; kein Client-Geheimnis im State; jeder Dienst nur seine Schlüssel |
 | P4 | Anmeldung | Code-Flow mit PKCE, keine Tokens im Browser, CSRF, Fixation, Erneuerung, RP- und Backchannel-Logout, `/abgemeldet` |
@@ -1776,7 +1781,7 @@ Gelten für jedes Produkt, bis sie eigens entschieden werden.
 | Thema | Grenze bzw. Restrisiko | Umgang |
 |---|---|---|
 | `manage-organizations` und Konten von `-admin` | Keycloak kennt keine Rechte je Organisation; wer den Schlüssel von `-admin` hat, verwaltet alle Organisationen und Konten des Realms (nicht Realm-Einstellungen, Abläufe, Schlüssel, Clients; ab `product-realm` 3.0.0, davor `manage-realm`) | eigener Realm, Schlüssel nur im API-Prozess, kurze Tokens, Admin-Ereignisse, Audit der App; Admin-Ereignisse ausserhalb `organizations`, `users`, `groups` überwachen; ersetzen, sobald FGAP v2 Organisationen kennt |
-| `create-realm` von `<produkt>-tofu` | fast Realm-Admin am eigenen Realm, dauerhaft; kann weitere Realms anlegen | Schlüssel nur lokal, Admin-Ereignisse im Realm `master` (beim Betreiber) |
+| `realm-admin` von `<produkt>-iac` | volle Verwaltung des eigenen Realms (Einstellungen, Abläufe, Schlüssel, Clients, Konten); kein Realm `master`, keine anderen Realms | Schlüssel nur im Environment mit Freigabe und im Tresor; nächtliche Konformitätsprüfung beim Betreiber |
 | `/admin` und `/realms/master` öffentlich | Abweichung von der Empfehlung von Keycloak, nötig für IaC aus GitHub Actions | bewusstes Restrisiko des Betreibers der Keycloak-Instanz |
 | Zwischenspeicher | Entfernen einer Person wirkt nach ≤ 5 min, Gruppen aus Entra mit dem nächsten Token; Tupel sofort (`acl_version`) | kurze Laufzeiten; neue Tokens nach dem Austritt nötig |
 | Einladungen an bestehende Konten | Link von Keycloak lässt sich nicht widerrufen; Annahme nach Rückzug ergibt Mitglied ohne Rollen | Verwaltung kann entfernen |

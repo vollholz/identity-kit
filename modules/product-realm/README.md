@@ -6,7 +6,7 @@ ruft es auf, statt IaC zu kopieren. Spezifikation [Kap. 2, 3, 12, 15](../../docs
 
 Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../product-realm-bootstrap/README.md).
 
-**Version** in [`VERSION`](VERSION) (3.0.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
+**Version** in [`VERSION`](VERSION) (3.1.0); Git-Quelle mit Tag `product-realm-v<version>` (Spezifikation B2).
 
 ## Voraussetzungen
 
@@ -29,6 +29,7 @@ Anlage des Realms und des IaC-Clients: Modul [product-realm-bootstrap](../produc
 | `public_base_url` | string | – | Adresse der Oberfläche (`PUBLIC_BASE_URL`); daraus Redirect, Web-Origin, Logout-Adressen von `<produkt>-platform` |
 | `catalog` | object | – | Scopes aus dem Modell der App: `scopes = [<scope>, …]`. Rollen gibt es hier nicht mehr (Rollen liegen in der App-Datenbank) |
 | `jwks` | map(string) | – | öffentliche Schlüssel (Inhalt von `keys/<produkt>-<client>.json`) für `platform`, `admin`, `sync` und mit `mcp` auch `mcp`; je genau ein EC-P-256-Schlüssel mit `kid`, ohne privaten Teil |
+| `frontend_url` | string | `null` | eigene Domain des Realms (Frontend URL, z. B. `https://auth.example.ch`), nur wenn der Betreiber sie eingerichtet hat (Spezifikation 2.2); dann auch `keycloak_url` gleich. Der Provider liest die Frontend URL nicht ein und leerte sie sonst beim nächsten Apply |
 | `theme` | string | `null` | Theme für Login, Konto und E-Mails (auf der Instanz installiert); `null`: Standard-Theme von Keycloak |
 | `theme_texts` | map(map(string)) | `{}` | Werte des Themes je Sprache (`themeAccent…` nur `#RRGGBB`, `themeClaim`, `themeClaimSub`, `themeChips`, `themeSub.<Seite>`, `themeMailFooter`, kurze Login-Titel); überschreiben alle anderen Texte |
 | `localization` | map(map(string)) | `{}` | weitere Realm-Texte der App je Sprache; überschreiben die Standardtexte |
@@ -115,7 +116,7 @@ import {
 }
 
 module "realm" {
-  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v3.0.0"
+  source = "git::https://github.com/vollholz/identity-kit.git//modules/product-realm?ref=product-realm-v3.1.0"
 
   product            = "notes"
   display_name       = "Notes"

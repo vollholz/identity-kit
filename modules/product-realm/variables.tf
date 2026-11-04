@@ -51,6 +51,16 @@ variable "keycloak_url" {
   }
 }
 
+variable "frontend_url" {
+  description = "Eigene Domain des Realms (Frontend URL), z. B. https://auth.example.ch – nur, wenn der Betreiber der Instanz sie eingerichtet hat (Spezifikation 2.2); dann auch keycloak_url gleich setzen. Leer: Adresse der Instanz."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.frontend_url == null || can(regex("^https?://[^/]+$", var.frontend_url))
+    error_message = "frontend_url: http(s)-Adresse ohne Pfad und ohne Schrägstrich am Ende."
+  }
+}
+
 variable "keycloak_base_path" {
   description = "Basispfad der Instanz, z. B. /auth (leer: kein relativer Pfad, Standard ab Keycloak 17)."
   type        = string

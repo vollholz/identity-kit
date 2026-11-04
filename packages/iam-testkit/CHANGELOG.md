@@ -9,6 +9,12 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [2.7.0] – 2026-11-04
+
+### Hinzugefügt
+
+- Manifest: `realm.frontendUrl` – eigene Domain des Realms (Spezifikation 2.2). Kennt `product-realm` 3.1.0 (`CURRENT`).
+
 ## [2.6.0] – 2026-11-04
 
 ### Geändert

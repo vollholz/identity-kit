@@ -196,6 +196,21 @@ und ist nach dem Zurücksetzen leer; einen Eintrag ohne Mandanten gibt es nicht.
 Leeren der Datenbank eine Zeile `audit {"action":"platform.reset", …}` (Zeitpunkt, Realm, Schema, Anzahl Tabellen und
 Zeilen, ausgenommene Tabellen, `GITHUB_ACTOR`) auf stdout; im Workflow der App bleibt sie im Protokoll des Laufs.
 
+### 2.2 Eigene Domain
+
+Ein Produkt kann seinen Realm unter einer eigenen Domain anbieten, z. B. `https://auth.notes.ch/realms/notes` statt
+`https://id.example.ch/realms/notes` (Keycloak: «Frontend URL» des Realms). Dann lauten Issuer und alle Endpunkte des
+Realms auf diese Domain, und Keycloak verlangt sie auch als Ziel (`aud`) der Anmeldung mit `private_key_jwt` – die
+Adresse der Instanz wird dann abgelehnt (geprüft mit 26.8.1). Daraus:
+
+| Wer | Was |
+|---|---|
+| Produkt | DNS der Domain auf die Instanz (A, AAAA; CAA muss die CA des Betreibers erlauben); im Manifest `realm.frontendUrl` **und** `keycloakUrl` auf `https://<domain>` (das Modul führt die Frontend URL im Soll, weil der Provider sie nicht einliest und sonst leeren würde); Issuer der App `https://<domain>/realms/<produkt>` |
+| Betreiber | Domain ausliefern (TLS), dort nur den Realm des Produkts samt dessen Admin-API; die Frontend URL **beim Anlegen** des Realms setzen, vor der ersten Anmeldung des Produkts |
+
+Wechselt ein bestehendes Produkt auf eine eigene Domain, stellt es `keycloakUrl` und `realm.frontendUrl` im selben
+Zug um, in dem der Betreiber die Frontend URL setzt.
+
 ## 3. Realm des Produkts
 
 Umsetzung: Modul `modules/product-realm` (`*.tf`). Alle Werte gelten als Soll; Abweichungen nur mit Begründung in der Doku des

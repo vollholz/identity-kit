@@ -118,6 +118,7 @@ run "alle_schalter" {
     mcp                     = true
     entra                   = true
     mcp_extra_redirect_uris = ["https://claude.ai/api/mcp/auth_callback"]
+    frontend_url            = "https://auth.notes.example"
     smtp                    = { host = "smtp.example.ch", from = "noreply@example.ch", user = "noreply@example.ch" }
     smtp_password           = "nur-fuer-den-test"
     jwks = {
@@ -131,6 +132,10 @@ run "alle_schalter" {
   assert {
     condition     = toset([for a in keycloak_realm_user_profile.entra[0].attribute : a.name]) == toset(["username", "email", "firstName", "lastName", "entra_groups"])
     error_message = "User Profile: Standardattribute von Keycloak bleiben, dazu entra_groups"
+  }
+  assert {
+    condition     = keycloak_realm.this.attributes["frontendUrl"] == "https://auth.notes.example" && output.issuer == "https://auth.notes.example/realms/${keycloak_realm.this.realm}"
+    error_message = "Eigene Domain: Frontend URL im Realm, Issuer darauf"
   }
   assert {
     condition     = one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).multi_valued && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].edit == toset(["admin"]) && one([for a in keycloak_realm_user_profile.entra[0].attribute : a if a.name == "entra_groups"]).permissions[0].view == toset(["admin"])

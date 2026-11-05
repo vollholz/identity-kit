@@ -13,7 +13,7 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 - **Setzt `@vollholz/iam` 6 voraus** (Peer `^6.0.0`; für `pgAuditSearch` und die Migration `iam_021_audit_subject.sql`).
   Migration: `@vollholz/iam` auf 6.0.0 anheben (Breaking dort: Einladungsstatus `not-sent`, Migration `iam_020`, siehe
-  dessen CHANGELOG) und `@vollholz/iam-web` auf 2.3.0 (zeigt `not-sent`); danach `migrate` (legt `iam_020` und `iam_021`
+  dessen CHANGELOG) und `@vollholz/iam-web` auf 3.0.0 (zeigt `not-sent`); danach `migrate` (legt `iam_020` und `iam_021`
   an). Bestehende `record`-Aufrufe ohne `subject` bleiben unverändert gültig.
 
 ### Hinzugefügt

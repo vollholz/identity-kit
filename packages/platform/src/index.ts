@@ -22,7 +22,10 @@ export {
 export { envDocs, type EnvDocsOptions } from './config/docs.ts';
 
 // Kern
-export { auditPort, systemActor, type Actor, type AuditEntry, type AuditPort, type Source } from './core/audit.ts';
+export {
+  auditPort, auditSearchOf, systemActor,
+  type Actor, type AuditEntry, type AuditPage, type AuditPort, type AuditQuery, type AuditRecord, type AuditSearch, type AuditSubjectFallback, type Source,
+} from './core/audit.ts';
 export { createSealer, sealedKeyId, type Keyring, type Sealer } from './core/crypto.ts';
 export { conflict, forbidden, HttpError, invalid, notFound, preconditionFailed, preconditionRequired } from './core/errors.ts';
 export { emit, toCloudEvent, type CloudEvent, type EventType } from './core/events.ts';

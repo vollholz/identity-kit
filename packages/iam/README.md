@@ -112,7 +112,8 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, model?, adopted? })`, `dirMigrations(dir)`, `syncModelChecks` | Runner und die Migrationen `iam_001`–`iam_018`; Abgleich der CHECKs von `authz_tuple` mit dem Modell; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
 | `db/bootstrap.sql` | Datenbankrollen nach Kap. 10.1 (psql-Variablen `p`, `db`, Passwörter) |
 | `withTx`, `withTenant`, `setContext`, `createPool` | Transaktion im Mandantenkontext (`app.tenant_id`, `app.principal_id`, Einstellungen der App) |
-| `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger) |
+| `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger), optional mit betroffener Person (`subject`, iam_021) |
+| `pgAuditSearch({ schema, subjectFallback? })` | Suche im Audit nach Person (mit Rückfall für Einträge ohne `subject`), Objekt, Akteur und Zeitraum, Seiten über (ts, seq); Lesen an `audit:read` binden mit `app.audit_read_permission` ([Spezifikation 10.4](../../docs/spezifikation.md#104-audit-betroffene-person-und-suche)) |
 | `HttpError`, `problemBody` | Fehler nach RFC 9457 |
 | `Sealer`, `box`/`unbox` | AES-256-GCM mit Schlüsselrotation (Sitzungen) |
 | `PgReplayStore`, `MemoryReplayStore`, `pgRateLimitStore`, `purgeSharedState` | geteilter Zustand über Instanzen |

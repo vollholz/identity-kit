@@ -3,7 +3,7 @@ export { HttpError, notFound, forbidden, conflict, invalid, problemBody } from '
 export { box, unbox, Sealer, primaryKey, keyById, validateKeyring, NoEncryptionKeyError, type MasterKey, type Keyring } from './crypto.ts';
 export { createPool, withTx, withTenant, setContext, schemaName, pgSsl, dbSslFromEnv, DB_SSL_MODES, type Db, type Tx, type DbContext, type DbSsl } from './db.ts';
 export { MemoryReplayStore, PgReplayStore, pgRateLimitStore, purgeSharedState, type ReplayStore } from './state.ts';
-export { pgAudit, withPlatformAudit, writePlatformAudit, type AuditPort, type AuditEntry, type Actor, type PlatformAuditEntry, type Source } from './audit.ts';
+export { pgAudit, pgAuditSearch, withPlatformAudit, writePlatformAudit, type AuditPort, type AuditEntry, type AuditPage, type AuditQuery, type AuditRecord, type AuditSearch, type AuditSubjectFallback, type Actor, type PlatformAuditEntry, type Source } from './audit.ts';
 export { LOCKS, lockKey } from './locks.ts';
 export {
   migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR,

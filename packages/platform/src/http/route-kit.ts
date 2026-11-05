@@ -85,9 +85,12 @@ export function actorOf(req: FastifyRequest): Actor {
   return { principal: { kind: p.kind, principalId: p.principalId, name: p.name, clientId: p.clientId }, source: req.source, correlationId: req.id };
 }
 
-/** Eintrag für `record`: Aktion, betroffene Ressource, Daten des Audits und optional das Ereignis. */
+/**
+ * Eintrag für `record`: Aktion, betroffene Ressource, optional die betroffene Person (`subject`, Spalte `subject_id`,
+ * höchstens 200 Zeichen; braucht iam_021), Daten des Audits und optional das Ereignis.
+ */
 export interface RecordEntry {
-  action: EventType; resourceType: string; resourceId: string; data?: Record<string, unknown>; event?: Record<string, unknown>;
+  action: EventType; resourceType: string; resourceId: string; subject?: string | null; data?: Record<string, unknown>; event?: Record<string, unknown>;
 }
 
 /**
@@ -95,6 +98,6 @@ export interface RecordEntry {
  * derselben Transaktion wie die Änderung. Gebunden an die App als `platform.record`.
  */
 export async function record(ctx: PlatformContext, audit: AuditPort, tx: Tx, who: Actor, e: RecordEntry): Promise<void> {
-  await audit.write(tx, who, { action: e.action, resourceType: e.resourceType, resourceId: e.resourceId, ...(e.data ? { data: e.data } : {}) });
+  await audit.write(tx, who, { action: e.action, resourceType: e.resourceType, resourceId: e.resourceId, ...(e.subject != null ? { subject: e.subject } : {}), ...(e.data ? { data: e.data } : {}) });
   if (e.event) await emit(ctx, tx, e.action, `${e.resourceType}/${e.resourceId}`, e.event, who.correlationId ?? null);
 }

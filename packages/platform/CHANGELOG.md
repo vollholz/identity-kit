@@ -9,6 +9,18 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
 ## [Unveröffentlicht]
 
+### Hinzugefügt
+
+- `record(tx, who, { …, subject? })`: betroffene Person des Eintrags (Spalte `audit_log.subject_id`). Ohne `subject`
+  wie bisher.
+- `platform.auditSearch(tx, { subject?, resourceType?, resourceId?, actor?, from, to, cursor?, limit?, order? })`:
+  Suche im Audit der Organisation mit Seiten über (ts, seq); Rückfall der Suche nach Person für Einträge ohne `subject`
+  mit `definePlatform({ …, audit: { subjectFallback: { dataKeys, resourceTypes } } })`. Dazu `auditSearchOf` und die
+  Typen `AuditQuery`, `AuditPage`, `AuditRecord`, `AuditSearch`, `AuditSubjectFallback`.
+
+  Setzt die nächste Version von `@vollholz/iam` voraus (`pgAuditSearch`, Migration `iam_021_audit_subject.sql`);
+  erscheint zusammen mit ihr.
+
 ## [0.7.0] – 2026-10-28
 
 ### Hinzugefügt

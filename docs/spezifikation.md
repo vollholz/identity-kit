@@ -1274,7 +1274,7 @@ Geprüft mit `publicSchemaProblems`, `publicExecuteProblems` und `securityDefine
 | `entra_connection` u. a. (KANN) | Verbindung je Organisation, Zustand, Domänen, `state` als Hash | FORCE RLS |
 | `member_invitation` | `tenant_id`, `id` (eigene ID), `user_id` (Keycloak), `email`, `display_name`, `created_at`, `created_by_name`, `accepted_at`, `created_account`; UNIQUE offene Einladung je E-Mail | FORCE RLS |
 | `session` | `id` (Hash), `data` (verschlüsselt), `csrf`, `subject`, `idp_sid`, Zeiten | ohne Mandantendaten, ohne RLS |
-| `audit_log` | je Mandant lückenlose Folge `seq`, Hash-Kette | FORCE RLS; nur lesen und anhängen |
+| `audit_log` | je Mandant lückenlose Folge `seq`, Hash-Kette; `subject_id` (betroffene Person, optional, iam_021) | FORCE RLS; nur lesen und anhängen; Lesen an ein Recht gebunden, wenn die App es wählt ([10.4](#104-audit-betroffene-person-und-suche)) |
 | `replay_guard`, `rate_limit` | geteilter Zustand (`SHARED_STATE=postgres`) | ohne Mandantendaten |
 
 Entfallen: `acl_entry`, `tenant_role`, `client_grant` (und ihre Trigger, Funktionen, CHECKs).
@@ -1328,6 +1328,29 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
 - Fremdschlüssel zusammengesetzt (`tenant_id, …`): eine fremde ID verhält sich wie eine unbekannte.
 - `app.resolve_tenant` (SECURITY DEFINER, `search_path` fest, nur `_app` ausführbar) nach [Kapitel 4](#4-mandanten).
 - Eindeutigkeiten je Mandant (kein 409-Orakel über Mandanten).
+
+### 10.4 Audit: betroffene Person und Suche
+
+- **Schreiben:** `AuditPort.write(tx, who, { action, resourceType?, resourceId?, subject?, data? })` (in
+  `@vollholz/platform`: `record(tx, who, { …, subject? })`). `subject` ist die Kennung der betroffenen Person nach Wahl
+  der App (höchstens 200 Zeichen) in der Spalte `subject_id`; Index `(tenant_id, subject_id, ts)`. Ohne `subject`
+  schreibt das Paket die Spalte nicht (Aufrufe laufen so auch vor iam_021).
+- **Hash-Kette:** Einträge ohne `subject_id` hashen in Version 2 (wie vor iam_021), mit `subject_id` in Version 3
+  (dieselben Felder, `subject_id` am Ende). Bestehende Hashes bleiben gültig; geprüft wird weiterhin mit
+  `hash = app.audit_hash(prev_hash, l)`.
+- **Suche:** `pgAuditSearch({ schema, subjectFallback? })(tx, { subject?, resourceType?, resourceId?, actor?, from, to,
+  cursor?, limit?, order? })` (in `@vollholz/platform`: `platform.auditSearch`) im Mandanten der Transaktion; Zeitraum
+  `[from, to)` Pflicht, Seiten über `(ts, seq)` (Standard neueste zuerst, höchstens 200), Cursor nur für dieselben
+  Filter. Rückfall für Einträge ohne `subject_id`: ein Feld in `data` (`dataKeys`) oder das Objekt
+  (`resourceTypes`, `resource_id` = Kennung); die Namen legt die App fest. Indizes für Objekt `(tenant_id,
+  resource_type, resource_id, ts)` und Akteur `(tenant_id, actor_id, ts)`. Ungültige Eingaben → 422. Die Route prüft
+  `audit:read`.
+- **Lesen nach Recht (Wahl der App):** `SELECT app.audit_read_permission('audit:read')` in einer Migration der App legt
+  die Policy `audit_read` an (RESTRICTIVE, SELECT, `<produkt>_app`, `app.has_permission(p)`): Lesen nur mit dem Recht an
+  `org` oder mit voller Sicht. Anhängen bleibt für jede Transaktion möglich, `app.audit_chain()` liest den letzten
+  Eintrag dann als Besitzer (SECURITY DEFINER). `app.audit_read_permission(NULL)` hebt die Bindung auf. Ohne Aufruf liest
+  jede Transaktion der Organisation wie bisher. Das Recht muss im Modell stehen, sonst gilt es auch in der vollen Sicht
+  nicht.
 
 ## 11. Oberfläche
 

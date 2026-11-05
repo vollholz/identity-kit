@@ -4,14 +4,14 @@
  * gebundenen Funktionen aus der Datei der App, die `definePlatform` aufruft (z. B. `src/platform.ts`):
  *
  *   export const platform = definePlatform({ product: 'nachtschicht', title: 'Nachtschicht', model, resources });
- *   export const { record, enqueue, emit, fullTx, seal, unseal } = platform;
+ *   export const { record, auditSearch, enqueue, emit, fullTx, seal, unseal } = platform;
  *
  * Die Kompositionswurzel baut daraus mit `defineApp` die Prozesse (api.ts).
  */
 import type { Model, ResourceModel } from '@vollholz/iam';
 import { fullTxOf, type FullTx } from './authz/view.ts';
 import { platformContext, type ContextSpec, type PlatformContext } from './context.ts';
-import { auditPort, type Actor, type AuditPort } from './core/audit.ts';
+import { auditPort, auditSearchOf, type Actor, type AuditPage, type AuditPort, type AuditQuery, type AuditSubjectFallback } from './core/audit.ts';
 import { createSealer, type Sealer } from './core/crypto.ts';
 import { emit, type EventType } from './core/events.ts';
 import type { Tx } from './db/pool.ts';
@@ -22,6 +22,11 @@ export interface PlatformSpec<P extends string = string, S = unknown> extends Co
   model: Model<P>;
   /** Ressourcen der App (Kette, Existenz, Klassifizierung); ohne: Typen direkt unter der Organisation. */
   resources?: ResourceModel<S> | null;
+  /**
+   * Audit: `subjectFallback` findet bei der Suche nach Person auch Einträge ohne `subject` (vor iam_021 oder ohne
+   * Angabe) über ein Feld in `data` oder das Objekt, z. B. `{ dataKeys: ['personId'], resourceTypes: ['person'] }`.
+   */
+  audit?: { subjectFallback?: AuditSubjectFallback };
 }
 
 export interface Platform<P extends string = string, S = unknown> extends Sealer {
@@ -37,11 +42,17 @@ export interface Platform<P extends string = string, S = unknown> extends Sealer
   enqueue(tx: Tx, kind: string, payload?: Record<string, unknown>, o?: { runAt?: Date; dedupeKey?: string }): Promise<string | null>;
   /** Audit und optional Ereignis in derselben Transaktion wie die Änderung. */
   record(tx: Tx, who: Actor, e: RecordEntry): Promise<void>;
+  /**
+   * Suche im Audit der Organisation der Transaktion (iam_021): nach Person (mit Rückfall aus `audit.subjectFallback`),
+   * Objekt, Akteur und Zeitraum, Seiten über (ts, seq). Rechte prüft die Route; ungültige Eingaben → 422.
+   */
+  auditSearch(tx: Tx, q: AuditQuery): Promise<AuditPage>;
 }
 
 export function definePlatform<P extends string, S = unknown>(spec: PlatformSpec<P, S>): Platform<P, S> {
   const context = platformContext(spec);
   const audit = auditPort(context);
+  const search = auditSearchOf(context, spec.audit?.subjectFallback);
   const sealer = createSealer(context);
   return Object.freeze({
     context, model: spec.model, resources: spec.resources ?? null, audit,
@@ -50,5 +61,6 @@ export function definePlatform<P extends string, S = unknown>(spec: PlatformSpec
     emit: (tx, type, subject, data, correlationId = null) => emit(context, tx, type, subject, data, correlationId),
     enqueue: (tx, kind, payload = {}, o = {}) => enqueue(context, tx, kind, payload, o),
     record: (tx, who, e) => record(context, audit, tx, who, e),
+    auditSearch: (tx, q) => search(tx, q),
   } satisfies Platform<P, S>);
 }

@@ -7,7 +7,13 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
-## [Unveröffentlicht]
+## [2.8.0] – 2026-11-05
+
+### Geändert
+
+- Kennt `@vollholz/iam` 6.0.0, `@vollholz/iam-web` 3.0.0, `@vollholz/platform` 0.8.0 und `@vollholz/create-iam-app`
+  0.8.0 (`CURRENT`). Eine App mit `iam` 6 meldet der Konformitätstest damit nicht mehr als «neuer als die
+  Hauptversion». Das Mindestfenster (`MINIMUM`) bleibt unverändert.
 
 ## [2.7.0] – 2026-11-04
 

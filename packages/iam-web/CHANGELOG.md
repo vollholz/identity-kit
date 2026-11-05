@@ -7,7 +7,15 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
-## [Unveröffentlicht]
+## [3.0.0] – 2026-11-05
+
+### Breaking
+
+- **`Member.status` um `'not-sent'` erweitert** (Status «nicht versendet», ab `@vollholz/iam` 6 mit Migration
+  `iam_020`). Code, der den Status vollständig unterscheidet (z. B. `Record<Member['status'], …>`, `switch` mit
+  `never`-Prüfung), kompiliert erst mit `not-sent` wieder.
+  Migration: `not-sent` wie eine offene Einladung behandeln (zurückziehen, erneut senden); zusammen mit
+  `@vollholz/iam` 6.0.0 anheben (ältere `iam` liefern `not-sent` nie).
 
 ### Hinzugefügt
 

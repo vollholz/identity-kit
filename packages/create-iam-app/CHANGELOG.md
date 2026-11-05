@@ -7,7 +7,13 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
-## [Unveröffentlicht]
+## [0.8.0] – 2026-11-05
+
+### Geändert
+
+- Vorlagen für `@vollholz/iam` 6.0.0 und `@vollholz/iam-testkit` 2.8.0: `init` erzeugt diese Versionen; bestehende Apps
+  heben `@vollholz/iam`, `@vollholz/iam-web` (3.0.0) und `@vollholz/platform` (0.8.0) gemeinsam an und schreiben die
+  verwalteten Dateien mit `npx @vollholz/create-iam-app@0.8.0 sync` neu.
 
 ## [0.7.0] – 2026-11-04
 

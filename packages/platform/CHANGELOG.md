@@ -7,7 +7,14 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
-## [Unveröffentlicht]
+## [0.8.0] – 2026-11-05
+
+### Breaking
+
+- **Setzt `@vollholz/iam` 6 voraus** (Peer `^6.0.0`; für `pgAuditSearch` und die Migration `iam_021_audit_subject.sql`).
+  Migration: `@vollholz/iam` auf 6.0.0 anheben (Breaking dort: Einladungsstatus `not-sent`, Migration `iam_020`, siehe
+  dessen CHANGELOG) und `@vollholz/iam-web` auf 2.3.0 (zeigt `not-sent`); danach `migrate` (legt `iam_020` und `iam_021`
+  an). Bestehende `record`-Aufrufe ohne `subject` bleiben unverändert gültig.
 
 ### Hinzugefügt
 
@@ -18,8 +25,7 @@ der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
   mit `definePlatform({ …, audit: { subjectFallback: { dataKeys, resourceTypes } } })`. Dazu `auditSearchOf` und die
   Typen `AuditQuery`, `AuditPage`, `AuditRecord`, `AuditSearch`, `AuditSubjectFallback`.
 
-  Setzt die nächste Version von `@vollholz/iam` voraus (`pgAuditSearch`, Migration `iam_021_audit_subject.sql`);
-  erscheint zusammen mit ihr.
+  Setzt `@vollholz/iam` 6.0.0 voraus (`pgAuditSearch`, Migration `iam_021_audit_subject.sql`).
 
 ## [0.7.0] – 2026-10-28
 

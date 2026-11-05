@@ -14,7 +14,7 @@ meinen Abschnitte der Vorgabe `docs/konzepte/app-boilerplate.md` (Repository vol
 
 | Teil | Was |
 |---|---|
-| `definePlatform` | Kontext der App (Produkt, Schema, Rollen, Titel, Präfix der Ereignisse) mit Modell und Ressourcen; gebundene Bausteine für die Module: `record`, `emit`, `enqueue`, `fullTx`, `seal`/`unseal`/`reseal`, `audit` |
+| `definePlatform` | Kontext der App (Produkt, Schema, Rollen, Titel, Präfix der Ereignisse) mit Modell und Ressourcen; gebundene Bausteine für die Module: `record` (optional mit `subject`), `auditSearch`, `emit`, `enqueue`, `fullTx`, `seal`/`unseal`/`reseal`, `audit`; Rückfall der Suche nach Person: `audit.subjectFallback` |
 | `defineModule` | Fachmodul: Routen, öffentliche Routen mit Token (`publicRoutes`), Tags der API-Doku, Jobs, feste Aufgaben, Abnehmer der Outbox, Rotation eigener Geheimnisse, MCP-Werkzeuge |
 | `defineApp` | Kompositionswurzel: Konfiguration (`IAM_VARS` + Plattform + App, Exit 78), API (Fastify, OpenAPI 3.1, Rate-Limit, Idempotenz, CSP, Oberfläche mit SPA-Fallback), Worker, MCP-Dienst, Migrationen, OpenAPI-Export, `.env.example` und Doku der Konfiguration, Mandanten, Rotation |
 | `startApi`, `startWorker`, `startMcp`, `runCli` | Prozesse mit Betriebs-Endpunkt (`/healthz`, `/readyz`, `/metrics`) und geordnetem Beenden; Befehle `migrate`, `tenant …`, `rotate-keys` |

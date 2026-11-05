@@ -26,6 +26,27 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
 ### Hinzugefügt
 
+- **Betroffene Person im Audit** (`AuditEntry.subject`, Migration `iam_021_audit_subject.sql`, läuft mit dem nächsten
+  `migrate`): Spalte `<schema>.audit_log.subject_id` (Kennung nach Wahl der App, höchstens 200 Zeichen) mit Index
+  `(tenant_id, subject_id, ts)`, dazu Index `(tenant_id, actor_id, ts)`. Rückwärtskompatibel: Aufrufe ohne `subject`
+  bleiben unverändert und schreiben die Spalte nicht (laufen auch vor der Migration). Die Hash-Kette bleibt gültig:
+  Einträge ohne `subject_id` hashen wie bisher (Version 2), mit `subject_id` in Version 3 (`subject_id` am Ende);
+  geprüft wird weiterhin mit `hash = app.audit_hash(prev_hash, l)`. Schema-Abzüge der App (`schemaSnapshot`) um Spalte,
+  Indizes und den neuen Rumpf von `app.audit_hash` ergänzen.
+- **Suche im Audit** `pgAuditSearch({ schema, subjectFallback? })(tx, { subject?, resourceType?, resourceId?, actor?,
+  from, to, cursor?, limit?, order? })`: im Mandanten der Transaktion, Zeitraum `[from, to)` Pflicht, Seiten über
+  `(ts, seq)` (Standard neueste zuerst, 1–200, Standard 50), Cursor nur für dieselben Filter; ungültige Eingaben → 422.
+  Für Einträge ohne `subject_id` findet die Suche nach Person auch ein Feld in `data` (`subjectFallback.dataKeys`, z. B.
+  `['personId']`) oder das Objekt (`subjectFallback.resourceTypes`). Typen `AuditQuery`, `AuditPage`, `AuditRecord`,
+  `AuditSearch`, `AuditSubjectFallback`.
+- **Lesen des Audits an ein Recht binden** (Wahl der App): `SELECT app.audit_read_permission('audit:read')` in einer
+  Migration der App legt die Policy `audit_read` an (RESTRICTIVE, nur SELECT, `<produkt>_app`,
+  `app.has_permission(p)`); lesen dann nur mit dem Recht an `org` oder voller Sicht. Anhängen bleibt ohne Recht
+  möglich: `app.audit_chain()` liest den letzten Eintrag dann als Besitzer (SECURITY DEFINER). Die App führt
+  `app.audit_chain()` deshalb unter `exceptions.securityDefiner` in `identity.app.json` (Konformitätstest) und in ihrem
+  RLS-Test auf, dort auch die Policy. Das Recht muss im Modell stehen (sonst gilt es auch in der vollen Sicht nicht).
+  `NULL` hebt die Bindung auf. Ohne Aufruf ändert sich nichts.
+
 - **Grund, wenn keine E-Mail versendet wurde** (`EmailError`): `emailError` in der Antwort von «Person einladen» und
   «Aus Entra hinzufügen» (`mail-not-configured`: kein E-Mail-Versand im Realm, `mail-failed`: eingerichtet, aber
   gescheitert, z. B. Mailserver lehnt die Anmeldung ab; null, wenn versendet oder keine E-Mail verlangt). «Einladung

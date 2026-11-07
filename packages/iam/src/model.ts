@@ -66,59 +66,7 @@ export interface PermissionDef<T extends string = string> {
   resources?: readonly (T | 'org')[];
   /** `false`: nur Personen, in keinem Scope. `members:admin` und `access:admin` immer. */
   scope?: false;
-  /**
-   * Produktmodul (`modules` des Modells) oder Teilfunktion `modul.teil`; ohne Angabe gehört das Recht zum Kern. Ist das
-   * Modul in einer Organisation nicht aktiv, fehlt das Recht in ihrem Modell (`withModules`). Nie bei reservierten Rechten.
-   */
-  modul?: string;
 }
-
-/** Teilfunktion eines Produktmoduls (`modul.teil`); hat keine eigenen Voraussetzungen. */
-export interface ModulePartDef { key: string; label: string; description?: string }
-
-/**
- * Produktmodul (Konzept «Module je Organisation», Abschnitt 2): der Betrieb gibt es je Organisation frei, die
- * Administration der Organisation aktiviert es. Genau ein Modul ist der Kern (`core: true`, immer aktiv).
- */
-export interface ModuleDef {
-  key: string;
-  label: string;
-  description?: string;
-  /** Kern: immer aktiv, nicht abschaltbar, braucht nichts; Rechte ohne `modul` gehören zu ihm. */
-  core?: true;
-  /** Voraussetzungen: ein Schlüssel (Pflicht) oder eine Liste von Schlüsseln (eines davon). */
-  requires?: readonly (string | readonly string[])[];
-  parts?: readonly ModulePartDef[];
-}
-
-/** Paket: benannte Menge von Modulen als Vorbelegung beim Anlegen einer Organisation; kein Zustand der Organisation. */
-export interface PackageDef {
-  key: string;
-  label: string;
-  description?: string;
-  /** Module des Pakets oder `'*'` (alle). */
-  modules: readonly string[] | '*';
-  /** Teilfunktionen (`modul.teil`) der Module, die das Paket ausgeschaltet lässt. */
-  off?: readonly string[];
-}
-
-/** Modul nach der Prüfung (`Model.modules`, Katalog). */
-export interface ModuleInfo {
-  key: string; label: string; description: string; core: boolean;
-  requires: readonly (string | readonly string[])[];
-  /** Teilfunktionen mit vollem Schlüssel `modul.teil`. */
-  parts: readonly { key: string; label: string; description: string }[];
-}
-
-/** Paket nach der Prüfung (`'*'` aufgelöst). */
-export interface PackageInfo { key: string; label: string; description: string; modules: readonly string[]; off: readonly string[] }
-
-/** Schlüssel des stillen Kerns eines Modells ohne `modules`. */
-export const CORE_MODULE = 'kern';
-/** Schlüssel eines Moduls, einer Teilfunktion und eines Pakets. */
-export const MODULE_KEY = /^[a-z][a-z0-9-]{1,30}$/;
-/** Modul oder Teilfunktion (`modul.teil`), auch für SQL. */
-export const MODULE_REF_SQL = '^[a-z][a-z0-9-]{1,30}([.][a-z][a-z0-9-]{1,30})?$';
 
 export interface GroupDef {
   key: string;
@@ -196,14 +144,6 @@ export interface ModelInput<P extends string = string, R extends string = string
   capabilities?: Partial<Record<NoInfer<T> | 'org', Record<string, NoInfer<P> | ReservedPermission>>>;
   mcpTools?: Record<string, McpToolDef<NoInfer<P> | ReservedPermission>>;
   /**
-   * Produktmodule (Konzept «Module je Organisation»): genau eines mit `core: true`. Ohne Angabe ein stilles Modul
-   * `kern` mit allen Rechten (wie bisher). Mit `modules` ist `features.tenantSettings` Standard `true` (Aktivieren
-   * braucht `tenant:admin`).
-   */
-  modules?: readonly ModuleDef[];
-  /** Pakete: Vorbelegung beim Anlegen einer Organisation (`tenant create --paket`). */
-  packages?: readonly PackageDef[];
-  /**
    * `customRoles` (Standard true, braucht `members`): Organisationen stellen eigene Rollen aus den Rechten des Modells
    * zusammen (Recht `roles:admin`, Modul `roles`); die Rollen des Modells bleiben als Vorgabe. `false` schaltet es ab.
    */
@@ -215,7 +155,7 @@ export class ModelError extends Error {
   constructor(errors: string[]) { super(`Modell ungültig:\n  - ${errors.join('\n  - ')}`); this.errors = errors; }
 }
 
-export interface PermissionInfo { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly: boolean; /** Modul oder `modul.teil` (Kern ohne Angabe). */ modul: string }
+export interface PermissionInfo { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly: boolean }
 
 /** Typ (Ort) nach der Prüfung. `relations`: Rollen, `member` und `owner`, wo zulässig. */
 export interface TypeInfo<P extends string = string> {
@@ -231,7 +171,7 @@ export interface TypeInfo<P extends string = string> {
 
 /** Antwort von `GET /v1/authz/catalog` (Kap. 9.5). */
 export interface AuthzCatalogJson {
-  permissions: { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly?: true; modul: string }[];
+  permissions: { key: string; label: string; group: string; description: string; resources: string[]; adminOnly: boolean; personOnly?: true }[];
   groups: { key: string; label: string; match?: string }[];
   roles: { key: string; label: string; description: string; permissions: string[]; adminOnly: boolean; custom?: true }[];
   scopes: { key: string; text: string; permissions: string[] }[];
@@ -241,9 +181,6 @@ export interface AuthzCatalogJson {
   }[];
   classifications: { level: Level; label: string }[];
   mcpTools: { name: string; title: string; permission: string; scope: string | null; readOnly: boolean; openWorld: boolean }[];
-  /** Produktmodule (ohne `modules` im Modell nur der stille Kern). */
-  modules: { key: string; label: string; description: string; core: boolean; requires: (string | string[])[]; parts: { key: string; label: string; description: string }[] }[];
-  packages: { key: string; label: string; description: string; modules: string[]; off: string[] }[];
 }
 
 /** Stichwort einer Gruppe als regulärer Ausdruck (Gross/klein egal); Texte werden wörtlich gesucht. */
@@ -273,8 +210,7 @@ export interface Model<P extends string = string, R extends string = string, T e
   readonly mcpTools: Readonly<Record<string, McpToolDef<P>>>;
   /** Rechte, die bei keiner Rolle ausser `org-admin` stehen (ihre Rolle vergibt nur `platform-admin`). */
   readonly adminOnly: ReadonlySet<P>;
-  /** `modules`: das Modell hat ein Verzeichnis der Produktmodule (sonst nur der stille Kern). */
-  readonly features: { members: boolean; tenantSettings: boolean; audit: boolean; customRoles: boolean; modules: boolean };
+  readonly features: { members: boolean; tenantSettings: boolean; audit: boolean; customRoles: boolean };
   /** Eigene Rollen der Organisation in diesem Modell (`withRoles`); im Modell der App leer. */
   readonly customRoles: ReadonlySet<string>;
   /** Grundmodell der App (ohne eigene Rollen); beim Modell der App es selbst. */
@@ -309,26 +245,6 @@ export interface Model<P extends string = string, R extends string = string, T e
   withRoles(roles: readonly CustomRoleDef[]): Model<P, string, T>;
   /** Befunde zu einer eigenen Rolle (leer: gültig) – Schlüssel, Name, Rechte des Modells ohne Rechte nur von org-admin, Orte. */
   customRoleProblems(role: CustomRoleDef): string[];
-  /** Produktmodule in Reihenfolge (Kern zuerst, sofern die App ihn zuerst nennt); ohne `modules` nur der stille Kern. */
-  readonly modules: readonly ModuleInfo[];
-  /** Pakete in Reihenfolge. */
-  readonly packages: readonly PackageInfo[];
-  /** Schlüssel des Kerns. */
-  readonly coreModule: string;
-  /** Modul bzw. Teilfunktion (`modul.teil`) eines Rechts; Kern bei Rechten ohne `modul` (auch bei unbekannten). */
-  moduleOf(permission: string): string;
-  /**
-   * Aktive Module und Teilfunktionen (aufgelöst): im Modell der App alle, im Modell einer Organisation (`withModules`)
-   * die aktiven. Der Kern ist immer dabei.
-   */
-  readonly activeModules: ReadonlySet<string>;
-  /**
-   * Modell mit nur den Rechten aktiver Module: entfernt Rechte inaktiver Module aus `permissions`, den Rollen, den
-   * Scopes, `owner` und den MCP-Werkzeugen. `active`: Module und Teilfunktionen (`modul.teil`), aufgelöst – eine
-   * Teilfunktion gilt nur, wenn sie und ihr Modul in der Liste stehen; der Kern gilt immer. Unbekannte Schlüssel zählen
-   * nicht. Rollen bleiben (auch leer). Ohne `modules` im Modell: das Modell selbst.
-   */
-  withModules(active: Iterable<string>): Model<P, R, T>;
   /**
    * Wirksame Rechte, auf die das Modell eingeschränkt ist (`withPermissions`, Haken `tenantPermissions` der App); null
    * ohne Einschränkung (im Modell der App immer null).
@@ -336,10 +252,10 @@ export interface Model<P extends string = string, R extends string = string, T e
   readonly allowedPermissions: ReadonlySet<P> | null;
   /**
    * Modell mit nur den Rechten in `allowed` (Haken «Rechte je Organisation», `tenantPermissions`): entfernt die übrigen
-   * Rechte wie `withModules` aus `permissions`, den Rollen (auch eigenen), den Scopes, `owner` und den MCP-Werkzeugen.
-   * Reservierte Rechte (`tenant:*`, `members:admin`, `access:admin`, `audit:read`, `roles:admin`) bleiben immer;
-   * unbekannte Rechte zählen nicht. Wirkt zusätzlich zu `withModules` (Schnittmenge) und ersetzt eine frühere
-   * Einschränkung; `null` hebt sie auf. Rollen bleiben (auch leer).
+   * Rechte aus `permissions`, den Rollen (auch eigenen), den Scopes, `owner` und den MCP-Werkzeugen. Reservierte Rechte
+   * (`tenant:*`, `members:admin`, `access:admin`, `audit:read`, `roles:admin`) bleiben immer; unbekannte Rechte zählen
+   * nicht. Ersetzt eine frühere Einschränkung; `null` hebt sie auf. Rollen bleiben (auch leer). So schliesst eine App
+   * z. B. ein eigenes Modulkonzept an.
    */
   withPermissions(allowed: Iterable<string> | null): Model<P, R, T>;
 }
@@ -355,8 +271,11 @@ export function defineModel<const P extends string, const R extends string, cons
   type RR = R | typeof ADMIN_ROLE;
   type TT = T | typeof ORG;
   const errors: string[] = [], warnings: string[] = [];
-  const hasModules = input.modules !== undefined;
-  const features = { members: true, tenantSettings: hasModules, audit: false, customRoles: true, ...input.features, modules: hasModules };
+  const features = { members: true, tenantSettings: false, audit: false, customRoles: true, ...input.features };
+  // Modulkonzept seit @vollholz/iam 7 Sache der App (Haken `tenantPermissions`): alte Angaben nicht still übergehen
+  const legacy = input as { modules?: unknown; packages?: unknown; features?: { modules?: unknown } };
+  for (const k of ['modules', 'packages'] as const) if (legacy[k] !== undefined) errors.push(`${k}: Produktmodule sind seit @vollholz/iam 7 Sache der App (Rechte je Organisation über den Haken tenantPermissions); ${k} aus dem Modell entfernen`);
+  if (legacy.features?.modules !== undefined) errors.push('features.modules: entfällt seit @vollholz/iam 7 (Modulkonzept in der App, Haken tenantPermissions)');
   if (!features.members) features.customRoles = false;
   const typesIn = Object.entries(input.types ?? {}) as [string, TypeDef][];
   const hasPlaces = typesIn.some(([k]) => k !== ORG);
@@ -448,7 +367,7 @@ export function defineModel<const P extends string, const R extends string, cons
     const resources = [...(d.resources ?? [ORG])] as string[];
     if (!resources.includes(ORG)) errors.push(`Recht «${k}»: resources ohne «org» (M2)`);
     for (const r of resources) if (!typeKeys.has(r)) errors.push(`Recht «${k}»: Typ «${r}» in resources nicht im Modell (M2)`);
-    info.set(k as Q, { key: k, label: d.label ?? '', group: d.group ?? '', description: d.description ?? '', resources: [...new Set(resources)], adminOnly: false, personOnly: d.scope === false || PERSON_ONLY.includes(k), modul: '' });
+    info.set(k as Q, { key: k, label: d.label ?? '', group: d.group ?? '', description: d.description ?? '', resources: [...new Set(resources)], adminOnly: false, personOnly: d.scope === false || PERSON_ONLY.includes(k) });
   }
   const isPermission = (v: string): v is Q => info.has(v as Q);
 
@@ -590,118 +509,13 @@ export function defineModel<const P extends string, const R extends string, cons
   const classifications = (input.classifications ?? CLASSIFICATIONS) as readonly [string, string, string];
   if (classifications.length !== 3 || classifications.some(c => typeof c !== 'string' || !c.trim())) errors.push('classifications: genau drei nicht leere Labels (M12)');
 
-  // ---------------------------------------------------------------- Produktmodule und Pakete
-  const { modules, packages, core } = checkModules(input.modules, input.packages, errors);
-  const refs = new Set(modules.flatMap(m => [m.key, ...m.parts.map(x => x.key)]));
-  for (const [k, d] of ordered) {
-    const i = info.get(k as Q)!;
-    if (d.modul === undefined) { i.modul = core; continue; }
-    if (Object.hasOwn(RESERVED_PERMISSIONS, k)) errors.push(`Recht «${k}»: reservierte Rechte gehören immer zum Kern, ohne modul`);
-    else if (!hasModules) errors.push(`Recht «${k}»: modul «${d.modul}» ohne modules im Modell`);
-    else if (!refs.has(d.modul)) errors.push(`Recht «${k}»: modul «${d.modul}» nicht im Modell (Modul oder modul.teil)`);
-    i.modul = d.modul;
-  }
+  for (const [k, d] of ordered) if ((d as { modul?: unknown }).modul !== undefined) errors.push(`Recht «${k}»: modul entfällt seit @vollholz/iam 7 (Modulkonzept in der App, Haken tenantPermissions)`);
 
   if (errors.length) throw new ModelError(errors);
 
   return assemble<Q, RR, TT>({
-    product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })), roles, scopes, types, leaf: leaves[0] ?? null, classifications, capabilities, mcpTools, adminOnly, features, warnings, readScope, custom: new Set(),
-    modules, packages, core, active: refs, allowed: null,
+    product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })), roles, scopes, types, leaf: leaves[0] ?? null, classifications, capabilities, mcpTools, adminOnly, features, warnings, readScope, custom: new Set(), allowed: null,
   }, null);
-}
-
-/** Verzeichnis der Produktmodule und Pakete prüfen (Konzept «Module je Organisation», Abschnitt 2). */
-function checkModules(input: readonly ModuleDef[] | undefined, pkgs: readonly PackageDef[] | undefined, errors: string[]): { modules: ModuleInfo[]; packages: PackageInfo[]; core: string } {
-  if (input === undefined) {
-    if (pkgs?.length) errors.push('packages ohne modules');
-    return { modules: [{ key: CORE_MODULE, label: 'Kern', description: '', core: true, requires: [], parts: [] }], packages: [], core: CORE_MODULE };
-  }
-  const keys = new Set<string>();
-  for (const m of input) {
-    if (!MODULE_KEY.test(m.key ?? '')) errors.push(`Modul «${m.key}»: Schlüssel nicht ${MODULE_KEY}`);
-    if (keys.has(m.key)) errors.push(`Modul «${m.key}» mehrfach`);
-    keys.add(m.key);
-    if (!m.label?.trim()) errors.push(`Modul «${m.key}»: Label fehlt`);
-  }
-  const cores = input.filter(m => m.core);
-  if (cores.length !== 1) errors.push(`Genau ein Modul mit core: true (gefunden: ${cores.length ? cores.map(m => `«${m.key}»`).join(', ') : 'keines'})`);
-  const core = cores[0]?.key ?? CORE_MODULE;
-  const byKey = new Map(input.map(m => [m.key, m]));
-  for (const m of input) {
-    const req = m.requires ?? [];
-    if (m.core && req.length) errors.push(`Modul «${m.key}»: der Kern braucht nichts (requires)`);
-    for (const r of req) {
-      const alts = typeof r === 'string' ? [r] : [...r];
-      if (!alts.length) errors.push(`Modul «${m.key}»: requires mit leerer Liste`);
-      for (const a of alts) {
-        if (a === m.key) errors.push(`Modul «${m.key}»: braucht sich selbst`);
-        else if (!byKey.has(a)) errors.push(`Modul «${m.key}»: Voraussetzung «${a}» nicht im Modell`);
-      }
-    }
-    const parts = new Set<string>();
-    for (const p of m.parts ?? []) {
-      if (!MODULE_KEY.test(p.key ?? '')) errors.push(`Teilfunktion «${m.key}.${p.key}»: Schlüssel nicht ${MODULE_KEY}`);
-      if (parts.has(p.key)) errors.push(`Teilfunktion «${m.key}.${p.key}» mehrfach`);
-      parts.add(p.key);
-      if (!p.label?.trim()) errors.push(`Teilfunktion «${m.key}.${p.key}»: Label fehlt`);
-      if ((p as { requires?: unknown }).requires !== undefined) errors.push(`Teilfunktion «${m.key}.${p.key}»: Teilfunktionen haben keine eigenen requires`);
-    }
-  }
-  // Keine Zyklen (über alle genannten Schlüssel, auch «eines von»)
-  const state = new Map<string, 1 | 2>();
-  const cyclic = new Set<string>();
-  const visit = (k: string, path: string[]) => {
-    if (state.get(k) === 2) return;
-    if (state.get(k) === 1) { const c = path.slice(path.indexOf(k)); if (!cyclic.has(c.slice().sort().join())) { cyclic.add(c.slice().sort().join()); errors.push(`Module: Voraussetzungen im Kreis (${[...c, k].join(' → ')})`); } return; }
-    state.set(k, 1);
-    for (const r of byKey.get(k)?.requires ?? []) for (const a of typeof r === 'string' ? [r] : r) if (byKey.has(a) && a !== k) visit(a, [...path, k]);
-    state.set(k, 2);
-  };
-  for (const m of input) visit(m.key, []);
-  // Jedes Modul braucht (transitiv) den Kern: direkt, über einen Pflichteintrag oder über eine Liste, deren Einträge alle den Kern brauchen
-  if (!cyclic.size && cores.length === 1) {
-    const reaches = new Map<string, boolean>([[core, true]]);
-    const reach = (k: string, seen: Set<string>): boolean => {
-      if (reaches.has(k)) return reaches.get(k)!;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      const ok = (byKey.get(k)?.requires ?? []).some(r => (typeof r === 'string' ? [r] : [...r]).every(a => byKey.has(a) && reach(a, seen)) && (typeof r === 'string' || r.length > 0));
-      reaches.set(k, ok);
-      return ok;
-    };
-    for (const m of input) if (!m.core && !reach(m.key, new Set())) errors.push(`Modul «${m.key}»: braucht den Kern «${core}» nicht (requires, auch transitiv)`);
-  }
-  const modules: ModuleInfo[] = input.map(m => ({
-    key: m.key, label: m.label, description: m.description ?? '', core: !!m.core,
-    requires: (m.requires ?? []).map(r => (typeof r === 'string' ? r : [...r])),
-    parts: (m.parts ?? []).map(p => ({ key: `${m.key}.${p.key}`, label: p.label, description: p.description ?? '' })),
-  }));
-  const partKeys = new Set(modules.flatMap(m => m.parts.map(p => p.key)));
-  // Pakete
-  const packages: PackageInfo[] = [];
-  const pkgKeys = new Set<string>();
-  for (const p of pkgs ?? []) {
-    if (!MODULE_KEY.test(p.key ?? '')) errors.push(`Paket «${p.key}»: Schlüssel nicht ${MODULE_KEY}`);
-    if (pkgKeys.has(p.key)) errors.push(`Paket «${p.key}» mehrfach`);
-    pkgKeys.add(p.key);
-    if (!p.label?.trim()) errors.push(`Paket «${p.key}»: Label fehlt`);
-    const list = p.modules === '*' ? input.map(m => m.key) : [...new Set(p.modules)];
-    if (p.modules !== '*') for (const k of list) if (!byKey.has(k)) errors.push(`Paket «${p.key}»: Modul «${k}» nicht im Modell`);
-    if (!list.includes(core)) errors.push(`Paket «${p.key}»: ohne den Kern «${core}»`);
-    for (const k of list) {
-      for (const r of byKey.get(k)?.requires ?? []) {
-        const alts = typeof r === 'string' ? [r] : [...r];
-        if (alts.length && !alts.some(a => list.includes(a))) errors.push(`Paket «${p.key}»: Modul «${k}» braucht ${alts.length > 1 ? `eines von ${alts.map(a => `«${a}»`).join(', ')}` : `«${alts[0]}»`}`);
-      }
-    }
-    const off = [...new Set(p.off ?? [])];
-    for (const o of off) {
-      if (!partKeys.has(o)) errors.push(`Paket «${p.key}»: off «${o}» ist keine Teilfunktion (modul.teil)`);
-      else if (!list.includes(o.split('.')[0]!)) errors.push(`Paket «${p.key}»: off «${o}» gehört zu keinem Modul des Pakets`);
-    }
-    packages.push({ key: p.key, label: p.label, description: p.description ?? '', modules: list, off });
-  }
-  return { modules, packages, core };
 }
 
 interface Parts<Q extends string> {
@@ -714,12 +528,9 @@ interface Parts<Q extends string> {
   adminOnly: Set<Q>; features: Model['features']; warnings: string[]; readScope: string;
   /** Eigene Rollen der Organisation (Schlüssel). */
   custom: Set<string>;
-  modules: ModuleInfo[]; packages: PackageInfo[]; core: string;
-  /** Aktive Module und Teilfunktionen (aufgelöst, mit Kern). */
-  active: ReadonlySet<string>;
   /** Einschränkung der Rechte (`withPermissions`), null ohne. */
   allowed: ReadonlySet<Q> | null;
-  /** Nur nach `withModules` oder `withPermissions`: dieselben Teile ohne Filter. */
+  /** Nur nach `withPermissions`: dieselben Teile ohne Filter. */
   unfiltered?: Parts<Q>;
 }
 
@@ -766,44 +577,31 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
     return out;
   };
 
-  const moduleOf = (p: string) => info.get(p as Q)?.modul ?? o.core;
-  // Rechte dieses Modells (ohne die inaktiver Module); `info` kennt alle Rechte der App (Texte, eigene Rollen)
+  // Rechte dieses Modells (ohne die ausgeschlossenen); `info` kennt alle Rechte der App (Texte, eigene Rollen)
   const permSet = new Set(permissions);
 
-  // Filter der Rechte je Organisation: aktive Module (`withModules`) ∩ Einschränkung (`withPermissions`). Immer vom
-  // Modell ohne Filter aus (Modell der App bzw. mit eigenen Rollen): erneuter Aufruf ersetzt die jeweilige Menge.
-  const filtered = (active: ReadonlySet<string>, allowed: ReadonlySet<Q> | null): Model<Q, RR, TT> => {
+  // Filter der Rechte je Organisation (`withPermissions`). Immer vom Modell ohne Filter aus (Modell der App bzw. mit
+  // eigenen Rollen): erneuter Aufruf ersetzt die Menge.
+  const filtered = (allowed: ReadonlySet<Q>): Model<Q, RR, TT> => {
     const src = o.unfiltered ?? o;
-    const moduleOn = (p: Q) => { const m = info.get(p)?.modul ?? o.core; return active.has(m) && (!m.includes('.') || active.has(m.split('.')[0]!)); };
-    const on = (p: Q) => moduleOn(p) && (!allowed || allowed.has(p) || Object.hasOwn(RESERVED_PERMISSIONS, p));
+    const on = (p: Q) => allowed.has(p) || Object.hasOwn(RESERVED_PERMISSIONS, p);
     const keep = (ps: readonly Q[]) => ps.filter(on);
     const roles2 = new Map([...src.roles].map(([k, r]) => [k, { ...r, permissions: keep(r.permissions) }]));
     const scopes2 = new Map([...src.scopes].map(([k, s]) => [k, { ...s, permissions: keep(s.permissions) }]));
     const tools2 = Object.fromEntries(Object.entries(src.mcpTools).filter(([, t]) => on(t.permission)));
-    return assemble<Q, RR, TT>({ ...src, permissions: keep(src.permissions), roles: roles2, scopes: scopes2, mcpTools: tools2, active, allowed, unfiltered: src }, base ?? self);
-  };
-
-  const withModules = (activeIn: Iterable<string>): Model<Q, RR, TT> => {
-    if (!o.features.modules) return self;
-    const known = new Set(o.modules.flatMap(m => [m.key, ...m.parts.map(x => x.key)]));
-    const want = new Set([...activeIn].filter(k => known.has(k)));
-    want.add(o.core);
-    // Teilfunktion nur mit ihrem Modul
-    const active = new Set([...want].filter(k => !k.includes('.') || want.has(k.split('.')[0]!)));
-    return filtered(active, o.allowed);
+    return assemble<Q, RR, TT>({ ...src, permissions: keep(src.permissions), roles: roles2, scopes: scopes2, mcpTools: tools2, allowed, unfiltered: src }, base ?? self);
   };
 
   const withPermissions = (allowedIn: Iterable<string> | null): Model<Q, RR, TT> => {
-    if (allowedIn === null) return o.allowed ? filtered(o.active, null) : self;
-    const allowed = new Set([...allowedIn].filter((p): p is Q => info.has(p as Q)));
-    return filtered(o.active, allowed);
+    if (allowedIn === null) return o.unfiltered ? assemble<Q, RR, TT>({ ...o.unfiltered, allowed: null, unfiltered: undefined }, base) : self;
+    return filtered(new Set([...allowedIn].filter((p): p is Q => info.has(p as Q))));
   };
 
   const withRoles = (defs: readonly CustomRoleDef[]): Model<Q, string, TT> => {
     const root = (base ?? self) as Model<Q, string, TT>;
-    // Immer vom Modell ohne Modulfilter aus; ein gefiltertes Modell behält danach seine Module
+    // Immer vom Modell ohne Filter aus; ein eingeschränktes Modell behält danach seine Einschränkung
     const src = o.unfiltered ?? o;
-    const refilter = (m: Model<Q, string, TT>) => (o.unfiltered ? m.withModules(o.active).withPermissions(o.allowed) : m);
+    const refilter = (m: Model<Q, string, TT>) => (o.unfiltered ? m.withPermissions(o.allowed) : m);
     if (!o.features.customRoles || !defs.length) return refilter(root);
     const r2 = new Map(src.roles), custom = new Set<string>();
     const at = new Map<string, string[]>();
@@ -836,7 +634,7 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
     toJSON: () => ({
       permissions: permissions.map(k => {
         const i = info.get(k)!;
-        return { key: i.key, label: i.label, group: i.group, description: i.description, resources: i.resources, adminOnly: i.adminOnly, ...(i.personOnly ? { personOnly: true as const } : {}), modul: i.modul };
+        return { key: i.key, label: i.label, group: i.group, description: i.description, resources: i.resources, adminOnly: i.adminOnly, ...(i.personOnly ? { personOnly: true as const } : {}) };
       }),
       groups: groups.map(g => ({ key: g.key, label: g.label, ...(g.match ? { match: g.match.source } : {}) })),
       roles: [...roles].map(([key, r]) => ({ key, label: r.label, description: r.description, permissions: [...r.permissions], adminOnly: key === ADMIN_ROLE, ...(o.custom.has(key) ? { custom: true as const } : {}) })),
@@ -848,12 +646,9 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
       })),
       classifications: classifications.map((label, level) => ({ level: level as Level, label })),
       mcpTools: Object.entries(mcpTools).map(([name, t]) => ({ name, title: t.title, permission: t.permission, scope: scopeForPermission(t.permission), readOnly: t.readOnly, openWorld: t.openWorld ?? false })),
-      modules: o.modules.map(m => ({ key: m.key, label: m.label, description: m.description, core: m.core, requires: m.requires.map(r => (typeof r === 'string' ? r : [...r])), parts: m.parts.map(x => ({ ...x })) })),
-      packages: o.packages.map(p => ({ key: p.key, label: p.label, description: p.description, modules: [...p.modules], off: [...p.off] })),
     }),
     platformJson: () => `${JSON.stringify({ scopes: [...scopes.keys()] }, null, 2)}\n`,
     withRoles, customRoleProblems,
-    modules: o.modules, packages: o.packages, coreModule: o.core, moduleOf, activeModules: o.active, withModules,
     allowedPermissions: o.allowed, withPermissions,
   };
   return self;

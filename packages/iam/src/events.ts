@@ -7,8 +7,7 @@
  *   before   `member.removing`                         darf ablehnen (wirft); vor jeder Änderung in Keycloak
  *   after    `member.removed`, `member.left`,          nach der Änderung; wirft der Haken, wird die Transaktion
  *            `access.granted`, `access.revoked`,       zurückgerollt
- *            `access.expired`,
- *            `module.activated`, `module.deactivated`
+ *            `access.expired`
  *
  * Rollen sind Tupel (Subjekt hat Relation an Ort, Kap. 7.4): Jede Rolle, die an einem Ort vergeben, im Ablauf geändert
  * oder entzogen wird, meldet `TupleStore` als `access.*` (auch Rollen an org aus «Rollen setzen», Einladen und
@@ -52,14 +51,6 @@ export type MemberEventData = {
 /** Daten zum Austritt, den der Abgleich mit Keycloak feststellt (`member.left`, z. B. in der Konsole entfernt). */
 export type MemberLeftEventData = { userId: string; principalId: string };
 
-/** Daten zum Aktivieren bzw. Deaktivieren eines Produktmoduls (`module.activated`, `module.deactivated`). */
-export type ModuleEventData = {
-  /** Modul oder Teilfunktion `modul.teil`. */
-  module: string;
-  /** Principal der Organisation, der geschaltet hat; null beim Betrieb (Plattform-Administration, Befehlszeile, Entziehen). */
-  by: string | null;
-};
-
 export interface IamEventMap {
   'member.removing': MemberEventData;
   'member.removed': MemberEventData;
@@ -67,8 +58,6 @@ export interface IamEventMap {
   'access.granted': AccessEventData;
   'access.revoked': AccessEventData;
   'access.expired': AccessEventData;
-  'module.activated': ModuleEventData;
-  'module.deactivated': ModuleEventData;
 }
 export type IamEventType = keyof IamEventMap;
 /** Ereignisse vor einer Änderung (dürfen ablehnen). */

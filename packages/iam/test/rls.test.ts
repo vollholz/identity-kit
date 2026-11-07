@@ -32,7 +32,7 @@ const POLICIES = [
   'notes.authz_tuple.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.authz_role.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.audit_log.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
-  // Produktmodule (iam_022): Schreiben nur über die Funktionen (SECURITY DEFINER) im Kontext des Mandanten
+  // Tabelle tenant_module aus iam_022 (ab iam 7 Eigentum der App, von iam nicht mehr genutzt): Schreiben nur über die Funktionen (SECURITY DEFINER) im Kontext des Mandanten
   'notes.tenant_module.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
 ];
 

@@ -30,8 +30,7 @@ import pg from 'pg';
 import { productIdent } from './config.ts';
 import { pgSsl, type DbSsl } from './db.ts';
 import { LOCKS } from './locks.ts';
-import { pgAudit } from './audit.ts';
-import { ADMIN_ROLE, CUSTOM_ROLE_SQL, MODULE_KEY, ORG, type Model } from './model.ts';
+import { ADMIN_ROLE, CUSTOM_ROLE_SQL, ORG, type Model } from './model.ts';
 
 export interface Migration { name: string; sql: string; checksum: string }
 
@@ -129,7 +128,7 @@ export function iamMigrations(o: IamMigrationOptions): MigrationSource {
   const migrations = files.map(f => migration(f, render(readFileSync(join(IAM_MIGRATIONS_DIR, f), 'utf8'), { schema, ...roles })));
   return {
     name: 'iam', migrations, owner: roles.owner,
-    sync: async c => [...await syncModelChecks(c, schema, checks), ...await syncModules(c, schema, checks?.modules)],
+    sync: c => syncModelChecks(c, schema, checks),
     ...(o.adopted ? { adopt: adoption(o.adopted, migrations, schema, roles.app, roles.sched) } : {}),
   };
 }
@@ -152,48 +151,14 @@ export interface ModelChecksInput {
   places?: Readonly<Record<string, readonly string[]>>;
   /** Eigene Rollen der Organisationen zulassen (Relationen «c-…»; ihre Orte prüft der Trigger aus iam_019). */
   customRoles?: boolean;
-  /**
-   * Produktmodule des Modells (Schlüssel mit Kern, ohne Teilfunktionen), nur mit `modules` im Modell: Organisationen ohne
-   * Zeilen in `tenant_module` erhalten beim Abgleich alle Module erlaubt und aktiv (`syncModules`).
-   */
-  modules?: readonly string[];
 }
 
 /** Typen und Relationen eines Modells (Relationen aller Typen und alle Rollen). */
-export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'> & { features?: Partial<Pick<Model['features'], 'customRoles' | 'modules'>>; modules?: Model['modules'] }): ModelChecksInput {
+export function modelChecksInput(model: Pick<Model, 'types' | 'allRelations'> & { features?: Partial<Pick<Model['features'], 'customRoles'>> }): ModelChecksInput {
   return {
     types: [...model.types.keys()], relations: model.allRelations(), places: Object.fromEntries([...model.types].map(([k, t]) => [k, t.relations])),
     ...(model.features?.customRoles ? { customRoles: true } : {}),
-    ...(model.features?.modules && model.modules ? { modules: model.modules.map(m => m.key) } : {}),
   };
-}
-
-/**
- * Erste Belegung der Produktmodule (Konzept «Module je Organisation», Abschnitt 10): Jede Organisation ohne Zeile in
- * `tenant_module` erhält alle Module erlaubt und aktiv (`app.backfill_modules`), protokolliert als
- * `tenant.module_backfill`. So ändert das Einführen von Modulen für keine bestehende Organisation etwas. Ohne Module im
- * Modell oder vor iam_022: nichts. Läuft als Besitzer-Rolle (Abgleich nach den Migrationen).
- */
-export async function syncModules(c: pg.ClientBase, schema: string, modules: readonly string[] | undefined): Promise<string[]> {
-  if (!IDENT.test(schema)) throw new Error(`schema: ungültiger Bezeichner «${schema}»`);
-  if (!modules?.length) return [];
-  for (const k of modules) if (!MODULE_KEY.test(k)) throw new Error(`model: Modul «${k}» ungültig`);
-  if (!(await c.query('SELECT to_regclass($1) AS t', [`${schema}.tenant_module`])).rows[0].t) return [];
-  const audit = pgAudit({ schema });
-  const prev = (await c.query<{ v: string | null }>("SELECT current_setting('app.tenant_id', true) AS v")).rows[0]!.v ?? '';
-  const done: string[] = [];
-  try {
-    for (const t of (await c.query<{ id: string; alias: string }>('SELECT id, alias FROM app.platform_tenants()')).rows) {
-      await c.query("SELECT set_config('app.tenant_id', $1, true)", [t.id]);
-      const n = (await c.query<{ n: number }>('SELECT app.backfill_modules($1) AS n', [modules])).rows[0]!.n;
-      if (!n) continue;
-      await audit.write(c, { principal: null, source: 'system', correlationId: 'ops:migrate' }, { action: 'tenant.module_backfill', resourceType: 'tenant', resourceId: t.id, data: { modules: [...modules] } });
-      done.push(t.alias);
-    }
-  } finally {
-    await c.query("SELECT set_config('app.tenant_id', $1, true)", [prev]);
-  }
-  return done.length ? [`Produktmodule: alle Module erlaubt und aktiv für ${done.length} Organisation(en) (${done.join(', ')})`] : [];
 }
 
 function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
@@ -202,7 +167,7 @@ function checkInput(o: ModelChecksInput | undefined): ModelChecksInput {
   for (const t of [...types, ...relations]) if (!TYPE.test(t)) throw new Error(`model: Schlüssel «${t}» ungültig`);
   const places = o?.places;
   if (places) for (const [t, rels] of Object.entries(places)) for (const x of [t, ...rels]) if (!TYPE.test(x)) throw new Error(`model: Schlüssel «${x}» ungültig`);
-  return { types, relations, ...(places ? { places } : {}), ...(o?.customRoles ? { customRoles: true } : {}), ...(o?.modules ? { modules: o.modules } : {}) };
+  return { types, relations, ...(places ? { places } : {}), ...(o?.customRoles ? { customRoles: true } : {}) };
 }
 
 const lit = (v: string) => `'${v}'`;

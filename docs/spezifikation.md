@@ -182,7 +182,7 @@ Im Backend-Paket `@vollholz/iam` (`npx …`). Anmeldung bei Keycloak mit dem Ser
 |---|---|
 | `iam-org-bootstrap --operator --email … [--first] [--last]` | Konto des Betriebs mit der Realm-Rolle `PLATFORM_ADMIN_ROLE`, ohne Organisation ([6.3](#63-konto-ohne-organisation)); Abbruch, wenn die Person Mitglied einer Organisation ist; braucht keine Datenbank; idempotent |
 | `iam-org-bootstrap --alias … --email … [--name] [--domain] [--first] [--last]` | Organisation und eine Person als org-admin (Schritt 7, A20); Abbruch, wenn die Person Betrieb ist (Betrieb und Organisation nie mit demselben Konto); idempotent |
-| `iam-org-bootstrap --file <init.json>` | dasselbe für den Betrieb und alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "operators"?: [ { "email", "first"?, "last"? } ], "organizations"?: [ { "alias", "name"?, "admins": [ { "email", "first"?, "last"? } ] } ] }`, mindestens ein Eintrag, keine Adresse in beiden; nicht zusammen mit den Einzel-Flags |
+| `iam-org-bootstrap --file <init.json>` | dasselbe für den Betrieb und alle Organisationen und Admins der Datei (Format `schema/init.schema.json` im Paket, wird geprüft): `{ "operators"?: [ { "email", "first"?, "last"? } ], "organizations"?: [ { "alias", "name"?, "app"?, "admins": [ { "email", "first"?, "last"? } ] } ] }`, mindestens ein Eintrag, keine Adresse in beiden; `app`: app-eigene Angaben (ungeprüft), programmatisch an den Haken `afterOrganization` der App (Startdaten, nach Organisation und Admin, vor der Einladung, nicht im Probelauf); nicht zusammen mit den Einzel-Flags |
 | `iam-org-bootstrap --manifest identity.app.json` | dasselbe für die Felder `operators` und `organizations` des Manifests der App ([15.4](#154-manifest-gerüst-und-lock-datei)); übrige Felder unbeachtet |
 | alle zusätzlich | `[--schema …] [--initial-password] [--dry-run]` (Probelauf: nur lesen, Schritte melden) |
 | Datenbank Pflicht (ab 2.1) | ohne `DATABASE_ADMIN_URL` Abbruch (ausser `--dry-run` und `--operator`): sonst entstünde eine Organisation ohne `org-admin`. Nur Keycloak ausdrücklich mit `--keycloak-only` (programmatisch `database: null`); Mandant, Tupel und Freigabestufe setzt dann ein eigener Schritt |
@@ -1331,15 +1331,14 @@ CREATE TRIGGER authz_tuple_acl_version AFTER INSERT OR UPDATE OR DELETE ON <prod
 
 ### 10.4 Audit: betroffene Person und Suche
 
-- **Schreiben:** `AuditPort.write(tx, who, { action, resourceType?, resourceId?, subject?, data? })` (in
-  `@vollholz/platform`: `record(tx, who, { …, subject? })`). `subject` ist die Kennung der betroffenen Person nach Wahl
+- **Schreiben:** `AuditPort.write(tx, who, { action, resourceType?, resourceId?, subject?, data? })`. `subject` ist die Kennung der betroffenen Person nach Wahl
   der App (höchstens 200 Zeichen) in der Spalte `subject_id`; Index `(tenant_id, subject_id, ts)`. Ohne `subject`
   schreibt das Paket die Spalte nicht (Aufrufe laufen so auch vor iam_021).
 - **Hash-Kette:** Einträge ohne `subject_id` hashen in Version 2 (wie vor iam_021), mit `subject_id` in Version 3
   (dieselben Felder, `subject_id` am Ende). Bestehende Hashes bleiben gültig; geprüft wird weiterhin mit
   `hash = app.audit_hash(prev_hash, l)`.
 - **Suche:** `pgAuditSearch({ schema, subjectFallback? })(tx, { subject?, resourceType?, resourceId?, actor?, from, to,
-  cursor?, limit?, order? })` (in `@vollholz/platform`: `platform.auditSearch`) im Mandanten der Transaktion; Zeitraum
+  cursor?, limit?, order? })` im Mandanten der Transaktion; Zeitraum
   `[from, to)` Pflicht, Seiten über `(ts, seq)` (Standard neueste zuerst, höchstens 200), Cursor nur für dieselben
   Filter. Rückfall für Einträge ohne `subject_id`: ein Feld in `data` (`dataKeys`) oder das Objekt
   (`resourceTypes`, `resource_id` = Kennung); die Namen legt die App fest. Indizes für Objekt `(tenant_id,

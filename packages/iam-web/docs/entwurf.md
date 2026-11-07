@@ -38,7 +38,7 @@ produktneutral wird](#19-was-produktneutral-wird)).
 | Import | Inhalt | Warum getrennt |
 |---|---|---|
 | `@vollholz/iam-web` | `IamProvider`, Hooks, Rechte-Bausteine, Routen-Guard, Kontomenü, Grundkomponenten, `iamRoutes` und `IamNav` | Kern, den jede Seite der App braucht; die Routen liegen hier, damit Router und Navigation der App die Seiten nicht mitladen |
-| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Module, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …); Hilfen der Seite «Module» (`moduleApi`, `useModules`, `activationPlan`, …) samt Texten `iam.modules.*` | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein (Prüfung: `test/package.test.ts`, Grösse: `node scripts/size.ts`) |
+| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …) | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein (Prüfung: `test/package.test.ts`, Grösse: `node scripts/size.ts`) |
 | `@vollholz/iam-web/testing` | `StaticIam` (feste Sitzung ohne Server), `mockIamApi` (fetch-Ersatz für `/auth/*` und `/v1/…` des Vertrags), Beispiel-`Me` und Beispielkatalog | Tests der App ohne eigene Nachbildung |
 | `@vollholz/iam-web/styles.css` | Struktur und Aussehen aus `--iam-*` | Einmal in der App importieren |
 
@@ -173,7 +173,6 @@ Aus `@vollholz/iam-web/pages`; jede Seite prüft ihr Recht selbst nicht, das mac
 |---|---|---|
 | `MembersPage` | `/verwalten/mitglieder` | `members:admin` |
 | `RolesPage` | `/verwalten/rollen` | `members:admin` (Seite und Navigation; `GET /v1/roles` bleibt mit `tenant:read` lesbar) |
-| `ModulesPage` | `/einstellungen/module` (nur mit Modulen im Modell bzw. `features.modules`) | `tenant:read` (sehen), `tenant:admin` (schalten) |
 | `ClientsPage` | `/verwalten/maschinen-clients` | `members:admin` |
 | `EntraPage`, `EntraConsentReturn`, `EntraTestReturn` | `/verwalten/anmeldung`, `…/zustimmung`, `…/test` (nur mit `features.entra`) | `members:admin` bzw. API prüft |
 | `AccessPage` | `/verwalten/zugriff` | `acl:read` |
@@ -188,9 +187,13 @@ Maschinen-Clients und Organisationen (PR 5a); Anmeldung (5b) und Zugriff (6) kom
 Detailseite steht in der Schreibweise von React Router (`/verwalten/organisationen/:alias`, TanStack Router: `$alias`);
 die Seite liest den Alias selbst aus dem Pfad oder nimmt ihn als Prop.
 
+Keine Seite für Produktmodule (entfernt in 4.0.0, Entscheid vom 7.11.2026): Ein Modulkonzept ist Sache der App. Sie
+begrenzt die Rechte je Organisation über den Hook `tenantPermissions` von `@vollholz/iam` und zeichnet ihre eigene
+Seite dafür; das Paket muss davon nichts wissen.
+
 ```ts
 interface IamRoute {
-  id: 'members' | 'roles' | 'modules' | 'clients' | 'entra' | 'entraConsent' | 'entraTest' | 'access' | 'organizations' | 'organization';
+  id: 'members' | 'roles' | 'clients' | 'entra' | 'entraConsent' | 'entraTest' | 'access' | 'organizations' | 'organization';
   path: string;                                  // aus `paths`
   need: { perm: Permission } | { platformAdmin: true } | null;   // null: die API prüft (Rückkehrseiten von Entra)
   readonly title: string;                        // in der Sprache der Texte (beim Lesen)

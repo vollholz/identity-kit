@@ -38,9 +38,9 @@ export const KIT_SECURITY_DEFINER: Record<string, string> = {
   'app.account_reserve_org(p_account uuid, p_limit integer)': 'Konto: Höchstzahl selbst erstellter Organisationen (atomar)',
   'app.account_release_org(p_account uuid)': 'Konto: Reservierung zurückgeben',
   'app.platform_audit(p_actor_kind text, p_actor_id uuid, p_actor_name text, p_source text, p_action text, p_resource_type text, p_resource_id uuid, p_org uuid, p_correlation text, p_data jsonb)': 'Protokoll der Plattform: nur anhängen',
-  'app.set_module_allowed(p_tenant uuid, p_module text, p_allowed boolean)': 'Produktmodule: Betrieb gibt frei bzw. entzieht (iam 6.1, API prüft platform-admin)',
-  'app.set_module_active(p_module text, p_active boolean)': 'Produktmodule: Organisation schaltet im eigenen Kontext, nur erlaubte (iam 6.1, API prüft tenant:admin)',
-  'app.backfill_modules(p_modules text[])': 'Produktmodule: erste Belegung einer Organisation ohne Zeilen (iam 6.1)',
+  'app.set_module_allowed(p_tenant uuid, p_module text, p_allowed boolean)': 'Produktmodule: Betrieb gibt frei bzw. entzieht (iam 6.1, API prüft platform-admin); ab iam 7 nicht mehr von iam genutzt, Tabelle tenant_module gehört der App',
+  'app.set_module_active(p_module text, p_active boolean)': 'Produktmodule: Organisation schaltet im eigenen Kontext, nur erlaubte (iam 6.1, API prüft tenant:admin); ab iam 7 nicht mehr von iam genutzt, Tabelle tenant_module gehört der App',
+  'app.backfill_modules(p_modules text[])': 'Produktmodule: erste Belegung einer Organisation ohne Zeilen (iam 6.1); ab iam 7 nicht mehr von iam genutzt, Tabelle tenant_module gehört der App',
 };
 
 /** Namen der Migrationen des installierten `@vollholz/iam` (aus `node_modules` der App). */

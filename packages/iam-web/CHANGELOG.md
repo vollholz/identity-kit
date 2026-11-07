@@ -7,6 +7,48 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [4.0.0] – 2026-11-07
+
+### Breaking
+
+- **Produktmodule entfernt.** Entscheid vom 7.11.2026: Das Modulkonzept gehört in die App. Der Baukasten behält nur
+  den generischen Hook `tenantPermissions` in `@vollholz/iam`, der die Rechte je Organisation begrenzt; `iam-web` muss
+  davon nichts wissen. Seite «Module», der Abschnitt «Module» der Plattform-Administration, alle Hilfen und Typen dazu
+  sowie `useIam().modules` und `useIam().hasModule` gibt es nicht mehr.
+  Migration für Apps:
+  - Importe von `ModulesPage`, `ModulesSection`, `ModulesScreen` und der Hilfen (`moduleApi`, `useModules`,
+    `activationPlan`, `choiceKey`, `dependentsOf`, `usedBy`, `partsOf`, `requiresText`, `requirementText`,
+    `moduleLabel`, `moduleRights`, `moduleLockReason`, `moduleIsOn`, `moduleErrorText`) aus
+    `@vollholz/iam-web/pages` sowie `hasModules`, `modulesChanged`, `useModulesFeature` aus dem Haupteinstieg
+    entfernen; ebenso die Typen (Liste unter «Entfernt»).
+  - `useIam().hasModule(…)` und `useIam().modules` ersetzen: Die App liest ihre Module über ihre eigene Route und
+    blendet ihre Arbeitsflächen selbst ein und aus (oder prüft nur noch Rechte mit `can`, die der Server über
+    `tenantPermissions` schon begrenzt).
+  - Route-ID `modules` nicht mehr erwarten (`IamRouteId`, `iamRoutes`, `useIamNav`); eine eigene Modulseite hängt die
+    App selbst in Router und Navigation.
+  - `paths.modules` und `features.modules` aus der Konfiguration von `IamProvider` bzw. `makeIamRoutes` entfernen
+    (sonst Typfehler).
+  - Eigene Texte `iam.modules.*` in `configureTexts` entfernen (sonst Typfehler).
+  - `@vollholz/iam` 7.0.0 oder neuer verwenden: `/auth/me`, `GET /v1/me` und `GET /v1/authz/catalog` enthalten dort
+    keine Module mehr, die Routen `/v1/tenant/modules` und `/v1/platform/organizations/{alias}/modules` gibt es nicht
+    mehr. Ältere Server funktionieren weiter; ihre Felder zu Modulen werden ignoriert.
+
+### Entfernt
+
+- Seiten und Bausteine: `ModulesPage`, `ModulesSection`, `ModulesScreen`; Abschnitt «Module» auf der Detailseite einer
+  Organisation (Plattform-Administration).
+- Hilfen aus `@vollholz/iam-web/pages`: `moduleApi`, `useModules`, `activationPlan`, `choiceKey`, `dependentsOf`,
+  `usedBy`, `partsOf`, `requiresText`, `requirementText`, `moduleLabel`, `moduleRights`, `moduleLockReason`,
+  `moduleIsOn`, `moduleErrorText`; aus dem Haupteinstieg `hasModules`, `modulesChanged`, `useModulesFeature`.
+- Sitzung: `IamSession.modules`, `IamSession.hasModule`.
+- Konfiguration und Routen: `IamPaths.modules` (`/einstellungen/module`), `IamFeatures.modules`, Route-ID `modules`,
+  Abfrageschlüssel `iamKeys.modules`.
+- Vertragstypen: `Me.modules`, `ApiMe.modules`, `PermissionInfo.modul`, `AuthzCatalog.modules`,
+  `AuthzCatalog.packages`, `CatalogModule`, `CatalogModulePart`, `CatalogPackage`, `ModuleRequirement`,
+  `ModuleBlocker`, `TenantModule`, `TenantModuleList`, `ModuleActiveInput`, `ModuleAllowedInput`; Typen
+  `ActivationPlan`, `ModuleChoice`, `ModuleErrorText`, `ModuleListResult`.
+- Texte `iam.modules.*` (de, en) und die Stile `.iam-mod-*`. `iamFetchWithEtag` und `ifMatch` bleiben.
+
 ## [3.2.0] – 2026-11-07
 
 ### Hinzugefügt

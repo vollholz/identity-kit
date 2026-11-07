@@ -249,9 +249,9 @@ await withTenant(iam.db, { tenantId, principalId }, tx => iam.roles!.create(tx, 
 ### Rechte je Organisation (Haken `tenantPermissions`)
 
 Ab 6.3 kann die App die **wirksamen Rechte einer Organisation einschränken**, ohne dass das Paket weiss, warum – etwa
-für ein eigenes Modulkonzept, Lizenzen oder Tarife der App. Der Haken ist der Nachfolger der Produktmodule (nächster
-Abschnitt): eine App schliesst ihr eigenes Modulkonzept hier an und lässt `modules` im Modell weg; dann liest das Paket
-die Tabelle `tenant_module` nie.
+für ein eigenes Modulkonzept, Lizenzen oder Tarife der App. Ab 7.0 ist das der einzige Weg: Produktmodule (Verzeichnis,
+Freigabe, Aktivieren, Seite) sind Sache der App; das Paket kennt keinen Modulbegriff mehr und fasst die Tabelle
+`tenant_module` aus `iam_022` nie an (sie gehört der App).
 
 ```ts
 const iam = createIam({
@@ -264,11 +264,11 @@ const iam = createIam({
   },
 });
 
-const m = await iam.access.modelOf(p.tenantId);   // = model.withRoles(eigene).withModules(aktiv).withPermissions(allowed)
+const m = await iam.access.modelOf(p.tenantId);   // = model.withRoles(eigene).withPermissions(allowed)
 m.allowedPermissions;                             // Set der gelassenen Rechte oder null
 ```
 
-- **Wirkung:** wie die Produktmodule – Rechte ausserhalb von `allowed` fehlen im Modell der Organisation
+- **Wirkung:** Rechte ausserhalb von `allowed` fehlen im Modell der Organisation
   (`Model.withPermissions`): in den Rechten des Principals, in `GET /v1/me` und `GET /auth/me` (`permissions`,
   `somewhere`), im Katalog `GET /v1/authz/catalog` der Organisation, in Rollen (auch eigenen), Scopes (Rolle ∩ Scope),
   `owner`, MCP-Werkzeugen, `can`, `need`, Lesesicht und «Warum?». Rollen bleiben zuweisbar; Tupel bleiben bestehen.
@@ -279,70 +279,13 @@ m.allowedPermissions;                             // Set der gelassenen Rechte o
   bis zur nächsten Änderung an Tupeln); auf derselben Instanz wirkt zusätzlich `iam.access.invalidate(tenantId)` sofort.
 - **Transaktion:** beide Funktionen laufen in der Transaktion, die den Stand lädt (Laufzeit-Rolle, Mandantenkontext der
   Organisation, volle Sicht); `iam.access.modelIn(tx)` ruft `allowed` in der laufenden Transaktion auf.
-- **Mit `modules` im Modell:** es gilt die Schnittmenge aus aktiven Modulen und `allowed`.
-
-### Produktmodule je Organisation (Modul `modules`)
-
-Ab 6.1 kann das Modell ein Verzeichnis der **Produktmodule** tragen (Konzept
-[Module je Organisation](../../../docs/module-je-organisation.md)). Der Betrieb gibt Module je Organisation frei
-(`allowed`), die Administration der Organisation aktiviert sie (`active`, Recht `tenant:admin`). Rechte inaktiver
-Module fehlen im Modell der Organisation – `can`, `need`, Scopes, Lesesicht, Katalog und «Warum?» sehen sie nicht.
-Ohne `modules` gilt ein stilles Modul `kern` mit allen Rechten; es ändert sich nichts.
-
-> **Wird ersetzt:** Das Modulkonzept bleibt in 6.x, wird aber in einer späteren Hauptversion aus dem Paket entfernt.
-> Neue Apps setzen ihr eigenes Modulkonzept über den Haken `tenantPermissions` um (Abschnitt oben).
-
-```ts
-export const model = defineModel({
-  product: 'notes',
-  modules: [
-    { key: 'kern', label: 'Kern', core: true },
-    { key: 'notizen', label: 'Notizen', requires: ['kern'], parts: [{ key: 'teilen', label: 'Teilen' }] },
-    { key: 'ansichten', label: 'Ansichten', requires: ['notizen'] },
-    { key: 'pruefen', label: 'Prüfen', requires: [['ansichten', 'teams']] },          // eines von
-  ],
-  packages: [{ key: 'basis', label: 'Basis', modules: ['kern', 'notizen'], off: ['notizen.teilen'] }],
-  permissions: {
-    'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.', modul: 'notizen' },
-    'note:share': { label: 'Notizen teilen', group: 'notes', description: 'Notizen teilen.', modul: 'notizen.teilen' },
-    'team:read': { label: 'Teams lesen', group: 'notes', description: 'Teams sehen.' },     // ohne modul: Kern
-  },
-  // …
-});
-
-const active = await iam.access.modulesOf(p.tenantId);          // Set mit Kern und Teilfunktionen, zwischengespeichert
-const m = await iam.access.modelOf(p.tenantId);                  // = model.withRoles(eigene).withModules(active)
-```
-
-- `defineModel` prüft das Verzeichnis (genau ein Kern, Voraussetzungen ohne Zyklen und transitiv zum Kern, Pakete mit
-  Kern und erfüllten Voraussetzungen, `modul` nur bekannt und nie an reservierten Rechten). Mit `modules` ist
-  `features.tenantSettings` Standard `true`.
-- Daten: `<schema>.tenant_module` (iam_022), geschrieben nur über `app.set_module_allowed`, `app.set_module_active`
-  und `app.backfill_modules`. Ohne Zeile: nicht erlaubt (Kern immer aktiv, Teilfunktionen wie ihr Modul). Der Abgleich
-  in `migrate` (mit `model`) belegt bestehende Organisationen mit allen Modulen erlaubt und aktiv (ohne Haken); eine neue
-  Organisation ohne Zeilen wird beim ersten Laden ebenso belegt, mit `einrichten` je Modul (`iam.modules.seed`). Wer
-  eine Organisation mit einem Paket anlegt, schreibt mindestens die Zeile des Kerns, sonst greift diese Belegung.
-- Routen: `GET /v1/tenant/modules`, `PUT /v1/tenant/modules/{key}` `{ active }` (mit `If-Match`), Plattform
-  `GET/PUT /v1/platform/organizations/{alias}/modules[/{key}]` `{ allowed }` (`?force=true`). `GET /v1/me` und
-  `GET /auth/me` nennen die aktiven Module (`modules`).
-- Haken der App je Modul (`createIam({ moduleHooks })`, mit `@vollholz/platform` aus `defineApp({ moduleHooks })`),
-  alle in der Transaktion der Änderung im Kontext der Organisation:
-
-  ```ts
-  moduleHooks: {
-    ansichten: {
-      einrichten: (tx, tenantId) => standardAnsichten(tx),             // erstes Aktivieren
-      hindernisse: (tx, tenantId) => offeneFreigaben(tx),              // [{ key, text, anzahl? }]; nicht leer: 409
-      nachholen: (tx, tenantId, seit) => neuBerechnen(tx, seit),       // erneutes Aktivieren
-    },
-  }
-  ```
-- Deaktivieren löscht nie Daten und keine Tupel; nach erneutem Aktivieren gelten die Rechte sofort (`acl_version`).
-- Durchsetzung an Routen, Jobs, Aufgaben, Outbox und MCP liefert `@vollholz/platform` (nicht dieses Paket).
+- **Modulkonzept der App:** `allowed` liefert z. B. die Rechte der Module, die in der Organisation aktiv sind (aus
+  einer Tabelle der App); `version` ändert sich mit jeder Schaltung. Die aktiven Module für die Oberfläche liefert die
+  App über eine eigene Route.
 
 ### Ereignisse und Haken (`events`)
 
-`events` in `createIam` (und `MemberSync` im Worker; `@vollholz/platform`: `AppSpec.iamEvents` für beides) ist ein
+`events` in `createIam` (und `MemberSync` im Worker) ist ein
 Objekt mit zwei Haken. Beide laufen **in der Transaktion der Änderung**, im Mandantenkontext (RLS), mit `tx` der
 Änderung; was die App dort schreibt, steht und fällt mit ihr. Gleich ist der Weg: Verwalten-Seiten («Benutzer und
 Rollen», Routen `/v1/admin/members…` und `/v1/platform/organizations/:alias/members…`), `POST/PATCH/DELETE /v1/access`,
@@ -360,7 +303,7 @@ const events: IamEvents = {
   // Nach der Änderung, in derselben Transaktion
   async after(tx, e) {
     if (e.type === 'member.removed') await createReassignTasks(tx, e.data.principalId);
-    if (e.type === 'access.granted' || e.type === 'access.revoked') await platform.emit(tx, `iam.${e.type}`, e.subject, e.data);
+    if (e.type === 'access.granted' || e.type === 'access.revoked') await outbox.emit(tx, `iam.${e.type}`, e.subject, e.data);   // Outbox der App
   },
 };
 const iam = createIam({ cfg, model, db, schema: 'notes', resources, audit, events });
@@ -374,8 +317,6 @@ const iam = createIam({ cfg, model, db, schema: 'notes', resources, audit, event
 | `access.revoked` | `after` | Rolle an einem Ort entzogen; beim Entfernen je Tupel, vor `member.removed` | `AccessEventData` |
 | `access.expired` | `after` | abgelaufene Rolle aufgeräumt (Worker, `expireAccess`) | `AccessEventData` |
 | `member.left` | `after` | Abgleich stellt einen Austritt ausserhalb der App fest (z. B. in Keycloak entfernt); Tupel bleiben (A17) | `{ userId, principalId }` |
-| `module.activated` | `after` | Produktmodul oder Teilfunktion aktiviert (`PUT /v1/tenant/modules/{key}`, `iam.modules.setActive`) | `{ module, by }` (`by`: Principal, null beim Betrieb) |
-| `module.deactivated` | `after` | deaktiviert, auch durch Entziehen der Freigabe (Plattform) | `{ module, by }` |
 
 Jedes Ereignis: `{ type, tenantId, subject, actor, data }`. `subject` ist das Subjekt der Tupel (`user:<principal-id>`,
 `client:<id>` …; bei `member.*` null, wenn die Person nie einen Principal hatte). `actor` wie im Audit (`principal`,
@@ -478,11 +419,41 @@ KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVA
   `orgBootstrap(keycloakAdmin, …)`.
 - Mehrere Organisationen mit je mehreren Admins: `--file init.json` (Format `schema/init.schema.json`;
   programmatisch `orgBootstrapFile`, Prüfung `initFileErrors`).
-- Paket je Organisation (ab 6.2, Produktmodule): `organizations[].package` in `--file`/`--manifest`, programmatisch
-  `package`. Das Skript kennt Modell und Haken der App nicht: Hat die Organisation noch keine Module, ruft es
-  `applyPackage({ tenantId, alias, name, package })` (vor der Einladung; mit `@vollholz/platform`
-  `t => app.tenants.create(d, t.alias, t.name, { paket: t.package })`), sonst bleibt es offen und die Zusammenfassung
-  nennt `tenant create <alias> --paket <key>` (Befehl der App). Mit Modulen unverändert (`package.status: 'present'`).
+- App-eigene Angaben je Organisation (ab 7.0): `organizations[].app` in `--file`/`--manifest` (beliebiges Objekt, vom
+  Kit nicht geprüft). `iam-org-bootstrap` lässt sie unberührt; Startdaten legt die App mit dem Haken
+  `afterOrganization` an (nächster Abschnitt).
+
+#### Startdaten der App (`afterOrganization`)
+
+`orgBootstrap` und `orgBootstrapFile` rufen den Haken der App, sobald Organisation, Mandant und Admin stehen – noch vor
+Passwort und Einladung, damit die erste Anmeldung die Startdaten schon vorfindet. Das Kit kennt weder Modell noch Daten
+der App; es reicht den **rohen Eintrag** der Organisation weiter (`entry`, mit app-eigenen Feldern wie `app`).
+
+```ts
+// scripts/first-org.ts der App (statt npm run identity:first-org)
+import { KeycloakAdmin, manifestInitFile, orgBootstrapFile, type AfterOrganization } from '@vollholz/iam';
+
+const { file, errors } = manifestInitFile(JSON.parse(readFileSync('identity.app.json', 'utf8')));
+if (!file) throw new Error(errors.join('\n'));
+
+// Beispiel: Paket der App anwenden (Module der App aktivieren), idempotent
+const afterOrganization: AfterOrganization = async ({ tenantId, alias, name, entry }) => {
+  const paket = (entry.app as { package?: string } | undefined)?.package ?? 'basis';
+  await app.withTenant(tenantId, tx => app.module.applyPackage(tx, paket));   // Code der App
+};
+
+await orgBootstrapFile(keycloakAdmin, file, { platformAdminRole: 'platform-admin', database, afterOrganization, dryRun, log: console.log });
+```
+
+- **Wann:** nach Mandant, Principal, Tupel `org-admin` und Freigabestufe, vor `--initial-password` und Einladung; mit
+  `orgBootstrapFile` einmal je Organisation (beim ersten Admin), bei jedem Lauf – der Haken muss idempotent sein.
+- **Probelauf** (`dryRun`): nicht ausgeführt, nur gemeldet («Startdaten der App für <alias> (afterOrganization)»).
+- **Nur Keycloak** (`database: null`): nicht ausgeführt; `OrgBootstrapResult.afterOrganization` ist `'pending'`, die
+  App legt die Startdaten später selbst an. Sonst `'done'` bzw. `null` ohne Haken.
+- **Fehler:** Wirft der Haken, bricht der Lauf ab – ohne Passwort und Einladung; Mandant und Admin bleiben, der nächste
+  Lauf versucht es erneut.
+- `entry`: Eintrag aus der Datei bzw. dem Manifest; bei `orgBootstrap` ohne Datei die Option `entry`, sonst
+  `{ alias, name }`.
 
 **Zurücksetzen** (`iam-reset`, ab 1.4): `--keycloak` löscht alle Organisationen samt ihrer Anbieter und alle Personen
 (Service Accounts bleiben), `--database` leert alle Tabellen im Schema ausser `schema_migrations` und `--keep-table`;

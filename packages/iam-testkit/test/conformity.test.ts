@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import {
-  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, OperatorDefaultsSchema, operatorDefaultsErrors, fileHash, formatLock, formatMarkdown, manifestErrors, manifestPackageErrors, realmChecks, repoChecks, versionProblem,
+  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, OperatorDefaultsSchema, operatorDefaultsErrors, fileHash, formatLock, formatMarkdown, manifestErrors, realmChecks, repoChecks, versionProblem,
   type AdminReader, type Finding, type Manifest,
 } from '../src/index.ts';
 
@@ -100,12 +100,10 @@ describe('Versionen', () => {
     assert.match(versionProblem('@vollholz/iam', '3.2.1')!, /älter als 4\.0\.0/);
     assert.match(versionProblem('@vollholz/iam', '99.0.0')!, /neuer als die Hauptversion.*iam-testkit aktualisieren/);
     assert.equal(versionProblem('@vollholz/iam', `${CURRENT['@vollholz/iam'].split('.')[0]}.99.0`), null, 'neuere Neben-Version derselben Hauptversion');
-    assert.equal(versionProblem('@vollholz/platform', '0.1.0'), null, '@vollholz/platform gehört zum Kit');
     const pkg = (p: string) => JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', p, 'package.json'), 'utf8')).version;
     const mod = (m: string) => readFileSync(join(import.meta.dirname, '..', '..', '..', 'modules', m, 'VERSION'), 'utf8').trim();
     assert.deepEqual(CURRENT, {
       '@vollholz/iam': pkg('iam'), '@vollholz/iam-web': pkg('iam-web'), '@vollholz/iam-testkit': pkg('iam-testkit'), '@vollholz/create-iam-app': pkg('create-iam-app'),
-      '@vollholz/platform': pkg('platform'),
       'product-realm': mod('product-realm'), 'product-realm-bootstrap': mod('product-realm-bootstrap'),
     });
   });
@@ -169,26 +167,23 @@ describe('Ebene Repository', () => {
     assert.deepEqual(failed(skipped), []);
   });
 
-  test('Paket der Organisation (organizations[].package): Schema, im Modell vorhanden', async () => {
+  test('App-eigene Angaben je Organisation (organizations[].app): ungeprüft; package entfällt mit Hinweis', async () => {
     const e = (x: unknown) => manifestErrors(x).join('\n');
-    const org = (p: unknown) => ({ ...manifest, organizations: [{ alias: 'demo', package: p, admins: [{ email: 'anna@demo.example' }] }] });
-    assert.equal(e(org('planung')), '');
-    assert.match(e(org('Planung')), /\/organizations\/0\/package/);
-    assert.match(e(org('p')), /\/organizations\/0\/package/);
-    assert.deepEqual(manifestPackageErrors(org('planung') as Manifest, ['planung', 'alles']), []);
-    assert.deepEqual(manifestPackageErrors(manifest, []), [], 'ohne package nichts zu prüfen');
-    assert.match(manifestPackageErrors(org('gross') as Manifest, ['planung']).join(), /\/organizations\/0\/package: Paket «gross» nicht im Modell \(bekannt: planung\)/);
-    assert.match(manifestPackageErrors(org('planung') as Manifest, []).join(), /bekannt: keine/);
-    // Konformitätstest: Pakete aus model.toJSON().packages
-    const withPackages = (pkgs: unknown[]) => (d: string) => {
-      writeFileSync(join(d, 'identity.app.json'), JSON.stringify(org('planung')));
-      writeFileSync(join(d, 'src/authz/model.ts'), `export const model = { product: 'notes', features: { members: true }, toJSON: () => (${JSON.stringify({ ...catalog, packages: pkgs })}), platformJson: () => ${JSON.stringify(platformJson)} };\n`);
-    };
-    const ok = app('paket-ok', withPackages([{ key: 'planung', label: 'Planung', description: '', modules: ['kern'], off: [] }]));
-    assert.deepEqual(failed((await repoChecks(ok)).findings), []);
-    const missing = app('paket-fehlt', withPackages([]));
-    assert.match(failed((await repoChecks(missing)).findings).join('\n'), /\/organizations\/0\/package: Paket «planung» nicht im Modell/);
-    assert.deepEqual(failed((await repoChecks(missing, { skipModel: true })).findings), [], 'ohne Modell keine Prüfung');
+    const org = (o: Record<string, unknown>) => ({ ...manifest, organizations: [{ alias: 'demo', ...o, admins: [{ email: 'anna@demo.example' }] }] });
+    assert.equal(e(org({ app: { package: 'planung', frei: [1, { x: true }] } })), '');
+    assert.match(e(org({ app: 'planung' })), /\/organizations\/0\/app/);
+    assert.match(e(org({ package: 'planung' })), /\/organizations\/0\/package: entfällt.*app/);
+    // Konformitätstest: app wird nicht gegen das Modell geprüft
+    const dir = app('app-felder', d => writeFileSync(join(d, 'identity.app.json'), JSON.stringify(org({ app: { package: 'gibt-es-im-modell-nicht' } }))));
+    assert.deepEqual(failed((await repoChecks(dir)).findings), []);
+  });
+
+  test('@vollholz/platform: kein Teil des Kits mehr, mit Hinweis', async () => {
+    const dir = app('platform', d => {
+      const pkg = JSON.parse(readFileSync(join(d, 'package.json'), 'utf8'));
+      writeFileSync(join(d, 'package.json'), JSON.stringify({ ...pkg, dependencies: { ...pkg.dependencies, '@vollholz/platform': '0.9.0' } }));
+    });
+    assert.match(failed((await repoChecks(dir)).findings).join('\n'), /@vollholz\/platform – gehört nicht mehr zum Kit/);
   });
 
   test('ohne Manifest und Lock: Befunde statt Abbruch', async () => {

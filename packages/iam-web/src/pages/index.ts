@@ -8,14 +8,6 @@ export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './
 export { EntraHandoverPage, EntraHandoverReturn } from './EntraHandover.tsx';
 export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { OwnAppDialog, OwnAppFields, OwnAppGuideSteps, ownAppErrorText, type OwnAppDraft } from './EntraOwnApp.tsx';
-export { EntraScreen, MembersScreen, ModulesScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
-export { ModulesPage, ModulesSection } from './Modules.tsx';
-// Hilfen der Seite «Module» (laden die Texte `iam.modules.*` mit); nicht im Haupteinstieg, damit er klein bleibt
-export {
-  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleIsOn, moduleLabel, moduleLockReason, moduleRights, partsOf, requirementText, requiresText, useModules, usedBy,
-  type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
-} from '../moduleTools.ts';
-// Typen der Liste auch hier (wie im Haupteinstieg), damit eine eigene Modulseite nur aus `/pages` importieren kann
-export type { ModuleBlocker, ModuleRequirement, TenantModule, TenantModuleList } from '../contract.ts';
+export { EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
 export { RolesPage, type RolesPageProps } from './Roles.tsx';
 export { AccountHome, PlatformShell, SignupPage, type AccountHomeProps } from './Account.tsx';

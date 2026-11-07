@@ -21,11 +21,10 @@ Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Det
 
 | Teil | Version | Bezug |
 |---|---|---|
-| `@vollholz/iam` (Backend) | 6.2.0 | GitHub Packages |
-| `@vollholz/iam-web` (Oberfläche) | 3.1.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.10.0 | GitHub Packages |
-| `@vollholz/create-iam-app` (Gerüst) | 0.9.0 | GitHub Packages |
-| `@vollholz/platform` (Querschnitt, optional) | 0.9.0 | GitHub Packages |
+| `@vollholz/iam` (Backend) | 7.0.0 | GitHub Packages |
+| `@vollholz/iam-web` (Oberfläche) | 4.0.0 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 3.0.0 | GitHub Packages |
+| `@vollholz/create-iam-app` (Gerüst) | 0.10.0 | GitHub Packages |
 | `product-realm` (OpenTofu) | 3.1.0 | Git-Tag `product-realm-v3.1.0` (im Gerüst eingesetzt; ab Keycloak 26.8) |
 
 ---
@@ -217,49 +216,26 @@ CREATE POLICY note_delete ON notes.note AS RESTRICTIVE FOR DELETE USING (
 
 - Nur Typen direkt unter der Organisation: `flatResources({ tables: { folder: 'notes.folder' } })`.
 
-### Module und Pakete (optional)
+### Module, Lizenzen, Tarife (optional, Sache der App)
 
-Verkauft die App Teile einzeln (Produktmodule je Organisation, ab `@vollholz/iam` 6.1, `@vollholz/platform` 0.9;
-Konzept [module-je-organisation.md](module-je-organisation.md)), trägt das Modell das Verzeichnis. Ohne `modules`
-ändert sich nichts.
+Verkauft die App Teile einzeln (Produktmodule, Lizenzen, Tarife), führt sie das Verzeichnis, die Schaltung je
+Organisation, die Durchsetzung im eigenen Code und die Seite selbst. Das Kit kennt keinen Modulbegriff (seit
+`@vollholz/iam` 7.0, [module-je-organisation.md](module-je-organisation.md)); es lässt die App die **wirksamen Rechte
+einer Organisation einschränken**:
 
 ```ts
-// src/authz/model.ts
-export const model = defineModel({
-  product: 'notes',
-  modules: [
-    { key: 'kern', label: 'Kern', core: true },
-    { key: 'notizen', label: 'Notizen', requires: ['kern'], parts: [{ key: 'abo', label: 'Abo' }] },
-    { key: 'berichte', label: 'Berichte', requires: ['notizen'] },
-  ],
-  packages: [
-    { key: 'basis', label: 'Basis', modules: ['kern', 'notizen'], off: ['notizen.abo'] },
-    { key: 'gesamt', label: 'Alles', modules: '*' },
-  ],
-  permissions: {
-    'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.', resources: ['org'], modul: 'notizen' },
-    'report:read': { label: 'Berichte lesen', group: 'reports', description: 'Berichte sehen.', resources: ['org'], modul: 'berichte' },
-  },
+const iam = createIam({
   // …
+  tenantPermissions: {
+    version: (tenantId, tx) => versionDerModule(tx, tenantId),          // ändert sich mit jeder Schaltung
+    allowed: (tenantId, tx) => rechteAktiverModule(tx, tenantId),      // Set<Recht> | null (keine Einschränkung)
+  },
 });
 ```
 
-- **Rechte:** `modul` je Recht (Modul oder Teilfunktion `modul.teil`, ohne Angabe Kern). Rechte inaktiver Module fehlen
-  in der Organisation überall (Oberfläche, API, Scopes, MCP); Rollen bleiben zuweisbar.
-- **Code** (`@vollholz/platform`): `defineModule({ name: 'notiz', modul: 'notizen', … })` – mit `modules` im Modell
-  Pflicht; Routen, Jobs, Aufgaben, Abnehmer und Werkzeuge erben es (Route mit `config: { modul: 'notizen.abo' }` für
-  eine Teilfunktion). Inaktiv → 403 `modul-inaktiv`, Jobs `skipped`. `defineApp` prüft das Verzeichnis
-  (`checkModules`).
-- **Haken** je Modul oder Teilfunktion: `defineApp({ moduleHooks: { berichte: { einrichten, hindernisse, nachholen } } })`
-  – `einrichten` beim ersten Aktivieren, `hindernisse` blockiert das Deaktivieren (409), `nachholen` nach erneutem
-  Aktivieren als Auftrag im Worker.
-- **Pakete** sind Vorbelegungen des Betriebs, kein Zustand der Organisation: `tenant create <alias> [--name …] --paket
-  basis` legt Kern und Module des Pakets erlaubt und aktiv an (`einrichten` je Modul), `off`-Teilfunktionen erlaubt und
-  aus, alle anderen nicht erlaubt; ohne `--paket` alle Module. Später `tenant modules <alias> [--erlauben a,b]
-  [--entziehen c] [--paket <key> [--nur-erlauben]] [--force]`. Programmatisch `app.tenants.create(d, alias, name,
-  { paket })`, `app.tenants.modules(d, alias, { … })`. Unbekanntes Paket oder Modul: Exit 64.
-- **Erste Organisationen mit Paket:** `organizations[].package` im Manifest (Schritt 10). Der Konformitätstest prüft,
-  dass das Paket im Modell steht.
+Rechte ausserhalb von `allowed` fehlen dann in der Organisation überall (Oberfläche, API, Katalog, Scopes, MCP);
+reservierte Rechte bleiben. Details: [backend.md › Rechte je Organisation](../packages/iam/docs/backend.md#rechte-je-organisation-haken-tenantpermissions).
+Startdaten je Organisation (z. B. ein Paket der App) siehe Schritt 10.
 
 ## 5. Datenbank und Migrationen
 
@@ -455,28 +431,18 @@ Organisation und Freigabestufe 2 (Audit `tenant.provisioned`). **Ohne `DATABASE_
 `@vollholz/iam` 2.1): sonst entstünde eine Organisation ohne Admin. Nur Keycloak geht ausdrücklich mit
 `--keycloak-only`.
 
-**Mit Paket** (Produktmodule, [Module und Pakete](#module-und-pakete-optional)): `organizations[].package` nennt das
-Paket des Modells für die erste Belegung, z. B. `{ "alias": "solutions", "package": "basis", "admins": [ … ] }`; ohne
-Angabe erhält die Organisation alle Module. `iam-org-bootstrap` kennt Modell und Haken der App nicht und wendet das
-Paket selbst nicht an. Deshalb zuerst der Befehl der App, dann das Skript (es bindet den Mandanten an die Organisation
-und lässt die Module unverändert):
-
-```sh
-DATABASE_ADMIN_URL=… DATABASE_URL=… node --import @vollholz/platform/preload src/cli.ts tenant create solutions --name "Solutions" --paket basis
-npm run identity:first-org
-```
-
-Vergessen: Das Skript meldet am Schluss `Paket noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): tenant create
-solutions --paket basis`. Nach der ersten Anmeldung oder dem nächsten `migrate` hat die Organisation alle Module
-(beide belegen eine Organisation ohne Zeilen vollständig); dann `tenant modules solutions --paket basis`. Startdaten der App (eigenes Skript mit Modell und Haken) übergeben das Paket direkt:
+**Startdaten der App** (z. B. ein Paket von Modulen der App): app-eigene Angaben je Organisation stehen unter
+`organizations[].app`, z. B. `{ "alias": "solutions", "app": { "package": "basis" }, "admins": [ … ] }`; das Kit prüft
+sie nicht. `iam-org-bootstrap` lässt sie unberührt. Ein eigener Einstieg der App (statt `identity:first-org`) übergibt
+den Haken `afterOrganization`; er läuft nach Organisation und Admin, vor der Einladung, im Probelauf nicht:
 
 ```ts
 import { manifestInitFile, orgBootstrapFile } from '@vollholz/iam';
 const { file } = manifestInitFile(JSON.parse(readFileSync('identity.app.json', 'utf8')));
 await orgBootstrapFile(kc, file!, {
   platformAdminRole: 'platform-admin', database: { url: process.env.DATABASE_ADMIN_URL!, schema: 'notes' },
-  // nur für eine Organisation ohne Module, vor der Einladung
-  applyPackage: t => app.tenants.create(d, t.alias, t.name, { paket: t.package }),
+  // einmal je Organisation, bei jedem Lauf (idempotent); entry = Eintrag aus dem Manifest mit app
+  afterOrganization: ({ tenantId, entry }) => paketAnwenden(tenantId, (entry.app as { package?: string } | undefined)?.package),
 });
 ```
 

@@ -35,17 +35,6 @@ export interface IamSession {
    * Ressource mit deren `can` (`useResourceCan`).
    */
   canSomewhere(p: Permission): boolean;
-  /**
-   * Aktive Produktmodule und Teilfunktionen (`modul.teil`) der Organisation dieses Tabs, mit Kern (`/auth/me`,
-   * ab `@vollholz/iam` 6.1). Leer bei älteren Servern ohne Module.
-   */
-  modules: readonly string[];
-  /**
-   * Modul bzw. Teilfunktion aktiv (`hasModule('zeit')`, `hasModule('zeit.korrektur')`). Zum Ein- und Ausblenden von
-   * Arbeitsflächen der App; der Server prüft selbst (Rechte eines inaktiven Moduls wirken nicht). Ältere Server ohne
-   * `modules` in `/auth/me`: immer `true`.
-   */
-  hasModule(key: string): boolean;
   switchOrg(alias: string): Promise<void>;
   logout(): Promise<void>;
   /** Name der Organisation dieses Tabs (sonst der Alias). */
@@ -64,13 +53,10 @@ export const tenantName = (me: Me): string => (me.tenant ? me.tenant.name || org
 
 function makeSession(me: Me, switchOrg: IamSession['switchOrg'], logout: IamSession['logout']): IamSession {
   const somewhere = me.somewhere ?? [];
-  const modules = me.modules ?? [];
-  const active = new Set(modules);
   return {
-    me, switchOrg, logout, orgName: tenantName(me), modules,
+    me, switchOrg, logout, orgName: tenantName(me),
     can: p => me.permissions.includes(p),
     canSomewhere: p => me.permissions.includes(p) || somewhere.includes(p),
-    hasModule: key => !me.modules || active.has(key),
   };
 }
 

@@ -6,12 +6,12 @@ export { MemoryReplayStore, PgReplayStore, pgRateLimitStore, purgeSharedState, t
 export { pgAudit, pgAuditSearch, withPlatformAudit, writePlatformAudit, type AuditPort, type AuditEntry, type AuditPage, type AuditQuery, type AuditRecord, type AuditSearch, type AuditSubjectFallback, type Actor, type PlatformAuditEntry, type Source } from './audit.ts';
 export { LOCKS, lockKey } from './locks.ts';
 export {
-  migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, syncModules, IAM_BASELINE, IAM_MIGRATIONS_DIR,
+  migrate, iamMigrations, dirMigrations, migration, render, adoptionProblems, modelChecks, modelChecksInput, syncModelChecks, IAM_BASELINE, IAM_MIGRATIONS_DIR,
   type Migration, type MigrationSource, type MigrationResult, type MigrateOptions, type IamMigrationOptions, type Adoption, type ModelChecksInput,
 } from './migrations.ts';
 export { schemaSnapshot, diffSnapshots, IAM_TABLES, IAM_FUNCTIONS, type SchemaSnapshot } from './schema.ts';
 export {
-  defineModel, ModelError, CORE_MODULE, MODULE_KEY, MODULE_REF_SQL, type ModuleDef, type ModulePartDef, type PackageDef, type ModuleInfo, type PackageInfo, CUSTOM_ROLE_KEY, CUSTOM_ROLE_LIMIT, type CustomRoleDef, ADMIN_ROLE, ADMIN_LABEL, PLATFORM_ADMIN_ROLE, ORG, MEMBER, OWNER, RELATION_LABELS, CLASSIFICATIONS, RESERVED_PERMISSIONS, RESERVED_GROUPS,
+  defineModel, ModelError, CUSTOM_ROLE_KEY, CUSTOM_ROLE_LIMIT, type CustomRoleDef, ADMIN_ROLE, ADMIN_LABEL, PLATFORM_ADMIN_ROLE, ORG, MEMBER, OWNER, RELATION_LABELS, CLASSIFICATIONS, RESERVED_PERMISSIONS, RESERVED_GROUPS,
   type Model, type ModelInput, type PermissionDef, type GroupDef, type RoleDef, type TypeDef, type TypeInfo, type McpToolDef, type PermissionInfo, type AuthzCatalogJson,
   type Level, type ReservedPermission, type Register, type RegisteredPermission,
 } from './model.ts';
@@ -26,9 +26,7 @@ export {
 } from './access.ts';
 export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput, type TupleActor } from './tuples.ts';
 export { CustomRoles, customRoleKey, type CustomRole, type CustomRoleInput } from './roles.ts';
-export { TenantModules, moduleStates, activeModules, loadModuleRows, backfillModules, backfillKeys, type ModuleRow, type ModuleState, type ModuleHook, type ModuleHooks, type ModuleBlocker, type ModuleActing, type TenantModulesOptions } from './modules.ts';
-export { TenantModuleSchema } from './http/modules.ts';
-export { SYSTEM_ACTOR, type IamEvents, type IamEvent, type IamEventMap, type IamEventType, type IamBeforeType, type IamAfterType, type AccessEventData, type ModuleEventData, type MemberEventData, type MemberLeftEventData } from './events.ts';
+export { SYSTEM_ACTOR, type IamEvents, type IamEvent, type IamEventMap, type IamEventType, type IamBeforeType, type IamAfterType, type AccessEventData, type MemberEventData, type MemberLeftEventData } from './events.ts';
 export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, type ExplainOut, type GroupNames, type AccessSubjectOut } from './explain.ts';
 export { checkRoles, checkRoleChange, activeAdmins, lastAdminGuard, setOrgRoles, setClearance, type Acting } from './rules.ts';
 export { flatResources, flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
@@ -52,5 +50,5 @@ export { DpopSigner, wantsNonce } from './mcp/dpop.ts';
 export { TokenExchanger, type ExchangedToken } from './mcp/exchange.ts';
 export { ApiClient, ApiError, type CallOptions } from './mcp/api.ts';
 export { McpAuth, registerMcpAuth, exchangeScopes, type McpAuthOptions, type McpAuthorized, type McpOrg, type McpMe, type McpRequest } from './mcp/auth.ts';
-export { InitFileSchema, initFileErrors, manifestInitFile, INVITE_LIFESPAN_SEC, inviteErrors, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OperatorBootstrapOptions, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult, type PackageStatus, type PackageTarget } from './bootstrap.ts';
+export { InitFileSchema, initFileErrors, manifestInitFile, INVITE_LIFESPAN_SEC, inviteErrors, operatorBootstrap, orgBootstrap, orgBootstrapErrors, orgBootstrapFile, type InitFile, type OperatorBootstrapOptions, type OrgBootstrapFileOptions, type OrgBootstrapOptions, type OrgBootstrapResult, type OrganizationTarget, type AfterOrganization } from './bootstrap.ts';
 export { isServiceAccountUser, MIGRATION_TABLES, resetDatabase, resetKeycloak, type DatabaseResetOptions, type DatabaseResetResult, type KeycloakResetResult, type ResetOptions } from './reset.ts';

@@ -496,7 +496,8 @@ span.iam-rp-l{cursor:default}
 .iam-member-tbl thead th[aria-sort]{padding:0}
 .iam-roles-sec+.iam-roles-sec{margin-top:28px}
 .iam-roles-intro{margin:-6px 0 12px}
-.iam-role-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.iam-role-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;max-width:68ch}
+.iam-role-list>li{display:flex;flex-direction:column;gap:2px}
 .iam-role-row{border:1px solid var(--iam-line);border-radius:10px;background:var(--iam-surface)}
 .iam-role-main{display:grid;grid-template-columns:40px minmax(0,1fr) auto;column-gap:14px;align-items:center;padding:12px 14px}
 .iam-role-text{min-width:0}

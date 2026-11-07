@@ -1,6 +1,7 @@
 /**
  * Verwalten › Rollen (Recht `roles:admin`): eigene Rollen der Organisation aus den Rechten der App zusammenstellen. Die
- * Rollen der App stehen als Vorgabe darüber und lassen sich nicht ändern. Eine eigene Rolle hat Name, Beschreibung,
+ * Standardrollen der App stehen darunter (Name, darunter die Beschreibung) und lassen sich nicht ändern. Eine eigene
+ * Rolle hat Name, Beschreibung,
  * Rechte (gruppiert wie im Katalog; Rechte nur von «Organisations-Admin» fehlen, Rechte, die ich nicht habe, sind
  * gesperrt mit Grund) und Orte, an denen sie vergeben werden darf. Vergeben wird sie wie jede Rolle unter «Mitglieder»
  * bzw. in der Seitenleiste «Zugriff» eines Orts. Löschen erst, wenn sie nirgends mehr vergeben ist.
@@ -83,7 +84,7 @@ export function RolesPage({ alias, platform = false }: RolesPageProps = {}) {
         <h2 className="iam-h3">{t('iam.roles.page.builtIn')}</h2>
         <p className="iam-muted iam-small">{t('iam.roles.page.builtInText')}</p>
         <ul className="iam-role-list">
-          {builtIn.map(r => <li key={r.key}><span className="iam-b">{r.label}</span> <span className="iam-muted iam-small">– {r.description}</span></li>)}
+          {builtIn.map(r => <li key={r.key}><span className="iam-b">{r.label}</span>{r.description ? <span className="iam-muted iam-small">{r.description}</span> : null}</li>)}
         </ul>
       </div></div>
       <div className="iam-cli iam-api"><span className="iam-cli-label">API</span><code tabIndex={0}>{a ? `GET /v1/platform/organizations/${a}/roles` : 'GET /v1/admin/roles · POST /v1/admin/roles · PUT/DELETE /v1/admin/roles/{key}'}</code></div>

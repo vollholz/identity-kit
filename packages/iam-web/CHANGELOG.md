@@ -7,6 +7,15 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [Unveröffentlicht]
+
+### Geändert
+
+- **Verwalten › Rollen:** Die vordefinierten Rollen heissen «Standardrollen» (statt «Rollen der App (Vorgabe)»), mit
+  dem Hinweis «Vorgegeben und nicht änderbar.»; je Rolle steht der Name, darunter die Beschreibung (ohne
+  Gedankenstrich), die Liste ist auf eine lesbare Breite begrenzt. Texte `iam.roles.page.builtIn`,
+  `iam.roles.page.builtInText` und `iam.roles.page.noneText` (de, en) angepasst.
+
 ## [3.0.0] – 2026-11-05
 
 ### Breaking

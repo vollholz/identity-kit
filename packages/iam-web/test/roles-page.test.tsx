@@ -37,8 +37,11 @@ describe('Seite Rollen', () => {
       'POST /v1/admin/roles': async r => { const b = await body(r); items = [{ ...ROLE, ...b, key: 'c-qualitaet', assignments: 0 }]; return json(items[0], 201); },
     });
     expect(await screen.findByText('Noch keine eigenen Rollen')).toBeInTheDocument();
-    expect(screen.getByText('Rollen der App (Vorgabe)')).toBeInTheDocument();
-    expect(screen.getByText('Bearbeiter:in')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Standardrollen' })).toBeInTheDocument();
+    // je Standardrolle der Name, darunter die Beschreibung (eigenes Element, ohne Gedankenstrich)
+    const editor = screen.getByText('Bearbeiter:in').closest('li')!;
+    expect(within(editor).getByText('Organisation lesen; Notizen lesen und ändern; Zugriff verwalten.')).toBeInTheDocument();
+    expect(editor.textContent).not.toContain('–');
     await userEvent.click(screen.getAllByRole('button', { name: 'Rolle zusammenstellen' })[0]!);
     const dlg = await screen.findByRole('dialog', { name: 'Rolle zusammenstellen' });
     // Rechte nur von org-admin fehlen (members:admin, roles:admin, tenant:admin)

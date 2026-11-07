@@ -22,6 +22,7 @@ import { OidcProvider, TokenVerifier } from './tokens.ts';
 import { TupleStore } from './tuples.ts';
 import { CustomRoles } from './roles.ts';
 import type { IamEvents } from './events.ts';
+import { TenantModules, type ModuleHooks } from './modules.ts';
 
 export type { IamEvents } from './events.ts';
 
@@ -40,6 +41,12 @@ export interface IamOptions<P extends string = string, S = unknown> {
    * `access.granted`, `access.revoked`, `access.expired`; im Worker dieselben Haken an `MemberSync` geben.
    */
   events?: IamEvents | null;
+  /**
+   * Haken der App je Produktmodul (`modules` des Modells): `einrichten` beim ersten Aktivieren, `hindernisse` vor dem
+   * Deaktivieren (und in `GET /v1/tenant/modules`), `nachholen` beim erneuten Aktivieren – alle in der Transaktion der
+   * Änderung. `@vollholz/platform` reicht sie aus `defineApp({ moduleHooks })` durch. Schlüssel: Modul oder `modul.teil`.
+   */
+  moduleHooks?: ModuleHooks | null;
   /** Replay-Schutz (DPoP, Logout-Tokens); sonst nach `SHARED_STATE`. */
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
@@ -73,6 +80,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly tuples: TupleStore;
   /** Eigene Rollen der Organisation (Modul `roles`); null mit `features.customRoles: false`. */
   readonly roles: CustomRoles | null;
+  /** Produktmodule je Organisation (Modul `modules`): lesen, aktivieren, freigeben; null ohne `modules` im Modell. */
+  readonly modules: TenantModules | null;
   /** «Wer hat Zugriff?», «Warum?», wer vergeben darf. */
   readonly info: AccessInfo;
   /** Anmeldung der Oberfläche (`SessionBridge` des Plugins, Modul `bff`) oder null. */
@@ -109,17 +118,18 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const schema = schemaName(o.schema);
   const resources = o.resources ?? null;
   const problems = resourceProblems(o.model, resources);
-  const access = new AccessService<P, S>(o.db, { model: o.model, schema, resources });
+  // Plattform-Administration steht zusätzlich im Protokoll der Plattform
+  const audit = withPlatformAudit(o.audit);
+  const access = new AccessService<P, S>(o.db, { model: o.model, schema, resources, audit });
   const ids = access.readTypesProblem();
   if (ids) problems.push(ids);
+  if (o.moduleHooks && Object.keys(o.moduleHooks).length && !o.model.features.modules) problems.push('moduleHooks ohne modules im Modell');
   if (problems.length) throw new ModelError(problems);
   const replay = o.replay ?? (o.cfg.ops.sharedState === 'postgres' ? new PgReplayStore(o.db, schema) : new MemoryReplayStore());
   const provider = new OidcProvider(o.cfg.oidc.issuer, o.fetch);
   const wantsBff = o.bff !== false && !!(o.cfg.oidc.bffClientSecret || o.cfg.oidc.bffPrivateKey);
   const bff = wantsBff ? new Bff(o.cfg, o.db, provider, { replay, ...(o.bff || {}), schema, product: o.model.product }) : null;
   const resolver = new PrincipalResolver(o.db, o.cfg, { schema, access: access as AccessService });
-  // Plattform-Administration steht zusätzlich im Protokoll der Plattform
-  const audit = withPlatformAudit(o.audit);
   const events = o.events ?? null;
   const tuples = new TupleStore({ schema, model: o.model, audit, events });
   const deps = { cfg: o.cfg, model: o.model, db: o.db, schema, audit, resolver, access: access as AccessService, tuples, events };
@@ -129,12 +139,16 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const e = o.cfg.entra;
   const graph = e.clientId && e.clientSecret ? new EntraGraph({ clientId: e.clientId, clientSecret: e.clientSecret, timeoutMs: e.timeoutMs }, o.entraFetch) : null;
   const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
+  const modules = o.model.features.modules ? new TenantModules({ schema, model: o.model as Model, audit, events, hooks: o.moduleHooks, invalidate: id => access.invalidate(id) }) : null;
+  // Neue Organisationen ohne Zeilen: Module wie beim ersten Aktivieren belegen (mit einrichten der App)
+  if (modules) access.seedModules = (tx, tenantId) => modules.seed(tx, tenantId);
   const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
     cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
     roles: o.model.features.customRoles ? new CustomRoles({ schema, access: access as AccessService, audit }) : null,
+    modules,
     async tx(p, fn) {
       const acl = await access.load(p.tenantId);
       const settings = await access.readView(p.tenantId, p, acl);

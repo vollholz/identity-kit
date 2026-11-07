@@ -9,9 +9,9 @@ export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testki
 
 /** Stand dieses Test-Kits (beim Release gleich den Versionen im Repository identity-kit). */
 export const CURRENT: Record<Part, string> = {
-  '@vollholz/iam': '6.0.0',
+  '@vollholz/iam': '6.1.0',
   '@vollholz/iam-web': '3.0.1',
-  '@vollholz/iam-testkit': '2.8.0',
+  '@vollholz/iam-testkit': '2.9.0',
   '@vollholz/create-iam-app': '0.8.0',
   '@vollholz/platform': '0.8.0',
   'product-realm': '3.1.0',

@@ -13,6 +13,8 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 Ab 4.0.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md); die Liste hier endet mit 3.2.1.
 
+- **6.1.0:** Produktmodule je Organisation (`defineModel({ modules, packages })`, Modul `modules`, Migration
+  `iam_022`). Details: [CHANGELOG.md](CHANGELOG.md).
 - **5.0.0:** Eigene Rollen der Organisation (Recht `roles:admin`, Modul `roles`, Migration `iam_019`). Details und
   Migration: [CHANGELOG.md](CHANGELOG.md).
 - **4.0.0:** Haken der App `events: { before, after }` (Entfernen eines Mitglieds, Rollen an Orten, Abgleich),
@@ -109,7 +111,7 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | Baustein | Inhalt |
 |---|---|
 | `loadIamConfig(env, { product, service })`, `IAM_VARS(product)`, `readVars`, `iamConfigErrors`, `iamConfig`, `iamWarnings` | Variablen nach Kap. 13 mit Standardwerten je Produkt, Pflicht je Dienst, Warnungen bei Client-Geheimnissen |
-| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, model?, adopted? })`, `dirMigrations(dir)`, `syncModelChecks` | Runner und die Migrationen `iam_001`–`iam_018`; Abgleich der CHECKs von `authz_tuple` mit dem Modell; Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
+| `migrate(adminUrl, sources)`, `iamMigrations({ product, schema?, model?, adopted? })`, `dirMigrations(dir)`, `syncModelChecks` | Runner und die Migrationen `iam_001`–`iam_022`; Abgleich der CHECKs von `authz_tuple` mit dem Modell und erste Belegung der Produktmodule (`syncModules`); Übernahme bestehender Objekte mit Prüfung der Vorbedingungen |
 | `db/bootstrap.sql` | Datenbankrollen nach Kap. 10.1 (psql-Variablen `p`, `db`, Passwörter) |
 | `withTx`, `withTenant`, `setContext`, `createPool` | Transaktion im Mandantenkontext (`app.tenant_id`, `app.principal_id`, Einstellungen der App) |
 | `pgAudit({ schema })`, `AuditPort` | Audit in derselben Transaktion (Hash-Kette per Trigger), optional mit betroffener Person (`subject`, iam_021) |
@@ -127,6 +129,7 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | `createIam(…)`, `readinessChecks(iam)` | Abhängigkeiten einmal gebaut (Verifier, Resolver, Entscheidung, Replay-Schutz, Audit); Prüfungen für `/readyz` der App |
 | `iamPlugin`, `need(perm, ref?)` | Fastify-Plugin: Anmeldung je Anfrage (Bearer, DPoP, mTLS, Sitzung mit CSRF), `req.principal`, `req.tx`, `req.need`, `req.needSomewhere`, `req.can`, `req.capabilities`, `req.audit`; Fehler als problem+json; `need` als preHandler |
 | Module `account`, `access`, `break-glass` | `GET /v1/me`, `GET /v1/authz/catalog`; `GET /v1/access` (Ort oder Subjekt), `GET /v1/access/explain`, `GET /v1/access/groups`, `POST /v1/access`, `PATCH/DELETE /v1/access/:id`; `POST/DELETE /v1/break-glass` |
+| `TenantModules` (`iam.modules`), Modul `modules`, `moduleHooks` | Produktmodule je Organisation: `GET/PUT /v1/tenant/modules…` (Organisation), `GET/PUT /v1/platform/organizations/:alias/modules…` (Freigabe), Haken `einrichten`, `hindernisse`, `nachholen`, Ereignisse `module.*`; `iam.access.modulesOf(tenantId)` |
 | `KeycloakAdmin`, `listTenants`, `createTenant`, `setTenantStatus`, `relinkTenant` | Keycloak-Admin-API (Organisationen, Konten, Anbieter und ihre Mapper) und Mandanten über alle hinweg (Betrieb, Plattform-Administration) |
 | Modul `clients`, `listClients` | Freigabe von Maschinen-Clients je Mandant mit Rollen als Tupel an org (`/v1/admin/clients…`, `/v1/platform/organizations/:alias/clients…`) |
 | `AdminService` (`iam.admin`), Modul `admin` | Verwaltung ohne Keycloak-Konsole: `GET /v1/admin/status`, Mitglieder und Clients auflisten, einladen, entfernen (löscht die Tupel), Rollen und Freigabestufe setzen (`/v1/admin/members…`, `/v1/platform/organizations/:alias/members…`), Organisationen anlegen, ändern, sperren (`/v1/platform/organizations…`); ohne `KEYCLOAK_MGMT_CLIENT_ID` 503 |

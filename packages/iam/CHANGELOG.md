@@ -7,6 +7,55 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
+## [6.1.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Produktmodule je Organisation** (Konzept [Module je Organisation](../../docs/module-je-organisation.md), Abschnitte
+  1–5, 10): Das Modell kann ein Verzeichnis der Produktmodule tragen; der Betrieb gibt sie je Organisation frei, die
+  Administration der Organisation aktiviert sie. Rechte inaktiver Module fallen im Modell der Organisation weg – für
+  Oberfläche, API, Maschinen-Clients (Scopes) und MCP gleich. Ohne `modules` ändert sich nichts.
+  - Modell: `defineModel({ modules, packages })` mit `ModuleDef` (`key`, `label`, `description`, `core`, `requires`
+    mit «eines von» als Liste, `parts` = Teilfunktionen `modul.teil`) und `PackageDef` (`modules` oder `'*'`, `off`);
+    je Recht `modul` (Modul oder `modul.teil`, ohne Angabe Kern). `defineModel` prüft: genau ein Kern, Schlüssel,
+    bekannte Voraussetzungen ohne Zyklen, jedes Modul braucht (transitiv) den Kern, Teilfunktionen ohne `requires`,
+    Pakete mit Kern und erfüllten Voraussetzungen, `off` nur Teilfunktionen ihrer Module, `modul` nur bekannt und nie an
+    reservierten Rechten. Mit `modules` ist `features.tenantSettings` Standard `true` (Aktivieren braucht
+    `tenant:admin`), `features.modules` zeigt das Verzeichnis an.
+  - `Model.modules`, `packages`, `coreModule`, `moduleOf(permission)`, `activeModules` und `withModules(active)`:
+    entfernt Rechte inaktiver Module aus `permissions`, Rollen, Scopes, `owner` und MCP-Werkzeugen; Rollen bleiben
+    zuweisbar, eigene Rollen werden mitgefiltert und gegen das Grundmodell geprüft.
+  - Katalog `GET /v1/authz/catalog`: `modules`, `packages` und je Recht `modul`; in einer Organisation nur die Rechte
+    ihrer aktiven Module.
+  - Migration **`iam_022_tenant_module.sql`** (läuft mit dem nächsten `migrate`): Tabelle `<schema>.tenant_module`
+    (`allowed`, `active`, `active_since`, `inactive_since`, `changed_at`, `changed_by`; RLS ENABLE + FORCE, Laufzeit
+    nur lesend), Funktionen `app.set_module_allowed(tenant, module, allowed)`, `app.set_module_active(module, active)`
+    und `app.backfill_modules(modules)` (SECURITY DEFINER), Trigger auf `acl_version`. Der Abgleich nach den
+    Migrationen (`iamMigrations({ model })`, `syncModules`) belegt jede bestehende Organisation ohne Zeilen mit allen
+    Modulen erlaubt und aktiv (`tenant.module_backfill`, ohne Haken: ihre Daten bestehen schon). Eine Organisation, die
+    danach ohne Zeilen erscheint (neu angelegt), wird beim ersten Laden ebenso belegt, mit `einrichten` der App je Modul
+    und Teilfunktion wie beim ersten Aktivieren (`iam.modules.seed`).
+  - `iam.access.load` bildet `base.withRoles(roles).withModules(active)`; `TenantAccess.modules`,
+    `iam.access.modulesOf(tenantId)` (zwischengespeichert wie `modelOf`).
+  - Routen (Modul `modules`, nur mit `modules` im Modell, Tag «Organisation»): `GET /v1/tenant/modules`
+    (`tenant:read`; mit `tenant:admin` auch `blockers`), `PUT /v1/tenant/modules/{key}` `{ active }` (`tenant:admin`,
+    `If-Match` auf `acl_version`; Schaltungen einer Organisation laufen unter der Sperre ihrer Zeile nacheinander; 403 `modul-nicht-erlaubt`, 409 `voraussetzung-fehlt`, `modul-inaktiv`,
+    `abhaengig-aktiv`, `hindernisse`, `kern`), Plattform-Administration `GET
+    /v1/platform/organizations/{alias}/modules` und `PUT …/{key}` `{ allowed }` (`?force=true` übergeht Hindernisse).
+  - `GET /v1/me` und `GET /auth/me`: `modules` (aktive Module und Teilfunktionen).
+  - Haken der App `createIam({ moduleHooks })` je Modul: `einrichten` (erstes Aktivieren), `hindernisse` (vor dem
+    Deaktivieren), `nachholen` (erneutes Aktivieren, mit `seit`), alle in der Transaktion der Änderung;
+    `iam.modules` (`TenantModules`) für die Plattform. Ereignisse `module.activated` und `module.deactivated`
+    (`ModuleEventData` `{ module, by }`) an `IamEvents.after`; Audit `tenant.module_active` und
+    `tenant.module_allowed` (Plattform-Administration auch im Protokoll der Plattform).
+
+### Geändert
+
+- Die Entscheidung prüft Rechte am Modell der Organisation (`AccessService.active`): ein Recht eines inaktiven Moduls
+  ist überall `false`, auch über Zuständigkeit, Besitz und Scope. Ohne `modules` unverändert.
+- Konformität: Apps mit `@vollholz/iam` 6.1 brauchen `@vollholz/iam-testkit` 2.9 (kennt die neuen SECURITY-DEFINER-
+  Funktionen). Schema-Abzüge der App (`schemaSnapshot`) um `tenant_module` und die drei Funktionen ergänzen.
+
 ## [6.0.0] – 2026-11-05
 
 ### Breaking

@@ -43,6 +43,7 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder und Maschinen-Clients der eigenen Organisation: einladen, entfernen, Rollen an der Organisation und Freigabestufe setzen (Recht «Mitglieder und Rollen verwalten»); eigene Rollen der Organisation zusammenstellen (Recht «Rollen zusammenstellen»).' },
   { name: 'Verwaltung: Anmeldung über Microsoft Entra ID', description: 'Organisation mit ihrem Entra-Tenant verbinden, «Nur Entra» aktivieren, Personen aus Entra ID hinzufügen.' },
   { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },
+  { name: 'Organisation', description: 'Einstellungen der eigenen Organisation: Produktmodule lesen und aktivieren (`/v1/tenant/…`).' },
   { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },
 ];
 

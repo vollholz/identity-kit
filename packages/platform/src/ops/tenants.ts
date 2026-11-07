@@ -120,7 +120,17 @@ export async function tenantCreate(p: PlatformContext, d: TenantDbs, alias: stri
       [t.id, m.model.coreModule, [m.model.coreModule, ...pkg.off]]);
   });
   const acting: ModuleActing = { tenantId: t.id, actor: OPS_MODULES, platform: true };
-  await withTenant(d.runtime, { tenantId: t.id }, async tx => {
+  try {
+    await provision();
+  } catch (e) {
+    // Scheitert die Belegung (z. B. ein Haken der App), die Zeilen der Besitzer-Rolle wieder entfernen: Die
+    // Organisation war vorher ohne Module (oben geprüft), ein erneutes `tenant create --paket` beginnt von vorn
+    await withTenant(d.admin, { tenantId: t.id }, tx => tx.query(`DELETE FROM ${p.schema}.tenant_module WHERE tenant_id = $1`, [t.id]));
+    throw e;
+  }
+  return t;
+
+  async function provision() { await withTenant(d.runtime, { tenantId: t.id }, async tx => {
     for (const k of ordered(m.model, pkg.modules.filter(x => x !== m.model.coreModule))) {
       await svc.setAllowed(tx, acting, k, true);
       await svc.setActive(tx, acting, k, true);
@@ -131,8 +141,7 @@ export async function tenantCreate(p: PlatformContext, d: TenantDbs, alias: stri
       for (const k of [...(mod.core ? [mod.key] : []), ...mod.parts.map(x => x.key).filter(x => !off.has(x))]) await svc.hooks[k]?.einrichten?.(tx, t.id);
     }
     await m.audit.write(tx, OPS_MODULES, { action: 'tenant.module_package', resourceType: 'tenant', resourceId: t.id, data: { paket: pkg.key, modules: [...pkg.modules], off: [...pkg.off] } });
-  });
-  return t;
+  }); }
 }
 
 async function hasModuleRows(p: PlatformContext, admin: Db, tenantId: string): Promise<boolean> {
@@ -159,14 +168,15 @@ export async function tenantModules(p: PlatformContext, d: TenantDbs, alias: str
     for (const k of c.entziehen ?? []) await svc.setAllowed(tx, acting, k, false, force);
     if (pkg) {
       const inPkg = new Set(pkg.modules), off = new Set(pkg.off);
-      // Zuerst entziehen, was nicht im Paket ist (abhängige Module zuerst), dann freigeben und aktivieren
-      const out = model.modules.filter(x => !x.core && !inPkg.has(x.key)).map(x => x.key);
-      for (const k of ordered(model, out).reverse()) await svc.setAllowed(tx, acting, k, false, force);
+      // Zuerst freigeben und aktivieren, was im Paket ist (Ersatz für eine Voraussetzung «eines von» steht dann schon),
+      // danach entziehen, was nicht im Paket ist (abhängige Module zuerst)
       const keep = ordered(model, pkg.modules.filter(x => x !== model.coreModule));
       for (const k of keep) await svc.setAllowed(tx, acting, k, true);
       for (const mod of model.modules.filter(x => inPkg.has(x.key))) for (const part of mod.parts) await svc.setAllowed(tx, acting, part.key, true);
+      if (!c.nurErlauben) for (const k of keep) await svc.setActive(tx, acting, k, true);
+      const out = model.modules.filter(x => !x.core && !inPkg.has(x.key)).map(x => x.key);
+      for (const k of ordered(model, out).reverse()) await svc.setAllowed(tx, acting, k, false, force);
       if (!c.nurErlauben) {
-        for (const k of keep) await svc.setActive(tx, acting, k, true);
         for (const mod of model.modules.filter(x => inPkg.has(x.key))) {
           for (const part of mod.parts) await svc.setActive(tx, acting, part.key, !off.has(part.key));
         }

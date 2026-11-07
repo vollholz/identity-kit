@@ -10,7 +10,7 @@ import { record } from '../platform.ts';
 export const BERICHT_JOB = 'bericht.erstellen';
 
 /** Beobachtung der Tests: Organisationen der letzten festen Aufgabe, Ereignisse beim Abnehmer, Hindernisse. */
-export const seen = { tenants: [] as TaskTenant[], events: [] as OutboxEvent[], blockers: [] as ModuleBlocker[] };
+export const seen = { tenants: [] as TaskTenant[], events: [] as OutboxEvent[], blockers: [] as ModuleBlocker[], failSetup: false };
 
 const job: JobDefinition<{ n: number }> = {
   kind: BERICHT_JOB,
@@ -55,7 +55,7 @@ export const berichtModule = defineModule({
 /** Haken der App für das Produktmodul `berichte` (Audit als Beobachtung). */
 export const berichtHooks: ModuleHooks = {
   berichte: {
-    einrichten: (tx, tenantId) => record(tx, systemActor('system', 'module'), { action: 'bericht.eingerichtet', resourceType: 'tenant', resourceId: tenantId }),
+    einrichten: (tx, tenantId) => (seen.failSetup ? Promise.reject(new Error('einrichten gescheitert')) : record(tx, systemActor('system', 'module'), { action: 'bericht.eingerichtet', resourceType: 'tenant', resourceId: tenantId })),
     hindernisse: async () => seen.blockers,
     nachholen: (tx, tenantId, seit) => record(tx, systemActor('system', 'module'), { action: 'bericht.nachgeholt', resourceType: 'tenant', resourceId: tenantId, data: { seit: seit.toISOString() } }),
   },

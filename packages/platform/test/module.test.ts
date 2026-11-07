@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { buildToolServer, checkModules, defineModule, NACHHOLEN_JOB, outboxTask, runCli, type TenantDbs, type Worker } from '../src/index.ts';
+import { defineModel } from '@vollholz/iam';
+import { buildToolServer, checkModules, defineModule, NACHHOLEN_JOB, outboxTask, runCli, tenantModules, type TenantDbs, type Worker } from '../src/index.ts';
 import { app } from './fixture/app.ts';
 import { BERICHT_JOB, berichtModule, seen } from './fixture/bericht/index.ts';
 import { notizModule } from './fixture/notiz/index.ts';
@@ -236,6 +237,33 @@ describe('Module je Organisation', { skip }, () => {
     await app.tenants.modules(d, 'p-basis', { erlauben: ['berichte'] });
     assert.deepEqual((await states('p-basis')).berichte, [true, false]);
     await assert.rejects(app.tenants.modules(d, 'p-basis', { erlauben: ['gibtsnicht'] }), /Unbekannte Module: gibtsnicht/);
+  });
+
+  test('Pakete: scheitert einrichten beim Anlegen, bleibt nichts stehen; der zweite Versuch gelingt', async () => {
+    seen.failSetup = true;
+    try {
+      await assert.rejects(app.tenants.create(d, 'p-fehler', undefined, { paket: 'gesamt' }), /einrichten gescheitert/);
+    } finally { seen.failSetup = false; }
+    const t = await app.tenants.create(d, 'p-fehler', undefined, { paket: 'gesamt' });
+    assert.deepEqual(await states('p-fehler'), { kern: [true, true], notizen: [true, true], 'notizen.abo': [true, true], berichte: [true, true] });
+    assert.equal((await audits(t.id, 'bericht.eingerichtet')).length, 1);
+  });
+
+  test('Pakete: Wechsel bei Voraussetzung «eines von» aktiviert zuerst den Ersatz', async () => {
+    const alt = defineModel({
+      product: 'probe',
+      modules: [
+        { key: 'kern', label: 'Kern', core: true }, { key: 'aa', label: 'A', requires: ['kern'] }, { key: 'bb', label: 'B', requires: ['kern'] },
+        { key: 'cc', label: 'C', requires: [['aa', 'bb']] },
+      ],
+      packages: [{ key: 'pa', label: 'PA', modules: ['kern', 'aa', 'cc'] }, { key: 'pb', label: 'PB', modules: ['kern', 'bb', 'cc'] }],
+      permissions: {}, groups: [], roles: {},
+    });
+    await tenant(api.t.runtime, 'p-alt');
+    const m = { model: alt as never, audit: platform.audit };
+    const on = (r: Awaited<ReturnType<typeof tenantModules>>) => r.modules.filter(s => s.active).map(s => s.key);
+    assert.deepEqual(on(await tenantModules(platform.context, d, 'p-alt', m, { paket: 'pa' })), ['kern', 'aa', 'cc']);
+    assert.deepEqual(on(await tenantModules(platform.context, d, 'p-alt', m, { paket: 'pb' })), ['kern', 'bb', 'cc']);
   });
 
   test('Befehle über runCli: tenant create --paket und tenant modules (JSON)', async () => {

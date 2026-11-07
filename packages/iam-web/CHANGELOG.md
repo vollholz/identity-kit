@@ -7,6 +7,35 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [3.1.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Seite «Module»** (`paths.modules`, Standard `/einstellungen/module`; Route `modules` in `iamRoutes`, Gruppe
+  «Zugang»): Produktmodule der Organisation sehen (`tenant:read`) und aktivieren bzw. deaktivieren (`tenant:admin`,
+  ab `@vollholz/iam` 6.1). Liste mit Schublade: je Modul Name, Kurzbeschreibung, Status (Aktiv · Aus · Nicht
+  freigegeben), Voraussetzungen als Text («Braucht «Zeiterfassung»»), Schalter; Teilfunktionen eingerückt als Schalter
+  darunter. Vor dem Aktivieren der Hinweis auf mitzuaktivierende Voraussetzungen («Aktiviert auch …», bei «eines von»
+  mit Wahl), aktiviert in der richtigen Reihenfolge; vor dem Deaktivieren eine Rückfrage mit der Wirkung (Teilfunktionen
+  und Rechte verschwinden für alle, Daten bleiben) und den Hindernissen der App bzw. den Modulen, die es noch brauchen
+  (dann ohne «Deaktivieren»). Nicht freigegebene Module gesperrt mit Grund. Antworten 403/409 des Servers (`reason`)
+  in verständlichen Sätzen; `If-Match` mit dem `ETag` der Liste, 412 mit «Neu laden». In `IamNav` nur, wenn das Modell
+  Module hat. `ModulesPage`, `ModulesScreen`.
+- **Plattform-Administration:** Abschnitt «Module» in der Detailseite einer Organisation (`ModulesSection`): je Modul
+  und Teilfunktion freigeben bzw. entziehen; Entziehen mit Rückfrage und Wirkung, Hindernisse mit «Trotzdem entziehen»
+  (`?force=true`).
+- `useIam().modules` (aktive Module und Teilfunktionen aus `/auth/me`) und `useIam().hasModule(key)` zum Ein- und
+  Ausblenden von Arbeitsflächen der App; ältere Server ohne `modules`: `hasModule` immer `true`.
+- `features.modules` (Standard: das Modell hat Module laut Katalog; `false` blendet Seite und Abschnitt aus).
+- `moduleApi(alias)`, `useModules(alias)`, `useModulesFeature()`, `modulesChanged(qc, alias)` (nach einer Schaltung
+  Liste, Sitzung und Katalog neu laden; der Katalog enthält nur Rechte aktiver Module), `iamKeys.modules(alias)`, Regeln für die Anzeige
+  (`activationPlan`, `dependentsOf`, `usedBy`, `partsOf`, `moduleRights`, `requiresText`, `moduleErrorText`, …),
+  `iamFetchWithEtag`; `useAuthzCatalog(enabled)`.
+- Typen `TenantModule`, `TenantModuleList`, `ModuleBlocker`, `ModuleRequirement`, `ModuleActiveInput`,
+  `ModuleAllowedInput`, `CatalogModule`, `CatalogModulePart`, `CatalogPackage`; optional `Me.modules`,
+  `ApiMe.modules`, `AuthzCatalog.modules`, `AuthzCatalog.packages`, `PermissionInfo.modul`.
+- Texte `iam.modules.*` (de, en).
+
 ## [3.0.1] – 2026-11-07
 
 ### Geändert

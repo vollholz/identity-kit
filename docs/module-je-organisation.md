@@ -200,19 +200,32 @@ moduleHooks: {
 
 ## 8 Oberfläche
 
-`@vollholz/iam-web`: Seite **«Module»** in der Gruppe «Zugang» (Route `paths.modules`, Standard `/einstellungen/module`),
-sichtbar mit `tenant:read`, bearbeitbar mit `tenant:admin`; Seitentyp Liste + Schublade:
+`@vollholz/iam-web` (ab 3.1.0): Seite **«Module»** in der Gruppe «Zugang» (Route `modules` in `iamRoutes`, Pfad
+`paths.modules`, Standard `/einstellungen/module`; `ModulesPage` bzw. mit Guard `ModulesScreen` aus
+`@vollholz/iam-web/pages`), sichtbar mit `tenant:read`, bearbeitbar mit `tenant:admin`; Seitentyp Liste + Schublade:
 
-- Zeile je Modul: Name, Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Teilfunktionen als Schalter
-  darunter (eingerückt), Voraussetzungen als Text («braucht Zeiterfassung»).
-- Schalter «Aktiv»: Vor dem Deaktivieren Bestätigung mit Wirkung («Arbeitsflächen Zeit und Lohn verschwinden für
-  alle; Daten bleiben erhalten») und Hindernissen («3 offene Korrekturanträge – zuerst entscheiden»); vor dem
-  Aktivieren Hinweis auf mitzuaktivierende Voraussetzungen («Aktiviert auch Zeiterfassung»).
-- Nicht freigegebene Module: Schalter deaktiviert mit Grund («Für deine Organisation nicht freigegeben – wende dich
-  an den Betrieb»).
-- `useIam()` erhält `modules` und `hasModule(key)`; `useIamNav` blendet nichts ein oder aus (die Gruppe «Zugang» gehört
-  zum Kern).
-- Plattform-Administration: in der bestehenden Mandantenliste je Organisation «Module» mit Freigeben/Entziehen.
+- Zeile je Modul: Name (öffnet die Schublade mit Voraussetzungen, «Gebraucht von», Teilfunktionen, Rechten des Moduls
+  aus dem Katalog `modul` und Hindernissen), Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben; Kern «Immer
+  aktiv» ohne Schalter), Teilfunktionen als Schalter darunter (eingerückt), Voraussetzungen als Text («Braucht
+  «Zeiterfassung»», bei Listen «eines von …»).
+- Schalter «Aktiv» (`role="switch"`): Vor dem Deaktivieren Rückfrage mit Wirkung («… verschwindet für alle in «Org»»:
+  Teilfunktionen, Rechte des Moduls, «Die Daten bleiben erhalten») und Hindernissen aus `blockers` der Liste bzw. aus
+  409 `hindernisse` («Zuerst erledigen: 3 offene Korrekturanträge – zuerst entscheiden»); braucht ein aktives Modul es
+  noch («Noch gebraucht von …»), gibt es kein «Deaktivieren». Vor dem Aktivieren Hinweis auf mitzuaktivierende
+  Voraussetzungen («Aktiviert auch «Zeiterfassung»», bei «eines von» mit Wahl); die Seite aktiviert sie in der
+  Reihenfolge der Voraussetzungen, je mit `If-Match` (412: «Neu laden»). Teilfunktion gesperrt, solange ihr Modul aus
+  ist; ohne `tenant:admin` alle Schalter gesperrt mit Grund.
+- Nicht freigegebene Module: Schalter gesperrt mit Grund («Für deine Organisation nicht freigegeben – wende dich an den
+  Betrieb»); ebenso Module, deren Voraussetzung nicht freigegeben ist.
+- `useIam()` erhält `modules` und `hasModule(key)` (aus `/auth/me`; Server ohne `modules`: `hasModule` immer `true`);
+  `useIamNav` blendet keine Seiten der Gruppe «Zugang» nach Modulen ein oder aus (sie gehört zum Kern) – nur «Module»
+  selbst erscheint erst, wenn das Modell Module hat (Katalog `modules` mit mehr als dem Kern; `features.modules`
+  übersteuert).
+- Plattform-Administration: in der Detailseite einer Organisation (`/verwalten/organisationen/:alias`) der Abschnitt
+  «Module» (`ModulesSection`) mit Freigeben/Entziehen je Modul und Teilfunktion; Entziehen mit Rückfrage und Wirkung,
+  Hindernisse mit «Trotzdem entziehen» (`?force=true`), «Noch gebraucht von …» ohne Entziehen.
+- Aufrufe und Regeln für eigene Oberflächen der App: `moduleApi(alias)`, `useModules(alias)`, `activationPlan`,
+  `dependentsOf`, `moduleErrorText`.
 
 ## 9 Bewusst nicht im Paket
 

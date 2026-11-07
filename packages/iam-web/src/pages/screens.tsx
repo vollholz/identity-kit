@@ -4,6 +4,7 @@ import { t } from '../texts/index.ts';
 import { useIamText } from '../texts/react.tsx';
 import { EntraPage } from './Entra.tsx';
 import { MembersPage } from './Members.tsx';
+import { ModulesPage } from './Modules.tsx';
 import { OrganizationPage, OrganizationsPage } from './Organizations.tsx';
 import { RolesPage } from './Roles.tsx';
 
@@ -15,6 +16,12 @@ export function MembersScreen() {
 export function RolesScreen() {
   useIamText();
   return <Requires perm="roles:admin" title={t('iam.roles.page.title')} icon="key"><RolesPage /></Requires>;
+}
+
+/** Module: sehen mit «Organisation lesen», schalten mit «Organisation verwalten» (die Seite sperrt die Schalter). */
+export function ModulesScreen() {
+  useIamText();
+  return <Requires perm="tenant:read" somewhere={false} title={t('iam.modules.title')} icon="layers"><ModulesPage /></Requires>;
 }
 
 /** Organisationen prüfen die Plattform-Administration selbst (Status mit `platformAdmin`, ohne «Recht fehlt»). */

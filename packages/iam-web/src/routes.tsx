@@ -8,6 +8,7 @@
 import type { ComponentType } from 'react';
 import { useAccount } from './account.ts';
 import { DEFAULT_PATHS, useIamConfig, type IamFeatures, type IamPaths } from './config.tsx';
+import { useModulesFeature } from './modules.ts';
 import type { Permission } from './permissions.ts';
 import { useIam } from './session.tsx';
 import { t } from './texts/index.ts';
@@ -15,7 +16,7 @@ import { useIamText } from './texts/react.tsx';
 import { useIamUi } from './ui/context.tsx';
 import type { IamIconName } from './ui/icons.ts';
 
-export type IamRouteId = 'members' | 'roles' | 'entra' | 'entraConsent' | 'entraTest' | 'organizations' | 'organization';
+export type IamRouteId = 'members' | 'roles' | 'modules' | 'entra' | 'entraConsent' | 'entraTest' | 'organizations' | 'organization';
 
 export interface IamRoute {
   id: IamRouteId;
@@ -42,8 +43,9 @@ export const tanstackParam = (name: string) => `$${name}`;
 
 /**
  * Routen mit den Pfaden und Schaltern der App (`paths`, `features` wie bei `IamProvider`): ohne `platform` keine
- * Organisationen, ohne `entra` keine Anmeldung über Microsoft Entra ID. «Zugriff» ist keine Seite, sondern die
- * Seitenleiste an der Ressource (`AccessSheet`). `param` schreibt Parameter im Stil des Routers.
+ * Organisationen, ohne `entra` keine Anmeldung über Microsoft Entra ID, mit `modules: false` keine Seite «Module» (sonst
+ * blendet `useIamNav` sie ohne Module im Modell aus). «Zugriff» ist keine Seite, sondern die Seitenleiste an der
+ * Ressource (`AccessSheet`). `param` schreibt Parameter im Stil des Routers.
  */
 export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatures = {}, o: { param?: (name: string) => string } = {}): IamRoute[] {
   const p = { ...DEFAULT_PATHS, ...paths };
@@ -52,6 +54,8 @@ export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatur
     { id: 'members', path: p.members, need: { perm: 'members:admin' }, get title() { return t('iam.members.title'); }, icon: 'users', nav: true, load: () => pages().then(m => ({ default: m.MembersScreen })) },
     // Eigene Rollen: ohne roles:admin (z. B. abgeschaltet im Modell der App) nicht in der Navigation
     { id: 'roles', path: p.roles, need: { perm: 'roles:admin' }, get title() { return t('iam.roles.page.title'); }, icon: 'key', nav: true, load: () => pages().then(m => ({ default: m.RolesScreen })) },
+    // Produktmodule: nur, wenn das Modell Module hat (Katalog bzw. features.modules); bearbeiten mit tenant:admin
+    { id: 'modules', path: p.modules, need: { perm: 'tenant:read' }, get title() { return t('iam.modules.title'); }, icon: 'layers', nav: true, load: () => pages().then(m => ({ default: m.ModulesScreen })) },
     { id: 'entra', path: p.entra, need: { perm: 'members:admin' }, get title() { return t('iam.entra.title'); }, icon: 'shield', nav: true, load: () => pages().then(m => ({ default: m.EntraScreen })) },
     // Rückkehrseiten (bei Microsoft registriert): die API prüft selbst, die Testanmeldung darf jede Person der Organisation
     { id: 'entraConsent', path: `${p.entra}/zustimmung`, need: null, get title() { return t('iam.entra.connectTitle'); }, icon: 'shield', nav: false, load: () => pages().then(m => ({ default: m.EntraConsentReturn })) },
@@ -59,7 +63,7 @@ export function makeIamRoutes(paths: Partial<IamPaths> = {}, features: IamFeatur
     { id: 'organizations', path: p.organizations, need: { platformAdmin: true }, get title() { return t('iam.orgs.title'); }, icon: 'building', nav: true, load: () => pages().then(m => ({ default: m.OrganizationsScreen })) },
     { id: 'organization', path: `${p.organizations}/${param('alias')}`, need: { platformAdmin: true }, get title() { return t('iam.orgs.one'); }, icon: 'building', nav: false, load: () => pages().then(m => ({ default: m.OrganizationScreen })) },
   ];
-  return all.filter(r => (features.platform !== false || !(r.need && 'platformAdmin' in r.need)) && (features.entra || !r.id.startsWith('entra')));
+  return all.filter(r => (features.platform !== false || !(r.need && 'platformAdmin' in r.need)) && (features.entra || !r.id.startsWith('entra')) && (features.modules !== false || r.id !== 'modules'));
 }
 
 /** Routen mit den Standardpfaden. */
@@ -75,7 +79,10 @@ export function useIamNav(): IamNavItem[] {
   const pathname = router.usePathname();
   const routes = makeIamRoutes(paths, features).filter(r => r.nav);
   const platform = useAccount(features.platform !== false && routes.some(r => r.need && 'platformAdmin' in r.need)).data?.platformAdmin ?? false;
+  // «Module» nur mit Modulen im Modell (Katalog); solange er lädt, ohne den Eintrag
+  const modules = useModulesFeature(routes.some(r => r.id === 'modules') && canSomewhere('tenant:read')) === true;
   return routes
+    .filter(r => r.id !== 'modules' || modules)
     .filter(r => !r.need || ('perm' in r.need ? canSomewhere(r.need.perm) : platform))
     .map(r => ({ id: r.id, path: r.path, title: r.title, icon: r.icon, active: pathname === r.path || pathname.startsWith(`${r.path}/`) }));
 }

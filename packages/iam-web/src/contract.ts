@@ -59,6 +59,11 @@ export interface Me {
   breakGlassUntil: string | null;
   /** Ich darf Break-Glass starten: direktes Tupel `user:<ich> org-admin` an `org` (nicht über Gruppen), 9.7. */
   breakGlassAllowed: boolean;
+  /**
+   * Aktive Produktmodule und Teilfunktionen (`modul.teil`) der Organisation, mit Kern (ab `@vollholz/iam` 6.1). Fehlt
+   * bei älteren Servern: dann gilt alles als aktiv (`hasModule`).
+   */
+  modules?: string[];
   csrfToken: string;
   session: { expiresAt: string; idleTimeoutSeconds: number };
 }
@@ -77,6 +82,8 @@ export interface ApiMe {
   somewhere: Permission[];
   clearance: Level;
   breakGlassUntil: string | null;
+  /** Aktive Produktmodule und Teilfunktionen (ab `@vollholz/iam` 6.1). */
+  modules?: string[];
   tokenBinding: string;
 }
 
@@ -93,6 +100,8 @@ export interface PermissionInfo {
   adminOnly: boolean;
   /** Nur für Personen, in keinem Scope. */
   personOnly?: true;
+  /** Produktmodul des Rechts (ab `@vollholz/iam` 6.1; ohne Module im Modell der Kern). */
+  modul?: string;
 }
 export interface PermissionGroupInfo { key: string; label: string; match?: string }
 /** `adminOnly`: nur die Plattform-Administration vergibt die Rolle. */
@@ -130,7 +139,52 @@ export interface AuthzCatalog {
   types: TypeInfo[];
   classifications: ClassificationInfo[];
   mcpTools: McpToolInfo[];
+  /** Produktmodule des Modells (ab `@vollholz/iam` 6.1; ohne `modules` im Modell nur der stille Kern). */
+  modules?: CatalogModule[];
+  /** Pakete (Bündel von Modulen für den Betrieb), ab `@vollholz/iam` 6.1. */
+  packages?: CatalogPackage[];
 }
+
+/**
+ * Voraussetzung eines Moduls: Schlüssel (Pflicht) oder Liste (eines davon muss aktiv sein).
+ */
+export type ModuleRequirement = string | string[];
+/** Teilfunktion eines Moduls (`modul.teil`), einzeln schaltbar, solange das Modul aktiv ist. */
+export interface CatalogModulePart { key: string; label: string; description: string }
+/** Produktmodul im Katalog. `core`: Kern, immer aktiv. */
+export interface CatalogModule { key: string; label: string; description: string; core: boolean; requires: ModuleRequirement[]; parts: CatalogModulePart[] }
+/** Paket: Bündel von Modulen (`modules`) mit ausgeschalteten Teilfunktionen (`off`). */
+export interface CatalogPackage { key: string; label: string; description: string; modules: string[]; off: string[] }
+
+// ------------------------------------------------------------------------------------- Module (/v1/tenant/modules)
+
+/** Hindernis vor dem Deaktivieren (Haken der App), z. B. «3 offene Korrekturanträge – zuerst entscheiden». */
+export interface ModuleBlocker { key: string; text: string; anzahl?: number }
+/** Zustand eines Moduls bzw. einer Teilfunktion in einer Organisation (`GET /v1/tenant/modules`). */
+export interface TenantModule {
+  /** Modul oder Teilfunktion `modul.teil`. */
+  key: string;
+  label: string;
+  description: string;
+  /** Kern: immer aktiv, nicht abschaltbar. */
+  core: boolean;
+  /** Voraussetzungen (bei Teilfunktionen leer). */
+  requires: ModuleRequirement[];
+  /** Modul einer Teilfunktion; `null` bei Modulen. */
+  module: string | null;
+  /** Für die Organisation freigegeben (setzt der Betrieb). */
+  allowed: boolean;
+  /** In der Organisation aktiv (setzt die Organisation, nur wenn freigegeben). */
+  active: boolean;
+  activeSince: string | null;
+  /** Nur mit `tenant:admin` bzw. für die Plattform-Administration und nur bei aktiven Modulen. */
+  blockers?: ModuleBlocker[];
+}
+export interface TenantModuleList { items: TenantModule[] }
+/** `PUT /v1/tenant/modules/{key}`. */
+export interface ModuleActiveInput { active: boolean }
+/** `PUT /v1/platform/organizations/{alias}/modules/{key}` (`?force=true` übergeht Hindernisse). */
+export interface ModuleAllowedInput { allowed: boolean }
 
 // ------------------------------------------------------------------------------------------- Zugriff (9.5, /v1/access)
 

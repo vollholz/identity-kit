@@ -2,7 +2,7 @@
 
 Oberfläche (React) für Apps mit dem IAM-Baukasten: Sitzung und Organisation je Tab, Rechte-Bausteine, Kontomenü, die
 Bausteine «Zugriff» an jedem Ort der App (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit und Break-Glass
-sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Rollen der Organisation, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
+sowie die Verwalten-Seiten «Zugang» (Mitglieder mit Clients, Rollen der Organisation, Module, Anmeldung über Microsoft Entra ID, Organisationen). Vertrag: [Spezifikation](../../docs/spezifikation.md) Kap. 5, 7, 9, 11 und 15; Aufbau und
 Entscheide: [docs/entwurf.md](docs/entwurf.md). Produktneutral: keine Annahmen über eine bestimmte App.
 
 Kein eigenes Aussehen: Das Stylesheet färbt nur über `--iam-*`, die App setzt sie aus ihren Design-Tokens. Alle Texte
@@ -46,8 +46,14 @@ createRoot(root).render(
 
 `IamProvider` lädt `/auth/me`, zeigt bei Bedarf die Anmeldung, die Auswahl der Organisation, «nicht verfügbar»,
 «Sitzung abgelaufen» und `/abgemeldet`, und rendert die App erst mit Sitzung. Beim Wechsel der Organisation leert er den
-Cache der App und baut sie neu auf. In der App: `useIam()` (`me`, `can`, `canSomewhere`, `orgName`, `switchOrg`,
-`logout`), `<Can perm>`, `useAuthz()` für Labels aus dem Katalog.
+Cache der App und baut sie neu auf. In der App: `useIam()` (`me`, `can`, `canSomewhere`, `modules`, `hasModule`,
+`orgName`, `switchOrg`, `logout`), `<Can perm>`, `useAuthz()` für Labels aus dem Katalog.
+
+Produktmodule (ab `@vollholz/iam` 6.1): `hasModule('zeit')` bzw. `hasModule('zeit.korrektur')` blendet Arbeitsflächen
+der App ein und aus (`useIam().modules` aus `/auth/me`; ältere Server ohne `modules`: immer `true`). Die Seite «Module»
+(`paths.modules`, Standard `/einstellungen/module`, Route `modules`) zeigt die Module mit `tenant:read` und schaltet sie
+mit `tenant:admin`; sie erscheint in `IamNav` nur, wenn das Modell Module hat (`features.modules: false` blendet sie
+aus). Die Plattform-Administration gibt Module je Organisation frei bzw. entzieht sie (Detailseite einer Organisation).
 
 Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 
@@ -56,7 +62,7 @@ Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 | `product`, `brand` | Name und Marke auf Auswahl- und Abmeldeseite |
 | `router` | Router-Adapter (unten); Standard: History-API |
 | `paths` | Pfade der Seiten; Standard `/verwalten/mitglieder` …. `paths.entra` muss zu den Redirect-URIs der Entra-App und `ENTRA_*` des Servers passen |
-| `features` | `access` (Freigaben an Orten: «+n Orte», Rollen an Orten; Standard: das Modell hat Typen ausser `org`), `entra` (Standard aus), `platform` (Standard an) |
+| `features` | `access` (Freigaben an Orten: «+n Orte», Rollen an Orten; Standard: das Modell hat Typen ausser `org`), `entra` (Standard aus), `modules` (Seite «Module»; Standard: das Modell hat Module), `platform` (Standard an) |
 | `components` | eigene Grundkomponenten (`Button`, `Dialog`, `Menu`, `Table`, `Icon`, `toast`) |
 | `roleGroups`, `inviteRoles` | Darstellung der Rollen, Vorgabe beim Einladen |
 | `resources`, `people` | Orte der App (Namen, Sprung) und Personenverzeichnis (unten) |

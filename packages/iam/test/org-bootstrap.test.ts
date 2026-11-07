@@ -150,6 +150,11 @@ describe('Ersteinrichtung einer Organisation', () => {
       const n = fake.mails.length;
       await assert.rejects(orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', applyPackage: async () => { throw new Error('Haken scheitert'); } }), /Haken scheitert/);
       assert.equal(fake.mails.length, n, 'keine Einladung');
+      // auch kein temporäres Passwort: sonst bliebe ein Zugang ohne Paket zurück
+      const secretDir = join(dir, 'paket-secrets');
+      await assert.rejects(orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', initialPassword: { realm: 'notes', secretDir }, applyPackage: async () => { throw new Error('Haken scheitert'); } }), /Haken scheitert/);
+      assert.ok(!existsSync(join(secretDir, 'initial-password-notes-fia@fehler.example.txt')), 'kein Passwort');
+      assert.equal(fake.byEmail('fia@fehler.example')!.password, false, 'kein Passwort in Keycloak');
       const retry = await orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', applyPackage });
       assert.equal(retry.package?.status, 'applied');
       // ohne Paket: wie bisher

@@ -7,7 +7,7 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
-## [2.9.3] – 2026-11-07
+## [2.10.0] – 2026-11-07
 
 ### Hinzugefügt
 
@@ -19,7 +19,7 @@ der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
 ### Geändert
 
-- Kennt `@vollholz/iam` 6.2.0, `@vollholz/iam-testkit` 2.9.3 und `@vollholz/create-iam-app` 0.9.0 (`CURRENT`).
+- Kennt `@vollholz/iam` 6.2.0, `@vollholz/iam-testkit` 2.10.0 und `@vollholz/create-iam-app` 0.9.0 (`CURRENT`).
 
 ## [2.9.2] – 2026-11-07
 

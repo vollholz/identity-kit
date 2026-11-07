@@ -79,7 +79,7 @@ sich für die App nichts. Vollständig: [packages/iam/CHANGELOG.md](../packages/
 [packages/platform/CHANGELOG.md](../packages/platform/CHANGELOG.md) (0.9.0). Kurz:
 
 - **Pakete gemeinsam anheben** (Renovate-Gruppe «identity-kit»): `@vollholz/iam`, `@vollholz/platform`,
-  `@vollholz/iam-web`, `@vollholz/iam-testkit` 2.9.3 und `@vollholz/create-iam-app` 0.9 (`sync` für die verwalteten
+  `@vollholz/iam-web`, `@vollholz/iam-testkit` 2.10.0 und `@vollholz/create-iam-app` 0.9 (`sync` für die verwalteten
   Dateien).
 - **`migrate` vor dem Start** der neuen Version: Migration `iam_022_tenant_module.sql` (Tabelle `tenant_module`, alle
   bestehenden Organisationen erhalten alle Module erlaubt und aktiv, protokolliert als `tenant.module_backfill`) und

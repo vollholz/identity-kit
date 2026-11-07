@@ -265,7 +265,6 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
     step(`${email} → Organisation ${alias}`);
     if (!dry) await kc.addMember(res.orgId, res.userId);
   }
-  res.passwordFile = await initialPassword(kc, res.userId, email, o, dry, step);
   if (o.database) {
     const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
     res.tenantId = r.tenantId; res.principalId = r.principalId;
@@ -279,7 +278,9 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
       else { res.package.status = 'pending'; step(pendingText(alias, res.package.key)); }
     }
   }
-  // Einladung zuletzt: die Person findet beim Anmelden ihre Rolle schon vor
+  // Passwort und Einladung zuletzt: die Person findet beim Anmelden Rolle und Module des Pakets schon vor (scheitert
+  // applyPackage, bleibt kein Zugang zurück, über den das erste Laden alle Module belegen würde)
+  res.passwordFile = await initialPassword(kc, res.userId, email, o, dry, step);
   if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) res.invitation = await invite(kc, res.userId, email, o, dry, step);
   step('Fertig.');
   return res;

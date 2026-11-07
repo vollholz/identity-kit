@@ -23,7 +23,7 @@ Den Vertrag beschreibt die [Spezifikation](spezifikation.md), das Backend im Det
 |---|---|---|
 | `@vollholz/iam` (Backend) | 6.2.0 | GitHub Packages |
 | `@vollholz/iam-web` (Oberfläche) | 3.1.0 | GitHub Packages |
-| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.9.3 | GitHub Packages |
+| `@vollholz/iam-testkit` (Tests, `iam-conformity-test`) | 2.10.0 | GitHub Packages |
 | `@vollholz/create-iam-app` (Gerüst) | 0.9.0 | GitHub Packages |
 | `@vollholz/platform` (Querschnitt, optional) | 0.9.0 | GitHub Packages |
 | `product-realm` (OpenTofu) | 3.1.0 | Git-Tag `product-realm-v3.1.0` (im Gerüst eingesetzt; ab Keycloak 26.8) |

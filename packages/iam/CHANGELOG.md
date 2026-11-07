@@ -26,7 +26,7 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
     unverändert (`package.status: 'present'`; erneut anwenden mit `tenant modules <alias> --paket <key>`).
   - `OrgBootstrapResult` neu mit `alias` und `package: { key, status: 'applied' | 'pending' | 'present' | null }`;
     Typen `PackageTarget`, `PackageStatus`. Das Paket prüft das Skript nur auf die Form des Schlüssels; ob es im
-    Modell existiert, prüft der Konformitätstest (`@vollholz/iam-testkit` 2.9.3).
+    Modell existiert, prüft der Konformitätstest (`@vollholz/iam-testkit` 2.10.0).
 
 ## [6.1.0] – 2026-11-07
 

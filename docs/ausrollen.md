@@ -72,11 +72,40 @@ OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen
 `<modul>-v<version>`. Die App bezieht das Modul über
 `source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.
 
+## Umstieg auf `@vollholz/iam` 7.0
+
+Entscheid 7.11.2026: Das Kit beschränkt sich auf Anmeldung und Rechte. `@vollholz/platform` und das Modulkonzept sind
+in die App gezogen ([app-plattform-konzept.md](app-plattform-konzept.md), [module-je-organisation.md](module-je-organisation.md)).
+Gemeinsam anheben: `@vollholz/iam` 7.0.0, `@vollholz/iam-web` 4.0.0, `@vollholz/iam-testkit` 3.0.0,
+`@vollholz/create-iam-app` 0.10.0 (danach `npx @vollholz/create-iam-app@0.10.0 sync`). Vollständig:
+[iam](../packages/iam/CHANGELOG.md), [iam-web](../packages/iam-web/CHANGELOG.md),
+[iam-testkit](../packages/iam-testkit/CHANGELOG.md), [create-iam-app](../packages/create-iam-app/CHANGELOG.md). Kurz:
+
+- **`@vollholz/platform`:** Abhängigkeit entfernen, den genutzten Code in die App übernehmen (der Konformitätstest
+  meldet die Abhängigkeit ab Test-Kit 3.0). Letzte Version 0.9.0 bleibt in der Registry; neue gibt es nicht.
+- **Modell:** `modules`, `packages`, `features.modules` und `modul` an Rechten entfernen (`defineModel` bricht sonst ab).
+  Das Verzeichnis der Module führt die App selbst; Rechte inaktiver Module lässt sie über
+  `createIam({ tenantPermissions: { version, allowed } })` weg ([backend.md](../packages/iam/docs/backend.md#rechte-je-organisation-haken-tenantpermissions)).
+  `moduleHooks` entfällt (die App ruft ihre Haken beim Schalten selbst).
+- **API und Oberfläche:** `/v1/tenant/modules…`, `/v1/platform/organizations/{alias}/modules…` sowie `modules` in
+  `/v1/me`, `/auth/me` und im Katalog (auch `modul` je Recht, `packages`) entfallen. Die App liefert ihre Module über
+  den Haken `createIam({ meExtra })` als `extra.modules` in `/v1/me` und `/auth/me` (ersetzt einen eigenen
+  `preSerialization`-Haken) und zeigt eine eigene Seite; in der Oberfläche `useIam().extra` statt `hasModule`. iam-web: `ModulesPage`, `ModulesSection`, die Hilfen aus
+  `@vollholz/iam-web/pages`, `useIam().hasModule`/`modules`, Route `modules`, `paths.modules` und `features.modules`
+  entfallen. Isolations-Durchlauf und RLS-Matrizen der App anpassen.
+- **Daten:** `iam_022_tenant_module.sql` bleibt (keine neue Migration); iam liest und schreibt `tenant_module` nicht
+  mehr, die Tabelle gehört der App (übernehmen oder mit einer eigenen Migration ersetzen). `migrate` belegt keine
+  Module mehr. Ereignisse `module.activated`/`module.deactivated` kommen nicht mehr von iam.
+- **Startdaten:** `organizations[].package` → `organizations[].app` (z. B. `"app": { "package": "basis" }`) im
+  Manifest bzw. in `init.json`. Ein Einstieg der App ruft `orgBootstrapFile(…, { afterOrganization })` und wendet dort
+  ihr Paket an ([backend.md › Startdaten der App](../packages/iam/docs/backend.md#startdaten-der-app-afterorganization));
+  `iam-org-bootstrap --manifest` lässt `app` unberührt. `applyPackage` und `OrgBootstrapResult.package` entfallen.
+
 ## Umstieg auf `@vollholz/iam` 6.1/6.2 (`@vollholz/platform` 0.9, `@vollholz/iam-web` 3.1)
 
 Produktmodule je Organisation ([module-je-organisation.md](module-je-organisation.md)); ohne `modules` im Modell ändert
 sich für die App nichts. Vollständig: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (6.1.0, 6.2.0),
-[packages/platform/CHANGELOG.md](../packages/platform/CHANGELOG.md) (0.9.0). Kurz:
+[packages/platform/CHANGELOG.md](https://github.com/vollholz/identity-kit/blob/platform-v0.9.0/packages/platform/CHANGELOG.md) (0.9.0, Paket seit 7.11.2026 entfernt). Kurz:
 
 - **Pakete gemeinsam anheben** (Renovate-Gruppe «identity-kit»): `@vollholz/iam`, `@vollholz/platform`,
   `@vollholz/iam-web`, `@vollholz/iam-testkit` 2.10.0 und `@vollholz/create-iam-app` 0.9 (`sync` für die verwalteten
@@ -107,7 +136,7 @@ Eigene Rollen der Organisation (O17). Vollständig: [packages/iam/CHANGELOG.md](
 ## Umstieg auf `@vollholz/iam` 4.0 (`@vollholz/platform` 0.5)
 
 Vollständig mit allen Schritten: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (4.0.0) und
-[packages/platform/CHANGELOG.md](../packages/platform/CHANGELOG.md) (0.5.0). Kurz:
+[packages/platform/CHANGELOG.md](https://github.com/vollholz/identity-kit/blob/platform-v0.5.0/packages/platform/CHANGELOG.md) (0.5.0, Paket seit 7.11.2026 entfernt). Kurz:
 
 - **`events` ist ein Objekt** `{ before?, after? }` statt einer Funktion `(tx, type, subject, data)`. Die alte Funktion
   rief das Paket nie auf; wer sie übergab, schreibt `events: { after: async (tx, e) => alt(tx, e.type, e.subject, e.data) }`

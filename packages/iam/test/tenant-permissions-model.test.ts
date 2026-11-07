@@ -1,14 +1,14 @@
 /**
  * Haken «Rechte je Organisation» im Modell (`withPermissions`): eingeschränkte Rechte fehlen in Rechten, Rollen (auch
  * eigenen), Scopes, owner, MCP-Werkzeugen, Katalog und Entscheidung; reservierte Rechte bleiben; Zusammenspiel mit
- * `withModules` (Schnittmenge) und `withRoles`; `null` hebt die Einschränkung auf.
+ * `withRoles`; `null` hebt die Einschränkung auf. Das frühere Modulkonzept des Modells bricht mit Hinweis ab.
  */
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { AccessService, subjectsOf, type TenantAccess, type Tuple } from '../src/access.ts';
-import { defineModel, type Model } from '../src/model.ts';
+import { defineModel, ModelError, type Model } from '../src/model.ts';
 import type { Principal } from '../src/principal.ts';
-import { modulesModel, notesInput, notesModel } from './support/models.ts';
+import { notesInput, notesModel } from './support/models.ts';
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -69,18 +69,13 @@ describe('Rechte je Organisation: Modell (withPermissions)', () => {
     assert.deepEqual(b.customRoleProblems(def), [], 'eigene Rollen prüfen gegen das Grundmodell');
   });
 
-  test('mit Modulen: Schnittmenge, in beiden Reihenfolgen; withModules behält die Einschränkung', () => {
-    const a = modulesModel.withModules(['notizen', 'ansichten']).withPermissions(['note:read', 'view:read', 'team:read']);
-    const b = modulesModel.withPermissions(['note:read', 'view:read', 'team:read']).withModules(['notizen', 'ansichten']);
-    for (const x of [a, b]) {
-      assert.ok(x.isPermission('note:read') && x.isPermission('view:read'));
-      assert.ok(!x.isPermission('team:read'), 'Modul inaktiv');
-      assert.ok(!x.isPermission('note:write'), 'nicht gelassen');
-      assert.deepEqual([...x.activeModules], ['notizen', 'ansichten', 'kern']);
-    }
-    const c = a.withModules(['notizen', 'teams']);
-    assert.ok(c.isPermission('team:read') && !c.isPermission('view:read') && !c.isPermission('note:write'));
-    assert.ok(a.withPermissions(null).isPermission('note:write') && !a.withPermissions(null).isPermission('team:read'), 'Module bleiben ohne Einschränkung');
+  test('Modulkonzept des Modells entfällt (iam 7): modules, packages, modul und features.modules brechen mit Hinweis ab', () => {
+    const i = notesInput();
+    const legacy = { ...i, permissions: { ...i.permissions, 'note:read': { ...i.permissions['note:read'], modul: 'notizen' } }, modules: [], packages: [], features: { modules: true } };
+    assert.throws(() => defineModel(legacy as never), (e: unknown) => {
+      const errors = (e as ModelError).errors;
+      return e instanceof ModelError && ['modules:', 'packages:', 'features.modules:', 'Recht «note:read»: modul'].every(x => errors.some(m => m.startsWith(x) && /tenantPermissions/.test(m)));
+    });
   });
 
   test('Entscheidung: can, canSomewhere und Scope ∩ Rolle sind für ausgeschlossene Rechte false, auch für org-admin und owner', () => {

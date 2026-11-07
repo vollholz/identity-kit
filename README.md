@@ -1,6 +1,9 @@
 # Identity-Kit
 
 Baukasten für Anmeldung und Rechte (authn und authz) von Apps mit Keycloak (ab 26.8, Organisationen als Mandanten).
+Zweck ist genau das: Identität, Rechte und ihr Schutz in der Datenbank. Querschnitt einer App (Prozesse, Warteschlange,
+Betrieb) und fachliche Konzepte wie Produktmodule je Organisation sind Sache der App (Entscheid 7.11.2026); das Kit
+bietet dafür Haken (`tenantPermissions`, `afterOrganization`, `events`).
 Ziel: eine replizierbare, app-agnostische Lösung, die sich standardisiert auf Apps ausrollen lässt – Frontend und Backend, für
 Personen, Service-Clients, M2M, API und MCP.
 
@@ -23,26 +26,24 @@ einhält, zeigt `npx iam-conformity-test`.
 
 | Verzeichnis | Inhalt | Spezifikation |
 |---|---|---|
-| `docs/` | Spezifikation (Vertrag), Konzepte ([Module je Organisation](docs/module-je-organisation.md)), später Entscheide und Migrationshinweise | – |
+| `docs/` | Spezifikation (Vertrag), Konzepte, Entscheide ([App-Plattform](docs/app-plattform-konzept.md) und [Module je Organisation](docs/module-je-organisation.md): in die App zurückgeführt) und Migrationshinweise ([ausrollen.md](docs/ausrollen.md)) | – |
 | `modules/product-realm` | OpenTofu-Modul: Realm einer App nach Soll | Kap. 3 |
 | `modules/product-realm-bootstrap` | abgelöst (Realm und `<produkt>-iac` legt der Betreiber an); nur für bestehende States | Kap. 2 |
 | `packages/iam` | `@vollholz/iam` – Backend (Node 24, TypeScript, Fastify): Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP-Austausch, SQL-Migrationen | Kap. 4–10, 12 |
 | `packages/iam-web` | `@vollholz/iam-web` – Frontend (React): Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten | Kap. 11 |
 | `packages/iam-testkit` | `@vollholz/iam-testkit` – Wegwerf-Datenbank, Mock-IdP, Keycloak-Nachbildung, Isolations-Durchlauf, RLS- und Katalogprüfung, Manifest-Schema, Konformitätstest `iam-conformity-test` | Kap. 14 |
 | `packages/create-iam-app` | `@vollholz/create-iam-app` – Gerüst einer App: Manifest `identity.app.json`, verwaltete Dateien mit Lock-Datei, `sync`, Schlüsselpaare | Kap. 15.4 |
-| `packages/platform` | `@vollholz/platform` – Querschnitt einer App auf `@vollholz/iam`: Konfiguration, HTTP, Warteschlange und Outbox, Betrieb, MCP-Dienst, Mandanten, Rotation (`definePlatform`, `defineModule`, `defineApp`) | – |
 
 ## Stand
 
 | Teil | Stand |
 |---|---|
-| `packages/iam` | **6.3.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, Rollen als Tupel in der Datenbank der App, Verwaltung, Abgleich, MCP, Migrationen, Haken der App vor und nach Änderungen (`events`), eigene Rollen der Organisation, Haken «Rechte je Organisation» (`tenantPermissions`), Produktmodule je Organisation (abgelöst); Entra ID mit eigener App der Organisation; `iam-org-bootstrap` (mit Einladung «Passwort festlegen», `--manifest`, ohne Datenbank nur ausdrücklich), `iam-reset` ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
-| `packages/iam-web` | **3.2.0** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» (mit «Rollen») ([README](packages/iam-web/README.md)) |
-| `packages/iam-testkit` | **2.10.4** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Konformitätstest `iam-conformity-test` (Repository, Datenbank, Realm) ([README](packages/iam-testkit/README.md)) |
+| `packages/iam` | **7.0.0** – Backend: Token, Principal, BFF, Rechte, Zugriffsregeln, Rollen als Tupel in der Datenbank der App, Verwaltung, Abgleich, MCP, Migrationen, Haken der App vor und nach Änderungen (`events`), eigene Rollen der Organisation, Haken «Rechte je Organisation» (`tenantPermissions`); Startdaten der App über den Haken `afterOrganization`; Entra ID mit eigener App der Organisation; `iam-org-bootstrap` (mit Einladung «Passwort festlegen», `--manifest`, ohne Datenbank nur ausdrücklich), `iam-reset` ([README](packages/iam/README.md), [Leitfaden](packages/iam/docs/backend.md)) |
+| `packages/iam-web` | **4.0.0** – Oberfläche: Sitzung, Organisation je Tab, Rechte-Bausteine, Verwalten-Seiten «Zugang» (mit «Rollen») ([README](packages/iam-web/README.md)) |
+| `packages/iam-testkit` | **3.0.0** – Wegwerf-Datenbank, Mock-IdP, Claims, Keycloak- und Entra-Nachbildung, Katalog-, RLS- und Isolationsprüfungen; Konformitätstest `iam-conformity-test` (Repository, Datenbank, Realm) ([README](packages/iam-testkit/README.md)) |
 | `modules/product-realm` | **3.1.0** – Realm-Soll als OpenTofu-Modul für jede Keycloak-Instanz (`keycloak_url` Pflicht), ohne Rollen (Rollen stehen nur in der Datenbank der App), Maschinen-Clients als Code (`machine_clients`), Service Accounts ohne `manage-realm`; ab Keycloak 26.8, geprüft gegen 26.8.1 ([README](modules/product-realm/README.md)) |
 | `modules/product-realm-bootstrap` | **0.1.1** – abgelöst: Realm und `<produkt>-iac` legt der Betreiber an (Spezifikation Kap. 2) |
-| `packages/create-iam-app` | **0.9.0** – `init` (mit Vorgaben des Betreibers), `sync`, `check`, `keys`; Vorlagen für `product-realm` 3.1.0 ([README](packages/create-iam-app/README.md)) |
-| `packages/platform` | **0.9.0** – herausgelöst aus nachtschicht: Prozesse `api`, `worker`, `mcp`, Befehle `migrate`, `tenant` (mit Produktmodulen und Paketen), `rotate-keys`, Migrationen `platform_001_core.sql` (mit Übernahme) und `platform_002_job_skipped.sql`; Durchsetzung der Produktmodule je Organisation ([README](packages/platform/README.md)) |
+| `packages/create-iam-app` | **0.10.0** – `init` (mit Vorgaben des Betreibers), `sync`, `check`, `keys`; Vorlagen für `product-realm` 3.1.0 ([README](packages/create-iam-app/README.md)) |
 
 Prüfen: `npm ci && npm run check` (Datenbank-Tests mit `POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_PORT`; ohne Datenbank
 übersprungen). Veröffentlichen: Version des Pakets erhöhen, Abschnitt in `packages/<paket>/CHANGELOG.md` schreiben und

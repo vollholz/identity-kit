@@ -41,7 +41,7 @@ Sie lesen ihre Werte aus `identity.app.json`: Eine geänderte Einstellung brauch
 | `realm.frontendUrl` | eigene Domain des Realms (z. B. `https://auth.example.ch`), wenn der Betreiber sie eingerichtet hat; `keycloakUrl` dann gleich |
 | `state` | S3-Backend des OpenTofu-States |
 | `organizations` | erste Organisationen mit ihren Admins (`npx iam-org-bootstrap --manifest identity.app.json`) |
-| `organizations[].package` | Paket des Modells (`packages`) für die erste Belegung: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module. Vor `identity:first-org` den Befehl der App `tenant create <alias> --paket <key>` ausführen (oder Startdaten der App mit `applyPackage`); sonst nennt der Lauf den Befehl |
+| `organizations[].app` | app-eigene Angaben zur Organisation (z. B. ein Paket der App); das Kit prüft sie nicht. Startdaten legt die App mit dem Haken `afterOrganization` von `orgBootstrapFile` an (eigener Einstieg der App statt `identity:first-org`); `iam-org-bootstrap` lässt sie unberührt |
 | `exceptions` | begründete Abweichungen (eigene Dateien, Tabellen ohne `tenant_id`, SECURITY DEFINER); jede erscheint im Konformitätstest |
 
 Schema mit allen Feldern: `node_modules/@vollholz/iam-testkit/schema/identity-app.schema.json`.

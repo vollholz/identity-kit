@@ -298,10 +298,12 @@
             "minLength": 1,
             "type": "string"
           },
-          "package": {
-            "pattern": "^[a-z][a-z0-9-]{1,30}$",
-            "description": "Paket des Modells (packages) beim Anlegen: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module",
-            "type": "string"
+          "app": {
+            "description": "App-eigene Angaben zur Organisation (z. B. Paket der App); das Kit prüft sie nicht, iam-org-bootstrap reicht den Eintrag an den Haken afterOrganization der App",
+            "type": "object",
+            "patternProperties": {
+              "^(.*)$": {}
+            }
           },
           "admins": {
             "minItems": 1,

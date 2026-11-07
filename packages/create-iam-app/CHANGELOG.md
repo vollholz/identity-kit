@@ -9,7 +9,22 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
-## [0.9.0] – 2026-11-07
+## [0.10.0] – 2026-11-07
+
+### Breaking
+
+- Vorlagen für `@vollholz/iam` 7.0.0 und `@vollholz/iam-testkit` 3.0.0 (ohne Modulkonzept). Die verwaltete Datei
+  `docs/identity-kit.md` beschreibt `organizations[].app` (app-eigene Angaben, Startdaten über den Haken
+  `afterOrganization`) statt `organizations[].package`. Migration für bestehende Apps: Pakete anheben (siehe
+  [docs/ausrollen.md](../../docs/ausrollen.md#umstieg-auf-vollholziam-70)), `package` im Manifest unter `app`
+  verschieben, dann `npx @vollholz/create-iam-app@0.10.0 sync`.
+
+### Geändert
+
+- Gerüst und Vorlagen nutzen `@vollholz/platform` nicht (Querschnitt ist Sache der App); eine erzeugte App hängt nur von
+  `@vollholz/iam`, `@vollholz/iam-testkit` und `@vollholz/create-iam-app` ab.
+
+## [0.9.0] – 2026-11-07## [0.9.0] – 2026-11-07
 
 ### Hinzugefügt
 

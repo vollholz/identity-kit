@@ -7,7 +7,57 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
-## [6.3.0] – 2026-11-07
+## [7.0.0] – 2026-11-07
+
+Entscheid 7.11.2026: Das Kit beschränkt sich auf Anmeldung und Rechte. Das Modulkonzept (Produktmodule je
+Organisation) ist in die App gezogen; im Kit bleibt der Haken «Rechte je Organisation» (`tenantPermissions`, 6.3.0) als
+einziger Weg, die Rechte einer Organisation einzuschränken. Migration `iam_022_tenant_module.sql` bleibt unverändert;
+iam liest und schreibt `tenant_module` nie mehr (Eigentum der App).
+
+### Breaking
+
+- **Modulkonzept des Modells entfernt.** `defineModel` bricht mit `ModelError` ab, wenn `modules`, `packages`,
+  `features.modules` oder `modul` an einem Recht stehen (Hinweis auf `tenantPermissions`). Migration: diese Angaben aus
+  dem Modell nehmen; das eigene Verzeichnis der Module führt die App selbst und lässt über
+  `createIam({ tenantPermissions })` nur die Rechte aktiver Module zu.
+- **API ohne Module:** Routen `GET /v1/tenant/modules`, `PUT /v1/tenant/modules/{key}` und
+  `GET|PUT /v1/platform/organizations/{alias}/modules[/{key}]` entfallen (HTTP-Modul `modules` des Plugins, OpenAPI-Tag
+  «Organisation»). `GET /v1/me` und `GET /auth/me` liefern kein `modules` mehr, der Katalog `GET /v1/authz/catalog`
+  kein `modules`, `packages` und kein `modul` je Recht. Migration: Die App liefert ihre Module über den neuen Haken
+  `meExtra` (Feld `extra`, siehe Hinzugefügt) oder eine eigene Route; Clients lesen `extra.modules` statt `modules`
+  (ein `preSerialization`-Haken, der `modules` im Payload ersetzt, entfällt). Isolations-Durchlauf anpassen.
+- **Entfernte Exporte:** `TenantModules`, `moduleStates`, `activeModules`, `loadModuleRows`, `backfillModules`,
+  `backfillKeys`, `TenantModuleSchema`, `syncModules`, `CORE_MODULE`, `MODULE_KEY`, `MODULE_REF_SQL` und die Typen
+  `ModuleRow`, `ModuleState`, `ModuleHook(s)`, `ModuleBlocker`, `ModuleActing`, `TenantModulesOptions`, `ModuleDef`,
+  `ModulePartDef`, `PackageDef`, `ModuleInfo`, `PackageInfo`, `ModuleEventData`, `PackageTarget`, `PackageStatus`.
+  Am Modell `modules`, `packages`, `coreModule`, `moduleOf`, `activeModules`, `withModules`, `features.modules`; an
+  `Iam` `modules`; an `AccessService` `modulesOf`, `seedModules` und die Option `audit`; an `TenantAccess` `modules`;
+  `ModelChecksInput.modules`. `createIam({ moduleHooks })` bricht mit `ModelError` ab.
+- **Ereignisse:** `module.activated` und `module.deactivated` entfallen aus `IamEventMap`.
+- **Abgleich nach den Migrationen** belegt `tenant_module` nicht mehr (`tenant.module_backfill` entfällt).
+- **Startdaten:** `organizations[].package` (Datei `--file`, `schema/init.schema.json`, Manifest), die Option
+  `package` von `orgBootstrap`, `applyPackage` und `OrgBootstrapResult.package` entfallen; `iam-org-bootstrap` nennt
+  keinen Befehl `tenant create … --paket` mehr. Eine Datei mit `package` meldet `/organizations/<i>/package: entfällt …`.
+  Migration: App-eigene Angaben unter `organizations[].app` ablegen (z. B. `"app": { "package": "basis" }`) und im
+  Einstieg der App `orgBootstrapFile(…, { afterOrganization })` verwenden (siehe Hinzugefügt).
+
+### Hinzugefügt
+
+- **Haken `afterOrganization({ tenantId, alias, name, entry })`** für `orgBootstrap` und `orgBootstrapFile`
+  (Typen `AfterOrganization`, `OrganizationTarget`): läuft nach Organisation, Mandant und Admin, vor Passwort und
+  Einladung; einmal je Organisation (beim ersten Admin) und bei jedem Lauf (die App macht ihn idempotent). `entry` ist
+  der rohe Eintrag der Organisation aus `--file` bzw. `identity.app.json`, mit app-eigenen Feldern; bei `orgBootstrap`
+  ohne Datei die Option `entry`, sonst `{ alias, name }`. Probelauf: nur gemeldet. Nur Keycloak (`database: null`):
+  nicht ausgeführt, `OrgBootstrapResult.afterOrganization: 'pending'`. Wirft der Haken, bricht der Lauf ohne Einladung
+  ab. Beispiel in [docs/backend.md](docs/backend.md#startdaten-der-app-afterorganization).
+- **Haken `meExtra(tx, principal)`** (`createIam({ meExtra })`, Typ `MeExtra`, `iam.meExtra`): app-eigene Angaben zur
+  Person in ihrer Organisation, z. B. die aktiven Module eines eigenen Modulkonzepts. Das Ergebnis steht als Objekt
+  `extra` in `GET /v1/me` (OpenAPI `ApiMe.extra`, offenes Objekt) und `GET /auth/me`; ohne Haken bzw. ohne
+  Organisation `extra: {}`. Läuft in der Transaktion der Anfrage (`iam.tx`, Mandantenkontext, Lesesicht des
+  Principals). Beispiel: `meExtra: async tx => ({ modules: await aktiveModule(tx) })`.
+- `organizations[].app` (beliebiges Objekt) in `schema/init.schema.json`: app-eigene Angaben, vom Kit nicht geprüft.
+
+## [6.3.0] – 2026-11-07## [6.3.0] – 2026-11-07
 
 ### Hinzugefügt
 

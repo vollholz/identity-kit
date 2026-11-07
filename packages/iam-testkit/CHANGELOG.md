@@ -7,7 +7,29 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
-## [2.10.4] – 2026-11-07
+## [3.0.0] – 2026-11-07
+
+Entscheid 7.11.2026: Plattform und Modulkonzept sind Sache der App; das Kit bleibt bei Anmeldung und Rechten.
+
+### Breaking
+
+- **Manifest:** `organizations[].package` entfällt (Meldung `/organizations/<i>/package: entfällt …`). Neu
+  `organizations[].app`: app-eigene Angaben (beliebiges Objekt), die der Konformitätstest nicht gegen das Modell prüft;
+  `iam-org-bootstrap` reicht den Eintrag an den Haken `afterOrganization` der App (`@vollholz/iam` 7). Migration:
+  `"package": "x"` → `"app": { "package": "x" }`.
+- `manifestPackageErrors` entfällt; der Konformitätstest prüft keine Pakete des Modells mehr.
+- **`@vollholz/platform` gehört nicht mehr zum Kit:** `Part`, `CURRENT` und `MINIMUM` ohne den Eintrag; eine App mit
+  der Abhängigkeit erhält den Befund «gehört nicht mehr zum Kit (Querschnitt in die App übernommen …)». Neu `RETIRED`
+  (frühere Teile mit Hinweis). Migration: Code in die App übernehmen, Abhängigkeit entfernen.
+
+### Geändert
+
+- Kennt `@vollholz/iam` 7.0.0, `@vollholz/iam-web` 4.0.0, `@vollholz/iam-testkit` 3.0.0 und
+  `@vollholz/create-iam-app` 0.10.0 (`CURRENT`).
+- Datenbank-Prüfung: Die Funktionen aus `iam_022` (`app.set_module_*`, `app.backfill_modules`) bleiben erlaubt; ihr
+  Text sagt, dass iam sie ab 7 nicht mehr nutzt (Tabelle `tenant_module` gehört der App).
+
+## [2.10.4] – 2026-11-07## [2.10.4] – 2026-11-07
 
 ### Geändert
 

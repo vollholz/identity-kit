@@ -1,7 +1,7 @@
 /**
  * Haken «Rechte je Organisation» (`createIam({ tenantPermissions })`) mit Datenbank: schränkt die Rechte im Principal
  * (`GET /v1/me`), im Katalog der Organisation und in der Entscheidung der Fachrouten ein, je Organisation; der
- * Zwischenspeicher gilt bis zur nächsten Version des Hakens; ohne Haken unverändert. Ohne `modules` im Modell.
+ * Zwischenspeicher gilt bis zur nächsten Version des Hakens; ohne Haken unverändert.
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';

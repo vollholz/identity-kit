@@ -36,18 +36,11 @@ describe('Paket', () => {
     expect(readFileSync(join(dist, 'routes.js'), 'utf8')).toMatch(/import\("\.\/pages\/index\.js"\)/);
   });
 
-  it('Haupteinstieg lädt Seite «Module», ihre Hilfen und Texte nicht statisch (nur über ./pages bzw. iamRoutes[].load())', () => {
+  it('Haupteinstieg lädt die Verwalten-Seiten nicht statisch (nur über ./pages bzw. iamRoutes[].load())', () => {
     expect(existsSync(join(dist, 'index.js')), 'zuerst npm run build').toBe(true);
     const files = [...staticGraph(join(dist, 'index.js'))].map(f => relative(dist, f).replaceAll('\\', '/')).sort();
     expect(files).toContain('routes.js');
-    expect(files).toContain('modules.js');
-    expect(files.filter(f => f.startsWith('pages/') || f === 'moduleTools.js' || f.startsWith('texts/modules.'))).toEqual([]);
-    // Von den Texten der Seite nur der Titel der Route
-    const keys = new Set(files.flatMap(f => [...readFileSync(join(dist, f), 'utf8').matchAll(/['"](iam\.modules\.[\w.]+)['"]/g)].map(m => m[1])));
-    expect([...keys]).toEqual(['iam.modules.title']);
-    // Seite und Hilfen sind über ./pages erreichbar
-    const pagesGraph = [...staticGraph(join(dist, 'pages', 'index.js'))].map(f => relative(dist, f).replaceAll('\\', '/'));
-    expect(pagesGraph).toEqual(expect.arrayContaining(['pages/Modules.js', 'moduleTools.js', 'texts/modules.de.js', 'texts/modules.en.js']));
+    expect(files.filter(f => f.startsWith('pages/'))).toEqual([]);
   });
 
   it('exports zeigen auf vorhandene Dateien, styles.css ist eine Ebene «iam»', () => {

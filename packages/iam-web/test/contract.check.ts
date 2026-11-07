@@ -76,8 +76,7 @@ ok<Fits<S['ValidationProblem'] & S['VersionConflict'] & S['OrganizationChoice'],
 
 // /auth/me (9.5, nicht in der OpenAPI): gleiche Felder und Pflichtfelder wie die Fixture; Pflicht u. a. tenant.name,
 // organizationNames, somewhere, clearance, breakGlassUntil
-// `modules` ab iam 6.1, optional für ältere Server
-ok<SameKeys<C.Me, Opt<typeof ME_FIXTURE, 'modules'>>>();
+ok<SameKeys<C.Me, typeof ME_FIXTURE>>();
 ok<SameKeys<NonNullable<C.Me['tenant']>, NonNullable<(typeof ME_FIXTURE)['tenant']>>>();
 
 // Anfragekörper: gleiche Felder wie im Vertrag
@@ -117,14 +116,10 @@ ok<Fits<Body<'/v1/platform/organizations', 'post'>, C.OrganizationInput>>();
 ok<Fits<Body<'/v1/platform/organizations/{alias}', 'patch'>, C.OrganizationPatch>>();
 
 // Authz neu (9.5–9.7, von Hand nach der Spezifikation): gleiche Felder und Pflichtfelder wie die Beispiele
-ok<SameKeys<C.AuthzCatalog, Opt<typeof F.CATALOG_FIXTURE, 'modules' | 'packages'>>>();
+ok<SameKeys<C.AuthzCatalog, typeof F.CATALOG_FIXTURE>>();
 ok<SameFields<C.PermissionInfo, (typeof F.CATALOG_FIXTURE)['permissions'][0]>>();
-ok<SameKeys<C.CatalogModule, (typeof F.CATALOG_FIXTURE)['modules'][1]>>();
-ok<SameKeys<C.CatalogPackage, (typeof F.CATALOG_FIXTURE)['packages'][0]>>();
-ok<SameKeys<C.TenantModule, Opt<typeof F.TENANT_MODULE_FIXTURE, 'blockers'>>>();
-ok<SameKeys<C.ModuleBlocker, Opt<(typeof F.TENANT_MODULE_FIXTURE)['blockers'][0], 'anzahl'>>>();
 ok<SameFields<C.TypeInfo, (typeof F.CATALOG_FIXTURE)['types'][1]>>();
-ok<SameKeys<C.ApiMe, Opt<typeof F.API_ME_FIXTURE, 'modules'>>>();
+ok<SameKeys<C.ApiMe, typeof F.API_ME_FIXTURE>>();
 ok<SameKeys<C.AccessList, typeof F.ACCESS_LIST_FIXTURE>>();
 ok<SameFields<C.AccessEntry, typeof F.ACCESS_SCOPE_FIXTURE & Pick<typeof F.ACCESS_DATA_FIXTURE, 'data'>>>();
 ok<SameFields<C.AccessSubject, (typeof F.ACCESS_CLIENT_FIXTURE)['subject']>>();

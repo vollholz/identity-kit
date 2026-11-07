@@ -19,7 +19,7 @@ const APP = (dist: string) => `
 import { createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AccountMenu, Can, IamNav, IamProvider, iamRoutes, useIam } from '${dist}/index.js';
-function Home() { const { hasModule, modules } = useIam(); return h('p', null, String(hasModule('x')), modules.length); }
+function Home() { const { can, orgName } = useIam(); return h('p', null, String(can('members:admin')), orgName); }
 createRoot(document.body).render(h(IamProvider, null, h(AccountMenu), h(IamNav), h(Can, { perm: 'members:admin' }, h(Home)), iamRoutes.map(r => r.path).join()));
 `;
 

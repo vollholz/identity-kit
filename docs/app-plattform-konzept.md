@@ -4,6 +4,20 @@ Stand 2026-10-26, Entwurf, mit Inventar (Abschnitt 13). Grundlage: erste Anwendu
 `docs/konzepte/app-boilerplate.md`) auf die App `nachtschicht` (vollholz/nachtschicht#1) und die Zonen des
 identity-kit (Spezifikation [1.2](spezifikation.md#12-zonen-fest-einstellbar-app-eigen)).
 
+> **Stand 7.11.2026 – Plattform in die App zurückgeführt (Entscheid PO).** `@vollholz/platform` (0.1.0–0.9.0) ist aus
+> dem Kit entfernt und in die App nachtschicht übernommen (nachtschicht #213, `src/platform/`; Modulkonzept #214 mit
+> eigener Tabelle `tenant_module`, App-Migration `platform_003_tenant_module.sql`). identity-kit behält nur Identität
+> und Rechte: `@vollholz/iam`, `@vollholz/iam-web`, `@vollholz/iam-testkit`, `@vollholz/create-iam-app`, Realm-Modul,
+> RLS-Schutz.
+>
+> **Begründung:** Einziger Nutzer von `@vollholz/platform` war nachtschicht. Ein Querschnitt mit genau einem Nutzer hat
+> keine zweite App, an der sich die Abstraktion bewährt; jede Änderung der App lief über ein Release des Kits (zwei
+> Repositories, zwei Reviews, Versionsfenster), und fachliche Begriffe (Module, Pakete, Aufträge) zogen in ein Kit, das
+> app-agnostisch bleiben soll. Für das Gemeinsame genügen Haken an den Grenzen des Kits: `tenantPermissions` (Rechte je
+> Organisation), `afterOrganization` (Startdaten) und `events`. Kommt eine zweite App mit demselben Querschnitt, wird
+> neu entschieden – mit diesem Konzept als Grundlage. Der Text unten ist der Stand vor dem Entscheid (Historie).
+> Umstieg: [ausrollen.md](ausrollen.md#umstieg-auf-vollholziam-70).
+
 ## Inhalt
 
 1. [Entscheid in einem Satz](#1-entscheid-in-einem-satz)

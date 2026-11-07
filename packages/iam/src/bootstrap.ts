@@ -17,10 +17,10 @@
  * 0700; nie ausgegeben).
  * Mehrere Organisationen mit je mehreren Admins aus einer Datei (`orgBootstrapFile`, `iam-org-bootstrap --file`): Format
  * `InitFile`, als JSON Schema im Paket (`schema/init.schema.json`); je Admin wie `orgBootstrap`.
- * Paket je Organisation (`package`, Produktmodule): Das Skript kennt weder das Modell noch die Haken der App. Hat die
- * Organisation noch keine Module, ruft es `applyPackage` der App (z. B. `app.tenants.create(d, alias, name, { paket })`
- * aus `@vollholz/platform`), vor der Einladung; ohne `applyPackage` meldet es das Paket als offen (Befehl der App
- * `tenant create <alias> --paket <key>`). Hat sie schon Module, bleibt alles unverändert.
+ * Startdaten der App je Organisation (`afterOrganization`): Das Skript kennt weder Modell noch Daten der App. Nach
+ * Organisation und Admin, noch vor der Einladung, ruft es den Haken der App mit dem rohen Eintrag der Organisation (aus
+ * `--file` bzw. `identity.app.json`, mit app-eigenen Feldern wie `app: { … }`); z. B. wendet die App dort ihr Paket an.
+ * Im Probelauf meldet es den Aufruf nur. Der Haken läuft bei jedem Lauf (einmal je Organisation) und muss idempotent sein.
  * Kommandozeile: `iam-org-bootstrap` (src/bin/org-bootstrap.ts).
  */
 import { randomInt } from 'node:crypto';
@@ -30,7 +30,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import pg from 'pg';
 import { pgSsl, schemaName, type DbSsl } from './db.ts';
-import { ADMIN_ROLE, MODULE_KEY } from './model.ts';
+import { ADMIN_ROLE } from './model.ts';
 import { seg, type KeycloakAdmin } from './keycloak.ts';
 import { ALIAS_PATTERN } from './principal.ts';
 
@@ -59,28 +59,31 @@ export interface OrgBootstrapOptions {
   /** Gültigkeit der Einladung (Standard 7 Tage); Client und Weiterleitung nach dem Festlegen des Passworts. */
   invite?: { lifespanSec?: number; clientId?: string; redirectUri?: string };
   /**
-   * Paket des Modells der App (`packages`) für eine Organisation ohne Module: nur dessen Module erlaubt und aktiv. Ohne
-   * Angabe wie bisher (alle Module beim ersten Laden).
+   * Roher Eintrag der Organisation (aus `--file` bzw. `identity.app.json`, mit app-eigenen Feldern), den
+   * `afterOrganization` erhält; Standard `{ alias, name }`.
    */
-  package?: string;
+  entry?: Readonly<Record<string, unknown>>;
   /**
-   * Wendet das Paket an (die App, mit Modell und Haken), sobald Mandant und Admin stehen und noch vor der Einladung; nur
-   * wenn die Organisation noch keine Module hat. Ohne Angabe bleibt das Paket offen (`package.status: 'pending'`).
+   * Haken der App (Startdaten), sobald Organisation, Mandant und Admin stehen und noch vor Passwort und Einladung: z. B.
+   * ein Paket der App anwenden (`entry.app`). Im Probelauf nicht ausgeführt (nur gemeldet); nur Keycloak
+   * (`database: null`): nicht ausgeführt, als offen gemeldet (`afterOrganization: 'pending'`). Läuft bei jedem Lauf und
+   * muss idempotent sein. Wirft der Haken, bricht der Lauf ab (ohne Einladung); Mandant und Admin bleiben.
    */
-  applyPackage?: (t: PackageTarget) => Promise<unknown>;
+  afterOrganization?: AfterOrganization;
   /** Probelauf: nur lesen, Schritte melden. */
   dryRun?: boolean;
   log?: (message: string) => void;
 }
 
-/** Organisation, auf die `applyPackage` ein Paket anwendet. */
-export interface PackageTarget { tenantId: string; alias: string; name: string; package: string }
+/** Organisation für den Haken `afterOrganization`: Mandant, Alias, Name und roher Eintrag (mit app-eigenen Feldern). */
+export interface OrganizationTarget {
+  tenantId: string; alias: string; name: string;
+  /** Eintrag der Organisation, wie er in `--file` bzw. `identity.app.json` steht (z. B. `app: { package: 'basis' }`). */
+  entry: Readonly<Record<string, unknown>>;
+}
 
-/**
- * Paket einer Organisation nach dem Lauf: `applied` angewendet (`applyPackage`), `pending` noch anzuwenden (ohne
- * `applyPackage` bzw. nur Keycloak), `present` Organisation hatte schon Module (unverändert), null Probelauf.
- */
-export type PackageStatus = 'applied' | 'pending' | 'present' | null;
+/** Haken der App nach Organisation und Admin (Startdaten); siehe `OrgBootstrapOptions.afterOrganization`. */
+export type AfterOrganization = (t: OrganizationTarget) => Promise<unknown>;
 
 export interface OrgBootstrapResult {
   orgId: string | null; userId: string | null; tenantId: string | null; principalId: string | null; steps: string[]; passwordFile: string | null;
@@ -90,19 +93,21 @@ export interface OrgBootstrapResult {
   alias: string | null;
   /** Einladung: `sent` gesendet, `failed` Versand gescheitert (meist kein SMTP), null keine (nicht nötig, abgeschaltet, Probelauf). */
   invitation: 'sent' | 'failed' | null;
-  /** Mit `package`: Schlüssel und Stand; sonst null. */
-  package: { key: string; status: PackageStatus } | null;
+  /**
+   * Haken `afterOrganization`: `done` ausgeführt, `pending` nicht ausgeführt (nur Keycloak, Startdaten der App offen),
+   * null ohne Haken, im Probelauf und beim Betrieb.
+   */
+  afterOrganization: 'done' | 'pending' | null;
 }
 
 /** Standard-Gültigkeit der Einladung: 7 Tage. */
 export const INVITE_LIFESPAN_SEC = 7 * 24 * 3600;
 
 /** Prüft die Eingaben; Fehlertexte für die Kommandozeile. */
-export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email' | 'invite' | 'package'>): string[] {
+export function orgBootstrapErrors(o: Pick<OrgBootstrapOptions, 'alias' | 'email' | 'invite'>): string[] {
   const out = inviteErrors(o.invite);
   if (!ALIAS_PATTERN.test(o.alias)) out.push('Alias: Kleinbuchstaben, Ziffern, «-» und «_», beginnt mit Buchstabe oder Ziffer (höchstens 63 Zeichen)');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) out.push('E-Mail-Adresse ungültig');
-  if (o.package !== undefined && !MODULE_KEY.test(o.package)) out.push(`Paket «${o.package}»: Schlüssel nicht ${MODULE_KEY}`);
   return out;
 }
 
@@ -128,7 +133,7 @@ export const InitFileSchema = Type.Object({
   organizations: Type.Optional(Type.Array(Type.Object({
     alias: Type.String({ pattern: ALIAS_PATTERN.source, description: 'Alias der Organisation in Keycloak und des Mandanten' }),
     name: Type.Optional(Type.String({ minLength: 1, description: 'Anzeigename; Standard der Alias' })),
-    package: Type.Optional(Type.String({ pattern: MODULE_KEY.source, description: 'Paket des Modells (packages) für eine Organisation ohne Module: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module' })),
+    app: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'App-eigene Angaben zur Organisation (z. B. Paket der App); das Kit prüft sie nicht und reicht den Eintrag an den Haken afterOrganization' })),
     admins: Type.Array(Type.Object({
       email: Type.String({ pattern: EMAIL }),
       first: Type.Optional(Type.String()),
@@ -140,6 +145,11 @@ export type InitFile = Static<typeof InitFileSchema>;
 
 /** Prüft eine Datei für `--file` (Schema, doppelte Aliasse); Fehlertexte für die Kommandozeile. */
 export function initFileErrors(data: unknown): string[] {
+  // Paket je Organisation seit @vollholz/iam 7 app-eigen: klarer Hinweis statt nur «unerwartete Eigenschaft»
+  const orgs = (data as { organizations?: unknown } | null)?.organizations;
+  const legacy = Array.isArray(orgs) ? orgs.flatMap((o, i) => (o && typeof o === 'object' && 'package' in o
+    ? [`/organizations/${i}/package: entfällt seit @vollholz/iam 7 – als app-eigene Angabe unter app (z. B. "app": { "package": "…" }), angewendet über den Haken afterOrganization der App`] : [])) : [];
+  if (legacy.length) return legacy;
   if (!Value.Check(InitFileSchema, data)) return [...Value.Errors(InitFileSchema, data)].map(e => `${e.path || '/'}: ${e.message}`);
   const seen = new Set<string>(), out: string[] = [];
   const operators = (data.operators ?? []).map(x => x.email.trim().toLowerCase());
@@ -172,12 +182,15 @@ export function manifestInitFile(data: unknown): { file: InitFile | null; errors
   return errors.length ? { file: null, errors } : { file: file as InitFile, errors };
 }
 
-export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'applyPackage' | 'dryRun' | 'log'> & {
+export type OrgBootstrapFileOptions = Pick<OrgBootstrapOptions, 'database' | 'initialPassword' | 'sendEmail' | 'resend' | 'invite' | 'afterOrganization' | 'dryRun' | 'log'> & {
   /** Realm-Rolle der Personen in `operators` (PLATFORM_ADMIN_ROLE). */
   platformAdminRole: string;
 };
 
-/** Betrieb, dann alle Organisationen und Admins einer Datei (je wie `operatorBootstrap` bzw. `orgBootstrap`, idempotent). */
+/**
+ * Betrieb, dann alle Organisationen und Admins einer Datei (je wie `operatorBootstrap` bzw. `orgBootstrap`, idempotent).
+ * `afterOrganization` läuft einmal je Organisation, beim ersten Admin (vor dessen Einladung, vor den weiteren Admins).
+ */
 export async function orgBootstrapFile(kc: KeycloakAdmin, file: InitFile, o: OrgBootstrapFileOptions): Promise<OrgBootstrapResult[]> {
   const errors = initFileErrors(file);
   if (errors.length) throw new Error(errors.join('\n'));
@@ -190,11 +203,11 @@ export async function orgBootstrapFile(kc: KeycloakAdmin, file: InitFile, o: Org
     }));
   }
   for (const org of file.organizations ?? []) {
-    for (const a of org.admins) {
+    for (const [i, a] of org.admins.entries()) {
       o.log?.(`— ${org.alias}: ${a.email.trim().toLowerCase()}`);
       out.push(await orgBootstrap(kc, {
         alias: org.alias, name: org.name, email: a.email, firstName: a.first, lastName: a.last, operatorRole: o.platformAdminRole,
-        ...(org.package !== undefined ? { package: org.package } : {}), applyPackage: o.applyPackage,
+        entry: org, ...(i === 0 && o.afterOrganization ? { afterOrganization: o.afterOrganization } : {}),
         database: o.database, initialPassword: o.initialPassword, sendEmail: o.sendEmail, resend: o.resend, invite: o.invite, dryRun: o.dryRun, log: o.log,
       }));
     }
@@ -229,13 +242,14 @@ function writeSecret(file: string, content: string) {
 
 export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): Promise<OrgBootstrapResult> {
   const alias = o.alias.toLowerCase(), email = o.email.trim().toLowerCase();
-  const errors = orgBootstrapErrors({ alias, email, invite: o.invite, package: o.package });
+  const errors = orgBootstrapErrors({ alias, email, invite: o.invite });
   if (o.database === undefined && !o.dryRun) errors.push('Datenbank fehlt: ohne sie bekäme die Person keine Rolle org-admin (database angeben oder ausdrücklich database: null für nur Keycloak)');
   if (errors.length) throw new Error(errors.join('\n'));
   const dry = !!o.dryRun;
   const steps: string[] = [];
   const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
-  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, alias, invitation: null, package: o.package !== undefined ? { key: o.package, status: null } : null };
+  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, alias, invitation: null, afterOrganization: null };
+  const target = { alias, name: o.name ?? alias, entry: o.entry ?? { alias, ...(o.name !== undefined ? { name: o.name } : {}) } };
 
   // Organisation
   res.orgId = (await kc.listOrgs()).find(x => x.alias.toLowerCase() === alias)?.id ?? null;
@@ -254,7 +268,7 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   if (!res.userId || !res.orgId) {
     if (!dry) throw new Error('Organisation oder Person fehlt nach dem Anlegen');
     step(`${email} → Organisation ${alias}, Rolle ${ADMIN_ROLE}, Freigabestufe 2`);
-    if (o.package !== undefined) step(`Paket «${o.package}» für ${alias}, falls die Organisation noch keine Module hat`);
+    if (o.afterOrganization) step(`Startdaten der App für ${alias} (afterOrganization)`);
     if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) {
       if (res.userId) await invite(kc, res.userId, email, o, dry, step);
       else step(`${email}: Einladung «Passwort festlegen» würde gesendet`);
@@ -268,18 +282,21 @@ export async function orgBootstrap(kc: KeycloakAdmin, o: OrgBootstrapOptions): P
   if (o.database) {
     const r = await provisionDb(o.database, { alias, name: o.name ?? alias, orgId: res.orgId, userId: res.userId, email, displayName: [o.firstName, o.lastName].filter(Boolean).join(' ') || email, dry, step });
     res.tenantId = r.tenantId; res.principalId = r.principalId;
-    if (res.package) res.package.status = await packageStep(res.package.key, { alias, name: o.name ?? alias, tenantId: r.tenantId, hasModules: r.hasModules }, o.applyPackage, dry, step);
+    if (o.afterOrganization) {
+      step(`Startdaten der App für ${alias} (afterOrganization)`);
+      if (!dry) { await o.afterOrganization({ tenantId: r.tenantId!, ...target }); res.afterOrganization = 'done'; }
+    }
   } else {
     step(o.database === null
       ? 'Nur Keycloak (ausdrücklich): Mandant, Rolle org-admin und Freigabestufe setzt der Aufrufer in der Datenbank der App'
       : 'Ohne Datenbank (Probelauf): Rolle org-admin und Freigabestufe würden mit DATABASE_ADMIN_URL gesetzt');
-    if (res.package) {
-      if (dry) step(`Paket «${res.package.key}» für ${alias}, falls die Organisation noch keine Module hat`);
-      else { res.package.status = 'pending'; step(pendingText(alias, res.package.key)); }
+    if (o.afterOrganization) {
+      if (dry) step(`Startdaten der App für ${alias} (afterOrganization)`);
+      else { res.afterOrganization = 'pending'; step(`Startdaten der App für ${alias} nicht angelegt (nur Keycloak): afterOrganization nach dem Anlegen des Mandanten selbst ausführen`); }
     }
   }
-  // Passwort und Einladung zuletzt: die Person findet beim Anmelden Rolle und Module des Pakets schon vor (scheitert
-  // applyPackage, bleibt kein Zugang zurück, über den das erste Laden alle Module belegen würde)
+  // Passwort und Einladung zuletzt: die Person findet beim Anmelden Rolle und Startdaten der App schon vor (scheitert
+  // afterOrganization, bleibt keine Einladung zurück)
   res.passwordFile = await initialPassword(kc, res.userId, email, o, dry, step);
   if (o.sendEmail !== false && !o.initialPassword && (created || o.resend)) res.invitation = await invite(kc, res.userId, email, o, dry, step);
   step('Fertig.');
@@ -304,7 +321,7 @@ export async function operatorBootstrap(kc: KeycloakAdmin, o: OperatorBootstrapO
   const dry = !!o.dryRun;
   const steps: string[] = [];
   const step = (m: string) => { steps.push(m); o.log?.(`${dry ? '[Probelauf] ' : ''}${m}`); };
-  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, alias: null, invitation: null, package: null };
+  const res: OrgBootstrapResult = { orgId: null, userId: null, tenantId: null, principalId: null, steps, passwordFile: null, email, alias: null, invitation: null, afterOrganization: null };
   const person = await ensurePerson(kc, email, o, dry, step);
   res.userId = person.userId;
   if (res.userId) {
@@ -389,7 +406,7 @@ async function invite(kc: KeycloakAdmin, userId: string, email: string, o: Pick<
  * Datenbank der App (A20): als Besitzer-Rolle im Kontext des Mandanten (Policies `owner_tenant`) Mandant, Principal,
  * Tupel `org-admin` an org und Freigabestufe 2; Audit `tenant.provisioned` beim ersten Mal. Idempotent.
  */
-async function provisionDb(d: { url: string; schema: string; ssl?: DbSsl }, o: { alias: string; name: string; orgId: string; userId: string; email: string; displayName: string; dry: boolean; step: (m: string) => void }): Promise<{ tenantId: string | null; principalId: string | null; hasModules: boolean }> {
+async function provisionDb(d: { url: string; schema: string; ssl?: DbSsl }, o: { alias: string; name: string; orgId: string; userId: string; email: string; displayName: string; dry: boolean; step: (m: string) => void }): Promise<{ tenantId: string | null; principalId: string | null }> {
   const S = schemaName(d.schema);
   const c = new pg.Client({ connectionString: d.url, application_name: 'iam-org-bootstrap', ssl: pgSsl(d.ssl) });
   await c.connect();
@@ -399,10 +416,9 @@ async function provisionDb(d: { url: string; schema: string; ssl?: DbSsl }, o: {
     if (before?.kc_org_id && before.kc_org_id !== o.orgId) throw new Error(`Mandant ${o.alias} gehört zu einer anderen Organisation in Keycloak (kc_org_id); nicht übernommen`);
     if (!before) o.step(`Mandant ${o.alias} anlegen`);
     if (o.dry) {
-      const hasModules = before ? await moduleRows(c, S, before.id) : false;
       await c.query('ROLLBACK');
       o.step('Principal, Tupel org-admin an org und Freigabestufe 2 setzen');
-      return { tenantId: before?.id ?? null, principalId: null, hasModules };
+      return { tenantId: before?.id ?? null, principalId: null };
     }
     const tenantId = (await c.query<{ id: string | null }>('SELECT app.resolve_tenant($1, $2, $3, true) AS id', [o.alias, o.orgId, o.name])).rows[0]?.id;
     if (!tenantId) throw new Error(`Mandant ${o.alias} nicht verfügbar (gesperrt oder an eine andere Organisation gebunden)`);
@@ -419,34 +435,10 @@ async function provisionDb(d: { url: string; schema: string; ssl?: DbSsl }, o: {
       await c.query(`INSERT INTO ${S}.audit_log (tenant_id, actor_kind, source, action, resource_type, resource_id, data) VALUES ($1, 'system', 'system', 'tenant.provisioned', 'tenant', $1, $2)`,
         [tenantId, JSON.stringify({ alias: o.alias, kcOrgId: o.orgId, admin: subject, via: 'iam-org-bootstrap' })]);
     }
-    const hasModules = await moduleRows(c, S, tenantId);
     await c.query('COMMIT');
-    return { tenantId, principalId, hasModules };
+    return { tenantId, principalId };
   } catch (e) {
     await c.query('ROLLBACK').catch(() => undefined);
     throw e;
   } finally { await c.end(); }
-}
-
-/** Hat die Organisation Zeilen in `tenant_module` (Produktmodule, iam_022)? Ohne die Tabelle (älteres Schema): nein. */
-async function moduleRows(c: pg.Client, S: string, tenantId: string): Promise<boolean> {
-  if (!(await c.query<{ t: string | null }>('SELECT to_regclass($1)::text AS t', [`${S}.tenant_module`])).rows[0]?.t) return false;
-  await c.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-  return (await c.query(`SELECT 1 FROM ${S}.tenant_module WHERE tenant_id = $1 LIMIT 1`, [tenantId])).rowCount! > 0;
-}
-
-const pendingText = (alias: string, key: string) =>
-  `Paket «${key}» für ${alias} noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): tenant create ${alias} --paket ${key}`;
-
-/** Paket nach Mandant und Admin, vor der Einladung: nur für eine Organisation ohne Module. */
-async function packageStep(key: string, t: { alias: string; name: string; tenantId: string | null; hasModules: boolean }, apply: OrgBootstrapOptions['applyPackage'], dry: boolean, step: (m: string) => void): Promise<PackageStatus> {
-  if (t.hasModules) {
-    step(`Paket «${key}»: ${t.alias} hat schon Module – unverändert (erneut anwenden: tenant modules ${t.alias} --paket ${key})`);
-    return dry ? null : 'present';
-  }
-  if (dry) { step(`Paket «${key}» für ${t.alias} anwenden`); return null; }
-  if (!apply) { step(pendingText(t.alias, key)); return 'pending'; }
-  step(`Paket «${key}» für ${t.alias} anwenden`);
-  await apply({ tenantId: t.tenantId!, alias: t.alias, name: t.name, package: key });
-  return 'applied';
 }

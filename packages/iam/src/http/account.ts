@@ -14,22 +14,21 @@ import { Nullable, routeSchema, type IamModule, type ModuleContext } from './rou
 
 const TAG_ACCOUNT = 'Konto';
 const LevelT = Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(2)]);
+/** App-eigene Angaben (Haken `meExtra` von `createIam`), z. B. aktive Module eines eigenen Modulkonzepts; ohne Haken leer. */
+export const MeExtraT = Type.Record(Type.String(), Type.Unknown(), { description: 'App-eigene Angaben zur Person in ihrer Organisation (Haken `meExtra` der App, z. B. aktive Module); ohne Haken bzw. ohne Organisation leer' });
 
 /** Schema der Antwort von `GET /v1/authz/catalog` aus dem Modell der App (Aufzählungen der Schlüssel). */
 export function authzCatalogSchema(model: Model) {
   const PermissionT = Type.Unsafe<string>({ type: 'string', enum: [...model.permissions] });
   const TypeT = Type.Unsafe<string>({ type: 'string', enum: [...model.types.keys()] });
   const GroupKeyT = Type.Unsafe<string>({ type: 'string', enum: model.groups.map(g => g.key) });
-  const ModuleKeyT = Type.Unsafe<string>({ type: 'string', enum: model.modules.map(m => m.key) });
-  const ModuleRefT = Type.Unsafe<string>({ type: 'string', enum: model.modules.flatMap(m => [m.key, ...m.parts.map(x => x.key)]), description: 'Produktmodul oder Teilfunktion `modul.teil`; Rechte ohne Modul gehören zum Kern' });
   return Type.Object({
     permissions: Type.Array(Type.Object({
       key: PermissionT, label: Type.String(), group: GroupKeyT, description: Type.String(),
       resources: Type.Array(TypeT, { description: 'Typen, an denen das Recht geprüft wird (immer mit org); bestimmen die Rechte von owner' }),
       adminOnly: Type.Boolean({ description: 'Steht bei keiner Rolle ausser org-admin (deren Rolle vergibt nur die Plattform-Administration)' }),
       personOnly: Type.Optional(Type.Boolean({ description: 'Nur für Personen: in keinem Scope, also nie für Maschinen-Clients und MCP (fehlt sonst)' })),
-      modul: ModuleRefT,
-    }), { description: 'Alle Rechte in fester Reihenfolge; in einer Organisation nur die Rechte ihrer aktiven Module' }),
+    }), { description: 'Alle Rechte in fester Reihenfolge; in einer Organisation nur die Rechte, die die App ihr lässt (Haken `tenantPermissions`)' }),
     groups: Type.Array(Type.Object({
       key: GroupKeyT, label: Type.String(),
       match: Type.Optional(Type.String({ description: 'Stichwörter der Gruppe als regulärer Ausdruck (Gross/klein egal)' })),
@@ -55,16 +54,6 @@ export function authzCatalogSchema(model: Model) {
       readOnly: Type.Boolean({ description: 'Werkzeug liest nur (`readOnlyHint`)' }),
       openWorld: Type.Boolean({ description: 'Werkzeug greift auf fremde Systeme oder das Netz zu (`openWorldHint`)' }),
     }), { description: 'Werkzeuge des MCP-Dienstes mit dem Recht, das sie brauchen' }),
-    modules: Type.Array(Type.Object({
-      key: ModuleKeyT, label: Type.String(), description: Type.String(),
-      core: Type.Boolean({ description: 'Kern: immer aktiv, nicht abschaltbar' }),
-      requires: Type.Array(Type.Union([ModuleKeyT, Type.Array(ModuleKeyT)]), { description: 'Voraussetzungen: Schlüssel (Pflicht) oder Liste (eines davon)' }),
-      parts: Type.Array(Type.Object({ key: Type.String({ description: 'Teilfunktion `modul.teil`' }), label: Type.String(), description: Type.String() })),
-    }), { description: 'Produktmodule der App; ohne Verzeichnis im Modell nur der Kern' }),
-    packages: Type.Array(Type.Object({
-      key: Type.String(), label: Type.String(), description: Type.String(),
-      modules: Type.Array(ModuleKeyT), off: Type.Array(Type.String({ description: 'Teilfunktion `modul.teil`, die das Paket ausgeschaltet lässt' })),
-    }), { description: 'Pakete: Vorbelegung der Module beim Anlegen einer Organisation' }),
   }, { title: 'AuthzCatalog' });
 }
 
@@ -75,7 +64,7 @@ const MeOut = Type.Object({
   scopes: Type.Array(Type.String()),
   permissions: Type.Array(Type.String({ description: 'Rechte an der Organisation' })),
   somewhere: Type.Array(Type.String(), { description: 'Rechte, die an mindestens einem Ort gelten (Obermenge von permissions)' }),
-  modules: Type.Array(Type.String(), { description: 'Aktive Produktmodule und Teilfunktionen (`modul.teil`) der Organisation, mit Kern' }),
+  extra: MeExtraT,
   clearance: LevelT,
   breakGlassUntil: Nullable(Type.String({ format: 'date-time' })),
   tokenBinding: Type.String(),
@@ -162,7 +151,7 @@ export const accountModule: IamModule = {
       return {
         tenant: { id: p.tenantId, alias: p.tenantAlias }, principal: { id: p.principalId, kind: p.kind, name: p.name, email: p.email, clientId: p.clientId },
         roles: iam.access.rolesAtOrg(p, acl), scopes: p.scopes, permissions: iam.access.orgPermissions(p, acl), somewhere: iam.access.somewherePermissions(p, acl, await iam.access.personGrants(p, p.tenantId)),
-        modules: [...(acl.modules ?? acl.model.activeModules)],
+        extra: iam.meExtra ? await iam.tx(p, tx => iam.meExtra!(tx, p)) : {},
         clearance: iam.access.clearanceOf(p, acl), breakGlassUntil: iam.access.breakGlassUntil(acl, p.principalId)?.toISOString() ?? null,
         tokenBinding: p.binding,
       };
@@ -173,14 +162,14 @@ export const accountModule: IamModule = {
       config: { iam: { contexts: ['tenant', 'account'] } },
       schema: routeSchema(ctx, 'GET', `${prefix}/authz/catalog`, {
         tags: [TAG_ACCOUNT], summary: 'Rechte, Rollen, Scopes und Orte mit Bezeichnungen',
-        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). In einer Organisation mit ihren eigenen Rollen (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten) und nur mit den Rechten ihrer aktiven Produktmodule (`modules`, je Recht `modul`) und den Rechten, die die App der Organisation lässt (Haken `tenantPermissions`). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
+        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). In einer Organisation mit ihren eigenen Rollen (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten) und nur mit den Rechten, die die App der Organisation lässt (Haken `tenantPermissions`). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
         response: { 200: authzCatalogSchema(iam.model) },
       }),
     }, async (req, reply) => {
       reply.header('Vary', 'Accept-Language');
-      // In einer Organisation: Modell der App mit ihren eigenen Rollen, nur den Rechten ihrer aktiven Module und eingeschränkt durch tenantPermissions
+      // In einer Organisation: Modell der App mit ihren eigenen Rollen, eingeschränkt durch tenantPermissions
       const p = req.principal;
-      if (p && (iam.model.features.customRoles || iam.model.features.modules || iam.access.tenantPermissions)) return (await iam.access.modelOf(p.tenantId)).toJSON();
+      if (p && (iam.model.features.customRoles || iam.access.tenantPermissions)) return (await iam.access.modelOf(p.tenantId)).toJSON();
       if (!req.account) req.requirePrincipal();
       return json;
     });

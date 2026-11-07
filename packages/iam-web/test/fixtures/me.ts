@@ -14,10 +14,10 @@ export const ME_FIXTURE = {
   roles: ['org-admin'],
   permissions: ['tenant:read'],
   somewhere: ['tenant:read', 'note:read'],
+  extra: {},
   clearance: 2,
   breakGlassUntil: null,
   breakGlassAllowed: true,
-  modules: ['kern', 'notizen'],
   csrfToken: 'csrf-123',
   session: { expiresAt: '2030-01-01T00:00:00.000Z', idleTimeoutSeconds: 3600 },
 } satisfies Me;

@@ -16,8 +16,6 @@ const ALIAS = '^[a-z0-9][a-z0-9_-]{0,62}$';
 const SCOPE = '^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$';
 const EMAIL = '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$';
 const URL = '^https?://[^/\\s]+(/\\S*)?$';
-/** Schlüssel eines Pakets im Modell (wie `MODULE_KEY` in `@vollholz/iam`). */
-const PACKAGE = '^[a-z][a-z0-9-]{1,30}$';
 const REASON = Type.String({ minLength: 3, description: 'Begründung' });
 
 const Smtp = Type.Object({
@@ -85,7 +83,7 @@ export const ManifestSchema = Type.Object({
   organizations: Type.Optional(Type.Array(Type.Object({
     alias: Type.String({ pattern: ALIAS }),
     name: Type.Optional(Type.String({ minLength: 1 })),
-    package: Type.Optional(Type.String({ pattern: PACKAGE, description: 'Paket des Modells (packages) beim Anlegen: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module' })),
+    app: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'App-eigene Angaben zur Organisation (z. B. Paket der App); das Kit prüft sie nicht, iam-org-bootstrap reicht den Eintrag an den Haken afterOrganization der App' })),
     admins: Type.Array(Type.Object({
       email: Type.String({ pattern: EMAIL }),
       first: Type.Optional(Type.String()),
@@ -107,6 +105,11 @@ export type Manifest = Static<typeof ManifestSchema>;
 
 /** Prüft ein Manifest; Fehlertexte mit JSON-Pfad. */
 export function manifestErrors(data: unknown): string[] {
+  // Paket je Organisation seit @vollholz/iam 7 app-eigen (Modulkonzept in der App): klarer Hinweis
+  const orgs = (data as { organizations?: unknown } | null)?.organizations;
+  const legacy = Array.isArray(orgs) ? orgs.flatMap((o, i) => (o && typeof o === 'object' && 'package' in o
+    ? [`/organizations/${i}/package: entfällt (@vollholz/iam 7, Modulkonzept in der App) – als app-eigene Angabe unter app, z. B. "app": { "package": "…" }`] : [])) : [];
+  if (legacy.length) return legacy;
   if (!Value.Check(ManifestSchema, data)) return [...Value.Errors(ManifestSchema, data)].map(e => `${e.path || '/'}: ${e.message}`);
   const out: string[] = [];
   const m = data;
@@ -122,16 +125,6 @@ export function manifestErrors(data: unknown): string[] {
     if (operators.has(a.email.trim().toLowerCase())) out.push(`/organizations/${i}/admins/${j}/email: ${a.email} ist Betrieb (operators) – für die Organisation eine andere Adresse verwenden`);
   }));
   return out;
-}
-
-/**
- * Pakete der Organisationen (`organizations[].package`) gegen die Pakete des Modells (`model.packages`); nur wo das
- * Werkzeug das Modell kennt (Konformitätstest).
- */
-export function manifestPackageErrors(m: Pick<Manifest, 'organizations'>, packages: readonly string[]): string[] {
-  const known = packages.length ? packages.join(', ') : 'keine (Modell ohne modules/packages)';
-  return (m.organizations ?? []).flatMap((o, i) => o.package === undefined || packages.includes(o.package) ? []
-    : [`/organizations/${i}/package: Paket «${o.package}» nicht im Modell (bekannt: ${known})`]);
 }
 
 /** Eingebaute Clients jedes Realms. */

@@ -43,7 +43,6 @@ export const IAM_API_TAGS: { name: string; description: string }[] = [
   { name: 'Verwaltung: Mitglieder und Rollen', description: 'Mitglieder und Maschinen-Clients der eigenen Organisation: einladen, entfernen, Rollen an der Organisation und Freigabestufe setzen (Recht «Mitglieder und Rollen verwalten»); eigene Rollen der Organisation zusammenstellen (Recht «Rollen zusammenstellen»).' },
   { name: 'Verwaltung: Anmeldung über Microsoft Entra ID', description: 'Organisation mit ihrem Entra-Tenant verbinden, «Nur Entra» aktivieren, Personen aus Entra ID hinzufügen.' },
   { name: 'Personen', description: 'Personenverzeichnis der Organisation für Auswahlen und Anzeigen (Namen zu IDs).' },
-  { name: 'Organisation', description: 'Einstellungen der eigenen Organisation: Produktmodule lesen und aktivieren (`/v1/tenant/…`).' },
   { name: 'Plattform: Organisationen', description: 'Organisationen anlegen, ändern, sperren und ihre Mitglieder verwalten (Realm-Rolle platform-admin).' },
 ];
 
@@ -115,8 +114,7 @@ const ExactlyNull = Type.Unsafe<null>({ [Kind]: 'NullExakt', const: null });
 /**
  * Wert oder `null`: `anyOf [null (genau), X]`, also X und zusätzlich `null`. Mit `coerceTypes` (Fastify) wandelt
  * nur X um; was X ablehnt, ergibt 400. Bis 5.0.2 machte ein Zweig `{ type: 'null' }` auch ungültige Eingaben
- * (0, "", false) zu null, davor `anyOf [X, null]` null zu 0, "" oder false. Gleich wie in @vollholz/platform
- * (dort auch `EmptyAsNull` für leere Formularfelder).
+ * (0, "", false) zu null, davor `anyOf [X, null]` null zu 0, "" oder false.
  */
 export const Nullable = <T extends TSchema>(s: T) => Type.Union([ExactlyNull, s]);
 /** Grund, wenn Keycloak eine E-Mail nicht senden konnte (Einladen, aus Entra hinzufügen). */

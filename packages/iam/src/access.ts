@@ -26,8 +26,6 @@ import { forbidden, HttpError } from './errors.ts';
 import { MEMBER, ORG, OWNER, type CustomRoleDef, type Level, type Model, type TypeInfo } from './model.ts';
 import type { Principal } from './principal.ts';
 import { flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
-import type { AuditPort } from './audit.ts';
-import { activeModules, backfillModules, loadModuleRows } from './modules.ts';
 
 /** Ein Tupel (Freigabe), Spalten wie `authz_tuple`. */
 export interface Tuple {
@@ -62,10 +60,8 @@ export interface TenantPermissions<P extends string = string> {
 
 export interface TenantAccess<S = unknown> {
   version: string;
-  /** Modell der Organisation: Modell der App mit ihren eigenen Rollen, nur den Rechten aktiver Module und eingeschränkt durch `tenantPermissions` (`withRoles(…).withModules(…).withPermissions(…)`). */
+  /** Modell der Organisation: Modell der App mit ihren eigenen Rollen, eingeschränkt durch `tenantPermissions` (`withRoles(…).withPermissions(…)`). */
   model: Model;
-  /** Aktive Produktmodule und Teilfunktionen (aufgelöst, mit Kern); ohne `modules` im Modell nur der stille Kern (fehlt: `model.activeModules`). */
-  modules?: ReadonlySet<string>;
   /** Eigene Rollen der Organisation (`authz_role`), wie gespeichert. */
   roles: readonly CustomRoleDef[];
   tuples: readonly Tuple[];
@@ -148,18 +144,11 @@ export class AccessService<P extends string = string, S = unknown> {
   /** Zuständigkeit über Einheiten (`edges.unit`, `children`, `belongs`); null, wenn die App nur `persons` liefert. */
   readonly unitEdges: { unit: string; children: string; belongs: string } | null;
 
-  /** Protokoll für die erste Belegung der Module beim Laden (`tenant.module_backfill`). */
-  private readonly audit: AuditPort | null;
-  /**
-   * Erste Belegung einer neuen Organisation mit den Haken der App (`TenantModules.seed`, setzt `createIam`); ohne nur
-   * die Zeilen (`backfillModules`).
-   */
-  seedModules: ((tx: Tx, tenantId: string) => Promise<boolean>) | null = null;
   /** Haken «Rechte je Organisation» der App (`TenantPermissions`) oder null. */
   readonly tenantPermissions: TenantPermissions<P> | null;
 
-  constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null; audit?: AuditPort | null; tenantPermissions?: TenantPermissions<P> | null }) {
-    this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null; this.audit = o.audit ?? null;
+  constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null; tenantPermissions?: TenantPermissions<P> | null }) {
+    this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null;
     this.tenantPermissions = o.tenantPermissions ?? null;
     this.scopeTypes = [...o.model.types.values()].filter(t => t.scope);
     this.scopeType = this.scopeTypes[0] ?? null;
@@ -183,27 +172,14 @@ export class AccessService<P extends string = string, S = unknown> {
   }
 
   /**
-   * Lädt Tupel, Freigabestufen, Zustand der Kette, eigene Rollen und aktive Module (zwischengespeichert bis zur nächsten
-   * Änderung). Organisation ohne Zeilen in `tenant_module` (Modell mit `modules`): zuerst alle Module erlaubt und aktiv
-   * (Sicherheitsnetz, falls der Abgleich nach den Migrationen sie nicht belegt hat, z. B. neue Organisation).
+   * Lädt Tupel, Freigabestufen, Zustand der Kette, eigene Rollen und die Einschränkung durch `tenantPermissions`
+   * (zwischengespeichert bis zur nächsten Änderung).
    */
   async load(tenantId: string): Promise<TenantAccess<S>> {
     const r = this.resources;
     return this.fullTx(tenantId, async tx => {
       const version = async () => (await tx.query<{ v: string }>(`SELECT acl_version::text AS v FROM ${this.schema}.tenant WHERE id = $1`, [tenantId])).rows[0]?.v ?? '0';
-      let acl = await version();
-      const hit0 = this.cache.get(tenantId);
-      let moduleRows = null as Awaited<ReturnType<typeof loadModuleRows>> | null;
-      if (this.model.features.modules && !(hit0 && hit0.version.startsWith(`${acl}:`))) {
-        moduleRows = await loadModuleRows(tx, this.schema);
-        const seeded = moduleRows.length ? false : this.seedModules
-          ? await this.seedModules(tx, tenantId)
-          : await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' });
-        if (seeded) {
-          moduleRows = await loadModuleRows(tx, this.schema);
-          acl = await version();
-        }
-      }
+      const acl = await version();
       const tp = this.tenantPermissions;
       // Ohne Haken unverändert `<acl>:<resources>`; mit Haken zusätzlich `:<version des Hakens>`
       const v = `${acl}:${(await r?.version?.(tx)) ?? ''}${tp ? `:${await tp.version(tenantId, tx)}` : ''}`;
@@ -221,10 +197,9 @@ export class AccessService<P extends string = string, S = unknown> {
         .map(x => [x.id, { clearance: x.clearance, boost: x.boost, until: x.until }]));
       const state = (r?.load ? await r.load(tx) : null) as S;
       const roles = this.model.features.customRoles ? await loadCustomRoles(tx, this.schema) : [];
-      const modules = this.model.features.modules ? activeModules(this.model, moduleRows ?? await loadModuleRows(tx, this.schema)) : this.model.activeModules;
       const allowed = tp ? await tp.allowed(tenantId, tx) : null;
-      const model = (this.model.withRoles(roles) as Model).withModules(modules).withPermissions(allowed);
-      const loaded: TenantAccess<S> = { version: v, model, modules: new Set(modules), tuples, byPlace, clearances, state, roles };
+      const model = (this.model.withRoles(roles) as Model).withPermissions(allowed);
+      const loaded: TenantAccess<S> = { version: v, model, tuples, byPlace, clearances, state, roles };
       this.cache.set(tenantId, loaded);
       return loaded;
     });
@@ -232,31 +207,19 @@ export class AccessService<P extends string = string, S = unknown> {
 
   invalidate(tenantId: string) { this.cache.delete(tenantId); }
 
-  /** Modell der Organisation (mit eigenen Rollen, nur aktive Module, eingeschränkt durch `tenantPermissions`), zwischengespeichert wie `load`. */
+  /** Modell der Organisation (mit eigenen Rollen, eingeschränkt durch `tenantPermissions`), zwischengespeichert wie `load`. */
   async modelOf(tenantId: string): Promise<Model> { return (await this.load(tenantId)).model; }
 
   /**
-   * Aktive Produktmodule und Teilfunktionen der Organisation (aufgelöst, mit Kern), zwischengespeichert wie `load`: für
-   * Quellen und Brücken der App und die Durchsetzung in der Plattform. Ohne `modules` im Modell nur der stille Kern.
-   */
-  async modulesOf(tenantId: string): Promise<ReadonlySet<string>> { const a = await this.load(tenantId); return a.modules ?? a.model.activeModules; }
-
-  /**
-   * Modell der Organisation aus der laufenden Transaktion (sieht auch eigene Rollen und Module, die sie eben geändert
-   * hat), mit der Einschränkung des Hakens `tenantPermissions` (Organisation aus `app.tenant_id` der Transaktion).
+   * Modell der Organisation aus der laufenden Transaktion (sieht auch eigene Rollen, die sie eben geändert hat), mit der
+   * Einschränkung des Hakens `tenantPermissions` (Organisation aus `app.tenant_id` der Transaktion).
    */
   async modelIn(tx: Pick<Tx, 'query'>): Promise<Model> {
     const m = this.model.features.customRoles ? this.model.withRoles(await loadCustomRoles(tx, this.schema)) as Model : this.model as Model;
-    const restrict = async (x: Model) => {
-      const tp = this.tenantPermissions;
-      if (!tp) return x;
-      const tenantId = (await tx.query<{ t: string | null }>("SELECT nullif(current_setting('app.tenant_id', true), '') AS t")).rows[0]?.t;
-      return tenantId ? x.withPermissions(await tp.allowed(tenantId, tx)) : x;
-    };
-    if (!this.model.features.modules) return restrict(m);
-    const rows = await loadModuleRows(tx, this.schema);
-    // Ohne Zeilen gilt (bis zur ersten Belegung) alles als aktiv, wie nach dem Sicherheitsnetz in `load`
-    return restrict(rows.length ? m.withModules(activeModules(this.model, rows)) : m);
+    const tp = this.tenantPermissions;
+    if (!tp) return m;
+    const tenantId = (await tx.query<{ t: string | null }>("SELECT nullif(current_setting('app.tenant_id', true), '') AS t")).rows[0]?.t;
+    return tenantId ? m.withPermissions(await tp.allowed(tenantId, tx)) : m;
   }
 
   // ---------------------------------------------------------------- Bausteine
@@ -280,12 +243,11 @@ export class AccessService<P extends string = string, S = unknown> {
   }
 
   /**
-   * Recht der App, das im Modell der Organisation gilt (Modul aktiv, nicht durch `tenantPermissions` ausgeschlossen):
-   * andere Rechte gelten nirgends (auch nicht über Zuständigkeit, Besitz oder Scope).
+   * Recht der App, das im Modell der Organisation gilt (nicht durch `tenantPermissions` ausgeschlossen): andere Rechte
+   * gelten nirgends (auch nicht über Zuständigkeit, Besitz oder Scope).
    */
   active(acl: Pick<TenantAccess<S>, 'model'>, perm: string): boolean {
-    return this.model.isPermission(perm) && acl.model.activeModules.has(acl.model.moduleOf(perm))
-      && (!acl.model.allowedPermissions || acl.model.isPermission(perm));
+    return this.model.isPermission(perm) && (!acl.model.allowedPermissions || acl.model.isPermission(perm));
   }
 
   /** Regel 5: deckt ein Scope das Recht? Für Personen ausserhalb von MCP immer. */

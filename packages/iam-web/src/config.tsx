@@ -13,8 +13,6 @@ export interface IamPaths {
   members: string;
   /** Seite «Rollen»: eigene Rollen der Organisation zusammenstellen (Recht `roles:admin`). */
   roles: string;
-  /** Seite «Module»: Produktmodule der Organisation aktivieren und deaktivieren (sichtbar mit `tenant:read`). */
-  modules: string;
   /**
    * Seite «Anmeldung» (Entra ID). Die Rückkehrseiten liegen darunter: `<entra>/zustimmung` (Zustimmung bei Microsoft)
    * und `<entra>/test` (Testanmeldung). Beide müssen zu den Redirect-URIs der Entra-App und zu `ENTRA_*` des Servers
@@ -32,7 +30,6 @@ export const DEFAULT_PATHS: IamPaths = {
   loggedOut: '/abgemeldet',
   members: '/verwalten/mitglieder',
   roles: '/verwalten/rollen',
-  modules: '/einstellungen/module',
   entra: '/verwalten/anmeldung',
   organizations: '/verwalten/organisationen',
   signup: '/registrieren',
@@ -52,11 +49,6 @@ export interface IamResources {
 export interface IamFeatures {
   /** Freigaben an Orten («+n Orte», Rollen an Orten in «Meine Rechte»); Standard: das Modell hat Typen ausser `org`. */
   access?: boolean;
-  /**
-   * Seite «Module» und der Abschnitt «Module» der Plattform-Administration; Standard: das Modell hat Produktmodule
-   * (Katalog `modules` mit mehr als dem Kern). `false` blendet beides aus.
-   */
-  modules?: boolean;
   /** Anmeldung über Microsoft Entra ID (KANN, 9.4); Standard aus. */
   entra?: boolean;
   /** Seiten der Plattform-Administration; Standard an. */

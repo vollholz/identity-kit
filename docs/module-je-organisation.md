@@ -4,10 +4,17 @@ Apps auf `@vollholz/platform` bestehen aus Fachmodulen (`defineModule`). Dieses 
 **Produktmodule**, die der Betrieb je Organisation freigibt und die die Administration einer Organisation zur Laufzeit
 aktiviert und deaktiviert. Erste App: nachtschicht ([docs/modularisierung.md](https://github.com/vollholz/nachtschicht/blob/main/docs/modularisierung.md)).
 
-> **Abgelöst (Entscheid PO, 7.11.2026):** identity-kit behält nur Identität und Rechte. Das Modulkonzept zieht in die
-> Apps; `@vollholz/iam` bietet dafür ab 6.3.0 den generischen Haken «Rechte je Organisation» (`tenantPermissions`,
-> [Abschnitt 13](#13-nachfolger-haken-rechte-je-organisation)). Dieses Konzept bleibt in `@vollholz/iam` 6.x
-> unverändert lauffähig und wird später entfernt (IK-8, zusammen mit `packages/platform`).
+> **Stand 7.11.2026 – Modulkonzept in der App (Entscheid PO).** identity-kit behält nur Identität und Rechte. Das
+> Modulkonzept lebt in der App (nachtschicht #214: eigenes Verzeichnis, eigene Tabelle `tenant_module` als
+> App-Migration `platform_003_tenant_module.sql`, eigene Seite). Im Kit bleibt allein der generische Haken «Rechte je
+> Organisation» (`tenantPermissions`, `@vollholz/iam` ab 6.3.0, [Abschnitt 13](#13-nachfolger-haken-rechte-je-organisation)).
+> Entfernt in `@vollholz/iam` 7.0.0 und `@vollholz/iam-web` 4.0.0 (IK-8): `modules`/`packages`/`modul` im Modell,
+> `TenantModules`, Routen `/v1/tenant/modules` und `/v1/platform/organizations/{alias}/modules`, `modules` in `/v1/me`
+> und `/auth/me`, Seite «Module» und ihre Hilfen, `package` in den Startdaten (ersetzt durch den Haken
+> `afterOrganization` und `organizations[].app`). Die Migration `iam_022_tenant_module.sql` bleibt unverändert; iam
+> liest und schreibt die Tabelle nie mehr (Eigentum der App). `@vollholz/platform` ist aus dem Kit entfernt.
+> Der Text unten beschreibt den Stand bis `@vollholz/iam` 6.3 (Historie). Umstieg:
+> [ausrollen.md](ausrollen.md#umstieg-auf-vollholziam-70).
 
 Stand: November 2026; umgesetzt in `@vollholz/iam` 6.1.0 (IK-1), `@vollholz/platform` 0.9.0 (IK-2) und `@vollholz/iam` 6.2.0 (IK-5, Startdaten), Abschnitte 5–7
 nach der tatsächlichen API. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`

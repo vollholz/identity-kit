@@ -14,10 +14,9 @@ import type { BffOptions } from '../../src/bff.ts';
 import { withTenant, type Db, type Tx } from '../../src/db.ts';
 import { iamPlugin, need, type IamPluginOptions } from '../../src/http/plugin.ts';
 import { optionalBodies } from '../../src/http/routes.ts';
-import { createIam, type Iam, type IamEvents } from '../../src/iam.ts';
+import { createIam, type Iam, type IamEvents, type MeExtra } from '../../src/iam.ts';
 import type { IamEvent } from '../../src/events.ts';
 import { migration } from '../../src/migrations.ts';
-import type { ModuleHooks } from '../../src/modules.ts';
 import type { Level, Model } from '../../src/model.ts';
 import { refKey, type ResourceModel, type ResourceRef } from '../../src/resources.ts';
 import { testConfig } from './config.ts';
@@ -133,14 +132,14 @@ export async function notesApp(o: {
   after?: (app: FastifyInstance) => Promise<void> | void;
   /** Haken der App; ohne: `after` sammelt die Ereignisse in `events`. */
   events?: IamEvents;
-  /** Haken der App je Produktmodul (`createIam({ moduleHooks })`). */
-  moduleHooks?: ModuleHooks;
   /** Haken «Rechte je Organisation» (`createIam({ tenantPermissions })`). */
   tenantPermissions?: TenantPermissions;
+  /** Zusatzfelder für /v1/me und /auth/me (`createIam({ meExtra })`). */
+  meExtra?: MeExtra;
 }): Promise<NotesApp> {
   const events: IamEvent[] = [];
   const onEvent: IamEvents = o.events ?? { after: async (_tx, e) => { events.push(e); } };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}), ...(o.moduleHooks ? { moduleHooks: o.moduleHooks } : {}), ...(o.tenantPermissions ? { tenantPermissions: o.tenantPermissions } : {}) });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}), ...(o.tenantPermissions ? { tenantPermissions: o.tenantPermissions } : {}), ...(o.meExtra ? { meExtra: o.meExtra } : {}) });
   // Wie docs/backend.md verlangt: unbekannte Felder ergeben 422 statt still zu verschwinden
   const app = Fastify({ logger: process.env.TEST_LOG ? { level: 'error' } : false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });

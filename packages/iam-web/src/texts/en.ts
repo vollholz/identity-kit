@@ -1,7 +1,7 @@
 /** Texte des Baukastens auf Englisch (gleiche Schlüssel und Platzhalter wie `de`, Test in test/texts.test.ts). */
-import type { IamCoreTextKey } from './de.ts';
+import type { IamTextKey } from './de.ts';
 
-export const en: Record<IamCoreTextKey, string> = {
+export const en: Record<IamTextKey, string> = {
   'iam.error.0': 'No connection to the server',
   'iam.error.400': 'The request is invalid.',
   'iam.error.401': 'You are not signed in (anymore).',
@@ -147,7 +147,6 @@ export const en: Record<IamCoreTextKey, string> = {
   'iam.common.more': 'More',
   'iam.common.save': 'Save',
   'iam.nav.access': 'Access',
-  'iam.modules.title': 'Modules',
   'iam.roles.page.title': 'Roles',
   'iam.roles.page.sub': 'Compose roles of «{org}» from the permissions of the app. Assign them like any role under «Members» or at a place.',
   'iam.roles.page.create': 'Compose role',

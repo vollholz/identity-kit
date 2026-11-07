@@ -62,7 +62,7 @@ describe('Zugriff über HTTP (/v1/access)', { skip }, () => {
   test('GET /v1/me (ApiMe): Rollen und Rechte an org, irgendwo, Freigabestufe', async () => {
     const r = await call('editor', 'GET', '/v1/me');
     const b = r.json();
-    assert.deepEqual(Object.keys(b).sort(), ['breakGlassUntil', 'clearance', 'modules', 'permissions', 'principal', 'roles', 'scopes', 'somewhere', 'tenant', 'tokenBinding']);
+    assert.deepEqual(Object.keys(b).sort(), ['breakGlassUntil', 'clearance', 'extra', 'permissions', 'principal', 'roles', 'scopes', 'somewhere', 'tenant', 'tokenBinding']);
     assert.deepEqual([b.roles, b.permissions, b.clearance, b.breakGlassUntil], [[], [], 0, null]);
     assert.ok(b.somewhere.includes('note:write') && b.somewhere.includes('access:admin'));
     assert.deepEqual((await call('viewer', 'GET', '/v1/me')).json().roles, ['viewer']);

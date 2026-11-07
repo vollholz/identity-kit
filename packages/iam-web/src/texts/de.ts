@@ -3,8 +3,6 @@
  * Spezifikation 7.2 (Rolle, Ort, Freigabe, Zuständigkeit, Vertraulichkeit, Scope, Recht, Organisation).
  * Platzhalter `{name}`; Mehrzahl mit `…_one`/`…_other`.
  */
-import type { IamModulesTextKey } from './modules.de.ts';
-
 export const de = {
   'iam.error.0': 'Keine Verbindung zum Server',
   'iam.error.400': 'Die Anfrage ist ungültig.',
@@ -151,7 +149,6 @@ export const de = {
   'iam.common.more': 'Mehr',
   'iam.common.save': 'Speichern',
   'iam.nav.access': 'Zugang',
-  'iam.modules.title': 'Module',
   'iam.roles.page.title': 'Rollen',
   'iam.roles.page.sub': 'Eigene Rollen von «{org}» aus den Rechten der App zusammenstellen. Vergeben werden sie wie jede Rolle unter «Mitglieder» oder an einem Ort.',
   'iam.roles.page.create': 'Rolle zusammenstellen',
@@ -834,7 +831,5 @@ export const de = {
   'iam.signup.login': 'Schon ein Konto? Anmelden',
 } as const;
 
-/** Schlüssel der Texte im Haupteinstieg. */
-export type IamCoreTextKey = keyof typeof de;
-/** Alle Schlüssel, auch die erst mit ihrer Seite geladenen (`iam.modules.*`, texts/modules.de.ts). */
-export type IamTextKey = IamCoreTextKey | IamModulesTextKey;
+/** Schlüssel der eingebauten Texte. */
+export type IamTextKey = keyof typeof de;

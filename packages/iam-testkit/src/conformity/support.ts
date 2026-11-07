@@ -5,15 +5,14 @@
  * es nach (Test im Kit: `CURRENT` = Versionen im Repository).
  */
 
-export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testkit' | '@vollholz/create-iam-app' | '@vollholz/platform' | 'product-realm' | 'product-realm-bootstrap';
+export type Part = '@vollholz/iam' | '@vollholz/iam-web' | '@vollholz/iam-testkit' | '@vollholz/create-iam-app' | 'product-realm' | 'product-realm-bootstrap';
 
 /** Stand dieses Test-Kits (beim Release gleich den Versionen im Repository identity-kit). */
 export const CURRENT: Record<Part, string> = {
-  '@vollholz/iam': '6.3.0',
-  '@vollholz/iam-web': '3.2.0',
-  '@vollholz/iam-testkit': '2.10.4',
-  '@vollholz/create-iam-app': '0.9.0',
-  '@vollholz/platform': '0.9.0',
+  '@vollholz/iam': '7.0.0',
+  '@vollholz/iam-web': '4.0.0',
+  '@vollholz/iam-testkit': '3.0.0',
+  '@vollholz/create-iam-app': '0.10.0',
   'product-realm': '3.1.0',
   'product-realm-bootstrap': '0.1.1',
 };
@@ -24,9 +23,16 @@ export const MINIMUM: Record<Part, { version: string; reason: string }> = {
   '@vollholz/iam-web': { version: '1.0.0', reason: 'aktuelle Hauptversion' },
   '@vollholz/iam-testkit': { version: '1.0.0', reason: 'aktuelle Hauptversion' },
   '@vollholz/create-iam-app': { version: '0.1.0', reason: 'erste Version' },
-  '@vollholz/platform': { version: '0.1.0', reason: 'erste Version' },
   'product-realm': { version: '2.0.0', reason: 'ab 2.0 keine Rollen in Keycloak, passend zu @vollholz/iam 2' },
   'product-realm-bootstrap': { version: '0.1.0', reason: 'erste Version' },
+};
+
+/**
+ * Frühere Teile des Kits, die eine App nicht mehr einbinden soll, mit Hinweis. `@vollholz/platform`: Querschnitt und
+ * Modulkonzept sind seit 7.11.2026 Sache der App (letzte Version 0.9.0).
+ */
+export const RETIRED: Readonly<Record<string, string>> = {
+  '@vollholz/platform': 'gehört nicht mehr zum Kit (Querschnitt in die App übernommen, letzte Version 0.9.0): Code in die App übernehmen und die Abhängigkeit entfernen',
 };
 
 const parse = (v: string) => v.split('.').map(Number) as [number, number, number];

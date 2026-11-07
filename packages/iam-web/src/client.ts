@@ -154,7 +154,7 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
   return (await iamFetchWithEtag<T>(path, req)).data;
 }
 
-/** Wie `iamFetch`, dazu der `ETag` der Antwort (für `If-Match` beim nächsten Schreiben, z. B. Module). */
+/** Wie `iamFetch`, dazu der `ETag` der Antwort (für `If-Match` beim nächsten Schreiben). */
 export async function iamFetchWithEtag<T>(path: string, req: IamRequest = {}): Promise<{ data: T; etag: string | null }> {
   const method = req.method ?? 'GET';
   const url = sameOrigin(withQuery(path, req.query));

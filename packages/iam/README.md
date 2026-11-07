@@ -13,6 +13,8 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 Ab 4.0.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md); die Liste hier endet mit 3.2.1.
 
+- **6.2.0:** Paket je Organisation in den Startdaten (`organizations[].package`, `orgBootstrap({ package,
+  applyPackage })`). Details: [CHANGELOG.md](CHANGELOG.md).
 - **6.1.0:** Produktmodule je Organisation (`defineModel({ modules, packages })`, Modul `modules`, Migration
   `iam_022`). Details: [CHANGELOG.md](CHANGELOG.md).
 - **5.0.0:** Eigene Rollen der Organisation (Recht `roles:admin`, Modul `roles`, Migration `iam_019`). Details und
@@ -139,7 +141,7 @@ Leitfaden für Apps: [`docs/backend.md`](docs/backend.md).
 | `optionalBodies` | `transformObject` für `@fastify/swagger`: optionale Bodies (`POST …/suspend`, `…/resume`) als optional ausweisen |
 | `Bff`, Modul `bff` | Anmeldung der Oberfläche unter `/auth/*`: Code-Flow mit PKCE, verschlüsselte Sitzung, CSRF, Erneuerung, Organisation je Tab, Abmeldung und Backchannel-Logout |
 | `McpAuth`, `registerMcpAuth`, `TokenExchanger`, `DpopSigner`, `ApiClient` | MCP-Dienst der App: Anmeldung (RFC 9728, nur Hosts aus `MCP_HOST_CLIENT_IDS`), Token Exchange DPoP-gebunden, Organisation über `X-Tenant`/`?org=`, Aufrufe der REST-API |
-| `orgBootstrap`, `orgBootstrapFile`, `iam-org-bootstrap` | Ersteinrichtung einer Organisation: Organisation und erste Person in Keycloak, Mandant, Tupel `org-admin` und Freigabestufe 2 in der Datenbank (idempotent, Probelauf); mit `--file` mehrere Organisationen und Admins (`schema/init.schema.json`) |
+| `orgBootstrap`, `orgBootstrapFile`, `iam-org-bootstrap` | Ersteinrichtung einer Organisation: Organisation und erste Person in Keycloak, Mandant, Tupel `org-admin` und Freigabestufe 2 in der Datenbank (idempotent, Probelauf); mit `--file` mehrere Organisationen und Admins (`schema/init.schema.json`); Paket je Organisation (`package`, `applyPackage` der App) |
 | `resetKeycloak`, `resetDatabase`, `iam-reset` | App zurücksetzen: Organisationen, ihre Anbieter und Personen in Keycloak, Tabellen im Schema der App (ausser Migrationen und `--keep-table`); `--confirm <realm>`, Probelauf |
 | `IAM_API_TAGS`, Option `openapi` | Tags der Routen; Tags, Texte und Feldbeschreibungen der App ersetzen die produktneutralen Standardtexte |
 

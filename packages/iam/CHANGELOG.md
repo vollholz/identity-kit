@@ -7,6 +7,27 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
+## [6.2.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Paket je Organisation in den Startdaten** (Konzept [Module je Organisation](../../docs/module-je-organisation.md),
+  IK-5): `iam-org-bootstrap --file`/`--manifest` und `orgBootstrapFile` kennen `organizations[].package` (Schlüssel
+  eines Pakets aus `packages` des Modells; `schema/init.schema.json`), `orgBootstrap` die Option `package`. Ohne Angabe
+  unverändert (alle Module beim ersten Laden).
+  - Das Skript kennt weder das Modell noch die Haken der App. Hat die Organisation nach dem Anlegen von Mandant und
+    Admin noch keine Module, ruft es `applyPackage({ tenantId, alias, name, package })` der App – vor der Einladung,
+    damit die erste Anmeldung schon die Module des Pakets sieht. Mit `@vollholz/platform` 0.9:
+    `applyPackage: t => app.tenants.create(d, t.alias, t.name, { paket: t.package })`. Scheitert es, bricht der Lauf
+    ohne Einladung ab; der nächste Lauf versucht es erneut.
+  - Ohne `applyPackage` (Kommandozeile, `--keycloak-only`) bleibt das Paket offen; die Zusammenfassung nennt den Befehl
+    der App: `Paket noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): tenant create <alias> --paket <key>`.
+  - Hat die Organisation schon Module (zweiter Lauf, oder zuerst `tenant create --paket` der App), bleibt alles
+    unverändert (`package.status: 'present'`; erneut anwenden mit `tenant modules <alias> --paket <key>`).
+  - `OrgBootstrapResult` neu mit `alias` und `package: { key, status: 'applied' | 'pending' | 'present' | null }`;
+    Typen `PackageTarget`, `PackageStatus`. Das Paket prüft das Skript nur auf die Form des Schlüssels; ob es im
+    Modell existiert, prüft der Konformitätstest (`@vollholz/iam-testkit` 2.9.3).
+
 ## [6.1.0] – 2026-11-07
 
 ### Hinzugefügt

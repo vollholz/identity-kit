@@ -51,6 +51,11 @@
             "description": "Anzeigename; Standard der Alias",
             "type": "string"
           },
+          "package": {
+            "pattern": "^[a-z][a-z0-9-]{1,30}$",
+            "description": "Paket des Modells (packages) für eine Organisation ohne Module: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module",
+            "type": "string"
+          },
           "admins": {
             "minItems": 1,
             "description": "Je Person Konto, Mitgliedschaft, Rolle org-admin und Freigabestufe 2 (nie die Plattform-Administration)",

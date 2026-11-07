@@ -4,7 +4,7 @@ Apps auf `@vollholz/platform` bestehen aus Fachmodulen (`defineModule`). Dieses 
 **Produktmodule**, die der Betrieb je Organisation freigibt und die die Administration einer Organisation zur Laufzeit
 aktiviert und deaktiviert. Erste App: nachtschicht ([docs/modularisierung.md](https://github.com/vollholz/nachtschicht/blob/main/docs/modularisierung.md)).
 
-Stand: November 2026; umgesetzt in `@vollholz/iam` 6.1.0 (IK-1) und `@vollholz/platform` 0.9.0 (IK-2), Abschnitte 5–7
+Stand: November 2026; umgesetzt in `@vollholz/iam` 6.1.0 (IK-1), `@vollholz/platform` 0.9.0 (IK-2) und `@vollholz/iam` 6.2.0 (IK-5, Startdaten), Abschnitte 5–7
 nach der tatsächlichen API. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`
 (Modell, Tabelle, Rechte, Routen), `@vollholz/platform` (Durchsetzung, Worker, Befehle), `@vollholz/iam-web` (Seite
 «Module»). Das Paket bleibt app-agnostisch: Es kennt keine Modulnamen, keine fachlichen Texte und keine Hindernisse;
@@ -159,7 +159,7 @@ Ereignisse an die App (`IamEvents.after`): `module.activated` und `module.deacti
 | `defineApp` | `checkModules(modules, model)` prüft: jedes `modul` (Code-Modul, öffentliche Routen, Jobs, Aufgaben, Abnehmer, Werkzeuge) existiert im Verzeichnis; jedes Modul des Verzeichnisses ausser dem Kern hat mindestens ein Code-Modul, einen Job, eine Aufgabe, einen Abnehmer, ein Werkzeug oder ein Recht (sonst Warnung in `app.warnings`, beim Start im Log) |
 | OpenAPI | je Route `x-modul`; die Beschreibung des Tags nennt das Produktmodul des Code-Moduls |
 | Befehle | `tenant create <alias> [--name] [--paket <key>]` (ohne Paket wie bisher: alle Module beim ersten Laden), `tenant modules <alias>` (Liste), `tenant modules <alias> --erlauben a,b --entziehen c [--force]`, `tenant modules <alias> --paket <key>` (setzt erlaubt und aktiv wie das Paket; `--nur-erlauben` lässt aktiv unverändert); unbekanntes Paket oder Modul Exit 64 |
-| `identity.app.json` | `organizations[].package` (Paket beim Anlegen über `create-iam-app` bzw. Startdaten; IK-5) |
+| `identity.app.json` | `organizations[].package` (Paket beim Anlegen über `create-iam-app` bzw. Startdaten; IK-5, `@vollholz/iam` 6.2): `iam-org-bootstrap` übergibt es an `applyPackage` der App (`app.tenants.create(…, { paket })`) für eine Organisation ohne Module, sonst nennt es den Befehl `tenant create <alias> --paket <key>`; der Konformitätstest prüft das Paket gegen das Modell |
 
 Die Prüfung je Anfrage kostet einen Blick in den Cache des Modells (`modulesOf`), keine Abfrage. Der Worker liest
 `tenant_module` je Auftrag bzw. je Organisation (eine kurze Abfrage im Kontext der Organisation).

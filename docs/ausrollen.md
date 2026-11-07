@@ -72,6 +72,25 @@ OpenTofu-Module: Version in `modules/<modul>/VERSION` erhöhen und per PR mergen
 `<modul>-v<version>`. Die App bezieht das Modul über
 `source = "git::https://github.com/vollholz/identity-kit.git//modules/<modul>?ref=<modul>-v<version>"`.
 
+## Umstieg auf `@vollholz/iam` 6.1/6.2 (`@vollholz/platform` 0.9, `@vollholz/iam-web` 3.1)
+
+Produktmodule je Organisation ([module-je-organisation.md](module-je-organisation.md)); ohne `modules` im Modell ändert
+sich für die App nichts. Vollständig: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (6.1.0, 6.2.0),
+[packages/platform/CHANGELOG.md](../packages/platform/CHANGELOG.md) (0.9.0). Kurz:
+
+- **Pakete gemeinsam anheben** (Renovate-Gruppe «identity-kit»): `@vollholz/iam`, `@vollholz/platform`,
+  `@vollholz/iam-web`, `@vollholz/iam-testkit` 2.9.3 und `@vollholz/create-iam-app` 0.9 (`sync` für die verwalteten
+  Dateien).
+- **`migrate` vor dem Start** der neuen Version: Migration `iam_022_tenant_module.sql` (Tabelle `tenant_module`, alle
+  bestehenden Organisationen erhalten alle Module erlaubt und aktiv, protokolliert als `tenant.module_backfill`) und
+  `platform_002_job_skipped.sql` (Status `skipped` für Aufträge eines inaktiven Moduls). Ohne `migrate` belegt das
+  Laden einer Organisation ohne Zeilen alle Module (Sicherheitsnetz); der Worker braucht `platform_002`.
+- **Mit `modules` im Modell:** `modul` an jedem Code-Modul (`defineModule`), sonst bricht `defineApp` ab; RLS-Matrizen
+  der App um `tenant_module` (Tabelle des Baukastens) ergänzen; neue Routen `/v1/tenant/modules…` und
+  `/v1/platform/organizations/{alias}/modules…` in den Isolations-Durchlauf aufnehmen.
+- **Erste Organisationen mit Paket** (6.2): `organizations[].package` im Manifest bzw. in `init.json`; Reihenfolge und
+  Startdaten in [neue-app.md › Schritt 10](neue-app.md#10-betrieb-erste-organisation-und-microsoft-entra-id).
+
 ## Umstieg auf `@vollholz/iam` 5.0 (`@vollholz/iam-web` 2.2, `@vollholz/platform` 0.6)
 
 Eigene Rollen der Organisation (O17). Vollständig: [packages/iam/CHANGELOG.md](../packages/iam/CHANGELOG.md) (5.0.0),

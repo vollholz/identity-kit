@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { promisify } from 'node:util';
 import {
-  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, OperatorDefaultsSchema, operatorDefaultsErrors, fileHash, formatLock, formatMarkdown, manifestErrors, realmChecks, repoChecks, versionProblem,
+  CURRENT, FIXED_REALM_SETTINGS, ManifestSchema, OperatorDefaultsSchema, operatorDefaultsErrors, fileHash, formatLock, formatMarkdown, manifestErrors, manifestPackageErrors, realmChecks, repoChecks, versionProblem,
   type AdminReader, type Finding, type Manifest,
 } from '../src/index.ts';
 
@@ -167,6 +167,28 @@ describe('Ebene Repository', () => {
     assert.match(failed((await repoChecks(bad)).findings).join('\n'), /lässt sich nicht laden/);
     const skipped = (await repoChecks(bad, { skipModel: true })).findings;
     assert.deepEqual(failed(skipped), []);
+  });
+
+  test('Paket der Organisation (organizations[].package): Schema, im Modell vorhanden', async () => {
+    const e = (x: unknown) => manifestErrors(x).join('\n');
+    const org = (p: unknown) => ({ ...manifest, organizations: [{ alias: 'demo', package: p, admins: [{ email: 'anna@demo.example' }] }] });
+    assert.equal(e(org('planung')), '');
+    assert.match(e(org('Planung')), /\/organizations\/0\/package/);
+    assert.match(e(org('p')), /\/organizations\/0\/package/);
+    assert.deepEqual(manifestPackageErrors(org('planung') as Manifest, ['planung', 'alles']), []);
+    assert.deepEqual(manifestPackageErrors(manifest, []), [], 'ohne package nichts zu prüfen');
+    assert.match(manifestPackageErrors(org('gross') as Manifest, ['planung']).join(), /\/organizations\/0\/package: Paket «gross» nicht im Modell \(bekannt: planung\)/);
+    assert.match(manifestPackageErrors(org('planung') as Manifest, []).join(), /bekannt: keine/);
+    // Konformitätstest: Pakete aus model.toJSON().packages
+    const withPackages = (pkgs: unknown[]) => (d: string) => {
+      writeFileSync(join(d, 'identity.app.json'), JSON.stringify(org('planung')));
+      writeFileSync(join(d, 'src/authz/model.ts'), `export const model = { product: 'notes', features: { members: true }, toJSON: () => (${JSON.stringify({ ...catalog, packages: pkgs })}), platformJson: () => ${JSON.stringify(platformJson)} };\n`);
+    };
+    const ok = app('paket-ok', withPackages([{ key: 'planung', label: 'Planung', description: '', modules: ['kern'], off: [] }]));
+    assert.deepEqual(failed((await repoChecks(ok)).findings), []);
+    const missing = app('paket-fehlt', withPackages([]));
+    assert.match(failed((await repoChecks(missing)).findings).join('\n'), /\/organizations\/0\/package: Paket «planung» nicht im Modell/);
+    assert.deepEqual(failed((await repoChecks(missing, { skipModel: true })).findings), [], 'ohne Modell keine Prüfung');
   });
 
   test('ohne Manifest und Lock: Befunde statt Abbruch', async () => {

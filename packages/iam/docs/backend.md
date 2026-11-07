@@ -440,6 +440,11 @@ KEYCLOAK_TF_URL=https://id.example.ch KEYCLOAK_TF_REALM=notes KEYCLOAK_IAC_PRIVA
   `orgBootstrap(keycloakAdmin, …)`.
 - Mehrere Organisationen mit je mehreren Admins: `--file init.json` (Format `schema/init.schema.json`;
   programmatisch `orgBootstrapFile`, Prüfung `initFileErrors`).
+- Paket je Organisation (ab 6.2, Produktmodule): `organizations[].package` in `--file`/`--manifest`, programmatisch
+  `package`. Das Skript kennt Modell und Haken der App nicht: Hat die Organisation noch keine Module, ruft es
+  `applyPackage({ tenantId, alias, name, package })` (vor der Einladung; mit `@vollholz/platform`
+  `t => app.tenants.create(d, t.alias, t.name, { paket: t.package })`), sonst bleibt es offen und die Zusammenfassung
+  nennt `tenant create <alias> --paket <key>` (Befehl der App). Mit Modulen unverändert (`package.status: 'present'`).
 
 **Zurücksetzen** (`iam-reset`, ab 1.4): `--keycloak` löscht alle Organisationen samt ihrer Anbieter und alle Personen
 (Service Accounts bleiben), `--database` leert alle Tabellen im Schema ausser `schema_migrations` und `--keep-table`;

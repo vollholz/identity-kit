@@ -7,6 +7,20 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
+## [2.9.3] – 2026-11-07
+
+### Hinzugefügt
+
+- Manifest `identity.app.json`: `organizations[].package` (optional, Schlüssel eines Pakets aus `packages` des Modells;
+  `schema/identity-app.schema.json`). `iam-org-bootstrap --manifest` (`@vollholz/iam` 6.2) übergibt es beim Anlegen.
+- Konformitätstest (Repository, mit Modell): jedes `organizations[].package` existiert in `model.packages`; sonst
+  Fehler `/organizations/<i>/package: Paket «…» nicht im Modell (bekannt: …)` in «Modell nach den Regeln M1–M13».
+  Funktion `manifestPackageErrors(manifest, paketschlüssel)` für eigene Werkzeuge.
+
+### Geändert
+
+- Kennt `@vollholz/iam` 6.2.0, `@vollholz/iam-testkit` 2.9.3 und `@vollholz/create-iam-app` 0.9.0 (`CURRENT`).
+
 ## [2.9.2] – 2026-11-07
 
 ### Geändert

@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import pg from 'pg';
-import { defineModel } from '@vollholz/iam';
+import { defineModel, KeycloakAdmin, orgBootstrap, orgBootstrapFile, type InitFile } from '@vollholz/iam';
+import { KeycloakFake } from '@vollholz/iam-testkit';
 import { buildToolServer, checkModules, defineModule, NACHHOLEN_JOB, outboxTask, runCli, tenantModules, type TenantDbs, type Worker } from '../src/index.ts';
 import { app } from './fixture/app.ts';
 import { BERICHT_JOB, berichtModule, seen } from './fixture/bericht/index.ts';
@@ -264,6 +265,38 @@ describe('Module je Organisation', { skip }, () => {
     const on = (r: Awaited<ReturnType<typeof tenantModules>>) => r.modules.filter(s => s.active).map(s => s.key);
     assert.deepEqual(on(await tenantModules(platform.context, d, 'p-alt', m, { paket: 'pa' })), ['kern', 'aa', 'cc']);
     assert.deepEqual(on(await tenantModules(platform.context, d, 'p-alt', m, { paket: 'pb' })), ['kern', 'bb', 'cc']);
+  });
+
+  test('Startdaten: iam-org-bootstrap übergibt das Paket an app.tenants.create (applyPackage); umgekehrte Reihenfolge ebenso', async () => {
+    const fake = new KeycloakFake();
+    const issuer = 'http://idp.test/realms/probe';
+    const kc = new KeycloakAdmin({ oidc: { issuer }, mgmt: { adminUrl: null, timeoutMs: 5000 } } as unknown as ConstructorParameters<typeof KeycloakAdmin>[0],
+      async () => `${issuer}/protocol/openid-connect/token`, fake.fetch, { clientId: 'probe-iac', privateKey: null, clientSecret: 'x' });
+    const database = { url: api.t.adminUrl, schema: 'probe' };
+    const file: InitFile = { organizations: [
+      { alias: 's-basis', name: 'Start Basis', package: 'basis', admins: [{ email: 'a@s-basis.example' }] },
+      { alias: 's-alle', admins: [{ email: 'b@s-alle.example' }] },
+    ] };
+    const r = await orgBootstrapFile(kc, file, {
+      platformAdminRole: 'platform-admin', database, sendEmail: false,
+      applyPackage: x => app.tenants.create(d, x.alias, x.name, { paket: x.package }),
+    });
+    assert.deepEqual(r.map(x => [x.alias, x.package?.status ?? null]), [['s-basis', 'applied'], ['s-alle', null]]);
+    assert.deepEqual(await states('s-basis'), { kern: [true, true], notizen: [true, true], 'notizen.abo': [true, false], berichte: [false, false] });
+    // ohne Paket: wie bisher alle Module (beim ersten Laden)
+    assert.deepEqual((await states('s-alle')).berichte, [true, true]);
+    // Admin der Organisation bleibt org-admin, Mandant an die Organisation gebunden
+    const [t] = (await d.admin.query<{ kc_org_id: string | null }>("SELECT kc_org_id FROM app.platform_tenants() WHERE alias = 's-basis'")).rows;
+    assert.equal(t?.kc_org_id, r[0]!.orgId);
+    // zweiter Lauf: Organisation hat Module, nichts angewendet
+    const again = await orgBootstrapFile(kc, file, { platformAdminRole: 'platform-admin', database, sendEmail: false, applyPackage: () => Promise.reject(new Error('nie')) });
+    assert.equal(again[0]!.package?.status, 'present');
+
+    // umgekehrt: zuerst der Befehl der App (tenant create --paket), dann iam-org-bootstrap bindet die Organisation
+    await app.tenants.create(d, 's-vorher', 'Vorher', { paket: 'basis' });
+    const v = await orgBootstrap(kc, { alias: 's-vorher', email: 'c@s-vorher.example', database, sendEmail: false, package: 'basis' });
+    assert.equal(v.package?.status, 'present');
+    assert.deepEqual((await states('s-vorher')).berichte, [false, false]);
   });
 
   test('Befehle über runCli: tenant create --paket und tenant modules (JSON)', async () => {

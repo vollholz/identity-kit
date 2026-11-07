@@ -48,8 +48,8 @@
   },
   "devDependencies": {
     "@fastify/cookie": "11.1.2",
-    "@vollholz/iam": "6.1.0",
-    "@vollholz/iam-testkit": "2.9.2",
+    "@vollholz/iam": "6.2.0",
+    "@vollholz/iam-testkit": "2.9.3",
     "fastify": "5.12.6",
     "pg": "8.23.1"
   }

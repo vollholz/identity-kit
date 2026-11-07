@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { LOCK_FILE, MANIFEST_FILE, manifestErrors, resolved, type Manifest } from './manifest.ts';
+import { LOCK_FILE, MANIFEST_FILE, manifestErrors, manifestPackageErrors, resolved, type Manifest } from './manifest.ts';
 import { fileHash, lockErrors, MANAGED_MARK, type Lock } from './lock.ts';
 import { finding, type Finding } from './report.ts';
 import { MINIMUM, newer, versionProblem, type Part } from './support.ts';
@@ -146,6 +146,7 @@ async function modelFindings(dir: string, m: Manifest): Promise<Finding[]> {
   const check = checkModel(model.toJSON() as AuthzModel, { product: m.product, members: model.features?.members !== false, ...(existsSync(platform) ? { platformJson: readFileSync(platform, 'utf8') } : {}) });
   const errors = [...check.errors];
   if (model.product !== m.product) errors.push(`model.product «${model.product}» ≠ product «${m.product}» im Manifest`);
+  errors.push(...manifestPackageErrors(m, ((model.toJSON() as { packages?: { key: string }[] }).packages ?? []).map(p => p.key)));
   out.push(finding(base, errors));
   if (check.warnings.length) out.push({ ...base, check: 'Modell: SOLL-Regeln', status: 'warn', details: check.warnings });
   const pj = { level: 'repo', check: 'platform.json aus dem Modell', zone: 'fest', source: 'identity-kit · Realm-Modul (Scopes)' } as const;

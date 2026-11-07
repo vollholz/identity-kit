@@ -25,6 +25,9 @@
  * meldet der Lauf das am Schluss und endet trotzdem mit 0. Nicht zusammen mit `--initial-password` (Alternative).
  * Anmeldung bei Keycloak: siehe src/bin/env.ts.
  * Datenbank: DATABASE_ADMIN_URL (Besitzer-Rolle, wie die Migrationen), TLS nach DATABASE_SSL; Schema `--schema`, Standard der Realm mit «_».
+ * Paket je Organisation (`organizations[].package` in `--file`/`--manifest`): Das Skript kennt Modell und Haken der App
+ * nicht und wendet es nicht an; hat die Organisation noch keine Module, nennt die Zusammenfassung den Befehl der App
+ * (`tenant create <alias> --paket <key>`). Startdaten der App mit `orgBootstrapFile(…, { applyPackage })` wenden es an.
  * Weiter: PLATFORM_ADMIN_ROLE (Standard `platform-admin`), IDENTITY_SECRET_DIR (Standard `~/.identity`, für
  * `--initial-password`).
  */
@@ -124,3 +127,6 @@ try {
 const to = (k: 'sent' | 'failed') => [...new Set(results.filter(r => r.invitation === k).map(r => r.email))];
 if (to('sent').length) console.log(`Einladung gesendet an: ${to('sent').join(', ')}`);
 if (to('failed').length) console.log(`Einladung NICHT gesendet an: ${to('failed').join(', ')} – SMTP im Realm prüfen, dann erneut mit --resend (oder --initial-password)`);
+// Pakete (Produktmodule): das Skript kennt Modell und Haken der App nicht; die App wendet sie an
+const pending = [...new Set(results.filter(r => r.package?.status === 'pending').map(r => `tenant create ${r.alias} --paket ${r.package!.key}`))];
+if (pending.length) console.log(`Paket noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): ${pending.join('; ')}`);

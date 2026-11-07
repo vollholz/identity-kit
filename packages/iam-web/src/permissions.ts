@@ -4,12 +4,19 @@
  *
  *   declare module '@vollholz/iam-web' { interface Register { permission: Permission } }
  *
+ * Ebenso die Zusatzfelder der App in `/auth/me` (`extra`, Haken `meExtra` von `@vollholz/iam`):
+ *
+ *   declare module '@vollholz/iam-web' { interface Register { meExtra: { modules: string[] } } }
+ *
  * Reservierte Namen (Spezifikation 8.1) nutzt das Paket direkt als Konstanten.
  */
 // Leer: die App erweitert sie (declaration merging)
 export interface Register {}
 
 export type Permission = Register extends { permission: infer P extends string } ? P : string;
+
+/** Zusatzfelder der App (`Me.extra`, `useIam().extra`); ohne Registrierung `Record<string, unknown>`. */
+export type MeExtra = Register extends { meExtra: infer E extends Record<string, unknown> } ? E : Record<string, unknown>;
 
 /** Rolle mit allen Rechten (8.1). */
 export const ADMIN_ROLE = 'org-admin';

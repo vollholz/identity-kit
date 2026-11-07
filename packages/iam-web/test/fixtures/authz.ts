@@ -26,7 +26,7 @@ export const CATALOG_FIXTURE = {
 export const API_ME_FIXTURE = {
   tenant: { id: 't1', alias: 'demo' },
   principal: { id: 'p1', kind: 'client' as const, name: 'notiz-import', email: null, clientId: 'notiz-import' },
-  roles: ['editor'], scopes: ['notes:read'], permissions: ['note:read'], somewhere: ['note:read'],
+  roles: ['editor'], scopes: ['notes:read'], permissions: ['note:read'], somewhere: ['note:read'], extra: {},
   clearance: 0 as const, breakGlassUntil: null, tokenBinding: 'dpop',
 } satisfies ApiMe;
 

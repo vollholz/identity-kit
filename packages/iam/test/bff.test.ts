@@ -217,6 +217,8 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
       db: t.runtime, issuer: op.issuer,
       env: (env = { OIDC_BFF_CLIENT_SECRET: CLIENT_SECRET, SESSION_SECRET: randomBytes(32).toString('hex'), ENCRYPTION_KEYS: `k1:${key.toString('base64')}`, SESSION_TTL: '8h', SESSION_IDLE_TIMEOUT: '30m' }),
       bff: { now: () => Date.now() + offset, log: { warn() {}, error() {} } },
+      // Zusatzfelder der App (/auth/me wie /v1/me), im Mandantenkontext
+      meExtra: async (tx, p) => ({ modules: ['kern'], alias: p.tenantAlias, tenant: (await tx.query<{ t: string }>("SELECT current_setting('app.tenant_id', true) AS t")).rows[0]!.t }),
       after: a => {
         a.post('/v1/echo', async req => ({ ok: true, tenant: req.principal?.tenantAlias, source: req.source }));
         a.get('/v1/echo', { schema: { querystring: { type: 'object', properties: { delimiter: { type: 'string' } }, additionalProperties: false } } }, async req => ({ tenant: req.principal?.tenantAlias, query: req.query }));
@@ -296,6 +298,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.deepEqual(b.organizations, ['acme']);
     assert.ok(b.roles.includes('editor') && b.permissions.includes('note:write'));
     assert.deepEqual([b.somewhere.includes('note:write'), b.clearance, b.breakGlassUntil, b.breakGlassAllowed, b.tenant.entraConnected], [true, 0, null, false, false]);
+    assert.deepEqual(b.extra, { modules: ['kern'], alias: 'acme', tenant: b.tenant.id }, 'meExtra der App');
     // Banner-Daten für Break-Glass (Kap. 9.7): erlaubt mit direktem Tupel org-admin; aktiv mit Ende und Stufe 2
     await grant(t.runtime, r.json().tenant.id, `user:${r.json().principal.id}`, 'org-admin');
     const allowed = (await app.inject({ url: '/auth/me', cookies: { notes_sid: cookie } })).json();
@@ -516,6 +519,7 @@ describe('Anmeldung der Oberfläche (BFF)', { skip }, () => {
     assert.equal(m.tenant, null);
     assert.deepEqual(m.organizations, ['acme', 'globex']);
     assert.ok(m.tenantError);
+    assert.deepEqual(m.extra, {}, 'ohne Organisation keine Zusatzfelder');
     assert.equal((await me(cookie)).statusCode, 400, 'API verlangt eine Wahl');
 
     // GET ändert nichts mehr (früher per Link auslösbar)

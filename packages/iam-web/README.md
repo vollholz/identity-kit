@@ -51,7 +51,9 @@ Cache der App und baut sie neu auf. In der App: `useIam()` (`me`, `can`, `canSom
 
 Produktmodule (Module je Organisation ein- und ausschalten) sind Sache der App, nicht des Pakets (ab 4.0.0): Die App
 begrenzt die Rechte je Organisation über den Hook `tenantPermissions` von `@vollholz/iam` und zeichnet ihre eigene
-Seite dafür (eigene Route, eigene Navigation neben `IamNav`).
+Seite dafür (eigene Route, eigene Navigation neben `IamNav`). Welche Module aktiv sind, gibt sie über den Haken
+`meExtra` von `@vollholz/iam` in `/auth/me` mit; die Oberfläche liest es aus `useIam().extra` (Typ über
+`declare module '@vollholz/iam-web' { interface Register { meExtra: { modules: string[] } } }`).
 
 Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 

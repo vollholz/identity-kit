@@ -153,14 +153,14 @@ export const bffModule: IamModule = {
           tags: [TAG_UI], summary: 'Angemeldete Person, Mandant, Organisationen, Rollen, Rechte und CSRF-Token', security: [],
           description: 'Mandant aus dem Header `X-Tenant` (Organisation des Tabs), ohne Header aus der Vorgabe der Sitzung. Steht die Organisation nicht im Token '
             + 'oder ist die Person kein Mitglied mehr, ist `tenant` null und `tenantError` nennt den Grund. `organizationNames`: Name je Organisation des Tokens. '
-            + '`roles`, `permissions`: Rollen und Rechte an der Organisation; `somewhere`: Rechte, die an mindestens einem Ort gelten; `clearance`: wirksame Freigabestufe; `breakGlassAllowed`: direktes Tupel org-admin.',
+            + '`roles`, `permissions`: Rollen und Rechte an der Organisation; `somewhere`: Rechte, die an mindestens einem Ort gelten; `extra`: app-eigene Angaben (Haken `meExtra`, ohne Organisation leer); `clearance`: wirksame Freigabestufe; `breakGlassAllowed`: direktes Tupel org-admin.',
         }),
       }, async (req: FastifyRequest, reply: FastifyReply) => {
         const s = await bff.current(req, reply);
         if (!s) throw new HttpError(401, 'Nicht angemeldet', 'Anmeldung über /auth/login.');
         const header = req.headers['x-tenant'];
         const requested = typeof header === 'string' && header ? header : s.data.org;
-        let tenant: { id: string; alias: string; name: string; entraConnected: boolean } | null = null, roles: string[] = [], permissions: string[] = [], somewhere: string[] = [], tenantError: string | null = null;
+        let tenant: { id: string; alias: string; name: string; entraConnected: boolean } | null = null, roles: string[] = [], permissions: string[] = [], somewhere: string[] = [], extra: Record<string, unknown> = {}, tenantError: string | null = null;
         let clearance = 0, breakGlassUntil: string | null = null, allowed = false;
         try {
           const verified = await iam.verifier.verify(s.data.accessToken, { audience: cfg.oidc.apiAudience, method: 'GET', url: `${cfg.publicBaseUrl}/auth/me` });
@@ -169,6 +169,7 @@ export const bffModule: IamModule = {
           const acl = await iam.access.load(p.tenantId);
           tenant = { id: p.tenantId, alias: p.tenantAlias, name: await bff.tenantName(p.tenantId) ?? p.tenantAlias, entraConnected: !!(await iam.entra?.connected(p.tenantId)) };
           roles = iam.access.rolesAtOrg(p, acl); permissions = iam.access.orgPermissions(p, acl); somewhere = iam.access.somewherePermissions(p, acl, await iam.access.personGrants(p, p.tenantId));
+          if (iam.meExtra) extra = await iam.tx(p, tx => iam.meExtra!(tx, p));
           clearance = iam.access.clearanceOf(p, acl); breakGlassUntil = iam.access.breakGlassUntil(acl, p.principalId)?.toISOString() ?? null;
           allowed = breakGlassAllowed(iam.access, acl, p);
         } catch (e) {
@@ -177,7 +178,7 @@ export const bffModule: IamModule = {
         }
         return {
           person: { subject: s.data.sub, name: s.data.name, email: s.data.email },
-          tenant, organizations: s.data.orgs, organizationNames: await bff.organizationNames(s), selectedOrganization: s.data.org, tenantError, roles, permissions, somewhere,
+          tenant, organizations: s.data.orgs, organizationNames: await bff.organizationNames(s), selectedOrganization: s.data.org, tenantError, roles, permissions, somewhere, extra,
           clearance, breakGlassUntil, breakGlassAllowed: allowed,
           csrfToken: s.csrf, session: { expiresAt: new Date(s.expiresAt).toISOString(), idleTimeoutSeconds: Math.round(cfg.session.idleMs / 1000) },
         };

@@ -5,7 +5,7 @@
  * bis das Backend eine OpenAPI dafür liefert. Schlüssel von Rechten sind `Permission` (ohne Registrierung `string`, mit
  * Registrierung der Typ der App, siehe `permissions.ts`); Rollen, Scopes und Typen sind `string`.
  */
-import type { Permission } from './permissions.ts';
+import type { MeExtra, Permission } from './permissions.ts';
 
 /**
  * Fehler nach RFC 9457 mit den Erweiterungen des Vertrags; alles optional, weil auch Antworten ohne problem+json ankommen.
@@ -54,6 +54,11 @@ export interface Me {
   permissions: Permission[];
   /** Rechte, die an mindestens einem Ort gelten; Obermenge von `permissions`. */
   somewhere: Permission[];
+  /**
+   * App-eigene Angaben (Haken `meExtra` von `@vollholz/iam` ab 7.0), z. B. aktive Module eines eigenen Modulkonzepts;
+   * ohne Organisation leer. Typ über `Register.meExtra`. Ältere Server senden es nicht (`useIam().extra` ist dann leer).
+   */
+  extra: Partial<MeExtra>;
   /** Wirksame Freigabestufe (mit Break-Glass). */
   clearance: Level;
   breakGlassUntil: string | null;
@@ -75,6 +80,8 @@ export interface ApiMe {
   scopes: string[];
   permissions: Permission[];
   somewhere: Permission[];
+  /** App-eigene Angaben (Haken `meExtra`), ab `@vollholz/iam` 7.0. */
+  extra: Partial<MeExtra>;
   clearance: Level;
   breakGlassUntil: string | null;
   tokenBinding: string;

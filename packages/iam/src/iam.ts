@@ -25,6 +25,13 @@ import type { IamEvents } from './events.ts';
 
 export type { IamEvents } from './events.ts';
 
+/**
+ * App-eigene Angaben zur angemeldeten Person in ihrer Organisation (Haken `meExtra`): Ergebnis steht als `extra` in
+ * `GET /v1/me` und `GET /auth/me`. Läuft in der Transaktion der Anfrage (`iam.tx`, Mandantenkontext, Lesesicht des
+ * Principals); nur mit Organisation (sonst `extra: {}`). Werte müssen als JSON darstellbar sein.
+ */
+export type MeExtra = (tx: Tx, p: Principal) => Promise<Record<string, unknown>>;
+
 export interface IamOptions<P extends string = string, S = unknown> {
   cfg: IamConfig;
   model: Model<P>;
@@ -47,6 +54,11 @@ export interface IamOptions<P extends string = string, S = unknown> {
    * eine App z. B. ihr eigenes Modulkonzept an (Rechte inaktiver Module weglassen).
    */
   tenantPermissions?: TenantPermissions<P> | null;
+  /**
+   * App-eigene Zusatzfelder für `GET /v1/me` und `GET /auth/me` (Feld `extra`), z. B. die aktiven Module eines eigenen
+   * Modulkonzepts: `meExtra: async (tx, p) => ({ modules: await aktiveModule(tx) })`. Ohne Haken `extra: {}`.
+   */
+  meExtra?: MeExtra | null;
   /** Replay-Schutz (DPoP, Logout-Tokens); sonst nach `SHARED_STATE`. */
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
@@ -72,6 +84,8 @@ export interface Iam<P extends string = string, S = unknown> {
   readonly resources: ResourceModel<S> | null;
   readonly audit: AuditPort;
   readonly events: IamEvents | null;
+  /** Haken der App für `extra` in `GET /v1/me` und `/auth/me` oder null. */
+  readonly meExtra: MeExtra | null;
   readonly replay: ReplayStore;
   readonly verifier: TokenVerifier;
   readonly resolver: PrincipalResolver;
@@ -139,7 +153,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
   const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
-    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay,
+    cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay, meExtra: o.meExtra ?? null,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
     roles: o.model.features.customRoles ? new CustomRoles({ schema, access: access as AccessService, audit }) : null,

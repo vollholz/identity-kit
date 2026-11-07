@@ -88,8 +88,9 @@ Gemeinsam anheben: `@vollholz/iam` 7.0.0, `@vollholz/iam-web` 4.0.0, `@vollholz/
   `createIam({ tenantPermissions: { version, allowed } })` weg ([backend.md](../packages/iam/docs/backend.md#rechte-je-organisation-haken-tenantpermissions)).
   `moduleHooks` entfällt (die App ruft ihre Haken beim Schalten selbst).
 - **API und Oberfläche:** `/v1/tenant/modules…`, `/v1/platform/organizations/{alias}/modules…` sowie `modules` in
-  `/v1/me`, `/auth/me` und im Katalog (auch `modul` je Recht, `packages`) entfallen; die App liefert ihre Module über
-  eine eigene Route und zeigt eine eigene Seite. iam-web: `ModulesPage`, `ModulesSection`, die Hilfen aus
+  `/v1/me`, `/auth/me` und im Katalog (auch `modul` je Recht, `packages`) entfallen. Die App liefert ihre Module über
+  den Haken `createIam({ meExtra })` als `extra.modules` in `/v1/me` und `/auth/me` (ersetzt einen eigenen
+  `preSerialization`-Haken) und zeigt eine eigene Seite; in der Oberfläche `useIam().extra` statt `hasModule`. iam-web: `ModulesPage`, `ModulesSection`, die Hilfen aus
   `@vollholz/iam-web/pages`, `useIam().hasModule`/`modules`, Route `modules`, `paths.modules` und `features.modules`
   entfallen. Isolations-Durchlauf und RLS-Matrizen der App anpassen.
 - **Daten:** `iam_022_tenant_module.sql` bleibt (keine neue Migration); iam liest und schreibt `tenant_module` nicht

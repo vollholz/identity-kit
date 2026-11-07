@@ -163,6 +163,25 @@ describe('Rechte aus Freigaben', () => {
   });
 });
 
+describe('Zusatzfelder der App (extra)', () => {
+  function Probe() {
+    const { extra } = useIam();
+    // so bildet die App z. B. ihr «Modul aktiv?» selbst
+    const modules = (extra.modules ?? []) as string[];
+    return <p>{`zeit:${modules.includes('zeit')} plan:${modules.includes('plan')} n:${Object.keys(extra).length}`}</p>;
+  }
+
+  it('gibt extra aus /auth/me durch', async () => {
+    setup({ 'GET /auth/me': () => json({ ...ME, extra: { modules: ['kern', 'zeit'] } }) }, {}, <Probe />);
+    expect(await screen.findByText('zeit:true plan:false n:1')).toBeInTheDocument();
+  });
+
+  it('ohne extra (älterer Server): leer', async () => {
+    setup({ 'GET /auth/me': () => json(ME) }, {}, <Probe />);
+    expect(await screen.findByText('zeit:false plan:false n:0')).toBeInTheDocument();
+  });
+});
+
 describe('IamProvider', () => {
   it('nutzt den QueryClient der App und meldet Person und Organisation (onTenant)', async () => {
     const onTenant = vi.fn();

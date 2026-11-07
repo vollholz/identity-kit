@@ -23,8 +23,9 @@ iam liest und schreibt `tenant_module` nie mehr (Eigentum der App).
 - **API ohne Module:** Routen `GET /v1/tenant/modules`, `PUT /v1/tenant/modules/{key}` und
   `GET|PUT /v1/platform/organizations/{alias}/modules[/{key}]` entfallen (HTTP-Modul `modules` des Plugins, OpenAPI-Tag
   «Organisation»). `GET /v1/me` und `GET /auth/me` liefern kein `modules` mehr, der Katalog `GET /v1/authz/catalog`
-  kein `modules`, `packages` und kein `modul` je Recht. Migration: Die App liefert ihre Module über eine eigene Route;
-  Isolations-Durchlauf und Clients entsprechend anpassen.
+  kein `modules`, `packages` und kein `modul` je Recht. Migration: Die App liefert ihre Module über den neuen Haken
+  `meExtra` (Feld `extra`, siehe Hinzugefügt) oder eine eigene Route; Clients lesen `extra.modules` statt `modules`
+  (ein `preSerialization`-Haken, der `modules` im Payload ersetzt, entfällt). Isolations-Durchlauf anpassen.
 - **Entfernte Exporte:** `TenantModules`, `moduleStates`, `activeModules`, `loadModuleRows`, `backfillModules`,
   `backfillKeys`, `TenantModuleSchema`, `syncModules`, `CORE_MODULE`, `MODULE_KEY`, `MODULE_REF_SQL` und die Typen
   `ModuleRow`, `ModuleState`, `ModuleHook(s)`, `ModuleBlocker`, `ModuleActing`, `TenantModulesOptions`, `ModuleDef`,
@@ -49,6 +50,11 @@ iam liest und schreibt `tenant_module` nie mehr (Eigentum der App).
   ohne Datei die Option `entry`, sonst `{ alias, name }`. Probelauf: nur gemeldet. Nur Keycloak (`database: null`):
   nicht ausgeführt, `OrgBootstrapResult.afterOrganization: 'pending'`. Wirft der Haken, bricht der Lauf ohne Einladung
   ab. Beispiel in [docs/backend.md](docs/backend.md#startdaten-der-app-afterorganization).
+- **Haken `meExtra(tx, principal)`** (`createIam({ meExtra })`, Typ `MeExtra`, `iam.meExtra`): app-eigene Angaben zur
+  Person in ihrer Organisation, z. B. die aktiven Module eines eigenen Modulkonzepts. Das Ergebnis steht als Objekt
+  `extra` in `GET /v1/me` (OpenAPI `ApiMe.extra`, offenes Objekt) und `GET /auth/me`; ohne Haken bzw. ohne
+  Organisation `extra: {}`. Läuft in der Transaktion der Anfrage (`iam.tx`, Mandantenkontext, Lesesicht des
+  Principals). Beispiel: `meExtra: async tx => ({ modules: await aktiveModule(tx) })`.
 - `organizations[].app` (beliebiges Objekt) in `schema/init.schema.json`: app-eigene Angaben, vom Kit nicht geprüft.
 
 ## [6.3.0] – 2026-11-07## [6.3.0] – 2026-11-07

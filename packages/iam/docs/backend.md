@@ -280,8 +280,27 @@ m.allowedPermissions;                             // Set der gelassenen Rechte o
 - **Transaktion:** beide Funktionen laufen in der Transaktion, die den Stand lädt (Laufzeit-Rolle, Mandantenkontext der
   Organisation, volle Sicht); `iam.access.modelIn(tx)` ruft `allowed` in der laufenden Transaktion auf.
 - **Modulkonzept der App:** `allowed` liefert z. B. die Rechte der Module, die in der Organisation aktiv sind (aus
-  einer Tabelle der App); `version` ändert sich mit jeder Schaltung. Die aktiven Module für die Oberfläche liefert die
-  App über eine eigene Route.
+  einer Tabelle der App); `version` ändert sich mit jeder Schaltung. Die aktiven Module für Oberfläche und Clients gibt
+  die App über den Haken `meExtra` mit (nächster Abschnitt).
+
+### Zusatzfelder in `/v1/me` und `/auth/me` (Haken `meExtra`)
+
+Ab 7.0 hängt die App eigene Angaben zur Person in ihrer Organisation an `GET /v1/me` und `GET /auth/me` an – als Objekt
+`extra`, ohne den Vertrag des Pakets zu ändern:
+
+```ts
+const iam = createIam({
+  // …
+  meExtra: async (tx, p) => ({ modules: await aktiveModule(tx) }),   // Transaktion der Anfrage, Mandantenkontext
+});
+// GET /v1/me  → { …, extra: { modules: ['kern', 'zeit'] } }
+// Oberfläche  → const { extra } = useIam();   (Typ über Register.meExtra in @vollholz/iam-web)
+```
+
+- Läuft nur mit Organisation, in `iam.tx(p)` (RLS, Lesesicht des Principals); ohne Haken oder ohne Organisation
+  `extra: {}`. Werte müssen als JSON darstellbar sein; OpenAPI dokumentiert `extra` als offenes Objekt.
+- Ein Fehler im Haken ergibt in `/v1/me` den Fehler der Anfrage; in `/auth/me` wird ein 4xx (`HttpError`) zu
+  `tenantError`, alles andere bleibt ein Fehler der Anfrage.
 
 ### Ereignisse und Haken (`events`)
 

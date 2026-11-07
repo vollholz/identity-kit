@@ -30,7 +30,7 @@ export { SYSTEM_ACTOR, type IamEvents, type IamEvent, type IamEventMap, type Iam
 export { AccessInfo, checkRef, MEMBERS_NAME, type AccessEntry, type AccessList, type ExplainOut, type GroupNames, type AccessSubjectOut } from './explain.ts';
 export { checkRoles, checkRoleChange, activeAdmins, lastAdminGuard, setOrgRoles, setClearance, type Acting } from './rules.ts';
 export { flatResources, flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
-export { createIam, readinessChecks, resourceProblems, type Iam, type IamOptions } from './iam.ts';
+export { createIam, readinessChecks, resourceProblems, type Iam, type IamOptions, type MeExtra } from './iam.ts';
 export { iamPlugin, need, needsToken, requestPath, type IamContext, type IamPluginOptions, type IamModuleName, type SessionBridge } from './http/plugin.ts';
 export { problem, problemResponses, registerProblemSchemas, registerErrorHandler, PROBLEM_SCHEMAS } from './http/problems.ts';
 export { IAM_API_TAGS, routeSchema, personOf, platformActor, platformOf, optionalBodies, encodeCursor, decodeCursor, likePattern, etag, ifMatchVersion, HIDDEN, type OpenApiOverrides, type IamModule, type ModuleContext } from './http/routes.ts';

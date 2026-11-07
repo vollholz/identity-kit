@@ -14,6 +14,7 @@ export const ME_FIXTURE = {
   roles: ['org-admin'],
   permissions: ['tenant:read'],
   somewhere: ['tenant:read', 'note:read'],
+  extra: {},
   clearance: 2,
   breakGlassUntil: null,
   breakGlassAllowed: true,

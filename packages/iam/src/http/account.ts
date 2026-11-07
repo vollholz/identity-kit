@@ -14,6 +14,8 @@ import { Nullable, routeSchema, type IamModule, type ModuleContext } from './rou
 
 const TAG_ACCOUNT = 'Konto';
 const LevelT = Type.Union([Type.Literal(0), Type.Literal(1), Type.Literal(2)]);
+/** App-eigene Angaben (Haken `meExtra` von `createIam`), z. B. aktive Module eines eigenen Modulkonzepts; ohne Haken leer. */
+export const MeExtraT = Type.Record(Type.String(), Type.Unknown(), { description: 'App-eigene Angaben zur Person in ihrer Organisation (Haken `meExtra` der App, z. B. aktive Module); ohne Haken bzw. ohne Organisation leer' });
 
 /** Schema der Antwort von `GET /v1/authz/catalog` aus dem Modell der App (Aufzählungen der Schlüssel). */
 export function authzCatalogSchema(model: Model) {
@@ -62,6 +64,7 @@ const MeOut = Type.Object({
   scopes: Type.Array(Type.String()),
   permissions: Type.Array(Type.String({ description: 'Rechte an der Organisation' })),
   somewhere: Type.Array(Type.String(), { description: 'Rechte, die an mindestens einem Ort gelten (Obermenge von permissions)' }),
+  extra: MeExtraT,
   clearance: LevelT,
   breakGlassUntil: Nullable(Type.String({ format: 'date-time' })),
   tokenBinding: Type.String(),
@@ -148,6 +151,7 @@ export const accountModule: IamModule = {
       return {
         tenant: { id: p.tenantId, alias: p.tenantAlias }, principal: { id: p.principalId, kind: p.kind, name: p.name, email: p.email, clientId: p.clientId },
         roles: iam.access.rolesAtOrg(p, acl), scopes: p.scopes, permissions: iam.access.orgPermissions(p, acl), somewhere: iam.access.somewherePermissions(p, acl, await iam.access.personGrants(p, p.tenantId)),
+        extra: iam.meExtra ? await iam.tx(p, tx => iam.meExtra!(tx, p)) : {},
         clearance: iam.access.clearanceOf(p, acl), breakGlassUntil: iam.access.breakGlassUntil(acl, p.principalId)?.toISOString() ?? null,
         tokenBinding: p.binding,
       };

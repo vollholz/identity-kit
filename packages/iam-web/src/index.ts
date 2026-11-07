@@ -12,7 +12,7 @@ export {
 export { adoptLegacyTabOrg, readTabOrg, TAB_ORG_KEY, tabOrgFor, writeTabOrg, type TabOrg } from './tabOrg.ts';
 export { configureTexts, currentLocale, format, intlLocale, t, tn, type IamLocale, type IamPluralKey, type IamTextKey, type IamTexts, type TextVars } from './texts/index.ts';
 export { fmtDate, fmtDateTime, fmtNum, initials, plural, relTime, shortId } from './format.ts';
-export { ADMIN_ROLE, ALL_MEMBERS, MEMBER_RELATION, ORG_TYPE, OWNER_RELATION, PLATFORM_ADMIN, RESERVED, VIEWER_ROLE, type Permission, type Register } from './permissions.ts';
+export { ADMIN_ROLE, ALL_MEMBERS, MEMBER_RELATION, ORG_TYPE, OWNER_RELATION, PLATFORM_ADMIN, RESERVED, VIEWER_ROLE, type MeExtra, type Permission, type Register } from './permissions.ts';
 export { IamUiProvider, useIamUi, type IamComponents } from './ui/context.tsx';
 export { Button, buttonClass, type ButtonProps, type ButtonVariant } from './ui/Button.tsx';
 export { Icon, type IconProps } from './ui/Icon.tsx';

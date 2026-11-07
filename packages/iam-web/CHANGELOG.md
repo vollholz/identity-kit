@@ -21,9 +21,11 @@ der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
     `moduleLabel`, `moduleRights`, `moduleLockReason`, `moduleIsOn`, `moduleErrorText`) aus
     `@vollholz/iam-web/pages` sowie `hasModules`, `modulesChanged`, `useModulesFeature` aus dem Haupteinstieg
     entfernen; ebenso die Typen (Liste unter «Entfernt»).
-  - `useIam().hasModule(…)` und `useIam().modules` ersetzen: Die App liest ihre Module über ihre eigene Route und
-    blendet ihre Arbeitsflächen selbst ein und aus (oder prüft nur noch Rechte mit `can`, die der Server über
-    `tenantPermissions` schon begrenzt).
+  - `useIam().hasModule(…)` und `useIam().modules` ersetzen: Die App liefert ihre Module über den Haken `meExtra` von
+    `@vollholz/iam` (Feld `extra` in `/auth/me`) und bildet die Prüfung selbst, z. B.
+    `declare module '@vollholz/iam-web' { interface Register { meExtra: { modules: string[] } } }` und
+    `const { extra } = useIam(); const hatModul = (k: string) => !!extra.modules?.includes(k);`. Alternativ prüft sie
+    nur Rechte mit `can`, die der Server über `tenantPermissions` schon begrenzt.
   - Route-ID `modules` nicht mehr erwarten (`IamRouteId`, `iamRoutes`, `useIamNav`); eine eigene Modulseite hängt die
     App selbst in Router und Navigation.
   - `paths.modules` und `features.modules` aus der Konfiguration von `IamProvider` bzw. `makeIamRoutes` entfernen
@@ -32,6 +34,12 @@ der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
   - `@vollholz/iam` 7.0.0 oder neuer verwenden: `/auth/me`, `GET /v1/me` und `GET /v1/authz/catalog` enthalten dort
     keine Module mehr, die Routen `/v1/tenant/modules` und `/v1/platform/organizations/{alias}/modules` gibt es nicht
     mehr. Ältere Server funktionieren weiter; ihre Felder zu Modulen werden ignoriert.
+
+### Hinzugefügt
+
+- **Zusatzfelder der App:** `Me.extra` und `ApiMe.extra` (Haken `meExtra` von `@vollholz/iam` 7.0), in der Sitzung
+  als `useIam().extra` (leer ohne Organisation oder bei älteren Servern). Typ über `Register.meExtra`; Typ `MeExtra`
+  aus dem Haupteinstieg.
 
 ### Entfernt
 

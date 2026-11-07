@@ -18,7 +18,7 @@ import { useIamConfig, type IamConfig } from './config.tsx';
 import type { Me, SwitchResult } from './contract.ts';
 import { isHandoverPath, publicEntraPage, takeHandoverToken } from './entra.ts';
 import { iamKeys } from './keys.ts';
-import type { Permission } from './permissions.ts';
+import type { MeExtra, Permission } from './permissions.ts';
 import { ApiError, errorFrom } from './problem.ts';
 import { readTabOrg, tabOrgFor, writeTabOrg } from './tabOrg.ts';
 import { t } from './texts/index.ts';
@@ -39,6 +39,11 @@ export interface IamSession {
   logout(): Promise<void>;
   /** Name der Organisation dieses Tabs (sonst der Alias). */
   orgName: string;
+  /**
+   * App-eigene Angaben aus `/auth/me` (`extra`, Haken `meExtra` von `@vollholz/iam`), z. B. aktive Module eines eigenen
+   * Modulkonzepts: `const hatModul = (k: string) => !!extra.modules?.includes(k)`. Leer ohne Organisation oder Haken.
+   */
+  extra: Partial<MeExtra>;
 }
 
 const Ctx = createContext<IamSession | null>(null);
@@ -54,7 +59,7 @@ export const tenantName = (me: Me): string => (me.tenant ? me.tenant.name || org
 function makeSession(me: Me, switchOrg: IamSession['switchOrg'], logout: IamSession['logout']): IamSession {
   const somewhere = me.somewhere ?? [];
   return {
-    me, switchOrg, logout, orgName: tenantName(me),
+    me, switchOrg, logout, orgName: tenantName(me), extra: me.extra ?? {},
     can: p => me.permissions.includes(p),
     canSomewhere: p => me.permissions.includes(p) || somewhere.includes(p),
   };

@@ -52,6 +52,6 @@ export const ME: Me = {
   person: { subject: 'sub-anna', name: 'Anna Admin', email: 'anna@demo.example' },
   tenant: { id: 't1', alias: 'demo', name: 'Demo AG', entraConnected: false }, organizations: ['demo', 'muster'], organizationNames: { demo: 'Demo AG', muster: 'Muster GmbH' },
   selectedOrganization: 'demo', tenantError: null,
-  roles: ['org-admin'], permissions: ALL, somewhere: ALL, clearance: 1, breakGlassUntil: null, breakGlassAllowed: true, csrfToken: 'csrf-123',
+  roles: ['org-admin'], permissions: ALL, somewhere: ALL, extra: {}, clearance: 1, breakGlassUntil: null, breakGlassAllowed: true, csrfToken: 'csrf-123',
   session: { expiresAt: '2030-01-01T00:00:00.000Z', idleTimeoutSeconds: 3600 },
 };

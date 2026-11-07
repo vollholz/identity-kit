@@ -246,6 +246,61 @@ await withTenant(iam.db, { tenantId, principalId }, tx => iam.roles!.create(tx, 
 - Policies der App brauchen nichts Neues: Die Lesesicht (`app.permission_relations`, `app.read_relations` …) enthält die
   eigenen Rollen.
 
+### Produktmodule je Organisation (Modul `modules`)
+
+Ab 6.1 kann das Modell ein Verzeichnis der **Produktmodule** tragen (Konzept
+[Module je Organisation](../../../docs/module-je-organisation.md)). Der Betrieb gibt Module je Organisation frei
+(`allowed`), die Administration der Organisation aktiviert sie (`active`, Recht `tenant:admin`). Rechte inaktiver
+Module fehlen im Modell der Organisation – `can`, `need`, Scopes, Lesesicht, Katalog und «Warum?» sehen sie nicht.
+Ohne `modules` gilt ein stilles Modul `kern` mit allen Rechten; es ändert sich nichts.
+
+```ts
+export const model = defineModel({
+  product: 'notes',
+  modules: [
+    { key: 'kern', label: 'Kern', core: true },
+    { key: 'notizen', label: 'Notizen', requires: ['kern'], parts: [{ key: 'teilen', label: 'Teilen' }] },
+    { key: 'ansichten', label: 'Ansichten', requires: ['notizen'] },
+    { key: 'pruefen', label: 'Prüfen', requires: [['ansichten', 'teams']] },          // eines von
+  ],
+  packages: [{ key: 'basis', label: 'Basis', modules: ['kern', 'notizen'], off: ['notizen.teilen'] }],
+  permissions: {
+    'note:read': { label: 'Notizen lesen', group: 'notes', description: 'Notizen sehen.', modul: 'notizen' },
+    'note:share': { label: 'Notizen teilen', group: 'notes', description: 'Notizen teilen.', modul: 'notizen.teilen' },
+    'team:read': { label: 'Teams lesen', group: 'notes', description: 'Teams sehen.' },     // ohne modul: Kern
+  },
+  // …
+});
+
+const active = await iam.access.modulesOf(p.tenantId);          // Set mit Kern und Teilfunktionen, zwischengespeichert
+const m = await iam.access.modelOf(p.tenantId);                  // = model.withRoles(eigene).withModules(active)
+```
+
+- `defineModel` prüft das Verzeichnis (genau ein Kern, Voraussetzungen ohne Zyklen und transitiv zum Kern, Pakete mit
+  Kern und erfüllten Voraussetzungen, `modul` nur bekannt und nie an reservierten Rechten). Mit `modules` ist
+  `features.tenantSettings` Standard `true`.
+- Daten: `<schema>.tenant_module` (iam_022), geschrieben nur über `app.set_module_allowed`, `app.set_module_active`
+  und `app.backfill_modules`. Ohne Zeile: nicht erlaubt (Kern immer aktiv, Teilfunktionen wie ihr Modul). Der Abgleich
+  in `migrate` (mit `model`) belegt bestehende Organisationen mit allen Modulen erlaubt und aktiv; beim ersten Laden
+  einer Organisation ohne Zeilen geschieht dasselbe (Sicherheitsnetz).
+- Routen: `GET /v1/tenant/modules`, `PUT /v1/tenant/modules/{key}` `{ active }` (mit `If-Match`), Plattform
+  `GET/PUT /v1/platform/organizations/{alias}/modules[/{key}]` `{ allowed }` (`?force=true`). `GET /v1/me` und
+  `GET /auth/me` nennen die aktiven Module (`modules`).
+- Haken der App je Modul (`createIam({ moduleHooks })`, mit `@vollholz/platform` aus `defineApp({ moduleHooks })`),
+  alle in der Transaktion der Änderung im Kontext der Organisation:
+
+  ```ts
+  moduleHooks: {
+    ansichten: {
+      einrichten: (tx, tenantId) => standardAnsichten(tx),             // erstes Aktivieren
+      hindernisse: (tx, tenantId) => offeneFreigaben(tx),              // [{ key, text, anzahl? }]; nicht leer: 409
+      nachholen: (tx, tenantId, seit) => neuBerechnen(tx, seit),       // erneutes Aktivieren
+    },
+  }
+  ```
+- Deaktivieren löscht nie Daten und keine Tupel; nach erneutem Aktivieren gelten die Rechte sofort (`acl_version`).
+- Durchsetzung an Routen, Jobs, Aufgaben, Outbox und MCP liefert `@vollholz/platform` (nicht dieses Paket).
+
 ### Ereignisse und Haken (`events`)
 
 `events` in `createIam` (und `MemberSync` im Worker; `@vollholz/platform`: `AppSpec.iamEvents` für beides) ist ein
@@ -280,6 +335,8 @@ const iam = createIam({ cfg, model, db, schema: 'notes', resources, audit, event
 | `access.revoked` | `after` | Rolle an einem Ort entzogen; beim Entfernen je Tupel, vor `member.removed` | `AccessEventData` |
 | `access.expired` | `after` | abgelaufene Rolle aufgeräumt (Worker, `expireAccess`) | `AccessEventData` |
 | `member.left` | `after` | Abgleich stellt einen Austritt ausserhalb der App fest (z. B. in Keycloak entfernt); Tupel bleiben (A17) | `{ userId, principalId }` |
+| `module.activated` | `after` | Produktmodul oder Teilfunktion aktiviert (`PUT /v1/tenant/modules/{key}`, `iam.modules.setActive`) | `{ module, by }` (`by`: Principal, null beim Betrieb) |
+| `module.deactivated` | `after` | deaktiviert, auch durch Entziehen der Freigabe (Plattform) | `{ module, by }` |
 
 Jedes Ereignis: `{ type, tenantId, subject, actor, data }`. `subject` ist das Subjekt der Tupel (`user:<principal-id>`,
 `client:<id>` …; bei `member.*` null, wenn die Person nie einen Principal hatte). `actor` wie im Audit (`principal`,

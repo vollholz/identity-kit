@@ -7,10 +7,17 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
-## [Unveröffentlicht]
+## [2.9.0] – 2026-11-07
+
+### Hinzugefügt
+
+- Konformitätstest (Datenbank): kennt die SECURITY-DEFINER-Funktionen der Produktmodule aus `@vollholz/iam` 6.1
+  (`app.set_module_allowed`, `app.set_module_active`, `app.backfill_modules`, Migration `iam_022_tenant_module.sql`).
+  Ältere Test-Kits melden sie bei einer App mit `iam` 6.1 als «SECURITY DEFINER ohne Begründung».
 
 ### Geändert
 
+- Kennt `@vollholz/iam` 6.1.0 und `@vollholz/iam-testkit` 2.9.0 (`CURRENT`).
 - Kennt `@vollholz/iam-web` 3.0.1 (`CURRENT`). Ändert für Apps nichts: Der Konformitätstest vergleicht Hauptversionen
   und Mindeststände, beide bleiben gleich.
 

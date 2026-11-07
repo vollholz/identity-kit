@@ -32,6 +32,8 @@ const POLICIES = [
   'notes.authz_tuple.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.authz_role.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'notes.audit_log.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  // Produktmodule (iam_022): Schreiben nur über die Funktionen (SECURITY DEFINER) im Kontext des Mandanten
+  'notes.tenant_module.owner_tenant PERMISSIVE ALL notes_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
 ];
 
 /** SECURITY-DEFINER-Funktionen mit Begründung. */
@@ -48,6 +50,9 @@ const SECURITY_DEFINER: Record<string, string> = {
   'app.account_reserve_org(p_account uuid, p_limit integer)': 'Konto: Höchstzahl selbst erstellter Organisationen (atomar)',
   'app.account_release_org(p_account uuid)': 'Konto: Reservierung zurückgeben',
   'app.platform_audit(p_actor_kind text, p_actor_id uuid, p_actor_name text, p_source text, p_action text, p_resource_type text, p_resource_id uuid, p_org uuid, p_correlation text, p_data jsonb)': 'Protokoll der Plattform: nur anhängen',
+  'app.set_module_allowed(p_tenant uuid, p_module text, p_allowed boolean)': 'Produktmodule: Betrieb gibt frei bzw. entzieht (API prüft platform-admin)',
+  'app.set_module_active(p_module text, p_active boolean)': 'Produktmodule: Organisation schaltet im eigenen Kontext, nur erlaubte',
+  'app.backfill_modules(p_modules text[])': 'Produktmodule: erste Belegung einer Organisation ohne Zeilen',
 };
 
 const PUBLIC_EXEC = "EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x WHERE x.grantee = 0 AND x.privilege_type = 'EXECUTE')";

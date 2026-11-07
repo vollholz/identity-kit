@@ -26,6 +26,8 @@ import { forbidden, HttpError } from './errors.ts';
 import { MEMBER, ORG, OWNER, type CustomRoleDef, type Level, type Model, type TypeInfo } from './model.ts';
 import type { Principal } from './principal.ts';
 import { flatChain, refKey, type ResourceModel, type ResourceRef } from './resources.ts';
+import type { AuditPort } from './audit.ts';
+import { activeModules, backfillModules, loadModuleRows } from './modules.ts';
 
 /** Ein Tupel (Freigabe), Spalten wie `authz_tuple`. */
 export interface Tuple {
@@ -40,8 +42,10 @@ export interface ClearanceRow { clearance: Level; boost: Level | null; until: Da
 /** Stand eines Mandanten: Tupel, Freigabestufen (nur ≠ 0 oder mit Break-Glass), Zustand der Kette, eigene Rollen. */
 export interface TenantAccess<S = unknown> {
   version: string;
-  /** Modell der Organisation: Modell der App mit ihren eigenen Rollen (`withRoles`). */
+  /** Modell der Organisation: Modell der App mit ihren eigenen Rollen und nur den Rechten aktiver Module (`withRoles(…).withModules(…)`). */
   model: Model;
+  /** Aktive Produktmodule und Teilfunktionen (aufgelöst, mit Kern); ohne `modules` im Modell nur der stille Kern (fehlt: `model.activeModules`). */
+  modules?: ReadonlySet<string>;
   /** Eigene Rollen der Organisation (`authz_role`), wie gespeichert. */
   roles: readonly CustomRoleDef[];
   tuples: readonly Tuple[];
@@ -124,8 +128,11 @@ export class AccessService<P extends string = string, S = unknown> {
   /** Zuständigkeit über Einheiten (`edges.unit`, `children`, `belongs`); null, wenn die App nur `persons` liefert. */
   readonly unitEdges: { unit: string; children: string; belongs: string } | null;
 
-  constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null }) {
-    this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null;
+  /** Protokoll für die erste Belegung der Module beim Laden (`tenant.module_backfill`). */
+  private readonly audit: AuditPort | null;
+
+  constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null; audit?: AuditPort | null }) {
+    this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null; this.audit = o.audit ?? null;
     this.scopeTypes = [...o.model.types.values()].filter(t => t.scope);
     this.scopeType = this.scopeTypes[0] ?? null;
     const e = this.resources?.edges;
@@ -147,11 +154,25 @@ export class AccessService<P extends string = string, S = unknown> {
     return forbidden(`Die Vertraulichkeit «${this.model.classifications[level]}» übersteigt deine Freigabestufe.`, { reason: 'clearance', classification: level, clearance });
   }
 
-  /** Lädt Tupel, Freigabestufen und Zustand der Kette (zwischengespeichert bis zur nächsten Änderung). */
+  /**
+   * Lädt Tupel, Freigabestufen, Zustand der Kette, eigene Rollen und aktive Module (zwischengespeichert bis zur nächsten
+   * Änderung). Organisation ohne Zeilen in `tenant_module` (Modell mit `modules`): zuerst alle Module erlaubt und aktiv
+   * (Sicherheitsnetz, falls der Abgleich nach den Migrationen sie nicht belegt hat, z. B. neue Organisation).
+   */
   async load(tenantId: string): Promise<TenantAccess<S>> {
     const r = this.resources;
     return this.fullTx(tenantId, async tx => {
-      const acl = (await tx.query<{ v: string }>(`SELECT acl_version::text AS v FROM ${this.schema}.tenant WHERE id = $1`, [tenantId])).rows[0]?.v ?? '0';
+      const version = async () => (await tx.query<{ v: string }>(`SELECT acl_version::text AS v FROM ${this.schema}.tenant WHERE id = $1`, [tenantId])).rows[0]?.v ?? '0';
+      let acl = await version();
+      const hit0 = this.cache.get(tenantId);
+      let moduleRows = null as Awaited<ReturnType<typeof loadModuleRows>> | null;
+      if (this.model.features.modules && !(hit0 && hit0.version.startsWith(`${acl}:`))) {
+        moduleRows = await loadModuleRows(tx, this.schema);
+        if (!moduleRows.length && await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' })) {
+          moduleRows = await loadModuleRows(tx, this.schema);
+          acl = await version();
+        }
+      }
       const v = `${acl}:${(await r?.version?.(tx)) ?? ''}`;
       const hit = this.cache.get(tenantId);
       if (hit && hit.version === v) return hit;
@@ -167,7 +188,9 @@ export class AccessService<P extends string = string, S = unknown> {
         .map(x => [x.id, { clearance: x.clearance, boost: x.boost, until: x.until }]));
       const state = (r?.load ? await r.load(tx) : null) as S;
       const roles = this.model.features.customRoles ? await loadCustomRoles(tx, this.schema) : [];
-      const loaded: TenantAccess<S> = { version: v, model: this.model.withRoles(roles) as Model, tuples, byPlace, clearances, state, roles };
+      const modules = this.model.features.modules ? activeModules(this.model, moduleRows ?? await loadModuleRows(tx, this.schema)) : this.model.activeModules;
+      const model = (this.model.withRoles(roles) as Model).withModules(modules);
+      const loaded: TenantAccess<S> = { version: v, model, modules: new Set(modules), tuples, byPlace, clearances, state, roles };
       this.cache.set(tenantId, loaded);
       return loaded;
     });
@@ -175,12 +198,22 @@ export class AccessService<P extends string = string, S = unknown> {
 
   invalidate(tenantId: string) { this.cache.delete(tenantId); }
 
-  /** Modell der Organisation (mit eigenen Rollen), zwischengespeichert wie `load`. */
+  /** Modell der Organisation (mit eigenen Rollen, nur aktive Module), zwischengespeichert wie `load`. */
   async modelOf(tenantId: string): Promise<Model> { return (await this.load(tenantId)).model; }
 
-  /** Modell der Organisation aus der laufenden Transaktion (sieht auch eigene Rollen, die sie eben angelegt hat). */
+  /**
+   * Aktive Produktmodule und Teilfunktionen der Organisation (aufgelöst, mit Kern), zwischengespeichert wie `load`: für
+   * Quellen und Brücken der App und die Durchsetzung in der Plattform. Ohne `modules` im Modell nur der stille Kern.
+   */
+  async modulesOf(tenantId: string): Promise<ReadonlySet<string>> { const a = await this.load(tenantId); return a.modules ?? a.model.activeModules; }
+
+  /** Modell der Organisation aus der laufenden Transaktion (sieht auch eigene Rollen und Module, die sie eben geändert hat). */
   async modelIn(tx: Pick<Tx, 'query'>): Promise<Model> {
-    return this.model.features.customRoles ? this.model.withRoles(await loadCustomRoles(tx, this.schema)) as Model : this.model;
+    const m = this.model.features.customRoles ? this.model.withRoles(await loadCustomRoles(tx, this.schema)) as Model : this.model as Model;
+    if (!this.model.features.modules) return m;
+    const rows = await loadModuleRows(tx, this.schema);
+    // Ohne Zeilen gilt (bis zur ersten Belegung) alles als aktiv, wie nach dem Sicherheitsnetz in `load`
+    return rows.length ? m.withModules(activeModules(this.model, rows)) : m;
   }
 
   // ---------------------------------------------------------------- Bausteine
@@ -201,6 +234,14 @@ export class AccessService<P extends string = string, S = unknown> {
     if (!c) return 0;
     if (who.kind === 'user' && c.boost !== null && c.until && c.until.getTime() > now) return Math.max(c.clearance, c.boost) as Level;
     return c.clearance;
+  }
+
+  /**
+   * Recht der App, dessen Modul in der Organisation aktiv ist: Rechte inaktiver Module gelten nirgends (auch nicht über
+   * Zuständigkeit, Besitz oder Scope).
+   */
+  active(acl: Pick<TenantAccess<S>, 'model'>, perm: string): boolean {
+    return this.model.isPermission(perm) && acl.model.activeModules.has(acl.model.moduleOf(perm));
   }
 
   /** Regel 5: deckt ein Scope das Recht? Für Personen ausserhalb von MCP immer. */
@@ -285,7 +326,7 @@ export class AccessService<P extends string = string, S = unknown> {
    * Lesesicht der Datenbank sind es), ohne units(p) ergibt Regel 2 nichts.
    */
   decide(who: Who, acl: TenantAccess<S>, perm: string, ref: ResourceRef = { type: ORG }, hint?: string | null, facts: Facts = noFacts()): boolean {
-    if (!this.model.isPermission(perm)) return false;
+    if (!this.active(acl, perm)) return false;
     if (!this.scopeAllows(who, perm)) return false;
     const t = this.model.types.get(ref.type);
     if (t?.classified && ref.id) {
@@ -406,7 +447,7 @@ export class AccessService<P extends string = string, S = unknown> {
    * Personen aus Fachdaten (`personGrants`), sonst zählt dieser Weg nicht.
    */
   somewhere(who: Who, acl: TenantAccess<S>, perm: string, persons: PersonGrants = new Set()): boolean {
-    if (!this.model.isPermission(perm) || !this.scopeAllows(who, perm)) return false;
+    if (!this.active(acl, perm) || !this.scopeAllows(who, perm)) return false;
     if (persons.size) {
       const has = (type: string, g: string) => persons.has(`${type}:${g}`) || persons.has(`*:${g}`);
       if (this.scopeTypes.some(st => (perm === st.read && (has(st.key, 'read') || has(st.key, 'edit'))) || (perm === st.write && has(st.key, 'edit')))) return true;

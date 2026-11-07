@@ -7,6 +7,13 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
+## [Unveröffentlicht]
+
+### Geändert
+
+- Abhängigkeit `@vollholz/iam-testkit` 2.9.0 (Konformität mit den Produktmodulen aus `@vollholz/iam` 6.1); erscheint
+  mit der nächsten Version.
+
 ## [0.8.0] – 2026-11-05
 
 ### Geändert

@@ -39,7 +39,7 @@ const TENANT_TABLES: Record<string, (tx: Tx, tenantId: string) => Promise<string
 };
 
 /** Tabellen von @vollholz/iam mit tenant_id: RLS, Policies und Trennung prüft das Paket selbst (und die Prüfungen unten). */
-const KIT_TABLES = ['principal', 'authz_tuple', 'authz_role', 'member_invitation', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent', 'entra_consent_link'];
+const KIT_TABLES = ['principal', 'authz_tuple', 'authz_role', 'tenant_module', 'member_invitation', 'audit_log', 'audit_anchor', 'entra_connection', 'entra_consent', 'entra_consent_link'];
 
 /** Tabellen ohne tenant_id, auf die Laufzeit oder Worker Rechte haben – jede mit Begründung. */
 const WITHOUT_TENANT: Record<string, string> = {
@@ -56,6 +56,7 @@ const POLICIES = [
   "probe.entra_connection.entra_scan PERMISSIVE SELECT probe_owner USING (current_setting('app.entra_scan'::text, true) = 'on'::text) CHECK -",
   'probe.principal.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'probe.authz_role.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
+  'probe.tenant_module.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'probe.authz_tuple.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   'probe.audit_log.owner_tenant PERMISSIVE ALL probe_owner USING (tenant_id = app.tenant_id()) CHECK (tenant_id = app.tenant_id())',
   // Plattform (platform_001_core): Scheduler liest über alle Mandanten, schreibt ohne Kontext oder nur im gesetzten
@@ -87,6 +88,9 @@ const SECURITY_DEFINER: Record<string, string> = {
   'app.account_touch(p_subject text, p_email text, p_name text)': 'Konto ohne Mandant: anlegen bzw. nachführen, liefert nur die eigene ID',
   'app.account_reserve_org(p_account uuid, p_limit integer)': 'Konto: Höchstzahl selbst erstellter Organisationen (atomar)',
   'app.account_release_org(p_account uuid)': 'Konto: Reservierung zurückgeben',
+  'app.set_module_allowed(p_tenant uuid, p_module text, p_allowed boolean)': 'Produktmodule: Betrieb gibt frei bzw. entzieht (iam 6.1)',
+  'app.set_module_active(p_module text, p_active boolean)': 'Produktmodule: Organisation schaltet im eigenen Kontext (iam 6.1)',
+  'app.backfill_modules(p_modules text[])': 'Produktmodule: erste Belegung einer Organisation ohne Zeilen (iam 6.1)',
   'app.platform_audit(p_actor_kind text, p_actor_id uuid, p_actor_name text, p_source text, p_action text, p_resource_type text, p_resource_id uuid, p_org uuid, p_correlation text, p_data jsonb)': 'Protokoll der Plattform: nur anhängen',
 };
 

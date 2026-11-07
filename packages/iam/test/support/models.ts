@@ -3,7 +3,7 @@
  * Notizen als Blatt mit Vertraulichkeit und Zuständigkeit über Teams, Teams als Einheiten (`member`), Ansichten mit
  * Besitz – und ein einfaches Modell nur mit Rollen an der Organisation (Stufe «einfach»).
  */
-import { defineModel } from '../../src/model.ts';
+import { defineModel, type Model } from '../../src/model.ts';
 
 export const notesInput = () => ({
   product: 'notes',
@@ -64,3 +64,35 @@ export const orgLimitedModel = defineModel((() => {
     },
   };
 })() as never);
+
+/**
+ * Notiz-App mit Produktmodulen (Konzept «Module je Organisation»): Kern, Notizen (Teilfunktion «Teilen»), Ansichten
+ * (braucht Notizen), Teams; Pakete «basis» (ohne Teilen) und «alles».
+ */
+export const modulesInput = () => {
+  const i = notesInput();
+  return {
+    ...i,
+    permissions: {
+      ...i.permissions,
+      'note:read': { ...i.permissions['note:read'], modul: 'notizen' },
+      'note:write': { ...i.permissions['note:write'], modul: 'notizen' },
+      'note:share': { ...i.permissions['note:share'], modul: 'notizen.teilen' },
+      'team:read': { ...i.permissions['team:read'], modul: 'teams' },
+      'view:read': { ...i.permissions['view:read'], modul: 'ansichten' },
+      'view:write': { ...i.permissions['view:write'], modul: 'ansichten' },
+    },
+    modules: [
+      { key: 'kern', label: 'Kern', core: true as const },
+      { key: 'notizen', label: 'Notizen', description: 'Notizen in Ordnern.', requires: ['kern'], parts: [{ key: 'teilen', label: 'Teilen' }] },
+      { key: 'ansichten', label: 'Ansichten', requires: ['notizen'] },
+      { key: 'teams', label: 'Teams', requires: ['kern'] },
+    ],
+    packages: [
+      { key: 'basis', label: 'Basis', modules: ['kern', 'notizen'], off: ['notizen.teilen'] },
+      { key: 'alles', label: 'Alles', modules: '*' as const },
+    ],
+  };
+};
+
+export const modulesModel = defineModel(modulesInput() as never) as unknown as Model;

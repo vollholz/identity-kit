@@ -53,7 +53,7 @@ describe('Audit: betroffene Person und Suche (iam_021)', { skip }, () => {
     const before = await chain(A);
     assert.equal(before.length, 3);
     const r = await migrate(t.adminUrl, [iam]);
-    assert.deepEqual(r.applied, ['iam_021_audit_subject.sql']);
+    assert.deepEqual(r.applied, ['iam_021_audit_subject.sql', 'iam_022_tenant_module.sql']);
     const now = await chain(A);
     assert.deepEqual(now.map(x => x.hash.toString('hex')), before.map(x => x.hash.toString('hex')));
     assert.ok(now.every(x => x.ok && x.linked));

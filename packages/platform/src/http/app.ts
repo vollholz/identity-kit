@@ -2,6 +2,10 @@
  * HTTP-Anwendung (app-boilerplate 5.5): Fastify mit dem Querschnitt – Logger mit Redaction, Request-ID, Helmet, CSP je
  * Antwortart, Rate-Limit, OpenAPI 3.1 mit Doku, Anmeldung und Rechte aus @vollholz/iam, Idempotenz, Metriken,
  * Fehler als problem+json – und den eingehängten Modulen. Die Module übergibt `defineApp`.
+ *
+ * Produktmodule (mit `modules` im Modell): Jede Route eines Moduls trägt dessen `modul` (oder `config.modul`), in der
+ * OpenAPI als `x-modul`. Ist das Modul in der Organisation der Anfrage nicht aktiv, antwortet die Route 403
+ * `modul-inaktiv` (nach der Anmeldung, vor Rechten und Validierung; ein Blick in den Zwischenspeicher `modulesOf`).
  */
 import { randomUUID } from 'node:crypto';
 import helmet from '@fastify/helmet';
@@ -9,7 +13,7 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
-import { IAM_API_TAGS, iamPlugin, optionalBodies, readinessChecks, requestPath, type Iam } from '@vollholz/iam';
+import { forbidden, IAM_API_TAGS, iamPlugin, optionalBodies, readinessChecks, requestPath, type Iam, type Model } from '@vollholz/iam';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { PlatformConfig } from '../config/env.ts';
 import type { PlatformContext } from '../context.ts';
@@ -22,6 +26,16 @@ import { registerIdempotency } from './idempotency.ts';
 import { registerPublicRoutes } from './public-route.ts';
 import { emptyAsNullDocs } from './route-kit.ts';
 import { buildSerializer } from './serializer.ts';
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * Produktmodul oder Teilfunktion `modul.teil` der Route (Standard: `modul` des Code-Moduls). Inaktiv in der
+     * Organisation der Anfrage → 403 `modul-inaktiv`.
+     */
+    modul?: string;
+  }
+}
 
 /** Abhängigkeiten der Module, einmal gebaut in der Kompositionswurzel. */
 export interface Deps {
@@ -36,10 +50,22 @@ export interface Deps {
 
 export type App = FastifyInstance;
 
-/** Tags der API: die der Module, dann die des IAM, zuletzt «Betrieb». Genau einer je Route (`httpSuite`). */
-export function apiTags(modules: readonly PlatformModule[]): ApiTag[] {
+/**
+ * Tags der API: die der Module, dann die des IAM, zuletzt «Betrieb». Genau einer je Route (`httpSuite`). Mit `modules`
+ * im Modell nennt die Beschreibung eines Tags das Produktmodul seines Code-Moduls.
+ */
+export function apiTags(modules: readonly PlatformModule[], model?: Pick<Model, 'features' | 'modules'>): ApiTag[] {
+  const label = (key: string | undefined) => {
+    if (!key || !model?.features.modules) return null;
+    const m = model.modules.find(x => x.key === key.split('.')[0]);
+    const part = key.includes('.') ? m?.parts.find(x => x.key === key) : null;
+    return m ? `«${part ? `${m.label} › ${part.label}` : m.label}» (\`${key}\`)` : null;
+  };
   return [
-    ...modules.flatMap(m => m.tags ?? []),
+    ...modules.flatMap(m => (m.tags ?? []).map(t => {
+      const l = label(m.modul);
+      return l ? { ...t, description: `${t.description} Produktmodul ${l}.` } : t;
+    })),
     ...IAM_API_TAGS,
     { name: 'Betrieb', description: 'Bereitschaft und Lebenszeichen des Dienstes.' },
   ];
@@ -137,7 +163,7 @@ export async function buildApp(deps: Deps, o: BuildOptions): Promise<App> {
       openapi: '3.1.0',
       info: { title: platform.title, version: '1', description: `REST-API von ${platform.title}. Fehler als application/problem+json (RFC 9457).` },
       servers: [{ url: cfg.publicBaseUrl }],
-      tags: apiTags(o.modules),
+      tags: apiTags(o.modules, iam.model),
     },
     refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) },
     transformObject: ((doc: Parameters<typeof optionalBodies>[0]) => emptyAsNullDocs(optionalBodies(doc))) as never,
@@ -166,8 +192,47 @@ export async function buildApp(deps: Deps, o: BuildOptions): Promise<App> {
     return failed.length ? reply.code(503).send({ status: 'unavailable', failed }) : { status: 'ok' };
   });
 
+  // Produktmodule: Modul je Route beim Einhängen (Code-Modul oder `config.modul`), Durchsetzung nach der Anmeldung
+  const modular = iam.model.features.modules;
+  const known = new Set(iam.model.modules.flatMap(m => [m.key, ...m.parts.map(p => p.key)]));
+  let current: string | undefined;
+  app.addHook('onRoute', route => {
+    const modul = route.config?.modul ?? current;
+    if (modul === undefined) return;
+    if (!modular) throw new Error(`Route ${route.method} ${route.url}: modul «${modul}» ohne modules im Modell`);
+    if (!known.has(modul)) throw new Error(`Route ${route.method} ${route.url}: modul «${modul}» nicht im Modell (Modul oder modul.teil)`);
+    route.config = { ...route.config, modul } as typeof route.config;
+    if (route.schema) route.schema = { ...route.schema, 'x-modul': modul } as typeof route.schema;
+  });
+  if (modular) {
+    app.addHook('onRequest', async req => {
+      const modul = req.routeOptions.config?.modul;
+      // Ohne Principal (öffentliche Pfade, Konto, Plattform): nichts zu prüfen; öffentliche Routen prüfen selbst
+      if (!modul || !req.principal) return;
+      if (!(await iam.access.modulesOf(req.principal.tenantId)).has(modul)) throw moduleInactive(iam.model, modul);
+    });
+  }
+
   // Öffentliche Routen mit Token vor den Modulen (die Oberfläche als letztes Modul hat den Fallback)
-  registerPublicRoutes(app, deps, o.modules.flatMap(m => m.publicRoutes ?? []));
-  for (const m of o.modules) await m.register?.(app, deps);
+  registerPublicRoutes(app, deps, o.modules.flatMap(m => (m.publicRoutes ?? []).map(r => (r.modul === undefined && m.modul !== undefined ? { ...r, modul: m.modul } : r))));
+  for (const m of o.modules) {
+    current = m.modul;
+    try {
+      await m.register?.(app, deps);
+      // Plugins, die das Modul mit `app.register` angemeldet hat, jetzt laden (ihre Routen erhalten noch das Modul)
+      await app.after();
+    } finally { current = undefined; }
+  }
   return app;
+}
+
+/**
+ * 403 `modul-inaktiv`: «Das Modul ‹Schichtplanung› ist in deiner Organisation nicht aktiv.» mit `reason` und `modul`
+ * (wie die Fehler von `PUT /v1/tenant/modules`).
+ */
+export function moduleInactive(model: Pick<Model, 'modules'>, modul: string) {
+  const m = model.modules.find(x => x.key === modul.split('.')[0]);
+  const part = modul.includes('.') ? m?.parts.find(p => p.key === modul) : null;
+  const what = part ? `Die Funktion ‹${part.label}›` : `Das Modul ‹${m?.label ?? modul}›`;
+  return forbidden(`${what} ist in deiner Organisation nicht aktiv.`, { reason: 'modul-inaktiv', modul });
 }

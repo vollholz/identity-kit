@@ -4,7 +4,8 @@ Apps auf `@vollholz/platform` bestehen aus Fachmodulen (`defineModule`). Dieses 
 **Produktmodule**, die der Betrieb je Organisation freigibt und die die Administration einer Organisation zur Laufzeit
 aktiviert und deaktiviert. Erste App: nachtschicht ([docs/modularisierung.md](https://github.com/vollholz/nachtschicht/blob/main/docs/modularisierung.md)).
 
-Stand: Konzept (November 2026), nicht umgesetzt. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`
+Stand: November 2026; umgesetzt in `@vollholz/iam` 6.1.0 (IK-1) und `@vollholz/platform` 0.9.0 (IK-2), Abschnitte 5–7
+nach der tatsächlichen API. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`
 (Modell, Tabelle, Rechte, Routen), `@vollholz/platform` (Durchsetzung, Worker, Befehle), `@vollholz/iam-web` (Seite
 «Module»). Das Paket bleibt app-agnostisch: Es kennt keine Modulnamen, keine fachlichen Texte und keine Hindernisse;
 alles davon liefert das Modell bzw. die Haken der App.
@@ -125,61 +126,77 @@ after }`; Aktivieren protokolliert zusätzlich im Mandanten (`pgAudit`), Freigeb
 
 ## 5 Routen
 
-Im Paket `@vollholz/iam` (Tag «Organisation»), Kontext der Organisation:
+Im Paket `@vollholz/iam` (Modul `modules` des Plugins, nur mit `modules` im Modell), Kontext der Organisation. Fehler
+als problem+json mit `reason` (wie die übrigen Fehler des Pakets), Zusatzfelder daneben:
 
 | Methode und Pfad | Recht | Hinweis |
 |---|---|---|
-| `GET /v1/tenant/modules` | `tenant:read` | je Modul und Teilfunktion `{ key, label, description, core, requires, allowed, active, activeSince, blockers?: [...] }`; `blockers` nur mit `tenant:admin` (Hindernisse aus `hindernisse(tx)` der App, [7](#7-lebenszyklus-und-pakete)) |
-| `PUT /v1/tenant/modules/{key}` | `tenant:admin` | `{ active: boolean }` mit `If-Match` auf `tenant.acl_version`; 403 `modul-nicht-erlaubt`; 409 `voraussetzung-fehlt` `{ fehlt: [...] }` (Aktivieren), `abhaengig-aktiv` `{ module: [...] }` oder `hindernisse` `{ hindernisse: [...] }` (Deaktivieren); Kern 409 `kern`; Teilfunktion ohne aktives Modul 409 |
-| `GET /v1/platform/tenants/{alias}/modules`, `PUT …/{key}` | Plattform-Administration (`platformAdmin`) | `{ allowed: boolean }`; Entziehen deaktiviert mit (Hindernisse werden gemeldet, `?force=true` übergeht sie) |
+| `GET /v1/tenant/modules` | `tenant:read` | `{ items: [{ key, label, description, core, requires, module, allowed, active, activeSince, blockers? }] }` je Modul und Teilfunktion (`module` = Modul einer Teilfunktion, sonst null); `blockers` nur mit `tenant:admin` und nur bei aktiven Modulen (Hindernisse aus `hindernisse` der App, [7](#7-lebenszyklus-und-pakete)); `ETag` = `tenant.acl_version` |
+| `PUT /v1/tenant/modules/{key}` | `tenant:admin` | `{ active: boolean }`, `If-Match` optional (412 bei veralteter Version); 403 `modul-nicht-erlaubt`; 409 `voraussetzung-fehlt` `{ fehlt: [...] }` (Aktivieren), Teilfunktion ohne aktives Modul 409 `modul-inaktiv`; `abhaengig-aktiv` `{ module: [...] }` oder `hindernisse` `{ hindernisse: [...] }` (Deaktivieren); Kern 409 `kern`; unbekannt 404 |
+| `GET /v1/platform/organizations/{alias}/modules`, `PUT …/{key}` | Plattform-Administration (`platformAdmin`) | `{ allowed: boolean }`, `If-Match` optional; Entziehen deaktiviert mit (abhängige aktive Module 409 `abhaengig-aktiv`, Hindernisse 409 `hindernisse`, `?force=true` übergeht die Hindernisse) |
 
-`GET /v1/me` (Sitzung) erhält `modules: string[]` (aktive Module und Teilfunktionen), damit die Oberfläche
-Arbeitsflächen ohne zweiten Aufruf ausblendet.
+`GET /v1/me` und `GET /auth/me` (Sitzung) erhalten `modules: string[]` (aktive Module und Teilfunktionen), damit die
+Oberfläche Arbeitsflächen ohne zweiten Aufruf ausblendet.
 
-Ereignisse an die App (`IamEvents`): `module.activated` und `module.deactivated` `{ tenantId, module, by }` –
-in der Transaktion der Änderung; die App hängt daran `einrichten`, `nachholen` und die Outbox (`platform.emit`).
+Ereignisse an die App (`IamEvents.after`): `module.activated` und `module.deactivated` mit `data: { module, by }`
+(`by` = Principal, null beim Betrieb) – in der Transaktion der Änderung; die App hängt daran z. B. die Outbox
+(`platform.emit`). `einrichten`, `hindernisse` und `nachholen` sind eigene Haken (`moduleHooks`, [7](#7-lebenszyklus-und-pakete)).
 
 ## 6 Durchsetzung in der Plattform
 
-`@vollholz/platform`:
+`@vollholz/platform` 0.9.0:
 
 | Ort | Ergänzung |
 |---|---|
-| `PlatformModule` | `modul?: string` (Produktmodul des Code-Moduls; Pflicht, wenn das Modell `modules` hat: `checkModules` wirft sonst) |
-| Routen | `config: { modul?: string }` je Route überschreibt das Modul des Code-Moduls (Teilfunktion `modul.teil`). Hook `onRequest` nach dem Principal: Modul der Route gegen `access.modulesOf(tenantId)`; inaktiv → `HttpError` 403, `type …/probleme/modul-inaktiv`, `detail` «Das Modul ‹Schichtplanung› ist in deiner Organisation nicht aktiv.», `extensions.modul`. Öffentliche Routen (`publicRoutes`) prüfen über den Alias der Organisation ebenso |
-| `JobDefinition`, `PeriodicTask`, `OutboxConsumer`, `ToolDef` | `modul?: string`; ohne Angabe das Modul des Code-Moduls, in dem sie definiert sind (`defineModule` trägt es ein) |
-| Worker: Jobs | Vor dem Ausführen: Modul inaktiv in der Organisation des Auftrags → Auftrag endet `skipped` (`result: { modul: 'inaktiv' }`), kein Fehler, kein neuer Versuch; `nachholen` der App holt die Wirkung nach |
-| Worker: Aufgaben | `run` erhält `ctx.tenants(modul)`: aktive Organisationen für das Modul der Aufgabe (statt aller); Aufgaben ohne Modul wie bisher |
-| Outbox | Abnehmer mit Modul: Ereignisse einer Organisation mit inaktivem Modul werden für diesen Abnehmer als erledigt markiert (`skipped`), damit die Outbox nicht wächst |
-| MCP | `tools/list` je Sitzung ohne Werkzeuge inaktiver Module; Aufruf eines inaktiven → Fehler aus der REST-API (403) unverändert durchgereicht |
-| `defineApp` | `checkModules` prüft: jedes `modul` existiert im Verzeichnis des Modells; jedes Modul des Verzeichnisses ausser dem Kern hat mindestens ein Code-Modul, eine Route, einen Job oder ein Recht (sonst Warnung) |
-| OpenAPI | je Route `x-modul`; Doku je Tag nennt das Modul |
-| Befehle | `tenant create <alias> [--name] [--paket <key>]` (Standard: alle Module erlaubt und aktiv, wie bisher), `tenant modules <alias>` (Liste), `tenant modules <alias> --erlauben a,b --entziehen c`, `tenant modules <alias> --paket <key>` (setzt erlaubt und aktiv wie das Paket; `--nur-erlauben` lässt aktiv unverändert) |
-| `identity.app.json` | `organizations[].package` (Paket beim Anlegen über `create-iam-app` bzw. Startdaten) |
+| `PlatformModule` | `modul?: string` (Produktmodul des Code-Moduls; Pflicht, wenn das Modell `modules` hat: `checkModules` wirft sonst; ohne `modules` im Modell nicht erlaubt) |
+| Routen | `config: { modul?: string }` je Route überschreibt das Modul des Code-Moduls (Teilfunktion `modul.teil`); Routen ohne Angabe erhalten beim Einhängen (`onRoute`) das Modul ihres Code-Moduls, auch in Plugins, die das Modul während `register` anmeldet. Hook `onRequest` nach dem Principal: Modul der Route gegen `iam.access.modulesOf(tenantId)`; inaktiv → `HttpError` 403 (`forbidden`, `moduleInactive`) mit `reason: 'modul-inaktiv'`, `modul` und `detail` «Das Modul ‹Schichtplanung› ist in deiner Organisation nicht aktiv.» (Teilfunktion: «Die Funktion ‹…› …»), vor Rechten und Validierung |
+| Öffentliche Routen | `PublicRoute.modul` (Standard: Modul des Code-Moduls); Organisation aus dem Alias, inaktiv → **404 wie ein unbekannter Link** (vor dem Handler; ein 403 verriete ohne gültiges Token, dass es die Organisation gibt) |
+| `JobDefinition`, `PeriodicTask`, `OutboxConsumer`, `ToolDef` | `modul?: string`; ohne Angabe das Modul des Code-Moduls, in dem sie definiert sind (`defineModule` trägt es ein, `defineApp` ebenso) |
+| Worker: Jobs | Vor dem Ausführen: Modul inaktiv in der Organisation des Auftrags → Auftrag endet `skipped` (`result: { modul: 'inaktiv' }`, Migration `platform_002_job_skipped.sql`), kein Fehler, kein neuer Versuch; `nachholen` der App holt die Wirkung nach |
+| Worker: Aufgaben | `run(ctx)` erhält `ctx.tenants(modul?)` (`TaskContext`): nicht gesperrte Organisationen, in denen das Modul der Aufgabe aktiv ist; Aufgaben ohne Modul alle |
+| Outbox | Abnehmer mit Modul erhalten Ereignisse einer Organisation mit inaktivem Modul nicht; die Ereignisse gelten trotzdem als verteilt (die Outbox wächst nicht) |
+| MCP | `tools/list` je Sitzung ohne Werkzeuge, deren Modul in der Organisation nicht aktiv ist (`modules` aus `GET /v1/me`); Aufruf eines inaktiven → Fehler aus der REST-API (403) unverändert durchgereicht |
+| `defineApp` | `checkModules(modules, model)` prüft: jedes `modul` (Code-Modul, öffentliche Routen, Jobs, Aufgaben, Abnehmer, Werkzeuge) existiert im Verzeichnis; jedes Modul des Verzeichnisses ausser dem Kern hat mindestens ein Code-Modul, einen Job, eine Aufgabe, einen Abnehmer, ein Werkzeug oder ein Recht (sonst Warnung in `app.warnings`, beim Start im Log) |
+| OpenAPI | je Route `x-modul`; die Beschreibung des Tags nennt das Produktmodul des Code-Moduls |
+| Befehle | `tenant create <alias> [--name] [--paket <key>]` (ohne Paket wie bisher: alle Module beim ersten Laden), `tenant modules <alias>` (Liste), `tenant modules <alias> --erlauben a,b --entziehen c [--force]`, `tenant modules <alias> --paket <key>` (setzt erlaubt und aktiv wie das Paket; `--nur-erlauben` lässt aktiv unverändert); unbekanntes Paket oder Modul Exit 64 |
+| `identity.app.json` | `organizations[].package` (Paket beim Anlegen über `create-iam-app` bzw. Startdaten; IK-5) |
 
-Die Prüfung je Anfrage kostet einen Blick in den Cache des Modells (`modulesOf`), keine Abfrage.
+Die Prüfung je Anfrage kostet einen Blick in den Cache des Modells (`modulesOf`), keine Abfrage. Der Worker liest
+`tenant_module` je Auftrag bzw. je Organisation (eine kurze Abfrage im Kontext der Organisation).
 
 ## 7 Lebenszyklus und Pakete
 
-Die App registriert je Produktmodul optionale Haken über `defineApp({ moduleHooks })`:
+Die App registriert je Produktmodul oder Teilfunktion optionale Haken über `defineApp({ moduleHooks })` (Typ
+`ModuleHooks` aus `@vollholz/iam`; `defineApp` gibt sie an `createIam` in API, Worker und Befehlen):
 
 ```ts
 moduleHooks: {
   abwesenheiten: {
     einrichten: (tx, tenantId) => absenzartenStandard(tx),            // erstes Aktivieren
-    hindernisse: (tx, tenantId) => offeneAntraege(tx, ['ferien']),     // vor dem Deaktivieren: [{ key, text, anzahl }]
-    nachholen: (tx, tenantId, seit) => tageNeuBerechnen(tx, seit),     // erneutes Aktivieren
+    hindernisse: (tx, tenantId) => offeneAntraege(tx, ['ferien']),     // vor dem Deaktivieren: [{ key, text, anzahl? }]
+    nachholen: (tx, tenantId, seit) => tageNeuBerechnen(tx, seit),     // erneutes Aktivieren (im Worker)
   },
 }
 ```
 
-- `einrichten` läuft in der Transaktion des ersten Aktivierens (nur wenn `active_since` vorher NULL war).
-- `hindernisse` liefert `GET /v1/tenant/modules` (mit `tenant:admin`) und blockiert `PUT { active: false }` (409).
-- `nachholen` wird als Auftrag `platform.module-nachholen` eingereiht (kann lange dauern), mit `seit = inactive_since`.
+- Alle Haken laufen in einer Transaktion im Kontext der Organisation.
+- `einrichten` läuft in der Transaktion des ersten Aktivierens (nie aktiv und nie deaktiviert gewesen) und bei der
+  ersten Belegung einer neuen Organisation ohne Zeilen (`iam.modules.seed`, je Modul und Teilfunktion).
+- `hindernisse` liefert `GET /v1/tenant/modules` (mit `tenant:admin`) und blockiert `PUT { active: false }` sowie das
+  Entziehen (409 `hindernisse`; beim Entziehen mit `force` übergangen).
+- `nachholen`: Beim erneuten Aktivieren reiht die Plattform in derselben Transaktion den Auftrag
+  `platform.module-nachholen` ein (`{ modul, seit }`, höchstens einer offen je Modul und Organisation, `seit` =
+  `inactive_since`); der Worker ruft damit den Haken der App (volle Sicht), ausser das Modul ist inzwischen wieder inaktiv.
 
-**Pakete** (`packages` im Modell): `tenant create --paket planung` setzt `allowed` und `active` für die Module des
-Pakets und `active = false` für dessen `off`-Teilfunktionen; `einrichten` läuft je Modul. Pakete ändern später nichts;
-`tenant modules --paket` wendet ein Paket erneut an (Betrieb).
+**Pakete** (`packages` im Modell) sind Vorbelegungen des Betriebs:
+
+- `tenant create --paket planung` legt Kern und Module des Pakets erlaubt und aktiv an (`einrichten` je Modul und
+  eingeschalteter Teilfunktion, Ereignisse `module.activated`, Audit `tenant.module_package`), `off`-Teilfunktionen
+  erlaubt und aus (ohne Zeitstempel: beim ersten Aktivieren läuft `einrichten`, nicht `nachholen`), alle anderen
+  Module nicht erlaubt. Eine Organisation, die schon Module hat, lehnt das ab.
+- Pakete ändern später nichts; `tenant modules --paket` wendet ein Paket erneut an: andere Module entziehen (abhängige
+  zuerst, Hindernisse 409 ausser mit `--force`), Module des Pakets freigeben und aktivieren, Teilfunktionen wie im Paket
+  schalten; mit `--nur-erlauben` nur die Freigaben. Alles in einer Transaktion.
 
 ## 8 Oberfläche
 

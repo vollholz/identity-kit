@@ -11,12 +11,15 @@
  *   neu vergeben wurde, überschreibt das Ergebnis des neuen Halters nicht.
  * - Beenden wartet auf laufende Jobs und laufende feste Aufgaben.
  * - Feste Aufgaben (`PeriodicTask`) laufen je Intervall höchstens einmal über alle Instanzen (Advisory-Lock).
+ * - Produktmodule (mit `modules` im Modell): Ein Job, dessen Modul in der Organisation nicht aktiv ist, endet `skipped`
+ *   (`result: { modul: 'inaktiv' }`) ohne Fehler und ohne neuen Versuch; feste Aufgaben erhalten mit `ctx.tenants()`
+ *   nur die Organisationen, in denen ihr Modul aktiv ist.
  *
  * Fachjobs liefern die Module als `JobDefinition` (`defineModule({ jobs })`), nicht dieses Paket.
  */
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { AdminService } from '@vollholz/iam';
+import type { AdminService, Model } from '@vollholz/iam';
 import type { PlatformConfig } from '../config/env.ts';
 import type { FullTx } from '../authz/view.ts';
 import type { PlatformContext } from '../context.ts';
@@ -25,6 +28,7 @@ import { systemActor } from '../core/audit.ts';
 import { createMailer, type Mailer } from '../core/mail.ts';
 import type { Db, Tx } from '../db/pool.ts';
 import { metrics } from '../ops/metrics.ts';
+import { activeModulesIn, tenantsWith, type TaskTenant } from './modules.ts';
 
 export interface Log {
   info(o: object, m: string): void;
@@ -50,6 +54,11 @@ export interface JobContext {
 export interface JobDefinition<P extends Record<string, unknown> = Record<string, unknown>> {
   /** `<modul>.<aufgabe>` */
   kind: string;
+  /**
+   * Produktmodul oder `modul.teil` (Standard: das Modul des Code-Moduls, `defineModule`). Ist es in der Organisation des
+   * Auftrags nicht aktiv, endet der Auftrag `skipped` ohne Fehler und ohne neuen Versuch.
+   */
+  modul?: string;
   /** Versuche insgesamt (Standard 5, höchstens 100). */
   maxAttempts?: number;
   run(ctx: JobContext, payload: P): Promise<void>;
@@ -58,8 +67,20 @@ export interface JobDefinition<P extends Record<string, unknown> = Record<string
 /** Aufgabe über alle Mandanten in festem Abstand (z. B. Aufräumen, Verteilung der Outbox). */
 export interface PeriodicTask {
   name: string;
+  /** Produktmodul oder `modul.teil` (Standard: das Modul des Code-Moduls); bestimmt `ctx.tenants()`. */
+  modul?: string;
   intervalMs(cfg: PlatformConfig): number;
-  run(ctx: { db: Db; cfg: PlatformConfig; log: Log; platform: PlatformContext; admin: AdminService | null; mailer: Mailer }): Promise<void>;
+  run(ctx: TaskContext): Promise<void>;
+}
+
+/** Kontext einer festen Aufgabe (über alle Mandanten, Pool des Workers). */
+export interface TaskContext {
+  db: Db; cfg: PlatformConfig; log: Log; platform: PlatformContext; admin: AdminService | null; mailer: Mailer;
+  /**
+   * Nicht gesperrte Organisationen, in denen `modul` (Standard: das Modul der Aufgabe) aktiv ist; ohne Modul bzw. ohne
+   * `modules` im Modell alle nicht gesperrten.
+   */
+  tenants(modul?: string): Promise<TaskTenant[]>;
 }
 
 /** Fehler ohne erneuten Versuch. */
@@ -90,6 +111,8 @@ export function backoffMs(attempt: number): number {
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
+export type { TaskTenant };
+
 interface Claimed { tenant_id: string; id: string; kind: string; payload: Record<string, unknown>; attempts: number; max_attempts: number }
 
 export class Worker {
@@ -97,6 +120,7 @@ export class Worker {
   private readonly db: Db;
   private readonly platform: PlatformContext;
   private readonly fullTx: FullTx;
+  private readonly model: Pick<Model, 'features' | 'modules' | 'activeModules'> | null;
   private readonly cfg: PlatformConfig;
   private readonly log: Log;
   /** Verwaltung für Jobs und feste Aufgaben (`JobContext.admin`) oder null. */
@@ -116,8 +140,11 @@ export class Worker {
     admin?: AdminService | null;
     /** Standard `createMailer(cfg, log)`. */
     mailer?: Mailer;
+    /** Modell der App: mit `modules` überspringt der Worker Jobs inaktiver Module (`defineApp` setzt es). */
+    model?: Pick<Model, 'features' | 'modules' | 'activeModules'> | null;
   }) {
     this.db = o.db; this.cfg = o.cfg; this.log = o.log; this.platform = o.platform; this.fullTx = o.fullTx;
+    this.model = o.model?.features.modules ? o.model : null;
     this.admin = o.admin ?? null;
     this.mailer = o.mailer ?? createMailer(o.cfg, o.log);
     this.jobs = new Map(o.jobs.map(j => [j.kind, j]));
@@ -210,6 +237,13 @@ export class Worker {
       tx: fn => this.fullTx(this.db, job.tenant_id, fn),
     };
     try {
+      const modul = def.modul;
+      if (modul && this.model && !(await this.fullTx(this.db, job.tenant_id, tx => activeModulesIn(tx, this.platform, this.model!))).has(modul)) {
+        await this.settle(job, `status = 'skipped', finished_at = now(), last_error = NULL, result = $4`, [JSON.stringify({ modul: 'inaktiv' })]);
+        this.log.info({ job: job.id, kind: job.kind, tenant: job.tenant_id, modul }, 'Job übersprungen: Modul in der Organisation nicht aktiv');
+        metrics.jobDone(job.kind, 'skipped', performance.now() - started);
+        return;
+      }
       await def.run(ctx, job.payload);
       await this.settle(job, `status = 'done', finished_at = now(), last_error = NULL`, []);
       metrics.jobDone(job.kind, 'done', performance.now() - started);
@@ -252,7 +286,12 @@ export class Worker {
       const key = `${this.platform.product}:task:${t.name}`;
       const got = (await c.query<{ ok: boolean }>('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [key])).rows[0]!.ok;
       if (!got) return false;
-      try { await t.run({ db: this.db, cfg: this.cfg, log: this.log, platform: this.platform, admin: this.admin, mailer: this.mailer }); } finally {
+      const model = this.model ?? { features: { modules: false }, modules: [], activeModules: new Set<string>() } as never;
+      const ctx: TaskContext = {
+        db: this.db, cfg: this.cfg, log: this.log, platform: this.platform, admin: this.admin, mailer: this.mailer,
+        tenants: (modul = t.modul) => tenantsWith(this.db, this.platform, model, modul),
+      };
+      try { await t.run(ctx); } finally {
         await c.query('SELECT pg_advisory_unlock(hashtext($1))', [key]);
       }
       return true;

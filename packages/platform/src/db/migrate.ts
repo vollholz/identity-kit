@@ -22,7 +22,10 @@ export interface PlatformMigrationOptions {
   adopted?: { after: string };
 }
 
-/** Tabellen und Policies, die `platform_001_core.sql` anlegt (Prüfung der Übernahme). */
+/**
+ * Tabellen und Policies, die `platform_001_core.sql` anlegt (Prüfung der Übernahme). Übernommen wird nur diese
+ * Migration; spätere (`platform_002_…`) laufen wie bei jeder App.
+ */
 const CORE = {
   tables: ['job', 'idempotency_key', 'outbox_event'],
   policies: [
@@ -56,7 +59,7 @@ export function platformMigrations(ctx: PlatformContext, o: PlatformMigrationOpt
   const migrations = files.map(f => migration(f, render(readFileSync(join(PLATFORM_MIGRATIONS_DIR, f), 'utf8'), vars)));
   return {
     name: 'platform', migrations, owner: ctx.roles.owner,
-    ...(o.adopted ? { adopt: { upTo: migrations.at(-1)!.name, after: o.adopted.after, check: c => adoptionProblems(c, ctx.schema) } } : {}),
+    ...(o.adopted ? { adopt: { upTo: 'platform_001_core.sql', after: o.adopted.after, check: c => adoptionProblems(c, ctx.schema) } } : {}),
   };
 }
 

@@ -25,7 +25,7 @@ export const metrics = {
   httpRequest(route: string, method: string, status: number, ms: number): void {
     get().http.record(ms / 1000, { 'http.route': route, 'http.request.method': method, 'http.response.status_code': status });
   },
-  jobDone(kind: string, status: 'done' | 'retry' | 'failed', ms: number): void {
+  jobDone(kind: string, status: 'done' | 'retry' | 'failed' | 'skipped', ms: number): void {
     get().jobs.record(ms / 1000, { 'job.kind': kind, 'job.status': status });
   },
   outboxDispatched(n: number): void {

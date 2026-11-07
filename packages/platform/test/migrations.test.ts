@@ -38,8 +38,11 @@ describe('Migrationen der Plattform', { skip }, () => {
 
   test('Übernahme: bestehende Objekte in Endform werden eingetragen, nicht ausgeführt', async () => {
     // Wie nachtschicht: Kern zuerst mit sched_all (001), später aufgeteilt (004)
-    const old = core.replace(/CREATE POLICY sched_read ON probe\.job[^;]*;\nCREATE POLICY sched_write ON probe\.job[^;]*;/s, 'CREATE POLICY sched_all ON probe.job TO probe_sched USING (true) WITH CHECK (true);');
+    // Prüfung des Status unter eigenem Namen (wie in einer App möglich): platform_002 ersetzt sie trotzdem
+    const old = core.replace(/CREATE POLICY sched_read ON probe\.job[^;]*;\nCREATE POLICY sched_write ON probe\.job[^;]*;/s, 'CREATE POLICY sched_all ON probe.job TO probe_sched USING (true) WITH CHECK (true);')
+      .replace("status        text NOT NULL DEFAULT 'queued' CHECK (status IN", "status        text NOT NULL DEFAULT 'queued' CONSTRAINT job_status_alt CHECK (status IN");
     assert.notEqual(old, core);
+    assert.ok(old.includes('job_status_alt'));
     const split = `DROP POLICY sched_all ON probe.job;
 CREATE POLICY sched_read ON probe.job FOR SELECT TO probe_sched USING (true);
 CREATE POLICY sched_write ON probe.job TO probe_sched
@@ -49,6 +52,12 @@ CREATE POLICY sched_write ON probe.job TO probe_sched
       const names = await applied(t);
       assert.ok(names.includes('platform_001_core.sql'));
       assert.ok(names.indexOf('002_split.sql') < names.indexOf('platform_001_core.sql'));
+      // Spätere Plattform-Migrationen laufen (nicht übernommen), auch mit anders benannter Prüfung
+      assert.ok(names.indexOf('platform_001_core.sql') < names.indexOf('platform_002_job_skipped.sql'));
+      const checks = (await t.inspect.query<{ name: string; def: string }>(
+        "SELECT conname AS name, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'probe.job'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%status%'")).rows;
+      assert.deepEqual(checks.map(c => c.name), ['job_status_check']);
+      assert.match(checks[0]!.def, /skipped/);
     } finally { await t.drop(); }
   });
 

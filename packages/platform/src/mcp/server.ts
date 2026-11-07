@@ -27,14 +27,22 @@ export function checkTools(o: Pick<McpOptions, 'model' | 'tools'>): void {
   for (const name of Object.keys(o.tools)) if (!o.model.mcpTools[name]) throw new Error(`MCP-Werkzeug ${name}: umgesetzt, aber nicht im Modell (mcpTools)`);
 }
 
-/** Werkzeug-Server für eine Anfrage: nur Werkzeuge, deren Recht in einer der Organisationen gilt. */
+/** Modul des Werkzeugs in der Organisation aktiv (`modules` aus `GET /v1/me`); ohne Modul bzw. ohne `modules` im Modell immer. */
+function moduleActive(model: Model<string>, o: McpOrg, modul: string | undefined): boolean {
+  if (!modul || !model.features.modules) return true;
+  const mods = o.me.modules;
+  return Array.isArray(mods) && mods.includes(modul);
+}
+
+/** Werkzeug-Server für eine Anfrage: nur Werkzeuge, deren Recht in einer der Organisationen gilt und deren Modul dort aktiv ist. */
 export function buildToolServer(m: McpOptions, a: McpAuthorized, log: FastifyBaseLogger): McpServer {
   const server = new McpServer({ name: m.platform.product, title: m.platform.title, version: '1' });
   let offered = 0;
   for (const [name, def] of Object.entries(m.model.mcpTools)) {
     const tool = m.tools[name];
     if (!tool) throw new Error(`MCP-Werkzeug ${name}: im Modell, aber ohne Umsetzung in einem Modul`);
-    const orgs = a.orgs.filter(o => o.me.permissions.includes(def.permission));
+    // Recht in der Organisation (Rechte inaktiver Module fehlen dort schon) und Modul des Werkzeugs aktiv
+    const orgs = a.orgs.filter(o => o.me.permissions.includes(def.permission) && moduleActive(m.model, o, tool.modul));
     if (!orgs.length) continue;
     offered++;
     server.registerTool(name, { title: def.title, description: tool.description, inputSchema: tool.input, annotations: { readOnlyHint: def.readOnly, openWorldHint: false } }, async args => {

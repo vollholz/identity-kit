@@ -14,6 +14,10 @@
  * - Token nie im Log und nie in Spuren: Die Anfrage wird mit dem Routenmuster statt der URL protokolliert; Spuren der
  *   Telemetrie entfallen für diese Pfade. Fehler (auch Validierung, 429) mit dem Routenmuster als `instance`.
  *
+ * - Produktmodul (`modul`, Standard: das des Code-Moduls): Ist es in der Organisation des Alias nicht aktiv, antwortet die
+ *   Route wie bei einem unbekannten Link (404, vor dem Handler) – ein 403 verriete ohne gültiges Token, dass es die
+ *   Organisation gibt.
+ *
  * Pfade unter `/v1/` und `/auth/` sind ausgeschlossen (dort verlangt @vollholz/iam eine Anmeldung).
  */
 import { createHash, randomBytes } from 'node:crypto';
@@ -56,6 +60,8 @@ export interface PublicRouteContext {
 export interface PublicRoute {
   /** Name, eindeutig in der App (Rate-Limit, Log), z. B. `kalender-abo`. */
   name: string;
+  /** Produktmodul oder `modul.teil` (Standard: das Modul des Code-Moduls); inaktiv in der Organisation → 404. */
+  modul?: string;
   /** Methode (Standard GET). */
   method?: 'GET' | 'POST';
   /** Pfad nach Fastify, z. B. `/kalender/:datei`; nie unter `/v1/` oder `/auth/`. */
@@ -129,6 +135,7 @@ export function registerPublicRoutes(app: FastifyInstance, deps: Deps, routes: r
       // Token nie im Log: Routenmuster statt URL (Fastify kennt die Option je Route, ihre Typen nicht)
       ...({ logSerializers: { req: (req: FastifyRequest) => ({ method: req.method, url: route.url, reqId: req.id }) } } as object),
       config: {
+        ...(route.modul ? { modul: route.modul } : {}),
         rateLimit: {
           max: route.rateLimit?.max ?? 30, timeWindow: route.rateLimit?.timeWindow ?? 60_000, allowList: null as never,
           keyGenerator: (req: FastifyRequest) => `public:${route.name}:${req.ip}`,
@@ -161,6 +168,7 @@ export function registerPublicRoutes(app: FastifyInstance, deps: Deps, routes: r
     if (!c || !ALIAS.test(c.alias) || !PUBLIC_TOKEN.test(c.token)) throw publicNotFound();
     const tenantId = (await deps.db.query<{ id: string | null }>('SELECT app.resolve_tenant($1, null, null, false) AS id', [c.alias])).rows[0]?.id;
     if (!tenantId) throw publicNotFound();
+    if (route.modul && iam.model.features.modules && !(await iam.access.modulesOf(tenantId)).has(route.modul)) throw publicNotFound();
     const alias = c.alias.toLowerCase();
     const result = await withTenant(deps.db, { tenantId }, tx => route.handler({
       tenant: { id: tenantId, alias }, tokenHash: publicTokenHash(c.token), tx,

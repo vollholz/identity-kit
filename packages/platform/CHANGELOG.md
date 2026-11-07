@@ -7,6 +7,40 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `platform-v<version>`.
 
+## [0.9.0] – 2026-11-07
+
+Produktmodule je Organisation ([Konzept](../../docs/module-je-organisation.md), Abschnitte 6 und 7). Für Apps ohne
+`modules` im Modell ändert sich nichts.
+
+### Geändert
+
+- **Setzt `@vollholz/iam` 6.1.0 voraus** (Peer `^6.1.0`; `Model.modules`, `iam.access.modulesOf`, `TenantModules`,
+  Migration `iam_022_tenant_module.sql`). Migration: `@vollholz/iam` auf 6.1.0 anheben, danach `migrate` (legt `iam_022`
+  und `platform_002_job_skipped.sql` an).
+- Migration `platform_002_job_skipped.sql`: Status `skipped` und Spalte `result` in `job`; die Aufbewahrung löscht
+  `skipped` wie `done`. Die Übernahme (`migrations.adopted`) gilt nur noch für `platform_001_core.sql`, spätere
+  Migrationen laufen immer.
+
+### Hinzugefügt
+
+- `modul` an `PlatformModule`, `PublicRoute`, `JobDefinition`, `PeriodicTask`, `OutboxConsumer`, `ToolDef` und je Route
+  (`config: { modul }`, Teilfunktion `modul.teil`). `defineModule` trägt das Modul des Code-Moduls in dessen Teile ein.
+  Mit `modules` im Modell ist `modul` am Code-Modul Pflicht; `checkModules(modules, model)` prüft alle Schlüssel gegen das
+  Verzeichnis und liefert Warnungen (`app.warnings`, im Log beim Start).
+- Durchsetzung: Routen eines inaktiven Moduls antworten 403 (`reason: 'modul-inaktiv'`, `modul`; `moduleInactive`),
+  öffentliche Routen 404 wie ein unbekannter Link; Jobs enden `skipped` (`result: { modul: 'inaktiv' }`) ohne neuen
+  Versuch; feste Aufgaben erhalten `ctx.tenants(modul?)` (Typ `TaskContext`, `TaskTenant`); Abnehmer der Outbox erhalten
+  nur Ereignisse aktiver Organisationen; MCP `tools/list` ohne Werkzeuge inaktiver Module; OpenAPI `x-modul` je Route.
+- `defineApp({ moduleHooks })`: `einrichten`, `hindernisse`, `nachholen` je Modul an `createIam` (API, Worker,
+  Befehle); `nachholen` als Auftrag `platform.module-nachholen` im Worker (`NACHHOLEN_JOB`, `moduleHooksFor`,
+  `nachholenJob`). `app.moduleHooks`, `app.warnings`. Typen `ModuleHooks`, `ModuleHook`, `ModuleBlocker`,
+  `ModuleState` aus `@vollholz/iam` auch hier.
+- Befehle `tenant create <alias> [--paket <key>]` und `tenant modules <alias> [--erlauben a,b] [--entziehen c]
+  [--paket <key> [--nur-erlauben]] [--force]`; unbekanntes Paket oder Modul Exit 64 (`TenantUsageError`). Dazu
+  `app.tenants.create(d, alias, name, { paket })`, `app.tenants.modules(d, alias, change)`, `tenantModules`.
+- Worker-Bausteine `activeModulesIn`, `activeModulesOf`, `tenantsWith`; `new Worker({ …, model })` und
+  `outboxTask(consumers, model)` (beide optional; `defineApp` setzt sie).
+
 ## [0.8.0] – 2026-11-05
 
 ### Breaking

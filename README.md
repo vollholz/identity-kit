@@ -23,7 +23,7 @@ einhält, zeigt `npx iam-conformity-test`.
 
 | Verzeichnis | Inhalt | Spezifikation |
 |---|---|---|
-| `docs/` | Spezifikation (Vertrag), später Entscheide und Migrationshinweise | – |
+| `docs/` | Spezifikation (Vertrag), Konzepte ([Module je Organisation](docs/module-je-organisation.md)), später Entscheide und Migrationshinweise | – |
 | `modules/product-realm` | OpenTofu-Modul: Realm einer App nach Soll | Kap. 3 |
 | `modules/product-realm-bootstrap` | abgelöst (Realm und `<produkt>-iac` legt der Betreiber an); nur für bestehende States | Kap. 2 |
 | `packages/iam` | `@vollholz/iam` – Backend (Node 24, TypeScript, Fastify): Token, Principal, BFF, Rechte, Zugriffsregeln, eigene Rollen, Verwaltung, Abgleich, MCP-Austausch, SQL-Migrationen | Kap. 4–10, 12 |

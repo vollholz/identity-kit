@@ -54,6 +54,10 @@ der App ein und aus (`useIam().modules` aus `/auth/me`; ältere Server ohne `mod
 (`paths.modules`, Standard `/einstellungen/module`, Route `modules`) zeigt die Module mit `tenant:read` und schaltet sie
 mit `tenant:admin`; sie erscheint in `IamNav` nur, wenn das Modell Module hat (`features.modules: false` blendet sie
 aus). Die Plattform-Administration gibt Module je Organisation frei bzw. entzieht sie (Detailseite einer Organisation).
+Eigene Modulseite statt der generischen: alle Hilfen (`useModules`, `activationPlan`, `partsOf`, `requiresText`,
+`usedBy`, `moduleRights`, `moduleLockReason`, `moduleIsOn`, `moduleApi(…).setActive` mit `ETag`, `moduleErrorText`)
+aus `@vollholz/iam-web/pages`, `modulesChanged` aus dem Haupteinstieg – Übersicht in
+[docs/module-je-organisation.md](../../docs/module-je-organisation.md) Abschnitt 8 «Eigene Seite statt der generischen».
 
 Wichtige Props (vollständig in [docs/entwurf.md](docs/entwurf.md) 1.2):
 

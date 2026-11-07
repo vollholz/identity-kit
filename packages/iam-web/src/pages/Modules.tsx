@@ -4,7 +4,8 @@
  * Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Voraussetzungen als Text und Schalter; Teilfunktionen
  * darunter. Jede Zeile (Modul und Teilfunktion) ist dasselbe Raster: Text · Status · Schalter; Status und Schalter
  * stehen in allen Zeilen in derselben Spalte, eingerückt wird nur der Text der Teilfunktionen. Der Name öffnet die
- * Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht von, Hindernisse).
+ * Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht von, Hindernisse). Eigene Modulseite einer App:
+ * dieselben Hilfen aus `@vollholz/iam-web/pages` (docs/module-je-organisation.md, Abschnitt 8).
  *
  * - Aktivieren: Hinweis auf mitzuaktivierende Voraussetzungen («Aktiviert auch …»), bei «eines von» mit Wahl.
  * - Deaktivieren: Rückfrage mit der Wirkung (Arbeitsflächen und Rechte verschwinden für alle, Daten bleiben) und den
@@ -22,7 +23,7 @@ import { useAuthz, useAuthzCatalog } from '../authz.ts';
 import type { ModuleBlocker, TenantModule } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import {
-  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, usedBy,
+  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleIsOn, moduleLabel, moduleLockReason, moduleRights, partsOf, requiresText, useModules, usedBy,
   type ModuleChoice, type ModuleListResult,
 } from '../moduleTools.ts';
 import { modulesChanged, useModulesFeature } from '../modules.ts';
@@ -51,26 +52,13 @@ function StatusPill({ m }: { m: TenantModule }) {
 /** Was gerade geschaltet werden soll (Rückfrage vor dem Aktivieren mit Voraussetzungen bzw. vor dem Deaktivieren). */
 type Pending = { key: string; active: boolean };
 
-/** Warum ein Schalter gesperrt ist (Reihenfolge: Pflichtmodul, Freigabe, Recht, Modul der Teilfunktion, Voraussetzung); sonst null. */
-function lockReason(items: readonly TenantModule[], m: TenantModule, admin: boolean, adminPerm: string): string | null {
-  if (m.core) return t('iam.modules.coreWhy');
-  if (!m.allowed) return t('iam.modules.notAllowedWhy');
-  if (!admin) return t('iam.modules.readOnlyWhy', { perm: adminPerm });
-  if (m.module && !items.find(x => x.key === m.module)?.active) return t('iam.modules.partNeedsModule', { module: quote(moduleLabel(items, m.module)) });
-  if (!m.active && !m.module) {
-    const plan = activationPlan(items, m.key);
-    if (plan.blocked.length) return t('iam.modules.requiresNotAllowed', { list: names(items, plan.blocked) });
-  }
-  return null;
-}
-
 /**
  * Schalter «Aktiv» (role=switch): gesperrt per `aria-disabled` mit Grund in `aria-describedby`, bleibt fokussierbar.
  * Pflichtmodule: eingeschaltet und gesperrt.
  */
 function ModuleSwitch({ m, locked, describedBy, busy, onToggle }: { m: TenantModule; locked: boolean; describedBy?: string; busy?: boolean; onToggle: () => void }) {
   return (
-    <button type="button" role="switch" className="iam-switch iam-mod-switch" aria-checked={m.core || m.active} aria-disabled={locked || busy ? true : undefined}
+    <button type="button" role="switch" className="iam-switch iam-mod-switch" aria-checked={moduleIsOn(m)} aria-disabled={locked || busy ? true : undefined}
       aria-label={t('iam.modules.switch', { name: m.label })} aria-describedby={describedBy} onClick={() => { if (!locked && !busy) onToggle(); }}>
       <span aria-hidden="true" />
     </button>
@@ -145,7 +133,7 @@ export function ModulesPage() {
 function ModuleRow({ m, items, admin, busy, onToggle, onOpen }: { m: TenantModule; items: readonly TenantModule[]; admin: boolean; busy: boolean; onToggle: () => void; onOpen?: () => void }) {
   const fid = useId();
   const authz = useAuthz();
-  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const reason = moduleLockReason(items, m, admin, authz.permLabel('tenant:admin'));
   const req = requiresText(items, m);
   return (
     <div className={`iam-mod-row${m.module ? ' iam-mod-part' : ''}`}>
@@ -304,8 +292,8 @@ function ModuleSheet({ data, moduleKey, admin, onClose, onToggle }: { data: Modu
   const items = data.items;
   const m = items.find(x => x.key === moduleKey);
   if (!m) return null;
-  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
-  const on = m.core || m.active;
+  const reason = moduleLockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const on = moduleIsOn(m);
   const parts = partsOf(items, m.key);
   const by = usedBy(items, m.key);
   const rights = moduleRights(authz.catalog, m.key);

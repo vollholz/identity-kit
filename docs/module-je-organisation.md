@@ -236,6 +236,33 @@ moduleHooks: {
   der Haupteinstieg klein bleibt). Im Haupteinstieg nur `useIam().modules`, `hasModule`, `modulesChanged` und die
   Route.
 
+### Eigene Seite statt der generischen
+
+Eine App kann die Seite «Module» mit ihren eigenen Bausteinen bauen und die generische (`ModulesPage`) weglassen
+(Route `modules` aus `iamRoutes` nicht verwenden bzw. `features.modules: false` und eigene Route). Alles, was die
+generische Seite tut, steht als Hilfe bereit; die Server-Regeln bleiben dieselben (409/403/412).
+
+| Zweck | Hilfe | Einstieg |
+|---|---|---|
+| Liste laden (mit `ETag`) | `useModules(null).data` → `{ items, etag }` (`ModuleListResult`, TanStack Query); Plattform: `useModules(alias)` | `/pages` |
+| Teilfunktionen eines Moduls | `partsOf(items, key)` | `/pages` |
+| Name, Voraussetzungen als Text | `moduleLabel`, `requiresText(items, m)`, `requirementText` | `/pages` |
+| Eingeschaltet? (Pflichtmodule immer) | `moduleIsOn(m)` (ab 3.2.0) | `/pages` |
+| Sperrgrund des Schalters | `moduleLockReason(items, m, can('tenant:admin'), permLabel('tenant:admin'))` → Text oder `null` (ab 3.2.0) | `/pages` |
+| Vor dem Aktivieren: was mitaktiviert wird | `activationPlan(items, key, choice)` (`also`, `choices` «eines von», `blocked`), `choiceKey` | `/pages` |
+| Vor dem Deaktivieren: wer es noch braucht | `dependentsOf(items, key)`, `usedBy(items, key)`; Hindernisse in `m.blockers` | `/pages` |
+| Rechte des Moduls (Wirkung) | `moduleRights(catalog, key)` | `/pages` |
+| Schalten | `moduleApi(null).setActive(key, active, etag)` → `{ module, etag }` (neues `etag` je Schritt weitergeben); Plattform: `moduleApi(alias).setAllowed(key, allowed, { force, etag })` | `/pages` |
+| Antwort des Servers als Text | `moduleErrorText(error, items, key)` (`title`, `blockers`, `stale` bei 412) | `/pages` |
+| Typen der Liste | `TenantModule`, `ModuleBlocker`, `ModuleRequirement` | Haupteinstieg und `/pages` |
+| Danach Liste, Sitzung und Katalog neu | `modulesChanged(queryClient, alias)` | Haupteinstieg |
+| Arbeitsflächen ein- und ausblenden | `useIam().hasModule(key)`, `useIam().modules` | Haupteinstieg |
+
+`/pages` = `@vollholz/iam-web/pages` (lädt die Texte `iam.modules.*` mit). Reihenfolge beim Aktivieren mit
+Voraussetzungen: zuerst `activationPlan(...).also`, dann das Modul selbst, je mit dem zuletzt erhaltenen `etag`.
+Gesperrte Schalter wie in der generischen Seite: `role="switch"`, `aria-disabled` (fokussierbar), Grund sichtbar und
+in `aria-describedby`.
+
 ## 9 Bewusst nicht im Paket
 
 Tabellen lesen und schreiben (CSV, XLSX) brauchen Apps für Importe und Exporte; das ist kein Querschnitt der

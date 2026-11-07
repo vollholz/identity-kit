@@ -7,6 +7,13 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-testkit-v<version>`.
 
+## [2.10.3] – 2026-11-07
+
+### Geändert
+
+- Kennt `@vollholz/iam-web` 3.2.0 und `@vollholz/iam-testkit` 2.10.3 (`CURRENT`). Ändert für Apps nichts: Der
+  Konformitätstest vergleicht Hauptversionen und Mindeststände, beide bleiben gleich.
+
 ## [2.10.2] – 2026-11-07
 
 ### Geändert

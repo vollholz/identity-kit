@@ -7,6 +7,27 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [3.2.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Hilfen für eine eigene Modulseite der App** aus `@vollholz/iam-web/pages`:
+  - `moduleLockReason(items, m, admin, adminPerm)`: Sperrgrund des Schalters wie in der generischen Seite, sonst
+    `null`. Reihenfolge der Gründe: Pflichtmodul, nicht freigegeben, fehlendes Recht, Modul der Teilfunktion aus,
+    Voraussetzung nicht freigegeben.
+  - `moduleIsOn(m)`: eingeschaltet? Pflichtmodule immer.
+  - Typen `TenantModule`, `TenantModuleList`, `ModuleBlocker` und `ModuleRequirement` auch aus `/pages` (wie bisher
+    aus dem Haupteinstieg), damit eine eigene Modulseite nur aus `/pages` importieren kann.
+- Doku: `docs/module-je-organisation.md` Abschnitt 8 «Eigene Seite statt der generischen» (Zweck → Hilfe →
+  Einstieg) und Verweis im README. Die Seite «Module» nutzt dieselben Hilfen.
+
+### Behoben
+
+- Seite «Module» auf Touch-Geräten (`pointer: coarse`) breiter als 520 px: Die vergrösserten Zielflächen der
+  Schalter (≥ 44 px) zweier aufeinanderfolgender Zeilen ohne Beschreibung, Voraussetzungen und Sperrgrund überlappten
+  sich um rund 12 px. Ein Tippen dazwischen konnte den falschen Schalter treffen. Jede Zeile ist dort jetzt mindestens
+  44 px hoch.
+
 ## [3.1.2] – 2026-11-07
 
 ### Behoben

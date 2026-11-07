@@ -138,6 +138,27 @@ export const usedBy = (items: readonly TenantModule[], key: string): string[] =>
 /** Teilfunktionen eines Moduls. */
 export const partsOf = (items: readonly TenantModule[], key: string): TenantModule[] => items.filter(m => m.module === key);
 
+/**
+ * Warum der Schalter eines Moduls bzw. einer Teilfunktion gesperrt ist, als Text; sonst `null`. Reihenfolge:
+ * Pflichtmodul («Pflichtmodul – immer aktiv»), nicht freigegeben, fehlendes Recht (`admin` = `can('tenant:admin')`,
+ * `adminPerm` = Name des Rechts für den Text), Modul der Teilfunktion aus, Voraussetzung nicht freigegeben. Für eigene
+ * Modulseiten: gesperrt per `aria-disabled` (fokussierbar), Grund sichtbar und in `aria-describedby`.
+ */
+export function moduleLockReason(items: readonly TenantModule[], m: TenantModule, admin: boolean, adminPerm: string): string | null {
+  if (m.core) return t('iam.modules.coreWhy');
+  if (!m.allowed) return t('iam.modules.notAllowedWhy');
+  if (!admin) return t('iam.modules.readOnlyWhy', { perm: adminPerm });
+  if (m.module && !items.find(x => x.key === m.module)?.active) return t('iam.modules.partNeedsModule', { module: quote(moduleLabel(items, m.module)) });
+  if (!m.active && !m.module) {
+    const plan = activationPlan(items, m.key);
+    if (plan.blocked.length) return t('iam.modules.requiresNotAllowed', { list: listAnd(plan.blocked.map(k => quote(moduleLabel(items, k)))) });
+  }
+  return null;
+}
+
+/** Ist das Modul eingeschaltet? Pflichtmodule immer (Schalter eingeschaltet und gesperrt). */
+export const moduleIsOn = (m: TenantModule): boolean => m.core || m.active;
+
 /** Rechte des Moduls (Katalog, `modul`), deren Namen ein Deaktivieren unwirksam macht. */
 export const moduleRights = (catalog: AuthzCatalog | undefined, key: string): string[] =>
   (catalog?.permissions ?? []).filter(p => p.modul === key).map(p => p.label);

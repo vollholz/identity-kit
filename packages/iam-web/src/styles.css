@@ -715,8 +715,10 @@ button.iam-mk{border:0;cursor:pointer}
   .iam-mod-row{grid-template-columns:minmax(0,1fr) 36px;grid-template-areas:"name switch" "status ." "info info";column-gap:12px}
   .iam-mod-status{min-height:20px;padding-left:var(--iam-mod-indent)}
 }
-/* Touch: Ziele mindestens 44px, ohne das Raster zu verschieben */
+/* Touch: Ziele mindestens 44px, ohne das Raster zu verschieben. Jede Zeile mindestens 44px hoch, damit sich die
+   vergrösserten Zielflächen benachbarter Zeilen nicht überlappen (auch Teilfunktionen ohne Beschreibung). */
 @media (pointer:coarse){
+  .iam-mod-row{min-height:44px}
   .iam-mod-switch::after{content:"";position:absolute;inset:-13px -5px}
   .iam-mod-name .iam-linkbtn{position:relative}
   .iam-mod-name .iam-linkbtn::after{content:"";position:absolute;inset:-11px -4px}

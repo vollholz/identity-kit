@@ -2,15 +2,15 @@
  * Seite «Module» und Abschnitt der Plattform-Administration: Liste mit Status, Teilfunktionen eingerückt, Voraussetzungen
  * als Text, nicht freigegebene gesperrt mit Grund; Aktivieren mit Hinweis auf Voraussetzungen (Reihenfolge, If-Match),
  * Deaktivieren mit Wirkung, Hindernisse (vorher bekannt und 409 `hindernisse`), 412, nur lesen ohne tenant:admin,
- * Tastatur, axe; Pflichtmodule wie alle anderen (Status «Aktiv», Schalter eingeschaltet und gesperrt), Raster der Zeilen
- * (Status und Schalter in derselben Spalte, auch bei Teilfunktionen); `hasModule`, Route und Navigation; Freigeben und
- * Entziehen mit `force`.
+ * Tastatur, axe; Pflichtmodule wie alle anderen (Status «Aktiv», Schalter eingeschaltet und gesperrt), Teilfunktionen mit
+ * dem Schalter in der Spalte der Module; `moduleLockReason`; `hasModule`, Route und Navigation; Freigeben und Entziehen
+ * mit `force`.
  */
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IamNav, makeIamRoutes, useIam, type AuthzCatalog, type Me, type TenantModule } from '../src/index.ts';
-import { activationPlan, dependentsOf } from '../src/pages/index.ts';
+import { activationPlan, dependentsOf, moduleIsOn, moduleLockReason } from '../src/pages/index.ts';
 import { ModulesPage, ModulesSection } from '../src/pages/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
@@ -123,20 +123,27 @@ describe('Seite Module', () => {
     expect(api.calls.filter(c => c.method === 'PUT')).toHaveLength(0);
   });
 
-  it('Raster: jede Zeile (Modul und Teilfunktion) Name · Status · Schalter in denselben Spalten; nur der Text eingerückt', async () => {
+  it('jede Zeile (Modul, Teilfunktion, Pflichtmodul) gleich aufgebaut: Text, dann Schalter (Spalte im Browser: test/e2e)', async () => {
     setup();
     await screen.findByRole('switch', { name: 'Zeiterfassung aktiv' });
     const rows = [...document.querySelectorAll<HTMLElement>('.iam-mod-row')];
     expect(rows).toHaveLength(6);
-    for (const r of rows) {
-      // gleiche Kinder in gleicher Reihenfolge: Name, Status, Schalter (+ Text) – Schalter in jeder Zeile, auch Pflichtmodul
-      expect([...r.children].slice(0, 3).map(c => c.className)).toEqual(['iam-mod-name', 'iam-mod-status', 'iam-switch iam-mod-switch']);
-      expect(within(r.querySelector('.iam-mod-status')!).getByText(/Aktiv|Aus|Nicht freigegeben/)).toBeInTheDocument();
-    }
+    for (const r of rows) expect([...r.children].map(c => c.className)).toEqual(['iam-mod-main', 'iam-switch']);
     const part = row('Korrekturanträge');
     expect(part).toHaveClass('iam-mod-row', 'iam-mod-part');
-    // Teilfunktion: dasselbe Raster in der Karte ihres Moduls (Lage der Spalten im Browser: test/e2e/modules.spec.ts)
     expect(part.closest('.iam-mod')).toBe(row('Zeiterfassung').closest('.iam-mod'));
+  });
+
+  it('moduleLockReason für eigene Modulseiten: Pflicht, Freigabe, Recht, Teilfunktion, Voraussetzung', () => {
+    const items = [...initial().map(m => (m.key === 'zeit' ? { ...m, active: false } : m)), mod('x', 'X', { requires: ['projekte'] })];
+    const why = (k: string, admin = true) => moduleLockReason(items, items.find(m => m.key === k)!, admin, 'Organisation verwalten');
+    expect(why('kern')).toBe('Pflichtmodul – immer aktiv');
+    expect(why('projekte')).toBe('Für deine Organisation nicht freigegeben – wende dich an den Betrieb.');
+    expect(why('abwesenheit', false)).toBe('Nur mit «Organisation verwalten»');
+    expect(why('zeit.korrektur')).toBe('Zuerst «Zeiterfassung» aktivieren.');
+    expect(why('x')).toMatch(/^Braucht «Projekte»/);
+    expect(why('abwesenheit')).toBeNull();
+    expect(moduleIsOn(items[0]!)).toBe(true);
   });
 
   it('Sperrgründe einheitlich: nicht freigegeben, fehlendes Recht, Voraussetzung nicht freigegeben, Modul der Teilfunktion aus', async () => {
@@ -147,7 +154,7 @@ describe('Seite Module', () => {
     for (const [n, why] of [['Kern', 'Pflichtmodul – immer aktiv'], ['Projekte', /nicht freigegeben/], ['Lohn', /Braucht «Projekte»/], ['Korrekturanträge', /Zuerst .*«Zeiterfassung»|«Zeiterfassung»/]] as const) {
       expect(sw(n), n).toHaveAttribute('aria-disabled', 'true');
       expect(sw(n), n).toHaveAccessibleDescription(why);
-      expect(row(n).querySelector('.iam-mod-info .iam-mod-why')).not.toBeNull();
+      expect(row(n).querySelector('.iam-mod-main .iam-hint')).not.toBeNull();
     }
     cleanup();
     setup({ me: { permissions: ['tenant:read'] } });

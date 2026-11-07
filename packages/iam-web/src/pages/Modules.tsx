@@ -2,9 +2,9 @@
  * Einstellungen › Module (Konzept «Module je Organisation», Abschnitt 8): Produktmodule der Organisation sehen
  * (`tenant:read`) und aktivieren bzw. deaktivieren (`tenant:admin`). Liste mit Schublade: je Modul Name,
  * Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Voraussetzungen als Text und Schalter; Teilfunktionen
- * darunter. Jede Zeile (Modul und Teilfunktion) ist dasselbe Raster: Text · Status · Schalter; Status und Schalter
- * stehen in allen Zeilen in derselben Spalte, eingerückt wird nur der Text der Teilfunktionen. Der Name öffnet die
- * Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht von, Hindernisse).
+ * darunter; eingerückt wird nur ihr Text, ihre Schalter stehen in derselben Spalte wie die der Module. Der Name öffnet
+ * die Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht von, Hindernisse). Eigene Modulseite einer App:
+ * dieselben Hilfen aus `@vollholz/iam-web/pages` (docs/module-je-organisation.md, Abschnitt 8).
  *
  * - Aktivieren: Hinweis auf mitzuaktivierende Voraussetzungen («Aktiviert auch …»), bei «eines von» mit Wahl.
  * - Deaktivieren: Rückfrage mit der Wirkung (Arbeitsflächen und Rechte verschwinden für alle, Daten bleiben) und den
@@ -22,7 +22,7 @@ import { useAuthz, useAuthzCatalog } from '../authz.ts';
 import type { ModuleBlocker, TenantModule } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import {
-  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, usedBy,
+  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleIsOn, moduleLabel, moduleLockReason, moduleRights, partsOf, requiresText, useModules, usedBy,
   type ModuleChoice, type ModuleListResult,
 } from '../moduleTools.ts';
 import { modulesChanged, useModulesFeature } from '../modules.ts';
@@ -51,26 +51,13 @@ function StatusPill({ m }: { m: TenantModule }) {
 /** Was gerade geschaltet werden soll (Rückfrage vor dem Aktivieren mit Voraussetzungen bzw. vor dem Deaktivieren). */
 type Pending = { key: string; active: boolean };
 
-/** Warum ein Schalter gesperrt ist (Reihenfolge: Pflichtmodul, Freigabe, Recht, Modul der Teilfunktion, Voraussetzung); sonst null. */
-function lockReason(items: readonly TenantModule[], m: TenantModule, admin: boolean, adminPerm: string): string | null {
-  if (m.core) return t('iam.modules.coreWhy');
-  if (!m.allowed) return t('iam.modules.notAllowedWhy');
-  if (!admin) return t('iam.modules.readOnlyWhy', { perm: adminPerm });
-  if (m.module && !items.find(x => x.key === m.module)?.active) return t('iam.modules.partNeedsModule', { module: quote(moduleLabel(items, m.module)) });
-  if (!m.active && !m.module) {
-    const plan = activationPlan(items, m.key);
-    if (plan.blocked.length) return t('iam.modules.requiresNotAllowed', { list: names(items, plan.blocked) });
-  }
-  return null;
-}
-
 /**
  * Schalter «Aktiv» (role=switch): gesperrt per `aria-disabled` mit Grund in `aria-describedby`, bleibt fokussierbar.
  * Pflichtmodule: eingeschaltet und gesperrt.
  */
 function ModuleSwitch({ m, locked, describedBy, busy, onToggle }: { m: TenantModule; locked: boolean; describedBy?: string; busy?: boolean; onToggle: () => void }) {
   return (
-    <button type="button" role="switch" className="iam-switch iam-mod-switch" aria-checked={m.core || m.active} aria-disabled={locked || busy ? true : undefined}
+    <button type="button" role="switch" className="iam-switch" aria-checked={moduleIsOn(m)} aria-disabled={locked || busy ? true : undefined}
       aria-label={t('iam.modules.switch', { name: m.label })} aria-describedby={describedBy} onClick={() => { if (!locked && !busy) onToggle(); }}>
       <span aria-hidden="true" />
     </button>
@@ -137,30 +124,23 @@ export function ModulesPage() {
   );
 }
 
-/**
- * Zeile eines Moduls bzw. einer Teilfunktion, ein Raster mit festen Spalten (styles.css «Module»): Name · Status ·
- * Schalter, darunter in der Textspalte Beschreibung, Voraussetzungen und Sperrgrund. Teilfunktionen rücken nur den Text
- * ein; Status und Schalter bleiben in derselben Spalte wie die der Module.
- */
 function ModuleRow({ m, items, admin, busy, onToggle, onOpen }: { m: TenantModule; items: readonly TenantModule[]; admin: boolean; busy: boolean; onToggle: () => void; onOpen?: () => void }) {
   const fid = useId();
   const authz = useAuthz();
-  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const reason = moduleLockReason(items, m, admin, authz.permLabel('tenant:admin'));
   const req = requiresText(items, m);
   return (
     <div className={`iam-mod-row${m.module ? ' iam-mod-part' : ''}`}>
-      <div className="iam-mod-name">
-        {onOpen ? <button type="button" className="iam-linkbtn" aria-haspopup="dialog" onClick={onOpen}>{m.label}</button> : <span>{m.label}</span>}
-      </div>
-      <div className="iam-mod-status"><StatusPill m={m} /></div>
-      <ModuleSwitch m={m} locked={!!reason} busy={busy} describedBy={reason ? `${fid}-why` : undefined} onToggle={onToggle} />
-      {m.description || req || reason ? (
-        <div className="iam-mod-info">
-          {m.description ? <div className="iam-muted">{m.description}</div> : null}
-          {req ? <div>{req}</div> : null}
-          {reason ? <div id={`${fid}-why`} className="iam-mod-why">{reason}</div> : null}
+      <div className="iam-mod-main">
+        <div className="iam-mod-name">
+          {onOpen ? <button type="button" className="iam-linkbtn iam-b" aria-haspopup="dialog" onClick={onOpen}>{m.label}</button> : <span className="iam-b">{m.label}</span>}
+          <StatusPill m={m} />
         </div>
-      ) : null}
+        {m.description ? <div className="iam-muted iam-small">{m.description}</div> : null}
+        {req ? <div className="iam-small">{req}</div> : null}
+        {reason ? <div id={`${fid}-why`} className="iam-hint">{reason}</div> : null}
+      </div>
+      <ModuleSwitch m={m} locked={!!reason} busy={busy} describedBy={reason ? `${fid}-why` : undefined} onToggle={onToggle} />
     </div>
   );
 }
@@ -304,17 +284,17 @@ function ModuleSheet({ data, moduleKey, admin, onClose, onToggle }: { data: Modu
   const items = data.items;
   const m = items.find(x => x.key === moduleKey);
   if (!m) return null;
-  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
-  const on = m.core || m.active;
+  const reason = moduleLockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const on = moduleIsOn(m);
   const parts = partsOf(items, m.key);
   const by = usedBy(items, m.key);
   const rights = moduleRights(authz.catalog, m.key);
   const req = requiresText(items, m);
   return (
-    <Sheet title={m.label} sub={<div className="iam-mod-sheet-sub"><StatusPill m={m} />{m.activeSince && m.active && !m.core ? <span className="iam-muted iam-small">{t('iam.modules.since', { date: fmtDate(m.activeSince) })}</span> : null}</div>} onClose={onClose} narrow
+    <Sheet title={m.label} sub={<div className="iam-mod-name"><StatusPill m={m} />{m.activeSince && m.active && !m.core ? <span className="iam-muted iam-small">{t('iam.modules.since', { date: fmtDate(m.activeSince) })}</span> : null}</div>} onClose={onClose} narrow
       footer={(
         <>
-          {reason ? <div id={`${fid}-why`} className="iam-mod-why iam-grow">{reason}</div> : <span className="iam-grow" />}
+          {reason ? <div id={`${fid}-why`} className="iam-hint iam-grow">{reason}</div> : <span className="iam-grow" />}
           <Button variant={on ? 'danger' : 'primary'} aria-disabled={reason ? true : undefined} aria-describedby={reason ? `${fid}-why` : undefined}
             onClick={() => { if (!reason) onToggle(m); }}>{on ? t('iam.modules.deactivate') : t('iam.modules.activate')}</Button>
         </>

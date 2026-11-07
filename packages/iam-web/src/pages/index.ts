@@ -12,7 +12,7 @@ export { EntraScreen, MembersScreen, ModulesScreen, OrganizationScreen, Organiza
 export { ModulesPage, ModulesSection } from './Modules.tsx';
 // Hilfen der Seite «Module» (laden die Texte `iam.modules.*` mit); nicht im Haupteinstieg, damit er klein bleibt
 export {
-  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requirementText, requiresText, useModules, usedBy,
+  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleIsOn, moduleLabel, moduleLockReason, moduleRights, partsOf, requirementText, requiresText, useModules, usedBy,
   type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
 } from '../moduleTools.ts';
 export { RolesPage, type RolesPageProps } from './Roles.tsx';

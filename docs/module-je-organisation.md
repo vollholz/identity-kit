@@ -207,11 +207,8 @@ moduleHooks: {
 - Zeile je Modul: Name (öffnet die Schublade mit Voraussetzungen, «Gebraucht von», Teilfunktionen, Rechten des Moduls
   aus dem Katalog `modul` und Hindernissen), Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Schalter,
   Teilfunktionen darunter, Voraussetzungen als Text («Braucht «Zeiterfassung»», bei Listen «eines von …»).
-- Layout (ab 3.1.2): jede Zeile, Modul wie Teilfunktion, ist dasselbe Raster mit festen Spalten Text · Status ·
-  Schalter; Status und Schalter stehen in allen Zeilen bündig, eingerückt wird nur der Text der Teilfunktionen. Der
-  Text (Beschreibung, Voraussetzungen, Sperrgrund) bleibt in der ersten Spalte, der Schalter auf der Höhe der ersten
-  Textzeile. Telefon (bis 520 px): Status unter dem Namen, Schalter rechts oben; auf Touch-Geräten Zielflächen ≥ 44 px.
-- Pflichtmodule (Kern) sehen aus wie alle anderen: Status «Aktiv», Schalter eingeschaltet und gesperrt mit Grund
+- Teilfunktionen (ab 3.1.2): eingerückt wird nur ihr Text; ihre Schalter stehen in derselben Spalte wie die der Module.
+- Pflichtmodule (Kern, ab 3.1.2) sehen aus wie alle anderen: Status «Aktiv», Schalter eingeschaltet und gesperrt mit Grund
   «Pflichtmodul – immer aktiv»; ebenso in der Schublade («Deaktivieren» gesperrt) und in `ModulesSection`
   («Entziehen» gesperrt). Alle gesperrten Schalter und Knöpfe einheitlich: `aria-disabled`, fokussierbar, Grund
   sichtbar und in `aria-describedby`.
@@ -235,6 +232,32 @@ moduleHooks: {
   `dependentsOf`, `moduleErrorText` aus `@vollholz/iam-web/pages` (ab 3.1.1; mit den Texten `iam.modules.*`, damit
   der Haupteinstieg klein bleibt). Im Haupteinstieg nur `useIam().modules`, `hasModule`, `modulesChanged` und die
   Route.
+
+### Eigene Seite statt der generischen
+
+Eine App kann die Seite «Module» mit ihren eigenen Bausteinen bauen und die generische (`ModulesPage`) weglassen
+(Route `modules` aus `iamRoutes` nicht verwenden bzw. `features.modules: false` und eigene Route). Alles, was die
+generische Seite tut, steht als Hilfe bereit; die Server-Regeln bleiben dieselben (409/403/412).
+
+| Zweck | Hilfe | Einstieg |
+|---|---|---|
+| Liste laden (mit `ETag`) | `useModules(null).data` → `{ items, etag }` (`ModuleListResult`, TanStack Query); Plattform: `useModules(alias)` | `/pages` |
+| Teilfunktionen eines Moduls | `partsOf(items, key)` | `/pages` |
+| Name, Voraussetzungen als Text | `moduleLabel`, `requiresText(items, m)`, `requirementText` | `/pages` |
+| Eingeschaltet? (Pflichtmodule immer) | `moduleIsOn(m)` | `/pages` |
+| Sperrgrund des Schalters | `moduleLockReason(items, m, can('tenant:admin'), permLabel('tenant:admin'))` → Text oder `null` | `/pages` |
+| Vor dem Aktivieren: was mitaktiviert wird | `activationPlan(items, key, choice)` (`also`, `choices` «eines von», `blocked`), `choiceKey` | `/pages` |
+| Vor dem Deaktivieren: wer es noch braucht | `dependentsOf(items, key)`, `usedBy(items, key)`; Hindernisse in `m.blockers` | `/pages` |
+| Rechte des Moduls (Wirkung) | `moduleRights(catalog, key)` | `/pages` |
+| Schalten | `moduleApi(null).setActive(key, active, etag)` → `{ module, etag }` (neues `etag` je Schritt weitergeben); Plattform: `moduleApi(alias).setAllowed(key, allowed, { force, etag })` | `/pages` |
+| Antwort des Servers als Text | `moduleErrorText(error, items, key)` (`title`, `blockers`, `stale` bei 412) | `/pages` |
+| Danach Liste, Sitzung und Katalog neu | `modulesChanged(queryClient, alias)` | Haupteinstieg |
+| Arbeitsflächen ein- und ausblenden | `useIam().hasModule(key)`, `useIam().modules` | Haupteinstieg |
+
+`/pages` = `@vollholz/iam-web/pages` (lädt die Texte `iam.modules.*` mit). Reihenfolge beim Aktivieren mit
+Voraussetzungen: zuerst `activationPlan(...).also`, dann das Modul selbst, je mit dem zuletzt erhaltenen `etag`.
+Gesperrte Schalter wie in der generischen Seite: `role="switch"`, `aria-disabled` (fokussierbar), Grund sichtbar und
+in `aria-describedby`.
 
 ## 9 Bewusst nicht im Paket
 

@@ -2,7 +2,9 @@
  * Seite «Module» und Abschnitt der Plattform-Administration: Liste mit Status, Teilfunktionen eingerückt, Voraussetzungen
  * als Text, nicht freigegebene gesperrt mit Grund; Aktivieren mit Hinweis auf Voraussetzungen (Reihenfolge, If-Match),
  * Deaktivieren mit Wirkung, Hindernisse (vorher bekannt und 409 `hindernisse`), 412, nur lesen ohne tenant:admin,
- * Tastatur, axe; `hasModule`, Route und Navigation; Freigeben und Entziehen mit `force`.
+ * Tastatur, axe; Pflichtmodule wie alle anderen (Status «Aktiv», Schalter eingeschaltet und gesperrt), Raster der Zeilen
+ * (Status und Schalter in derselben Spalte, auch bei Teilfunktionen); `hasModule`, Route und Navigation; Freigeben und
+ * Entziehen mit `force`.
  */
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -99,9 +101,58 @@ describe('Seite Module', () => {
     expect(projekte).toHaveAttribute('aria-disabled', 'true');
     expect(projekte).toHaveAccessibleDescription('Für deine Organisation nicht freigegeben – wende dich an den Betrieb.');
     expect(within(row('Projekte')).getByText('Nicht freigegeben')).toBeInTheDocument();
-    // Kern ohne Schalter
-    expect(screen.queryByRole('switch', { name: 'Kern aktiv' })).toBeNull();
     expect(await axeProblems()).toEqual([]);
+  });
+
+  it('Pflichtmodul wie alle anderen: Status «Aktiv», Schalter eingeschaltet, gesperrt mit Grund, fokussierbar; Klick bewirkt nichts', async () => {
+    const { api } = setup();
+    const kern = await screen.findByRole('switch', { name: 'Kern aktiv' });
+    expect(kern).toHaveAttribute('aria-checked', 'true');
+    expect(kern).toHaveAttribute('aria-disabled', 'true');
+    expect(kern).not.toBeDisabled();
+    expect(kern).toHaveAccessibleDescription('Pflichtmodul – immer aktiv');
+    expect(within(row('Kern')).getByText('Aktiv')).toBeInTheDocument();
+    expect(within(row('Kern')).queryByText('Immer aktiv')).toBeNull();
+    kern.focus();
+    expect(kern).toHaveFocus();
+    await userEvent.click(kern);
+    await userEvent.keyboard(' ');
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(kern).toHaveAttribute('aria-checked', 'true');
+    expect(api.calls.filter(c => c.method === 'PUT')).toHaveLength(0);
+  });
+
+  it('Raster: jede Zeile (Modul und Teilfunktion) Name · Status · Schalter in denselben Spalten; nur der Text eingerückt', async () => {
+    setup();
+    await screen.findByRole('switch', { name: 'Zeiterfassung aktiv' });
+    const rows = [...document.querySelectorAll<HTMLElement>('.iam-mod-row')];
+    expect(rows).toHaveLength(6);
+    for (const r of rows) {
+      // gleiche Kinder in gleicher Reihenfolge: Name, Status, Schalter (+ Text) – Schalter in jeder Zeile, auch Pflichtmodul
+      expect([...r.children].slice(0, 3).map(c => c.className)).toEqual(['iam-mod-name', 'iam-mod-status', 'iam-switch iam-mod-switch']);
+      expect(within(r.querySelector('.iam-mod-status')!).getByText(/Aktiv|Aus|Nicht freigegeben/)).toBeInTheDocument();
+    }
+    const part = row('Korrekturanträge');
+    expect(part).toHaveClass('iam-mod-row', 'iam-mod-part');
+    // Teilfunktion: dasselbe Raster in der Karte ihres Moduls (Lage der Spalten im Browser: test/e2e/modules.spec.ts)
+    expect(part.closest('.iam-mod')).toBe(row('Zeiterfassung').closest('.iam-mod'));
+  });
+
+  it('Sperrgründe einheitlich: nicht freigegeben, fehlendes Recht, Voraussetzung nicht freigegeben, Modul der Teilfunktion aus', async () => {
+    const srv = server(initial().map(m => (m.key === 'zeit' ? { ...m, active: false } : m.key === 'lohn' ? { ...m, requires: ['projekte'] } : m)));
+    setup({ srv });
+    const sw = (n: string) => screen.getByRole('switch', { name: `${n} aktiv` });
+    await screen.findByRole('switch', { name: 'Lohn aktiv' });
+    for (const [n, why] of [['Kern', 'Pflichtmodul – immer aktiv'], ['Projekte', /nicht freigegeben/], ['Lohn', /Braucht «Projekte»/], ['Korrekturanträge', /Zuerst .*«Zeiterfassung»|«Zeiterfassung»/]] as const) {
+      expect(sw(n), n).toHaveAttribute('aria-disabled', 'true');
+      expect(sw(n), n).toHaveAccessibleDescription(why);
+      expect(row(n).querySelector('.iam-mod-info .iam-mod-why')).not.toBeNull();
+    }
+    cleanup();
+    setup({ me: { permissions: ['tenant:read'] } });
+    expect(await screen.findByRole('switch', { name: 'Zeiterfassung aktiv' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('switch', { name: 'Kern aktiv' })).toHaveAccessibleDescription('Pflichtmodul – immer aktiv');
   });
 
   it('Aktivieren mit Voraussetzung: Hinweis «Aktiviert auch …», dann zuerst die Voraussetzung, je mit If-Match', async () => {
@@ -231,6 +282,20 @@ describe('Seite Module', () => {
     expect(await axeProblems(sheet)).toEqual([]);
   });
 
+  it('Schublade eines Pflichtmoduls wie die der anderen: Status «Aktiv», «Deaktivieren» gesperrt mit Grund', async () => {
+    const { api } = setup();
+    await userEvent.click(await screen.findByRole('button', { name: 'Kern' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Kern' });
+    expect(within(sheet).getByText('Aktiv')).toBeInTheDocument();
+    const off = within(sheet).getByRole('button', { name: 'Deaktivieren' });
+    expect(off).toHaveAttribute('aria-disabled', 'true');
+    expect(off).toHaveAccessibleDescription('Pflichtmodul – immer aktiv');
+    await userEvent.click(off);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(api.calls.filter(c => c.method === 'PUT')).toHaveLength(0);
+    expect(await axeProblems(sheet)).toEqual([]);
+  });
+
   it('Modell ohne Module: Hinweis statt Liste, nichts abgefragt', async () => {
     const api = mockIamApi({}, { catalog: CATALOG });
     vi.stubGlobal('fetch', api.fetch);
@@ -304,6 +369,14 @@ describe('Plattform-Administration: Module einer Organisation', () => {
     const puts = platform(items);
     const table = await screen.findByRole('table', { name: 'Module von Muster GmbH' });
     expect(within(table).getAllByRole('row')).toHaveLength(items.length + 1);
+    // Pflichtmodul wie die anderen: Status «Aktiv», «Entziehen» gesperrt mit Grund
+    const kern = within(table).getByRole('row', { name: /Kern/ });
+    expect(within(kern).getByText('Aktiv')).toBeInTheDocument();
+    const lockedRevoke = within(kern).getByRole('button', { name: 'Kern entziehen' });
+    expect(lockedRevoke).toHaveAttribute('aria-disabled', 'true');
+    expect(lockedRevoke).toHaveAccessibleDescription('Pflichtmodul – immer aktiv');
+    await userEvent.click(lockedRevoke);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(await axeProblems()).toEqual([]);
     await userEvent.click(within(table).getByRole('button', { name: 'Projekte freigeben' }));
     await waitFor(() => expect(puts).toEqual([{ key: 'projekte', allowed: true, force: false }]));

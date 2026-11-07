@@ -1,5 +1,6 @@
 /**
  * Seite «Module» im Browser: axe hell und dunkel, 390 px ohne waagrechtes Scrollen (Liste, Rückfragen, Schublade),
+ * Raster (Status und Schalter bündig, Telefon 360 px: Status unter dem Namen), Touch-Ziele ≥ 44 px,
  * Schalten per Tastatur (Voraussetzung mitaktivieren, Deaktivieren mit Wirkung, Hindernisse), Navigation «Zugang»;
  * Abschnitt der Plattform-Administration mit «Trotzdem entziehen».
  */
@@ -60,6 +61,43 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   });
 }
+
+test('Raster: Status und Schalter aller Zeilen (auch Teilfunktion und Pflichtmodul) bündig; Telefon: Status unter dem Namen', async ({ page }) => {
+  for (const width of [1440, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/modules.html');
+    await expect(page.getByRole('switch', { name: 'Kern aktiv' })).toHaveAttribute('aria-disabled', 'true');
+    const boxes = await page.locator('.iam-mod-row').evaluateAll(rows => rows.map(r => {
+      const b = (sel: string) => r.querySelector(sel)!.getBoundingClientRect();
+      const name = b('.iam-mod-name'), status = b('.iam-mod-status .iam-pill'), sw = b('.iam-mod-switch');
+      return { part: r.classList.contains('iam-mod-part'), nameTop: name.top, nameBottom: name.bottom, statusLeft: status.left, statusTop: status.top, swLeft: sw.left, swRight: sw.right, swTop: sw.top };
+    }));
+    expect(boxes).toHaveLength(6);
+    // Schalter in allen Zeilen in derselben Spalte, oben auf der ersten Textzeile
+    expect(new Set(boxes.map(b => Math.round(b.swRight))).size, `Schalter ${width}`).toBe(1);
+    for (const b of boxes) expect(Math.abs(b.swTop - b.nameTop), `Schalter oben ${width}`).toBeLessThanOrEqual(2);
+    if (width > 520) {
+      // Status in derselben Spalte, auf der Linie des Namens
+      expect(new Set(boxes.map(b => Math.round(b.statusLeft))).size, 'Status').toBe(1);
+      for (const b of boxes) expect(b.statusTop).toBeLessThan(b.nameTop + 6);
+    } else {
+      // Telefon: Status unter dem Namen
+      for (const b of boxes) expect(b.statusTop, 'Status unter dem Namen').toBeGreaterThanOrEqual(b.nameBottom - 1);
+    }
+  }
+});
+
+test('Touch: Schalter mit Zielfläche ≥ 44 px', async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 800 } });
+  const page = await ctx.newPage();
+  await page.goto('/modules.html');
+  const sw = page.getByRole('switch', { name: 'Abwesenheiten aktiv' });
+  await expect(sw).toBeVisible();
+  const hit = await sw.evaluate(el => { const a = getComputedStyle(el, '::after'); return { w: el.getBoundingClientRect().width + 2 * -parseFloat(a.left), h: el.getBoundingClientRect().height + 2 * -parseFloat(a.top) }; });
+  expect(hit.w).toBeGreaterThanOrEqual(44);
+  expect(hit.h).toBeGreaterThanOrEqual(44);
+  await ctx.close();
+});
 
 test('per Tastatur: Lohn mit Voraussetzung aktivieren, Abwesenheiten bleibt gebraucht, Lohn deaktivieren', async ({ page }) => {
   await page.goto('/modules.html');

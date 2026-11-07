@@ -7,6 +7,22 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [3.1.1] – 2026-11-07
+
+### Behoben
+
+- **Haupteinstieg wieder so klein wie in 3.0.1:** Seite «Module» samt Plattform-Abschnitt, ihre Hilfen und die Texte
+  `iam.modules.*` (de, en) hingen in 3.1.0 am Haupteinstieg und vergrösserten das Start-Bundle der App um rund
+  3,5 kB gzip. Sie laden jetzt mit der Seite (`iamRoutes[].load()` bzw. `@vollholz/iam-web/pages`). Im Haupteinstieg
+  bleiben `useIam().modules`, `useIam().hasModule`, `modulesChanged`, `useModulesFeature`, `hasModules`, die Route
+  `modules` (Pfad, Titel `iam.modules.title`, Recht) und alle Typen. Messung (`node scripts/size.ts`, gzip):
+  Haupteinstieg 3.0.1 62,92 kB · 3.1.0 66,45 kB · 3.1.1 62,96 kB.
+- `moduleApi`, `useModules`, `activationPlan`, `choiceKey`, `dependentsOf`, `usedBy`, `partsOf`, `moduleRights`,
+  `moduleLabel`, `requirementText`, `requiresText` und `moduleErrorText` werden aus `@vollholz/iam-web/pages`
+  importiert (nicht mehr aus `@vollholz/iam-web`); Signaturen und Typen unverändert. Migration für Apps, die sie aus dem
+  Haupteinstieg importieren (erst seit 3.1.0 vorhanden): Import auf `@vollholz/iam-web/pages` ändern. Eigene Texte
+  `iam.modules.*` über `configureTexts` gelten wie bisher.
+
 ## [3.1.0] – 2026-11-07
 
 ### Hinzugefügt

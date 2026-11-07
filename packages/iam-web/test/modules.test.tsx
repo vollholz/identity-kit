@@ -7,7 +7,8 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { activationPlan, dependentsOf, IamNav, makeIamRoutes, useIam, type AuthzCatalog, type Me, type TenantModule } from '../src/index.ts';
+import { IamNav, makeIamRoutes, useIam, type AuthzCatalog, type Me, type TenantModule } from '../src/index.ts';
+import { activationPlan, dependentsOf } from '../src/pages/index.ts';
 import { ModulesPage, ModulesSection } from '../src/pages/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';

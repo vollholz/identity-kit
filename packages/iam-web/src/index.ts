@@ -1,7 +1,7 @@
 /**
  * @vollholz/iam-web – Oberfläche des IAM-Baukastens (Spezifikation Kap. 11, docs/entwurf.md).
  * Vertragstypen, Client, Organisation je Tab, Texte, Grundkomponenten, Provider und Sitzung, Rechte-Bausteine, Zugriff
- * (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit, Break-Glass und Produktmodule (`hasModule`, `moduleApi`).
+ * (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit, Break-Glass und Produktmodule (`useIam().hasModule`; Seite und Hilfen in `./pages`).
  */
 export type * from './contract.ts';
 export { ApiError, describeError, errorFrom, fieldErrorText, networkError, statusText, type ErrorText } from './problem.ts';
@@ -27,10 +27,10 @@ export { IamProvider, type IamProviderProps } from './provider.tsx';
 export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } from './session.tsx';
 export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAccessFeature, useAuthz, useAuthzCatalog, type Authz } from './authz.ts';
 export { useResourceCan } from './resourceCan.ts';
-export {
-  activationPlan, choiceKey, dependentsOf, hasModules, moduleApi, moduleErrorText, modulesChanged, moduleLabel, moduleRights, partsOf, requirementText, requiresText,
-  useModules, useModulesFeature, usedBy, type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
-} from './modules.ts';
+// Produktmodule: im Haupteinstieg nur, was Navigation und Sitzung brauchen; Aufrufe, Abfragen und Regeln der Anzeige
+// (`moduleApi`, `useModules`, `activationPlan`, `moduleErrorText`, …) samt Texten `iam.modules.*` aus `@vollholz/iam-web/pages`
+export { hasModules, modulesChanged, useModulesFeature } from './modules.ts';
+export type { ActivationPlan, ModuleChoice, ModuleErrorText, ModuleListResult } from './moduleTools.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamResources, type RoleGroup } from './config.tsx';
 export { defaultPeople, isPrincipalId, PersonName, PersonPick, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
 export { accountApi, useAccount } from './account.ts';

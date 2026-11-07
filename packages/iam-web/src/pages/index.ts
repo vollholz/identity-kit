@@ -10,5 +10,10 @@ export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { OwnAppDialog, OwnAppFields, OwnAppGuideSteps, ownAppErrorText, type OwnAppDraft } from './EntraOwnApp.tsx';
 export { EntraScreen, MembersScreen, ModulesScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
 export { ModulesPage, ModulesSection } from './Modules.tsx';
+// Hilfen der Seite «Module» (laden die Texte `iam.modules.*` mit); nicht im Haupteinstieg, damit er klein bleibt
+export {
+  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requirementText, requiresText, useModules, usedBy,
+  type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
+} from '../moduleTools.ts';
 export { RolesPage, type RolesPageProps } from './Roles.tsx';
 export { AccountHome, PlatformShell, SignupPage, type AccountHomeProps } from './Account.tsx';

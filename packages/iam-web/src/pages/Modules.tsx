@@ -2,13 +2,16 @@
  * Einstellungen › Module (Konzept «Module je Organisation», Abschnitt 8): Produktmodule der Organisation sehen
  * (`tenant:read`) und aktivieren bzw. deaktivieren (`tenant:admin`). Liste mit Schublade: je Modul Name,
  * Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Voraussetzungen als Text und Schalter; Teilfunktionen
- * eingerückt als Schalter darunter. Der Name öffnet die Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht
- * von, Hindernisse).
+ * darunter. Jede Zeile (Modul und Teilfunktion) ist dasselbe Raster: Text · Status · Schalter; Status und Schalter
+ * stehen in allen Zeilen in derselben Spalte, eingerückt wird nur der Text der Teilfunktionen. Der Name öffnet die
+ * Schublade mit Einzelheiten (Rechte, Teilfunktionen, gebraucht von, Hindernisse).
  *
  * - Aktivieren: Hinweis auf mitzuaktivierende Voraussetzungen («Aktiviert auch …»), bei «eines von» mit Wahl.
  * - Deaktivieren: Rückfrage mit der Wirkung (Arbeitsflächen und Rechte verschwinden für alle, Daten bleiben) und den
  *   Hindernissen der App bzw. den Modulen, die es noch brauchen – dann ohne Deaktivieren.
- * - Nicht freigegeben: Schalter gesperrt mit Grund (Betrieb).
+ * - Gesperrt (Pflichtmodul, nicht freigegeben, fehlendes Recht, Voraussetzung): Schalter sichtbar, per `aria-disabled`
+ *   gesperrt, fokussierbar, Grund sichtbar und in `aria-describedby`. Pflichtmodule sehen aus wie alle anderen: Status
+ *   «Aktiv», Schalter eingeschaltet und gesperrt («Pflichtmodul – immer aktiv»).
  *
  * Plattform-Administration: `ModulesSection` in der Detailseite einer Organisation (freigeben, entziehen, Hindernisse mit
  * «Trotzdem entziehen» übergehen).
@@ -34,10 +37,11 @@ import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
 const quote = (s: string) => t('iam.modules.quoted', { name: s });
 const names = (items: readonly TenantModule[], keys: readonly string[]) => listAnd(keys.map(k => quote(moduleLabel(items, k))));
 
-type Status = 'active' | 'off' | 'notAllowed' | 'core';
-const statusOf = (m: TenantModule): Status => (m.core ? 'core' : !m.allowed ? 'notAllowed' : m.active ? 'active' : 'off');
-const STATUS_CLASS: Record<Status, string> = { active: 'iam-st-ok', off: 'iam-st-idle', notAllowed: 'iam-st-off', core: 'iam-st-ok' };
-const STATUS_TEXT = { active: 'iam.modules.status.active', off: 'iam.modules.status.off', notAllowed: 'iam.modules.status.notAllowed', core: 'iam.modules.status.core' } as const;
+type Status = 'active' | 'off' | 'notAllowed';
+/** Pflichtmodule zeigen denselben Status wie aktive Module («Aktiv»); die Sperre erklärt der Schalter. */
+const statusOf = (m: TenantModule): Status => (m.core || (m.allowed && m.active) ? 'active' : !m.allowed ? 'notAllowed' : 'off');
+const STATUS_CLASS: Record<Status, string> = { active: 'iam-st-ok', off: 'iam-st-idle', notAllowed: 'iam-st-off' };
+const STATUS_TEXT = { active: 'iam.modules.status.active', off: 'iam.modules.status.off', notAllowed: 'iam.modules.status.notAllowed' } as const;
 
 function StatusPill({ m }: { m: TenantModule }) {
   const s = statusOf(m);
@@ -47,8 +51,9 @@ function StatusPill({ m }: { m: TenantModule }) {
 /** Was gerade geschaltet werden soll (Rückfrage vor dem Aktivieren mit Voraussetzungen bzw. vor dem Deaktivieren). */
 type Pending = { key: string; active: boolean };
 
-/** Warum ein Schalter gesperrt ist (Reihenfolge: Recht, Freigabe, Modul der Teilfunktion, Voraussetzung); sonst null. */
+/** Warum ein Schalter gesperrt ist (Reihenfolge: Pflichtmodul, Freigabe, Recht, Modul der Teilfunktion, Voraussetzung); sonst null. */
 function lockReason(items: readonly TenantModule[], m: TenantModule, admin: boolean, adminPerm: string): string | null {
+  if (m.core) return t('iam.modules.coreWhy');
   if (!m.allowed) return t('iam.modules.notAllowedWhy');
   if (!admin) return t('iam.modules.readOnlyWhy', { perm: adminPerm });
   if (m.module && !items.find(x => x.key === m.module)?.active) return t('iam.modules.partNeedsModule', { module: quote(moduleLabel(items, m.module)) });
@@ -59,10 +64,13 @@ function lockReason(items: readonly TenantModule[], m: TenantModule, admin: bool
   return null;
 }
 
-/** Schalter «Aktiv» (role=switch): gesperrt per `aria-disabled` mit Grund in `aria-describedby`, bleibt fokussierbar. */
+/**
+ * Schalter «Aktiv» (role=switch): gesperrt per `aria-disabled` mit Grund in `aria-describedby`, bleibt fokussierbar.
+ * Pflichtmodule: eingeschaltet und gesperrt.
+ */
 function ModuleSwitch({ m, locked, describedBy, busy, onToggle }: { m: TenantModule; locked: boolean; describedBy?: string; busy?: boolean; onToggle: () => void }) {
   return (
-    <button type="button" role="switch" className="iam-switch" aria-checked={m.active} aria-disabled={locked || busy ? true : undefined}
+    <button type="button" role="switch" className="iam-switch iam-mod-switch" aria-checked={m.core || m.active} aria-disabled={locked || busy ? true : undefined}
       aria-label={t('iam.modules.switch', { name: m.label })} aria-describedby={describedBy} onClick={() => { if (!locked && !busy) onToggle(); }}>
       <span aria-hidden="true" />
     </button>
@@ -129,23 +137,30 @@ export function ModulesPage() {
   );
 }
 
+/**
+ * Zeile eines Moduls bzw. einer Teilfunktion, ein Raster mit festen Spalten (styles.css «Module»): Name · Status ·
+ * Schalter, darunter in der Textspalte Beschreibung, Voraussetzungen und Sperrgrund. Teilfunktionen rücken nur den Text
+ * ein; Status und Schalter bleiben in derselben Spalte wie die der Module.
+ */
 function ModuleRow({ m, items, admin, busy, onToggle, onOpen }: { m: TenantModule; items: readonly TenantModule[]; admin: boolean; busy: boolean; onToggle: () => void; onOpen?: () => void }) {
   const fid = useId();
   const authz = useAuthz();
-  const reason = m.core ? null : lockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
   const req = requiresText(items, m);
   return (
     <div className={`iam-mod-row${m.module ? ' iam-mod-part' : ''}`}>
-      <div className="iam-mod-main">
-        <div className="iam-mod-name">
-          {onOpen ? <button type="button" className="iam-linkbtn iam-b" aria-haspopup="dialog" onClick={onOpen}>{m.label}</button> : <span className="iam-b">{m.label}</span>}
-          <StatusPill m={m} />
-        </div>
-        {m.description ? <div className="iam-muted iam-small">{m.description}</div> : null}
-        {req ? <div className="iam-small">{req}</div> : null}
-        {reason ? <div id={`${fid}-why`} className="iam-hint">{reason}</div> : null}
+      <div className="iam-mod-name">
+        {onOpen ? <button type="button" className="iam-linkbtn" aria-haspopup="dialog" onClick={onOpen}>{m.label}</button> : <span>{m.label}</span>}
       </div>
-      {m.core ? null : <ModuleSwitch m={m} locked={!!reason} busy={busy} describedBy={reason ? `${fid}-why` : undefined} onToggle={onToggle} />}
+      <div className="iam-mod-status"><StatusPill m={m} /></div>
+      <ModuleSwitch m={m} locked={!!reason} busy={busy} describedBy={reason ? `${fid}-why` : undefined} onToggle={onToggle} />
+      {m.description || req || reason ? (
+        <div className="iam-mod-info">
+          {m.description ? <div className="iam-muted">{m.description}</div> : null}
+          {req ? <div>{req}</div> : null}
+          {reason ? <div id={`${fid}-why`} className="iam-mod-why">{reason}</div> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -285,20 +300,23 @@ function SwitchDialog({ data, pending, flow, onClose, onDone }: { data: ModuleLi
 function ModuleSheet({ data, moduleKey, admin, onClose, onToggle }: { data: ModuleListResult; moduleKey: string; admin: boolean; onClose: () => void; onToggle: (m: TenantModule) => void }) {
   const { Button } = useIamUi();
   const authz = useAuthz();
+  const fid = useId();
   const items = data.items;
   const m = items.find(x => x.key === moduleKey);
   if (!m) return null;
-  const reason = m.core ? null : lockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const reason = lockReason(items, m, admin, authz.permLabel('tenant:admin'));
+  const on = m.core || m.active;
   const parts = partsOf(items, m.key);
   const by = usedBy(items, m.key);
   const rights = moduleRights(authz.catalog, m.key);
   const req = requiresText(items, m);
   return (
-    <Sheet title={m.label} sub={<div className="iam-mod-name"><StatusPill m={m} />{m.activeSince && m.active && !m.core ? <span className="iam-muted iam-small">{t('iam.modules.since', { date: fmtDate(m.activeSince) })}</span> : null}</div>} onClose={onClose} narrow
-      footer={m.core ? null : (
+    <Sheet title={m.label} sub={<div className="iam-mod-sheet-sub"><StatusPill m={m} />{m.activeSince && m.active && !m.core ? <span className="iam-muted iam-small">{t('iam.modules.since', { date: fmtDate(m.activeSince) })}</span> : null}</div>} onClose={onClose} narrow
+      footer={(
         <>
-          {reason ? <div className="iam-hint iam-grow">{reason}</div> : <span className="iam-grow" />}
-          <Button variant={m.active ? 'danger' : 'primary'} disabled={!!reason} onClick={() => onToggle(m)}>{m.active ? t('iam.modules.deactivate') : t('iam.modules.activate')}</Button>
+          {reason ? <div id={`${fid}-why`} className="iam-mod-why iam-grow">{reason}</div> : <span className="iam-grow" />}
+          <Button variant={on ? 'danger' : 'primary'} aria-disabled={reason ? true : undefined} aria-describedby={reason ? `${fid}-why` : undefined}
+            onClick={() => { if (!reason) onToggle(m); }}>{on ? t('iam.modules.deactivate') : t('iam.modules.activate')}</Button>
         </>
       )}>
       {m.description ? <p>{m.description}</p> : null}
@@ -308,7 +326,6 @@ function ModuleSheet({ data, moduleKey, admin, onClose, onToggle }: { data: Modu
         {parts.length ? <><dt>{t('iam.modules.col.parts')}</dt><dd>{parts.map(p => `${p.label} (${t(STATUS_TEXT[statusOf(p)])})`).join(', ')}</dd></> : null}
         {rights.length ? <><dt>{t('iam.modules.col.rights')}</dt><dd>{listAnd(rights)}</dd></> : null}
       </dl>
-      {m.core ? <p className="iam-note">{t('iam.modules.coreText')}</p> : null}
       {m.blockers?.length ? <div className="iam-mod-stop" role="note"><b>{t('iam.modules.blockersTitle')}</b><Blockers blockers={m.blockers} /></div> : null}
     </Sheet>
   );
@@ -361,13 +378,18 @@ export function ModulesSection({ alias, orgLabel }: { alias: string; orgLabel: s
                 <th scope="col" className="iam-acts"><span className="iam-sr">{t('iam.access.col.actions')}</span></th>
               </tr></thead>
               <tbody>
-                {items.map(m => (
+                {items.map((m, i) => (
                   <tr key={m.key}>
-                    <td><span className={m.module ? 'iam-mod-indent' : 'iam-b'}>{m.label}</span><div className="iam-mono-s iam-muted">{m.key}</div></td>
+                    <td><div className={m.module ? 'iam-mod-indent' : undefined}><span className={m.module ? undefined : 'iam-b'}>{m.label}</span><div className="iam-mono-s iam-muted">{m.key}</div></div></td>
                     <td><span className="iam-st-lbl">{t('iam.modules.col.allowed')}:</span>{m.core ? t('iam.modules.platform.always') : m.allowed ? t('iam.modules.platform.yes') : t('iam.modules.platform.no')}</td>
                     <td><span className="iam-st-lbl">{t('iam.modules.col.state')}:</span><StatusPill m={m} /></td>
                     <td className="iam-acts">
-                      {m.core ? null : m.allowed
+                      {m.core ? (
+                        <>
+                          <Button size="sm" variant="ghost" aria-label={t('iam.modules.platform.revokeOf', { name: m.label })} aria-disabled aria-describedby={`${fid}-core-${i}`}>{t('iam.modules.platform.revoke')}</Button>
+                          <span id={`${fid}-core-${i}`} className="iam-sr">{t('iam.modules.coreWhy')}</span>
+                        </>
+                      ) : m.allowed
                         ? <Button size="sm" variant="ghost" aria-label={t('iam.modules.platform.revokeOf', { name: m.label })} onClick={() => { set.reset(); setRevoking(m.key); }}>{t('iam.modules.platform.revoke')}</Button>
                         : <Button size="sm" aria-label={t('iam.modules.platform.allowOf', { name: m.label })} busy={set.isPending && set.variables?.key === m.key} onClick={() => set.mutate({ key: m.key, allowed: true })}>{t('iam.modules.platform.allow')}</Button>}
                     </td>

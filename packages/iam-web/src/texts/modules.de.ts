@@ -21,7 +21,9 @@ export const modulesDe = {
   'iam.modules.status.active': 'Aktiv',
   'iam.modules.status.off': 'Aus',
   'iam.modules.status.notAllowed': 'Nicht freigegeben',
+  // status.core und coreText: seit 3.1.2 nicht mehr angezeigt (Pflichtmodule: Status «Aktiv», Grund coreWhy); bleiben für configureTexts
   'iam.modules.status.core': 'Immer aktiv',
+  'iam.modules.coreWhy': 'Pflichtmodul – immer aktiv',
   'iam.modules.reload': 'Neu laden',
   'iam.modules.activated': '{name} ist aktiv.',
   'iam.modules.activatedWith': '{name} ist aktiv, mit {list}.',

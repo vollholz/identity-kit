@@ -20,6 +20,7 @@ export const modulesEn: Record<IamModulesTextKey, string> = {
   'iam.modules.status.off': 'Off',
   'iam.modules.status.notAllowed': 'Not enabled',
   'iam.modules.status.core': 'Always active',
+  'iam.modules.coreWhy': 'Required module – always active',
   'iam.modules.reload': 'Reload',
   'iam.modules.activated': '{name} is active.',
   'iam.modules.activatedWith': '{name} is active, together with {list}.',

@@ -205,9 +205,16 @@ moduleHooks: {
 `@vollholz/iam-web/pages`), sichtbar mit `tenant:read`, bearbeitbar mit `tenant:admin`; Seitentyp Liste + Schublade:
 
 - Zeile je Modul: Name (öffnet die Schublade mit Voraussetzungen, «Gebraucht von», Teilfunktionen, Rechten des Moduls
-  aus dem Katalog `modul` und Hindernissen), Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben; Kern «Immer
-  aktiv» ohne Schalter), Teilfunktionen als Schalter darunter (eingerückt), Voraussetzungen als Text («Braucht
-  «Zeiterfassung»», bei Listen «eines von …»).
+  aus dem Katalog `modul` und Hindernissen), Kurzbeschreibung, Status (Aktiv · Aus · Nicht freigegeben), Schalter,
+  Teilfunktionen darunter, Voraussetzungen als Text («Braucht «Zeiterfassung»», bei Listen «eines von …»).
+- Layout (ab 3.1.2): jede Zeile, Modul wie Teilfunktion, ist dasselbe Raster mit festen Spalten Text · Status ·
+  Schalter; Status und Schalter stehen in allen Zeilen bündig, eingerückt wird nur der Text der Teilfunktionen. Der
+  Text (Beschreibung, Voraussetzungen, Sperrgrund) bleibt in der ersten Spalte, der Schalter auf der Höhe der ersten
+  Textzeile. Telefon (bis 520 px): Status unter dem Namen, Schalter rechts oben; auf Touch-Geräten Zielflächen ≥ 44 px.
+- Pflichtmodule (Kern) sehen aus wie alle anderen: Status «Aktiv», Schalter eingeschaltet und gesperrt mit Grund
+  «Pflichtmodul – immer aktiv»; ebenso in der Schublade («Deaktivieren» gesperrt) und in `ModulesSection`
+  («Entziehen» gesperrt). Alle gesperrten Schalter und Knöpfe einheitlich: `aria-disabled`, fokussierbar, Grund
+  sichtbar und in `aria-describedby`.
 - Schalter «Aktiv» (`role="switch"`): Vor dem Deaktivieren Rückfrage mit Wirkung («… verschwindet für alle in «Org»»:
   Teilfunktionen, Rechte des Moduls, «Die Daten bleiben erhalten») und Hindernissen aus `blockers` der Liste bzw. aus
   409 `hindernisse` («Zuerst erledigen: 3 offene Korrekturanträge – zuerst entscheiden»); braucht ein aktives Modul es

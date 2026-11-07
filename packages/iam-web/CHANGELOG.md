@@ -7,6 +7,25 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [3.1.2] – 2026-11-07
+
+### Behoben
+
+- **Seite «Module»: ruhiges Layout.** Jede Zeile, Modul wie Teilfunktion, ist dasselbe Raster mit festen Spalten
+  Text · Status · Schalter. Status und Schalter stehen in allen Zeilen bündig (bisher sass der Status am Namen und
+  sprang je nach Namenslänge; die Schalter der Teilfunktionen waren mit eingerückt). Eingerückt wird nur der Text der
+  Teilfunktionen. Name, Beschreibung, Voraussetzungen und Sperrgrund mit einheitlicher Schrift und gleichmässigen
+  Abständen; der Schalter steht auf der Höhe der ersten Textzeile. Telefon (bis 520 px): Status unter dem Namen,
+  Schalter rechts oben; auf Touch-Geräten (`pointer: coarse`) Zielflächen der Schalter und Namen ≥ 44 px.
+- **Pflichtmodule wie alle anderen Module:** Status «Aktiv» (nicht mehr «Immer aktiv»), Schalter sichtbar,
+  eingeschaltet und gesperrt (`aria-disabled`, fokussierbar, Grund «Pflichtmodul – immer aktiv» sichtbar und per
+  `aria-describedby`; neuer Text `iam.modules.coreWhy`). Ebenso in der Schublade («Deaktivieren» gesperrt mit Grund)
+  und im Abschnitt der Plattform-Administration `ModulesSection` (Status «Aktiv», «Entziehen» gesperrt mit Grund).
+- Gesperrte Schalter und Knöpfe einheitlich (Pflichtmodul, nicht freigegeben, fehlendes Recht, Voraussetzung, Modul der
+  Teilfunktion aus): `aria-disabled` statt `disabled` auch in der Schublade; mit `forced-colors` gesperrt in `GrayText`.
+- Die Texte `iam.modules.status.core` und `iam.modules.coreText` werden nicht mehr angezeigt; sie bleiben als Schlüssel,
+  damit eigene Texte über `configureTexts` weiter gelten. Für Apps sonst keine Änderung.
+
 ## [3.1.1] – 2026-11-07
 
 ### Behoben

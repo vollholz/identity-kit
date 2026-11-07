@@ -13,6 +13,8 @@ MCP-Token-Austausch, SQL-Migrationen `iam_…`.
 
 Ab 4.0.0 stehen alle Änderungen mit Migrationsschritten in [CHANGELOG.md](CHANGELOG.md); die Liste hier endet mit 3.2.1.
 
+- **6.3.0:** Haken «Rechte je Organisation» (`createIam({ tenantPermissions })`, `Model.withPermissions`): die App
+  schränkt die wirksamen Rechte einer Organisation ein, Nachfolger der Produktmodule. Details: [CHANGELOG.md](CHANGELOG.md).
 - **6.2.0:** Paket je Organisation in den Startdaten (`organizations[].package`, `orgBootstrap({ package,
   applyPackage })`). Details: [CHANGELOG.md](CHANGELOG.md).
 - **6.1.0:** Produktmodule je Organisation (`defineModel({ modules, packages })`, Modul `modules`, Migration

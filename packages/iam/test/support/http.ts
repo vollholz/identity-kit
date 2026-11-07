@@ -8,7 +8,7 @@ import swagger from '@fastify/swagger';
 import { Type } from '@sinclair/typebox';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { claimsFor } from '@vollholz/iam-testkit';
-import { fullView } from '../../src/access.ts';
+import { fullView, type TenantPermissions } from '../../src/access.ts';
 import { pgAudit } from '../../src/audit.ts';
 import type { BffOptions } from '../../src/bff.ts';
 import { withTenant, type Db, type Tx } from '../../src/db.ts';
@@ -135,10 +135,12 @@ export async function notesApp(o: {
   events?: IamEvents;
   /** Haken der App je Produktmodul (`createIam({ moduleHooks })`). */
   moduleHooks?: ModuleHooks;
+  /** Haken «Rechte je Organisation» (`createIam({ tenantPermissions })`). */
+  tenantPermissions?: TenantPermissions;
 }): Promise<NotesApp> {
   const events: IamEvent[] = [];
   const onEvent: IamEvents = o.events ?? { after: async (_tx, e) => { events.push(e); } };
-  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}), ...(o.moduleHooks ? { moduleHooks: o.moduleHooks } : {}) });
+  const iam = createIam({ cfg: testConfig(o.issuer, { DPOP_MODE: 'optional', ...o.env }), model: o.model ?? notesModel, db: o.db, schema: 'notes', resources: o.resources === undefined ? notesResources : o.resources, audit: pgAudit({ schema: 'notes' }), events: onEvent, ...(o.bff ? { bff: o.bff } : {}), ...(o.keycloakFetch ? { keycloakFetch: o.keycloakFetch } : {}), ...(o.entraFetch ? { entraFetch: o.entraFetch } : {}), ...(o.entraRetryMs ? { entraRetryMs: o.entraRetryMs } : {}), ...(o.moduleHooks ? { moduleHooks: o.moduleHooks } : {}), ...(o.tenantPermissions ? { tenantPermissions: o.tenantPermissions } : {}) });
   // Wie docs/backend.md verlangt: unbekannte Felder ergeben 422 statt still zu verschwinden
   const app = Fastify({ logger: process.env.TEST_LOG ? { level: 'error' } : false, ajv: { customOptions: { removeAdditional: false } }, ...o.fastify });
   await app.register(swagger, { openapi: { openapi: '3.1.0', info: { title: 'Notes', version: '1.0.0' } }, refResolver: { buildLocalReference: (json, _b, _f, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) }, transformObject: optionalBodies as never });

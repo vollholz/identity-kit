@@ -7,6 +7,33 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
 
+## [6.3.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Haken «Rechte je Organisation»** (`createIam({ tenantPermissions })`, Typ `TenantPermissions`): Die App schränkt
+  die wirksamen Rechte einer Organisation ein – `allowed(tenantId, tx)` liefert die gelassenen Rechte oder `null`
+  (keine Einschränkung), `version(tenantId, tx)` die Version für den Zwischenspeicher. Generisch, ohne Modulbegriff:
+  eine App schliesst darüber ihr eigenes Modulkonzept (Lizenzen, Tarife …) an und lässt `modules` im Modell weg; dann
+  liest das Paket `tenant_module` nie. Ohne Haken ändert sich nichts.
+  - Wirkt überall, wo `withModules` wirkt: Rechte des Principals, `GET /v1/me` und `GET /auth/me` (`permissions`,
+    `somewhere`), Katalog `GET /v1/authz/catalog` der Organisation, Rollen (auch eigene), Scopes (Rolle ∩ Scope),
+    `owner`, MCP-Werkzeuge, Entscheidung (`can`, `need`, Lesesicht, «Warum?»), `iam.access.modelOf` und `modelIn(tx)`.
+  - Reservierte Rechte (`tenant:*`, `members:admin`, `access:admin`, `audit:read`, `roles:admin`) bleiben immer;
+    unbekannte Rechte zählen nicht.
+  - Zwischenspeicher: `allowed` läuft erneut, sobald sich `version`, `acl_version` oder `ResourceModel.version`
+    ändert. Beide Funktionen laufen in der Transaktion der Organisation (Laufzeit-Rolle, Mandantenkontext).
+  - Mit `modules` im Modell gilt die Schnittmenge aus aktiven Modulen und `allowed`.
+- **Modell:** `Model.withPermissions(allowed | null)` und `Model.allowedPermissions` (Set oder `null`).
+  `withModules`, `withPermissions` und `withRoles` lassen sich in jeder Reihenfolge verketten; jede ersetzt nur ihre
+  eigene Menge.
+
+### Geändert
+
+- Das Modulkonzept (`defineModel({ modules, packages })`, `tenant_module`, Modul `modules`) bleibt unverändert, gilt
+  aber als **abgelöst** durch `tenantPermissions` und wird in einer späteren Hauptversion entfernt. Intern filtern
+  `withModules` und `withPermissions` über denselben Weg im Modell.
+
 ## [6.2.0] – 2026-11-07
 
 ### Hinzugefügt

@@ -329,6 +329,19 @@ export interface Model<P extends string = string, R extends string = string, T e
    * nicht. Rollen bleiben (auch leer). Ohne `modules` im Modell: das Modell selbst.
    */
   withModules(active: Iterable<string>): Model<P, R, T>;
+  /**
+   * Wirksame Rechte, auf die das Modell eingeschränkt ist (`withPermissions`, Haken `tenantPermissions` der App); null
+   * ohne Einschränkung (im Modell der App immer null).
+   */
+  readonly allowedPermissions: ReadonlySet<P> | null;
+  /**
+   * Modell mit nur den Rechten in `allowed` (Haken «Rechte je Organisation», `tenantPermissions`): entfernt die übrigen
+   * Rechte wie `withModules` aus `permissions`, den Rollen (auch eigenen), den Scopes, `owner` und den MCP-Werkzeugen.
+   * Reservierte Rechte (`tenant:*`, `members:admin`, `access:admin`, `audit:read`, `roles:admin`) bleiben immer;
+   * unbekannte Rechte zählen nicht. Wirkt zusätzlich zu `withModules` (Schnittmenge) und ersetzt eine frühere
+   * Einschränkung; `null` hebt sie auf. Rollen bleiben (auch leer).
+   */
+  withPermissions(allowed: Iterable<string> | null): Model<P, R, T>;
 }
 
 /** Typen des Modells der App für die Signaturen des Pakets: `declare module '@vollholz/iam' { interface Register { model: typeof model } }`. */
@@ -593,7 +606,7 @@ export function defineModel<const P extends string, const R extends string, cons
 
   return assemble<Q, RR, TT>({
     product: input.product, permissions, info, groups: groups.map(({ key, label, match }) => ({ key, label, match })), roles, scopes, types, leaf: leaves[0] ?? null, classifications, capabilities, mcpTools, adminOnly, features, warnings, readScope, custom: new Set(),
-    modules, packages, core, active: refs,
+    modules, packages, core, active: refs, allowed: null,
   }, null);
 }
 
@@ -704,7 +717,9 @@ interface Parts<Q extends string> {
   modules: ModuleInfo[]; packages: PackageInfo[]; core: string;
   /** Aktive Module und Teilfunktionen (aufgelöst, mit Kern). */
   active: ReadonlySet<string>;
-  /** Nur nach `withModules`: dieselben Teile ohne Modulfilter. */
+  /** Einschränkung der Rechte (`withPermissions`), null ohne. */
+  allowed: ReadonlySet<Q> | null;
+  /** Nur nach `withModules` oder `withPermissions`: dieselben Teile ohne Filter. */
   unfiltered?: Parts<Q>;
 }
 
@@ -755,6 +770,19 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
   // Rechte dieses Modells (ohne die inaktiver Module); `info` kennt alle Rechte der App (Texte, eigene Rollen)
   const permSet = new Set(permissions);
 
+  // Filter der Rechte je Organisation: aktive Module (`withModules`) ∩ Einschränkung (`withPermissions`). Immer vom
+  // Modell ohne Filter aus (Modell der App bzw. mit eigenen Rollen): erneuter Aufruf ersetzt die jeweilige Menge.
+  const filtered = (active: ReadonlySet<string>, allowed: ReadonlySet<Q> | null): Model<Q, RR, TT> => {
+    const src = o.unfiltered ?? o;
+    const moduleOn = (p: Q) => { const m = info.get(p)?.modul ?? o.core; return active.has(m) && (!m.includes('.') || active.has(m.split('.')[0]!)); };
+    const on = (p: Q) => moduleOn(p) && (!allowed || allowed.has(p) || Object.hasOwn(RESERVED_PERMISSIONS, p));
+    const keep = (ps: readonly Q[]) => ps.filter(on);
+    const roles2 = new Map([...src.roles].map(([k, r]) => [k, { ...r, permissions: keep(r.permissions) }]));
+    const scopes2 = new Map([...src.scopes].map(([k, s]) => [k, { ...s, permissions: keep(s.permissions) }]));
+    const tools2 = Object.fromEntries(Object.entries(src.mcpTools).filter(([, t]) => on(t.permission)));
+    return assemble<Q, RR, TT>({ ...src, permissions: keep(src.permissions), roles: roles2, scopes: scopes2, mcpTools: tools2, active, allowed, unfiltered: src }, base ?? self);
+  };
+
   const withModules = (activeIn: Iterable<string>): Model<Q, RR, TT> => {
     if (!o.features.modules) return self;
     const known = new Set(o.modules.flatMap(m => [m.key, ...m.parts.map(x => x.key)]));
@@ -762,21 +790,20 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
     want.add(o.core);
     // Teilfunktion nur mit ihrem Modul
     const active = new Set([...want].filter(k => !k.includes('.') || want.has(k.split('.')[0]!)));
-    const on = (p: Q) => { const m = info.get(p)?.modul ?? o.core; return active.has(m) && (!m.includes('.') || active.has(m.split('.')[0]!)); };
-    // Immer vom Modell ohne Modulfilter aus (Modell der App bzw. mit eigenen Rollen): erneutes withModules ersetzt die Menge
-    const src = o.unfiltered ?? o;
-    const keep = (ps: readonly Q[]) => ps.filter(on);
-    const roles2 = new Map([...src.roles].map(([k, r]) => [k, { ...r, permissions: keep(r.permissions) }]));
-    const scopes2 = new Map([...src.scopes].map(([k, s]) => [k, { ...s, permissions: keep(s.permissions) }]));
-    const tools2 = Object.fromEntries(Object.entries(src.mcpTools).filter(([, t]) => on(t.permission)));
-    return assemble<Q, RR, TT>({ ...src, permissions: keep(src.permissions), roles: roles2, scopes: scopes2, mcpTools: tools2, active, unfiltered: src }, base ?? self);
+    return filtered(active, o.allowed);
+  };
+
+  const withPermissions = (allowedIn: Iterable<string> | null): Model<Q, RR, TT> => {
+    if (allowedIn === null) return o.allowed ? filtered(o.active, null) : self;
+    const allowed = new Set([...allowedIn].filter((p): p is Q => info.has(p as Q)));
+    return filtered(o.active, allowed);
   };
 
   const withRoles = (defs: readonly CustomRoleDef[]): Model<Q, string, TT> => {
     const root = (base ?? self) as Model<Q, string, TT>;
     // Immer vom Modell ohne Modulfilter aus; ein gefiltertes Modell behält danach seine Module
     const src = o.unfiltered ?? o;
-    const refilter = (m: Model<Q, string, TT>) => (o.unfiltered ? m.withModules(o.active) : m);
+    const refilter = (m: Model<Q, string, TT>) => (o.unfiltered ? m.withModules(o.active).withPermissions(o.allowed) : m);
     if (!o.features.customRoles || !defs.length) return refilter(root);
     const r2 = new Map(src.roles), custom = new Set<string>();
     const at = new Map<string, string[]>();
@@ -793,7 +820,7 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
       const own = t.relations.filter(x => src.roles.has(x));
       t2.set(k, extra.length ? { ...t, roles: [...t.roles, ...extra], relations: [...own, ...extra, ...t.relations.filter(x => !src.roles.has(x))] } : t);
     }
-    return refilter(assemble<Q, string, TT>({ ...src, roles: r2, types: t2, leaf: src.leaf ? t2.get(src.leaf.key)! : null, custom, unfiltered: undefined }, root));
+    return refilter(assemble<Q, string, TT>({ ...src, roles: r2, types: t2, leaf: src.leaf ? t2.get(src.leaf.key)! : null, custom, allowed: null, unfiltered: undefined }, root));
   };
 
   const self: Model<Q, RR, TT> = {
@@ -827,6 +854,7 @@ function assemble<Q extends string, RR extends string, TT extends string>(o: Par
     platformJson: () => `${JSON.stringify({ scopes: [...scopes.keys()] }, null, 2)}\n`,
     withRoles, customRoleProblems,
     modules: o.modules, packages: o.packages, coreModule: o.core, moduleOf, activeModules: o.active, withModules,
+    allowedPermissions: o.allowed, withPermissions,
   };
   return self;
 }

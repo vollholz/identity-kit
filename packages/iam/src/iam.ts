@@ -3,7 +3,7 @@
  * Replay-Schutz und Audit. Das Plugin registriert damit Hooks, Dekorationen und Routen; dieselbe Instanz dient auch
  * ausserhalb von Fastify (Worker, MCP-Dienst, Tests, Skripte).
  */
-import { AccessService, fullView } from './access.ts';
+import { AccessService, fullView, type TenantPermissions } from './access.ts';
 import { AdminService } from './admin.ts';
 import { Bff, type BffOptions } from './bff.ts';
 import { withPlatformAudit, type AuditPort } from './audit.ts';
@@ -47,6 +47,14 @@ export interface IamOptions<P extends string = string, S = unknown> {
    * Änderung. `@vollholz/platform` reicht sie aus `defineApp({ moduleHooks })` durch. Schlüssel: Modul oder `modul.teil`.
    */
   moduleHooks?: ModuleHooks | null;
+  /**
+   * Haken «Rechte je Organisation»: schränkt die wirksamen Rechte einer Organisation ein (`allowed`, `null` = keine
+   * Einschränkung), zwischengespeichert bis sich `version` oder der Stand der Organisation ändert. Wirkt überall, wo das
+   * Modell der Organisation wirkt (Principal, `GET /v1/me`, `/auth/me`, Katalog, Rollen ∩ Scope, MCP). Unabhängig von
+   * `modules` des Modells; mit beiden gilt die Schnittmenge. Nachfolger des Modulkonzepts: eine App schliesst ihr eigenes
+   * Modulkonzept hier an und lässt `modules` im Modell weg.
+   */
+  tenantPermissions?: TenantPermissions<P> | null;
   /** Replay-Schutz (DPoP, Logout-Tokens); sonst nach `SHARED_STATE`. */
   replay?: ReplayStore;
   /** Abruf des Anmeldedienstes (Discovery, Tests). */
@@ -120,7 +128,7 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const problems = resourceProblems(o.model, resources);
   // Plattform-Administration steht zusätzlich im Protokoll der Plattform
   const audit = withPlatformAudit(o.audit);
-  const access = new AccessService<P, S>(o.db, { model: o.model, schema, resources, audit });
+  const access = new AccessService<P, S>(o.db, { model: o.model, schema, resources, audit, tenantPermissions: o.tenantPermissions });
   const ids = access.readTypesProblem();
   if (ids) problems.push(ids);
   if (o.moduleHooks && Object.keys(o.moduleHooks).length && !o.model.features.modules) problems.push('moduleHooks ohne modules im Modell');

@@ -246,6 +246,41 @@ await withTenant(iam.db, { tenantId, principalId }, tx => iam.roles!.create(tx, 
 - Policies der App brauchen nichts Neues: Die Lesesicht (`app.permission_relations`, `app.read_relations` …) enthält die
   eigenen Rollen.
 
+### Rechte je Organisation (Haken `tenantPermissions`)
+
+Ab 6.3 kann die App die **wirksamen Rechte einer Organisation einschränken**, ohne dass das Paket weiss, warum – etwa
+für ein eigenes Modulkonzept, Lizenzen oder Tarife der App. Der Haken ist der Nachfolger der Produktmodule (nächster
+Abschnitt): eine App schliesst ihr eigenes Modulkonzept hier an und lässt `modules` im Modell weg; dann liest das Paket
+die Tabelle `tenant_module` nie.
+
+```ts
+const iam = createIam({
+  // …
+  tenantPermissions: {
+    // Ändert sich mit jeder Änderung, die `allowed` ändert (billig: wird bei jedem Laden gelesen)
+    version: async (tenantId, tx) => (await tx.query<{ v: string }>('SELECT version::text AS v FROM notes.plan WHERE tenant_id = $1', [tenantId])).rows[0]?.v ?? '0',
+    // Wirksame Rechte der Organisation; null = keine Einschränkung
+    allowed: async (tenantId, tx) => permissionsOfPlan(await loadPlan(tx, tenantId)),   // Set<Recht> | null
+  },
+});
+
+const m = await iam.access.modelOf(p.tenantId);   // = model.withRoles(eigene).withModules(aktiv).withPermissions(allowed)
+m.allowedPermissions;                             // Set der gelassenen Rechte oder null
+```
+
+- **Wirkung:** wie die Produktmodule – Rechte ausserhalb von `allowed` fehlen im Modell der Organisation
+  (`Model.withPermissions`): in den Rechten des Principals, in `GET /v1/me` und `GET /auth/me` (`permissions`,
+  `somewhere`), im Katalog `GET /v1/authz/catalog` der Organisation, in Rollen (auch eigenen), Scopes (Rolle ∩ Scope),
+  `owner`, MCP-Werkzeugen, `can`, `need`, Lesesicht und «Warum?». Rollen bleiben zuweisbar; Tupel bleiben bestehen.
+- **Reservierte Rechte bleiben immer** (`tenant:read`, `tenant:admin`, `members:admin`, `access:admin`, `audit:read`,
+  `roles:admin`), damit sich eine Organisation nie aus der eigenen Verwaltung aussperrt. Unbekannte Rechte zählen nicht.
+- **Zwischenspeicher:** `allowed` läuft nur, wenn sich `version` oder der Stand der Organisation (`acl_version`,
+  `ResourceModel.version`) ändert. Ändert die App die Grundlage, muss sich `version` ändern (sonst gilt der alte Stand
+  bis zur nächsten Änderung an Tupeln); auf derselben Instanz wirkt zusätzlich `iam.access.invalidate(tenantId)` sofort.
+- **Transaktion:** beide Funktionen laufen in der Transaktion, die den Stand lädt (Laufzeit-Rolle, Mandantenkontext der
+  Organisation, volle Sicht); `iam.access.modelIn(tx)` ruft `allowed` in der laufenden Transaktion auf.
+- **Mit `modules` im Modell:** es gilt die Schnittmenge aus aktiven Modulen und `allowed`.
+
 ### Produktmodule je Organisation (Modul `modules`)
 
 Ab 6.1 kann das Modell ein Verzeichnis der **Produktmodule** tragen (Konzept
@@ -253,6 +288,9 @@ Ab 6.1 kann das Modell ein Verzeichnis der **Produktmodule** tragen (Konzept
 (`allowed`), die Administration der Organisation aktiviert sie (`active`, Recht `tenant:admin`). Rechte inaktiver
 Module fehlen im Modell der Organisation – `can`, `need`, Scopes, Lesesicht, Katalog und «Warum?» sehen sie nicht.
 Ohne `modules` gilt ein stilles Modul `kern` mit allen Rechten; es ändert sich nichts.
+
+> **Wird ersetzt:** Das Modulkonzept bleibt in 6.x, wird aber in einer späteren Hauptversion aus dem Paket entfernt.
+> Neue Apps setzen ihr eigenes Modulkonzept über den Haken `tenantPermissions` um (Abschnitt oben).
 
 ```ts
 export const model = defineModel({

@@ -19,9 +19,10 @@ import { useAuthz, useAuthzCatalog } from '../authz.ts';
 import type { ModuleBlocker, TenantModule } from '../contract.ts';
 import { fmtDate } from '../format.ts';
 import {
-  activationPlan, choiceKey, dependentsOf, moduleApi, modulesChanged, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, useModulesFeature, usedBy,
+  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, usedBy,
   type ModuleChoice, type ModuleListResult,
-} from '../modules.ts';
+} from '../moduleTools.ts';
+import { modulesChanged, useModulesFeature } from '../modules.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
 import { useIam } from '../session.tsx';
 import { listAnd, t } from '../texts/index.ts';

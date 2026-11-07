@@ -13,7 +13,15 @@ export type IamTexts = Partial<Record<IamTextKey, string>>;
 export type IamLocale = string;
 export type TextVars = Record<string, string | number>;
 
-const BUILTIN: Record<string, IamTexts> = { de, en };
+const BUILTIN: Record<string, IamTexts> = { de: { ...de }, en: { ...en } };
+
+/**
+ * Eingebaute Texte eines Teils ergänzen, der erst bei Bedarf lädt (Seite «Module»: `moduleTools.ts`), damit sie nicht im
+ * Haupteinstieg liegen. Überschreibungen der App (`configureTexts`) gehen weiter vor.
+ */
+export function addBuiltinTexts(add: Record<string, IamTexts>) {
+  for (const [l, texts] of Object.entries(add)) BUILTIN[l] = { ...BUILTIN[l], ...texts };
+}
 /** Region für Datum und Zahlen je Sprache (Schweizer Schreibweise, wo es sie gibt). */
 const INTL: Record<string, string> = { de: 'de-CH', en: 'en-CH', fr: 'fr-CH', it: 'it-CH' };
 
@@ -31,7 +39,7 @@ export const intlLocale = (l: IamLocale = locale): string => INTL[l] ?? l;
 
 function find(key: string, l: IamLocale): string | undefined {
   const k = key as IamTextKey;
-  return custom[l]?.[k] ?? BUILTIN[l]?.[k] ?? custom.de?.[k] ?? (de as Partial<Record<string, string>>)[key];
+  return custom[l]?.[k] ?? BUILTIN[l]?.[k] ?? custom.de?.[k] ?? BUILTIN.de?.[k];
 }
 const lookup = (key: IamTextKey, l: IamLocale): string => find(key, l) ?? key;
 

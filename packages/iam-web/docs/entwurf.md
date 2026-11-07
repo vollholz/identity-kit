@@ -38,7 +38,7 @@ produktneutral wird](#19-was-produktneutral-wird)).
 | Import | Inhalt | Warum getrennt |
 |---|---|---|
 | `@vollholz/iam-web` | `IamProvider`, Hooks, Rechte-Bausteine, Routen-Guard, Kontomenü, Grundkomponenten, `iamRoutes` und `IamNav` | Kern, den jede Seite der App braucht; die Routen liegen hier, damit Router und Navigation der App die Seiten nicht mitladen |
-| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …) | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein |
+| `@vollholz/iam-web/pages` | Verwalten-Seiten (Mitglieder, Rollen, Module, Maschinen-Clients, Anmeldung, Zugriff, Organisationen), ohne Guard (`MembersPage` …) und mit Guard (`MembersScreen` …); Hilfen der Seite «Module» (`moduleApi`, `useModules`, `activationPlan`, …) samt Texten `iam.modules.*` | Die App lädt sie per `lazy()` bzw. `iamRoutes[].load()` nach; der Kern bleibt klein (Prüfung: `test/package.test.ts`, Grösse: `node scripts/size.ts`) |
 | `@vollholz/iam-web/testing` | `StaticIam` (feste Sitzung ohne Server), `mockIamApi` (fetch-Ersatz für `/auth/*` und `/v1/…` des Vertrags), Beispiel-`Me` und Beispielkatalog | Tests der App ohne eigene Nachbildung |
 | `@vollholz/iam-web/styles.css` | Struktur und Aussehen aus `--iam-*` | Einmal in der App importieren |
 

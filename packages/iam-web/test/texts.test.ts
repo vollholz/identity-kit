@@ -6,11 +6,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
-import { de } from '../src/texts/de.ts';
-import { en } from '../src/texts/en.ts';
+import { de as coreDe } from '../src/texts/de.ts';
+import { en as coreEn } from '../src/texts/en.ts';
+import { modulesDe } from '../src/texts/modules.de.ts';
+import { modulesEn } from '../src/texts/modules.en.ts';
 import { configureTexts, format, t, tn, type IamPluralKey } from '../src/texts/index.ts';
 
 afterEach(() => configureTexts({ locale: 'de', texts: {} }));
+
+// Alle eingebauten Texte, auch die mit ihrer Seite geladenen (`iam.modules.*`)
+const de = { ...coreDe, ...modulesDe };
+const en = { ...coreEn, ...modulesEn };
 
 const SRC = join(import.meta.dirname, '..', 'src');
 /** Sichtbar nie «Mandant»/«Tenant» (ausser im Header X-Tenant), «ACL» oder «Principal» (11.2). */

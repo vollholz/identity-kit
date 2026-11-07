@@ -225,7 +225,9 @@ moduleHooks: {
   «Module» (`ModulesSection`) mit Freigeben/Entziehen je Modul und Teilfunktion; Entziehen mit Rückfrage und Wirkung,
   Hindernisse mit «Trotzdem entziehen» (`?force=true`), «Noch gebraucht von …» ohne Entziehen.
 - Aufrufe und Regeln für eigene Oberflächen der App: `moduleApi(alias)`, `useModules(alias)`, `activationPlan`,
-  `dependentsOf`, `moduleErrorText`.
+  `dependentsOf`, `moduleErrorText` aus `@vollholz/iam-web/pages` (ab 3.1.1; mit den Texten `iam.modules.*`, damit
+  der Haupteinstieg klein bleibt). Im Haupteinstieg nur `useIam().modules`, `hasModule`, `modulesChanged` und die
+  Route.
 
 ## 9 Bewusst nicht im Paket
 

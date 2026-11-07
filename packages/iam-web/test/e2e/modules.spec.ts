@@ -99,6 +99,24 @@ test('Touch: Schalter mit Zielfläche ≥ 44 px', async ({ browser }) => {
   await ctx.close();
 });
 
+test('Touch, breit: Zielflächen benachbarter Schalter überlappen nicht, auch bei Zeilen ohne Text', async ({ browser }) => {
+  const ctx = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 900 } });
+  const page = await ctx.newPage();
+  await page.goto('/modules.html');
+  await expect(page.getByRole('switch', { name: 'Kern aktiv' })).toBeVisible();
+  // ungünstigster Fall: Zeilen ohne Beschreibung, Voraussetzungen und Sperrgrund (nur Name, Status, Schalter)
+  await page.locator('.iam-mod-info').evaluateAll(els => els.forEach(e => e.remove()));
+  const hits = await page.locator('.iam-mod-row').evaluateAll(rows => rows.map(r => {
+    const sw = r.querySelector('.iam-mod-switch')!, b = sw.getBoundingClientRect(), a = getComputedStyle(sw, '::after');
+    return { row: r.getBoundingClientRect().height, top: b.top + parseFloat(a.top), bottom: b.bottom - parseFloat(a.bottom) };
+  }));
+  expect(hits).toHaveLength(6);
+  for (const h of hits) expect(h.row, 'Zeile ≥ 44 px').toBeGreaterThanOrEqual(44);
+  const sorted = [...hits].sort((x, y) => x.top - y.top);
+  for (let i = 1; i < sorted.length; i++) expect(sorted[i]!.top, `Zielfläche ${i} überlappt die vorherige`).toBeGreaterThanOrEqual(sorted[i - 1]!.bottom);
+  await ctx.close();
+});
+
 test('per Tastatur: Lohn mit Voraussetzung aktivieren, Abwesenheiten bleibt gebraucht, Lohn deaktivieren', async ({ page }) => {
   await page.goto('/modules.html');
   const lohn = page.getByRole('switch', { name: 'Lohn aktiv' });

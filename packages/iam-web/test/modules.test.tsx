@@ -10,7 +10,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IamNav, makeIamRoutes, useIam, type AuthzCatalog, type Me, type TenantModule } from '../src/index.ts';
-import { activationPlan, dependentsOf, moduleIsOn, moduleLockReason } from '../src/pages/index.ts';
+import { activationPlan, dependentsOf, moduleIsOn, moduleLockReason, type ModuleBlocker as PagesBlocker, type TenantModule as PagesModule } from '../src/pages/index.ts';
 import { ModulesPage, ModulesSection } from '../src/pages/index.ts';
 import { CATALOG, json, mockIamApi, StaticIam, type MockHandler } from '../src/testing/index.tsx';
 import { axeProblems } from './render.tsx';
@@ -99,6 +99,10 @@ describe('Hilfen für eigene Modulseiten', () => {
     expect(moduleIsOn(items.find(m => m.key === 'kern')!)).toBe(true);
     expect(moduleIsOn({ ...items.find(m => m.key === 'kern')!, active: false })).toBe(true);
     expect(moduleIsOn(items.find(m => m.key === 'abwesenheit')!)).toBe(false);
+    // Typen aus beiden Einstiegen dieselben (Prüfung beim Typecheck)
+    const fromPages: PagesModule = items[0]!;
+    const blocker: PagesBlocker = { key: 'b', text: 'Hindernis' };
+    expect([fromPages.key, blocker.text]).toEqual(['kern', 'Hindernis']);
   });
 });
 

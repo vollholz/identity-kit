@@ -15,5 +15,7 @@ export {
   activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleIsOn, moduleLabel, moduleLockReason, moduleRights, partsOf, requirementText, requiresText, useModules, usedBy,
   type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
 } from '../moduleTools.ts';
+// Typen der Liste auch hier (wie im Haupteinstieg), damit eine eigene Modulseite nur aus `/pages` importieren kann
+export type { ModuleBlocker, ModuleRequirement, TenantModule, TenantModuleList } from '../contract.ts';
 export { RolesPage, type RolesPageProps } from './Roles.tsx';
 export { AccountHome, PlatformShell, SignupPage, type AccountHomeProps } from './Account.tsx';

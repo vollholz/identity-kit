@@ -254,6 +254,7 @@ generische Seite tut, steht als Hilfe bereit; die Server-Regeln bleiben dieselbe
 | Rechte des Moduls (Wirkung) | `moduleRights(catalog, key)` | `/pages` |
 | Schalten | `moduleApi(null).setActive(key, active, etag)` → `{ module, etag }` (neues `etag` je Schritt weitergeben); Plattform: `moduleApi(alias).setAllowed(key, allowed, { force, etag })` | `/pages` |
 | Antwort des Servers als Text | `moduleErrorText(error, items, key)` (`title`, `blockers`, `stale` bei 412) | `/pages` |
+| Typen der Liste | `TenantModule`, `ModuleBlocker`, `ModuleRequirement` | Haupteinstieg und `/pages` |
 | Danach Liste, Sitzung und Katalog neu | `modulesChanged(queryClient, alias)` | Haupteinstieg |
 | Arbeitsflächen ein- und ausblenden | `useIam().hasModule(key)`, `useIam().modules` | Haupteinstieg |
 

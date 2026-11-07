@@ -4,6 +4,11 @@ Apps auf `@vollholz/platform` bestehen aus Fachmodulen (`defineModule`). Dieses 
 **Produktmodule**, die der Betrieb je Organisation freigibt und die die Administration einer Organisation zur Laufzeit
 aktiviert und deaktiviert. Erste App: nachtschicht ([docs/modularisierung.md](https://github.com/vollholz/nachtschicht/blob/main/docs/modularisierung.md)).
 
+> **Abgelöst (Entscheid PO, 7.11.2026):** identity-kit behält nur Identität und Rechte. Das Modulkonzept zieht in die
+> Apps; `@vollholz/iam` bietet dafür ab 6.3.0 den generischen Haken «Rechte je Organisation» (`tenantPermissions`,
+> [Abschnitt 13](#13-nachfolger-haken-rechte-je-organisation)). Dieses Konzept bleibt in `@vollholz/iam` 6.x
+> unverändert lauffähig und wird später entfernt (IK-8, zusammen mit `packages/platform`).
+
 Stand: November 2026; umgesetzt in `@vollholz/iam` 6.1.0 (IK-1), `@vollholz/platform` 0.9.0 (IK-2) und `@vollholz/iam` 6.2.0 (IK-5, Startdaten), Abschnitte 5–7
 nach der tatsächlichen API. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`
 (Modell, Tabelle, Rechte, Routen), `@vollholz/platform` (Durchsetzung, Worker, Befehle), `@vollholz/iam-web` (Seite
@@ -24,6 +29,7 @@ alles davon liefert das Modell bzw. die Haken der App.
 10. [Versionen, Migration bestehender Apps](#10-versionen-migration-bestehender-apps)
 11. [Tests und Abnahme](#11-tests-und-abnahme)
 12. [Arbeitspakete](#12-arbeitspakete)
+13. [Nachfolger: Haken «Rechte je Organisation»](#13-nachfolger-haken-rechte-je-organisation)
 
 ## 1 Entscheide
 
@@ -309,3 +315,35 @@ wird die Variante in `migrate`, weil sie deterministisch ist; die Regel beim Lad
 
 IK-1; dann IK-2 ∥ IK-3; zuletzt IK-5. Jedes Paket mit CHANGELOG-Eintrag; Versionen gemeinsam veröffentlicht
 (Renovate-Gruppe «identity-kit» der Apps).
+
+## 13 Nachfolger: Haken «Rechte je Organisation»
+
+Ab `@vollholz/iam` 6.3.0 (IK-H) schränkt die App die wirksamen Rechte einer Organisation über einen generischen Haken
+ein – ohne Modulbegriff im Paket ([Leitfaden](../packages/iam/docs/backend.md#rechte-je-organisation-haken-tenantpermissions)):
+
+```ts
+createIam({
+  // …
+  tenantPermissions: {
+    version: (tenantId, tx) => …,   // ändert sich mit jeder Änderung der Grundlage (Zwischenspeicher)
+    allowed: (tenantId, tx) => …,   // Set der gelassenen Rechte oder null (keine Einschränkung)
+  },
+});
+```
+
+| Thema | Produktmodule (dieses Konzept) | Haken `tenantPermissions` |
+|---|---|---|
+| Wo steht das Verzeichnis? | im Modell (`defineModel({ modules, packages })`, `modul` je Recht) | in der App (eigene Tabelle, eigene Routen, eigene Oberfläche) |
+| Zustand je Organisation | `<schema>.tenant_module` (iam_022) | Daten der App; das Paket liest `tenant_module` nie, wenn das Modell kein `modules` hat |
+| Wirkung auf Rechte | `Model.withModules(aktiv)` | `Model.withPermissions(allowed)` – gleicher Filter: Principal, `/v1/me`, `/auth/me`, Katalog, Rollen (auch eigene), Rolle ∩ Scope, `owner`, MCP-Werkzeuge, Entscheidung |
+| Reservierte Rechte | immer Kern | bleiben immer |
+| Zwischenspeicher | `acl_version` (Trigger auf `tenant_module`) | zusätzlich `version` des Hakens |
+| Durchsetzung an Routen, Jobs, Outbox | `@vollholz/platform` (`modul-inaktiv`) | App |
+
+**Umstieg einer App:** Modulverzeichnis und Zustand in die App übernehmen, daraus die gelassenen Rechte berechnen und
+über `tenantPermissions` liefern; danach `modules` und `packages` aus dem Modell entfernen (`features.modules` ist dann
+aus, Routen `/v1/tenant/modules` entfallen, die Tabelle `tenant_module` bleibt bis zum Entfernen unbenutzt stehen).
+Beide gleichzeitig sind erlaubt: Es gilt die Schnittmenge.
+
+**Später (IK-8, Hauptversion):** Modulkonzept (`modules`, `packages`, `modul`, `withModules`, `tenant_module`, Modul
+`modules`, `moduleHooks`, Startdaten mit Paket) und `packages/platform` werden aus identity-kit entfernt.

@@ -22,7 +22,7 @@ export {
 } from './principal.ts';
 export {
   AccessService, loadCustomRoles, capabilities, capabilitiesFor, canSchema, subjectsOf, live, fullView, pgArray, noFacts, UNIT_DEPTH, TUPLE_COLS,
-  type TenantAccess, type Tuple, type Who, type Facts, type Belong, type PersonEdge, type PersonGrants, type Reason, type ClearanceRow,
+  type TenantAccess, type Tuple, type Who, type Facts, type Belong, type PersonEdge, type PersonGrants, type Reason, type ClearanceRow, type TenantPermissions,
 } from './access.ts';
 export { TupleStore, SUBJECT_PATTERN, accessData, type TupleInput, type TupleActor } from './tuples.ts';
 export { CustomRoles, customRoleKey, type CustomRole, type CustomRoleInput } from './roles.ts';

@@ -173,14 +173,14 @@ export const accountModule: IamModule = {
       config: { iam: { contexts: ['tenant', 'account'] } },
       schema: routeSchema(ctx, 'GET', `${prefix}/authz/catalog`, {
         tags: [TAG_ACCOUNT], summary: 'Rechte, Rollen, Scopes und Orte mit Bezeichnungen',
-        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). In einer Organisation mit ihren eigenen Rollen (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten) und nur mit den Rechten ihrer aktiven Produktmodule (`modules`, je Recht `modul`). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
+        description: 'Für jede angemeldete Person und jeden Client, auch ohne Organisation, ohne Rechteprüfung (nicht vertraulich). In einer Organisation mit ihren eigenen Rollen (`custom: true`, nach den Rollen des Modells, in `types[].roles` an ihren Orten) und nur mit den Rechten ihrer aktiven Produktmodule (`modules`, je Recht `modul`) und den Rechten, die die App der Organisation lässt (Haken `tenantPermissions`). Einzige Quelle für Labels, Rechtegruppen, Rollenbeschreibungen, Scope-Texte, Orte mit ihren Rollen, Stufen der Vertraulichkeit und die MCP-Werkzeuge mit ihrem Recht.',
         response: { 200: authzCatalogSchema(iam.model) },
       }),
     }, async (req, reply) => {
       reply.header('Vary', 'Accept-Language');
-      // In einer Organisation: Modell der App mit ihren eigenen Rollen und nur den Rechten ihrer aktiven Module
+      // In einer Organisation: Modell der App mit ihren eigenen Rollen, nur den Rechten ihrer aktiven Module und eingeschränkt durch tenantPermissions
       const p = req.principal;
-      if (p && (iam.model.features.customRoles || iam.model.features.modules)) return (await iam.access.modelOf(p.tenantId)).toJSON();
+      if (p && (iam.model.features.customRoles || iam.model.features.modules || iam.access.tenantPermissions)) return (await iam.access.modelOf(p.tenantId)).toJSON();
       if (!req.account) req.requirePrincipal();
       return json;
     });

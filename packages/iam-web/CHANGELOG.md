@@ -7,6 +7,18 @@ Abschnitte je Version: **Breaking** (mit Migrationsschritten für Apps), **Hinzu
 **Behoben**. Regel: keine neue Version ohne Eintrag hier (Prüfung in der CI, `scripts/changelog.ts`); der Abschnitt
 der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 
+## [3.2.0] – 2026-11-07
+
+### Hinzugefügt
+
+- **Hilfen für eine eigene Modulseite der App** aus `@vollholz/iam-web/pages`:
+  - `moduleLockReason(items, m, admin, adminPerm)`: Sperrgrund des Schalters wie in der generischen Seite, sonst
+    `null`. Reihenfolge der Gründe: Pflichtmodul, nicht freigegeben, fehlendes Recht, Modul der Teilfunktion aus,
+    Voraussetzung nicht freigegeben.
+  - `moduleIsOn(m)`: eingeschaltet? Pflichtmodule immer.
+- Doku: `docs/module-je-organisation.md` Abschnitt 8 «Eigene Seite statt der generischen» (Zweck → Hilfe →
+  Einstieg) und Verweis im README. Die Seite «Module» nutzt dieselben Hilfen; Darstellung unverändert.
+
 ## [3.1.2] – 2026-11-07
 
 ### Behoben

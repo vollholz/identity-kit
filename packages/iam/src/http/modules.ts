@@ -54,6 +54,7 @@ export const modulesModule: IamModule = {
     const actorOf = (req: FastifyRequest, p: { kind: 'user' | 'client'; principalId: string; name: string; clientId: string | null }): Actor => ({
       principal: { kind: p.kind, principalId: p.principalId, name: p.name, clientId: p.clientId }, source: req.source, correlationId: req.id,
     });
+    // Mit lock: Zeile des Mandanten gesperrt (Schaltungen nacheinander, auch ohne If-Match; setActive/setAllowed sperren ebenfalls)
     const version = async (tx: Tx, lock = false) => Number((await tx.query<{ v: string }>(`SELECT acl_version::text AS v FROM ${S}.tenant WHERE id = app.tenant_id()${lock ? ' FOR UPDATE' : ''}`)).rows[0]?.v ?? 0);
     const withBlockers = async (tx: Tx, tenantId: string, items: ModuleState[]) => Promise.all(items.map(async s => (
       s.active && !s.core ? { ...s, blockers: await svc.blockers(tx, tenantId, s.key) } : s)));

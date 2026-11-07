@@ -281,8 +281,9 @@ const m = await iam.access.modelOf(p.tenantId);                  // = model.with
   `features.tenantSettings` Standard `true`.
 - Daten: `<schema>.tenant_module` (iam_022), geschrieben nur über `app.set_module_allowed`, `app.set_module_active`
   und `app.backfill_modules`. Ohne Zeile: nicht erlaubt (Kern immer aktiv, Teilfunktionen wie ihr Modul). Der Abgleich
-  in `migrate` (mit `model`) belegt bestehende Organisationen mit allen Modulen erlaubt und aktiv; beim ersten Laden
-  einer Organisation ohne Zeilen geschieht dasselbe (Sicherheitsnetz).
+  in `migrate` (mit `model`) belegt bestehende Organisationen mit allen Modulen erlaubt und aktiv (ohne Haken); eine neue
+  Organisation ohne Zeilen wird beim ersten Laden ebenso belegt, mit `einrichten` je Modul (`iam.modules.seed`). Wer
+  eine Organisation mit einem Paket anlegt, schreibt mindestens die Zeile des Kerns, sonst greift diese Belegung.
 - Routen: `GET /v1/tenant/modules`, `PUT /v1/tenant/modules/{key}` `{ active }` (mit `If-Match`), Plattform
   `GET/PUT /v1/platform/organizations/{alias}/modules[/{key}]` `{ allowed }` (`?force=true`). `GET /v1/me` und
   `GET /auth/me` nennen die aktiven Module (`modules`).

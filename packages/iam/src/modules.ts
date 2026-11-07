@@ -153,10 +153,32 @@ export class TenantModules {
   private async rows(tx: Tx): Promise<ModuleRow[]> {
     let rows = await loadModuleRows(tx, this.S);
     if (!rows.length && this.model.features.modules) {
-      await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' });
+      await this.seed(tx, (await tx.query<{ t: string }>('SELECT app.tenant_id()::text AS t')).rows[0]!.t);
       rows = await loadModuleRows(tx, this.S);
     }
     return rows;
+  }
+
+  /**
+   * Neue Organisation ohne Zeilen (nach dem Abgleich in `migrate` angelegt): alle Module erlaubt und aktiv, wie beim
+   * ersten Aktivieren mit `einrichten` je Modul und Teilfunktion (Reihenfolge des Modells), protokolliert. Bestehende
+   * Organisationen belegt `migrate` ohne Haken (sie haben ihre Daten schon). Liefert true, wenn belegt.
+   */
+  async seed(tx: Tx, tenantId: string): Promise<boolean> {
+    if (!await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' })) return false;
+    for (const m of this.model.modules) {
+      for (const k of [m.key, ...m.parts.map(p => p.key)]) await this.hooks[k]?.einrichten?.(tx, tenantId);
+    }
+    return true;
+  }
+
+  /**
+   * Schaltungen einer Organisation nacheinander: sperrt die Zeile des Mandanten bis zum Ende der Transaktion, bevor
+   * Zustand und Voraussetzungen gelesen werden (sonst könnten zwei gleichzeitige Änderungen je für sich gültig sein und
+   * zusammen `requires` verletzen).
+   */
+  private async lock(tx: Tx): Promise<void> {
+    await tx.query(`SELECT 1 FROM ${this.S}.tenant WHERE id = app.tenant_id() FOR UPDATE`);
   }
 
   /** Hindernisse der App vor dem Deaktivieren (leer ohne Haken). */
@@ -176,6 +198,7 @@ export class TenantModules {
   /** Organisation aktiviert bzw. deaktiviert ein Modul oder eine Teilfunktion (Regeln oben). */
   async setActive(tx: Tx, t: ModuleActing, key: string, active: boolean): Promise<ModuleState> {
     const { module, part } = this.info(key);
+    await this.lock(tx);
     if (module.core && !part) throw conflict(`«${module.label}» ist der Kern und immer aktiv.`, { reason: 'kern' });
     const states = await this.list(tx);
     const cur = states.find(s => s.key === key)!;
@@ -215,6 +238,7 @@ export class TenantModules {
    */
   async setAllowed(tx: Tx, t: ModuleActing, key: string, allowed: boolean, o: { force?: boolean } = {}): Promise<ModuleState> {
     const { module, part } = this.info(key);
+    await this.lock(tx);
     if (module.core && !part) throw conflict(`«${module.label}» ist der Kern und immer erlaubt.`, { reason: 'kern' });
     const states = await this.list(tx);
     const cur = states.find(s => s.key === key)!;

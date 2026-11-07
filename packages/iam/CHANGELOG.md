@@ -32,13 +32,14 @@ der Version ist der Text des GitHub Release zum Tag `iam-v<version>`.
     nur lesend), Funktionen `app.set_module_allowed(tenant, module, allowed)`, `app.set_module_active(module, active)`
     und `app.backfill_modules(modules)` (SECURITY DEFINER), Trigger auf `acl_version`. Der Abgleich nach den
     Migrationen (`iamMigrations({ model })`, `syncModules`) belegt jede bestehende Organisation ohne Zeilen mit allen
-    Modulen erlaubt und aktiv (`tenant.module_backfill`); beim ersten Laden einer Organisation ohne Zeilen geschieht
-    dasselbe als Sicherheitsnetz (z. B. neue Organisation).
+    Modulen erlaubt und aktiv (`tenant.module_backfill`, ohne Haken: ihre Daten bestehen schon). Eine Organisation, die
+    danach ohne Zeilen erscheint (neu angelegt), wird beim ersten Laden ebenso belegt, mit `einrichten` der App je Modul
+    und Teilfunktion wie beim ersten Aktivieren (`iam.modules.seed`).
   - `iam.access.load` bildet `base.withRoles(roles).withModules(active)`; `TenantAccess.modules`,
     `iam.access.modulesOf(tenantId)` (zwischengespeichert wie `modelOf`).
   - Routen (Modul `modules`, nur mit `modules` im Modell, Tag «Organisation»): `GET /v1/tenant/modules`
     (`tenant:read`; mit `tenant:admin` auch `blockers`), `PUT /v1/tenant/modules/{key}` `{ active }` (`tenant:admin`,
-    `If-Match` auf `acl_version`; 403 `modul-nicht-erlaubt`, 409 `voraussetzung-fehlt`, `modul-inaktiv`,
+    `If-Match` auf `acl_version`; Schaltungen einer Organisation laufen unter der Sperre ihrer Zeile nacheinander; 403 `modul-nicht-erlaubt`, 409 `voraussetzung-fehlt`, `modul-inaktiv`,
     `abhaengig-aktiv`, `hindernisse`, `kern`), Plattform-Administration `GET
     /v1/platform/organizations/{alias}/modules` und `PUT …/{key}` `{ allowed }` (`?force=true` übergeht Hindernisse).
   - `GET /v1/me` und `GET /auth/me`: `modules` (aktive Module und Teilfunktionen).

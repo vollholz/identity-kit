@@ -130,6 +130,11 @@ export class AccessService<P extends string = string, S = unknown> {
 
   /** Protokoll für die erste Belegung der Module beim Laden (`tenant.module_backfill`). */
   private readonly audit: AuditPort | null;
+  /**
+   * Erste Belegung einer neuen Organisation mit den Haken der App (`TenantModules.seed`, setzt `createIam`); ohne nur
+   * die Zeilen (`backfillModules`).
+   */
+  seedModules: ((tx: Tx, tenantId: string) => Promise<boolean>) | null = null;
 
   constructor(db: Db, o: { model: Model<P>; schema: string; resources?: ResourceModel<S> | null; audit?: AuditPort | null }) {
     this.db = db; this.model = o.model; this.schema = schemaName(o.schema); this.resources = o.resources ?? null; this.audit = o.audit ?? null;
@@ -168,7 +173,10 @@ export class AccessService<P extends string = string, S = unknown> {
       let moduleRows = null as Awaited<ReturnType<typeof loadModuleRows>> | null;
       if (this.model.features.modules && !(hit0 && hit0.version.startsWith(`${acl}:`))) {
         moduleRows = await loadModuleRows(tx, this.schema);
-        if (!moduleRows.length && await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' })) {
+        const seeded = moduleRows.length ? false : this.seedModules
+          ? await this.seedModules(tx, tenantId)
+          : await backfillModules(tx, this.model, this.audit, { principal: null, source: 'system', correlationId: 'iam:module-backfill' });
+        if (seeded) {
           moduleRows = await loadModuleRows(tx, this.schema);
           acl = await version();
         }

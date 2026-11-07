@@ -81,13 +81,16 @@ describe('Produktmodule je Organisation', { skip }, () => {
       await c.query('COMMIT');
     }
     assert.deepEqual(await rows(oldId), ['ansichten', 'kern', 'notizen', 'teams'].map(module => ({ module, allowed: true, active: true })));
+    assert.deepEqual(calls, [], 'bestehende Organisationen: ohne Haken (Daten bestehen schon)');
     assert.equal((await audits(oldId, 'tenant.module_backfill')).length, 1);
   });
 
   test('Sicherheitsnetz beim Laden: neue Organisation ohne Zeilen hat alle Module; /v1/me und /v1/authz/catalog nennen sie', async () => {
     await t.inspect.query('DELETE FROM notes.tenant_module WHERE tenant_id = $1', [demoId]);
     const backfills = (await audits(demoId, 'tenant.module_backfill')).length;
+    calls.length = 0;
     const m = await me('anna');
+    assert.deepEqual(calls, ['einrichten:demo:true'], 'neue Organisation: einrichten wie beim ersten Aktivieren');
     assert.deepEqual(m.modules, ['kern', 'notizen', 'notizen.teilen', 'ansichten', 'teams']);
     assert.ok(m.permissions.includes('view:read') && m.permissions.includes('tenant:admin'));
     assert.equal((await rows(demoId)).length, 4);
@@ -150,6 +153,22 @@ describe('Produktmodule je Organisation', { skip }, () => {
     ok(await setActive('ansichten', true));
     assert.ok((await me('anna')).permissions.includes('view:read'), 'nach erneutem Aktivieren sofort (acl_version)');
     assert.ok((await me('edgar')).somewhere.includes('view:write'));
+  });
+
+  test('Schaltungen nacheinander: auch ohne If-Match wartet ein PUT auf die Sperre des Mandanten', async () => {
+    const c = await (t.runtime as pg.Pool).connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("SELECT set_config('app.tenant_id', $1, true)", [demoId]);
+      await c.query('SELECT 1 FROM notes.tenant WHERE id = $1 FOR UPDATE', [demoId]);
+      let done = false;
+      const put = setActive('teams', false).then(r => { done = true; return r; });
+      await new Promise(r => setTimeout(r, 300));
+      assert.equal(done, false, 'wartet auf die Sperre');
+      await c.query('COMMIT');
+      ok(await put);
+    } finally { c.release(); }
+    ok(await setActive('teams', true));
   });
 
   test('Regeln: abhängiges Modul aktiv 409, Voraussetzung fehlt 409, Teilfunktion ohne Modul 409, Hindernisse 409', async () => {

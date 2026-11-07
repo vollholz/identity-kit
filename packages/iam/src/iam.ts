@@ -139,13 +139,16 @@ export function createIam<P extends string, S = unknown>(o: IamOptions<P, S>): I
   const e = o.cfg.entra;
   const graph = e.clientId && e.clientSecret ? new EntraGraph({ clientId: e.clientId, clientSecret: e.clientSecret, timeoutMs: e.timeoutMs }, o.entraFetch) : null;
   const entra = admin ? new EntraService(deps, admin, graph, { retryMs: o.entraRetryMs, fetch: o.entraFetch }) : null;
+  const modules = o.model.features.modules ? new TenantModules({ schema, model: o.model as Model, audit, events, hooks: o.moduleHooks, invalidate: id => access.invalidate(id) }) : null;
+  // Neue Organisationen ohne Zeilen: Module wie beim ersten Aktivieren belegen (mit einrichten der App)
+  if (modules) access.seedModules = (tx, tenantId) => modules.seed(tx, tenantId);
   const info = new AccessInfo(access, { groupNames: entra ? (tenantId, groupIds) => entra.groupNames(tenantId, groupIds) : null });
   return {
     cfg: o.cfg, model: o.model, db: o.db, schema, resources, audit, events, replay,
     verifier: new TokenVerifier(provider, o.cfg, replay),
     resolver, access, tuples, info, bff, admin, entra,
     roles: o.model.features.customRoles ? new CustomRoles({ schema, access: access as AccessService, audit }) : null,
-    modules: o.model.features.modules ? new TenantModules({ schema, model: o.model as Model, audit, events, hooks: o.moduleHooks, invalidate: id => access.invalidate(id) }) : null,
+    modules,
     async tx(p, fn) {
       const acl = await access.load(p.tenantId);
       const settings = await access.readView(p.tenantId, p, acl);

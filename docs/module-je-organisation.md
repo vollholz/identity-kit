@@ -6,7 +6,8 @@ aktiviert und deaktiviert. Erste App: nachtschicht ([docs/modularisierung.md](ht
 
 Stand: Konzept (November 2026), nicht umgesetzt. Verantwortung: identity-kit. Betroffene Pakete: `@vollholz/iam`
 (Modell, Tabelle, Rechte, Routen), `@vollholz/platform` (Durchsetzung, Worker, Befehle), `@vollholz/iam-web` (Seite
-«Module»).
+«Module»). Das Paket bleibt app-agnostisch: Es kennt keine Modulnamen, keine fachlichen Texte und keine Hindernisse;
+alles davon liefert das Modell bzw. die Haken der App.
 
 ## Inhalt
 
@@ -18,7 +19,7 @@ Stand: Konzept (November 2026), nicht umgesetzt. Verantwortung: identity-kit. Be
 6. [Durchsetzung in der Plattform](#6-durchsetzung-in-der-plattform)
 7. [Lebenszyklus und Pakete](#7-lebenszyklus-und-pakete)
 8. [Oberfläche](#8-oberfläche)
-9. [Tabellen-Bausteine (CSV, XLSX)](#9-tabellen-bausteine-csv-xlsx)
+9. [Bewusst nicht im Paket](#9-bewusst-nicht-im-paket)
 10. [Versionen, Migration bestehender Apps](#10-versionen-migration-bestehender-apps)
 11. [Tests und Abnahme](#11-tests-und-abnahme)
 12. [Arbeitspakete](#12-arbeitspakete)
@@ -196,25 +197,12 @@ sichtbar mit `tenant:read`, bearbeitbar mit `tenant:admin`; Seitentyp Liste + Sc
   zum Kern).
 - Plattform-Administration: in der bestehenden Mandantenliste je Organisation «Module» mit Freigeben/Entziehen.
 
-## 9 Tabellen-Bausteine (CSV, XLSX)
+## 9 Bewusst nicht im Paket
 
-Apps importieren und exportieren Tabellen (Treiberdaten, Planimport, Berichte). Dafür liefert `@vollholz/platform`
-reine Bausteine ohne Netz und ohne Abhängigkeit:
-
-| Baustein | Inhalt |
-|---|---|
-| `csvLesen(text, { trennzeichen?: ';' \| ',' \| '\t' \| 'auto', kopfzeile?: boolean })` | RFC 4180 mit Anführungszeichen und Zeilenumbrüchen in Feldern; Erkennung des Trennzeichens aus der ersten Zeile; BOM; `\r\n`; liefert `{ kopf, zeilen: string[][] }` |
-| `csvSchreiben(zeilen, { trennzeichen?: ';' })` | mit BOM für Excel (UTF-8), Anführungszeichen wo nötig |
-| `xlsxLesen(buffer, { blatt?: string \| number, maxZeilen?, maxBytes? })` | eigener Leser: ZIP (`node:zlib` `inflateRaw`, Zentralverzeichnis, Prüfung der entpackten Grösse ≤ `maxBytes`, Standard 64 MB, keine verschachtelten Archive), `xl/workbook.xml`, `xl/sharedStrings.xml`, `xl/worksheets/sheetN.xml`; Zelltypen `n`, `s`, `str`, `inlineStr`, `b`, `d`; Datumsformate über `styles.xml` (`numFmtId` 14–22, 45–47 und eigene Formate mit `d`/`m`/`y`/`h`) → ISO-Text; keine Formeln (nur gespeicherte Werte), keine Makros, keine externen Verweise; liefert `{ blaetter: string[], kopf, zeilen: (string \| number \| boolean \| null)[][] }` |
-| `xlsxSchreiben({ blaetter: [{ name, kopf, zeilen, spalten?: { breite, format: 'text' \| 'zahl' \| 'datum' }[] }] })` | eigener Schreiber (ZIP `deflateRaw`), Inline-Strings, Datumswerte als Serial mit Format, Kopfzeile fett, Autofilter |
-| `tabelleLesen(buffer, contentType, o)` | wählt nach Typ (`text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), prüft Magic Bytes (`PK\x03\x04` bzw. Text ohne Nullbytes) |
-
-Begründung «eigener Leser statt Bibliothek»: Die gängigen Pakete (`exceljs`, `xlsx`) sind gross, ziehen
-Abhängigkeiten nach und hatten Sicherheitsmeldungen (Prototype Pollution, ReDoS); die benötigte Teilmenge (Werte eines
-Blatts) ist klein und mit Tests abgesichert (Dateien aus Excel, LibreOffice, Google Sheets, Numbers). Grenzen schützen
-vor ZIP-Bomben (Verhältnis entpackt/gepackt ≤ 200, absolute Obergrenze) und tiefen XML-Strukturen (kein DTD, keine
-Entitäten ausser den fünf vordefinierten). Reicht die Teilmenge nicht (z. B. Formeln), wird der Entscheid in der App
-neu bewertet, nicht hier erweitert.
+Tabellen lesen und schreiben (CSV, XLSX) brauchen Apps für Importe und Exporte; das ist kein Querschnitt der
+Identität oder des Betriebs. Nachtschicht hält dafür einen eigenen Baustein `src/tabellen/` in der App
+([modularisierung.md FM-M11](https://github.com/vollholz/nachtschicht/blob/main/docs/modularisierung.md#1-entscheide)).
+Braucht eine zweite App dasselbe, wird daraus ein eigenes Paket `@vollholz/tabellen`, nicht Teil von `@vollholz/platform`.
 
 ## 10 Versionen, Migration bestehender Apps
 
@@ -242,7 +230,6 @@ wird die Variante in `migrate`, weil sie deterministisch ist; die Regel beim Lad
 | Aktivieren und Deaktivieren | Voraussetzung fehlt 409; abhängiges Modul aktiv 409; Hindernisse 409; `einrichten` genau einmal; `nachholen` mit `seit`; Kern nie; nicht erlaubt 403; Audit beide Protokolle |
 | Pakete | `tenant create --paket` setzt genau die Menge; `off`-Teilfunktionen aus; unbekanntes Paket Exit 64 |
 | Migration bestehender Organisationen | nach `migrate` alle Module erlaubt und aktiv; Verhalten der Fixture-App unverändert |
-| Tabellen | CSV: Trennzeichen, Anführungszeichen, BOM, `\r\n`; XLSX: Dateien aus Excel, LibreOffice, Google Sheets, Numbers (Fixtures), Datum und Zeit, leere Zellen, 100 000 Zeilen < 2 s, ZIP-Bombe abgelehnt, DTD abgelehnt; Schreiben → Lesen identisch |
 | Mandantentrennung | `tenant_module` in der RLS-Matrix des Pakets; Organisation B sieht und ändert nichts von A |
 
 ## 12 Arbeitspakete
@@ -252,8 +239,7 @@ wird die Variante in `migrate`, weil sie deterministisch ist; die Regel beim Lad
 | **IK-1** Modell und Rechte | `feat/module-modell` | `@vollholz/iam`: `modules`, `packages`, `modul` an Rechten, `withModules`, `moduleOf`; Migration `iam_022_tenant_module.sql` mit Funktionen und Trigger; `Access.load` mit Modulen, `modulesOf`; Routen `GET/PUT /v1/tenant/modules`, Plattform-Routen; `GET /v1/me.modules`; Katalog; Ereignisse `module.*`; Backfill in `migrate`; Tests | – |
 | **IK-2** Durchsetzung und Befehle | `feat/module-plattform` | `@vollholz/platform`: `modul` an Modul, Route, Job, Aufgabe, Abnehmer, Werkzeug; Hook 403; Worker (Jobs `skipped`, `ctx.tenants(modul)`, Outbox); MCP-Filter; `moduleHooks` (einrichten, hindernisse, nachholen) mit Auftrag `platform.module-nachholen`; `checkModules`; OpenAPI `x-modul`; Befehle `tenant create --paket`, `tenant modules`; Fixture-App mit zwei Modulen; Tests | IK-1 |
 | **IK-3** Seite «Module» | `feat/module-web` | `@vollholz/iam-web`: Seite, `useIam().modules`, `hasModule`; Plattform-Administration; Tests (axe, Tastatur) | IK-1 |
-| **IK-4** Tabellen-Bausteine | `feat/tabellen-csv-xlsx` | `@vollholz/platform`: `csvLesen`, `csvSchreiben`, `xlsxLesen`, `xlsxSchreiben`, `tabelleLesen`; Fixtures; Leistungs- und Sicherheitstests | – |
 | **IK-5** create-iam-app | `feat/module-startdaten` | `identity.app.json` › `organizations[].package`; Startdaten mit Paket; Doku in `neue-app.md` | IK-2 |
 
-IK-1 ∥ IK-4; dann IK-2 ∥ IK-3; zuletzt IK-5. Jedes Paket mit CHANGELOG-Eintrag; Versionen gemeinsam veröffentlicht
+IK-1; dann IK-2 ∥ IK-3; zuletzt IK-5. Jedes Paket mit CHANGELOG-Eintrag; Versionen gemeinsam veröffentlicht
 (Renovate-Gruppe «identity-kit» der Apps).

@@ -28,14 +28,14 @@ test('Module: Namen, Jobs, Aufgaben, Tags und Werkzeuge eindeutig', () => {
   assert.throws(() => checkModules([defineModule({ name: 'a', jobs: [job] }), defineModule({ name: 'b', jobs: [job] })]), /Job-Art «a.b» doppelt/);
   assert.throws(() => checkModules([defineModule({ name: 'a', tags: [{ name: 'T', description: '' }] }), defineModule({ name: 'b', tags: [{ name: 'T', description: '' }] })]), /Tag «T» doppelt/);
   // Oberfläche zuletzt, Werkzeuge aus den Modulen
-  assert.deepEqual(app.modules.map(m => m.name), ['notiz', 'ui']);
-  assert.deepEqual(Object.keys(app.tools).sort(), ['get_notiz', 'list_notizen']);
+  assert.deepEqual(app.modules.map(m => m.name), ['notiz', 'bericht', 'ui']);
+  assert.deepEqual(Object.keys(app.tools).sort(), ['get_bericht', 'get_notiz', 'list_notizen']);
 });
 
 test('Werkzeuge: jedes Werkzeug des Modells umgesetzt und umgekehrt', () => {
-  const { list_notizen, get_notiz } = app.tools;
-  assert.throws(() => checkTools({ model: platform.model, tools: { list_notizen: list_notizen! } }), /get_notiz: im Modell, aber ohne Umsetzung/);
-  assert.throws(() => checkTools({ model: platform.model, tools: { list_notizen: list_notizen!, get_notiz: get_notiz!, extra: get_notiz! } }), /extra: umgesetzt, aber nicht im Modell/);
+  const { list_notizen, get_notiz, get_bericht } = app.tools;
+  assert.throws(() => checkTools({ model: platform.model, tools: { list_notizen: list_notizen!, get_bericht: get_bericht! } }), /get_notiz: im Modell, aber ohne Umsetzung/);
+  assert.throws(() => checkTools({ model: platform.model, tools: { list_notizen: list_notizen!, get_notiz: get_notiz!, get_bericht: get_bericht!, extra: get_notiz! } }), /extra: umgesetzt, aber nicht im Modell/);
 });
 
 test('Verschlüsselung: gebunden an Produkt, Mandant, Zweck und Datensatz; Rotation auf den ersten Schlüssel', () => {

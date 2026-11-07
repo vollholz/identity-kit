@@ -5,7 +5,8 @@
  *   api | worker | mcp                      Prozess starten
  *   migrate                                 Migrationen (DATABASE_ADMIN_URL)
  *   tenant list
- *   tenant create <alias> [--name <name>]
+ *   tenant create <alias> [--name <name>] [--paket <key>]
+ *   tenant modules <alias> [--erlauben a,b] [--entziehen c] [--paket <key> [--nur-erlauben]] [--force]
  *   tenant suspend <alias> [--reason <text>]
  *   tenant resume <alias>
  *   tenant delete <alias> --confirm <alias>
@@ -13,15 +14,23 @@
  *
  * Verbindungen je auch als `_FILE`: DATABASE_ADMIN_URL (Besitzer), DATABASE_URL (Laufzeit); TLS aller Verbindungen nach
  * DATABASE_SSL (disable | require | verify-full, wie API und Worker).
+ *
+ * Produktmodule (nur mit `modules` im Modell): `tenant create --paket` legt nur die Module des Pakets erlaubt und aktiv
+ * an (ohne: alle, wie bisher); `tenant modules` listet, gibt frei (`--erlauben`), entzieht (`--entziehen`, mit
+ * `--force` trotz Hindernissen der App) oder wendet ein Paket erneut an (`--paket`, `--nur-erlauben` lässt aktiv
+ * unverändert). Unbekanntes Paket oder Modul: Exit 64.
  */
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { dbSslFromEnv, parseEncryptionKeys, pgSsl, validateKeyring, type DbSsl, type Keyring } from '@vollholz/iam';
 import pg from 'pg';
 import type { PlatformApp } from '../app.ts';
+import { TenantUsageError } from '../ops/tenants.ts';
 import { startApi, startMcp, startWorker } from './start.ts';
 
-const USAGE = 'Befehl: api | worker | mcp | migrate | tenant <list|create|suspend|resume|delete> | rotate-keys [--dry-run]';
+const USAGE = 'Befehl: api | worker | mcp | migrate | tenant <list|create|modules|suspend|resume|delete> | rotate-keys [--dry-run]';
+const TENANT_USAGE = 'tenant: list | create <alias> [--paket <key>] | modules <alias> [--erlauben a,b] [--entziehen c] [--paket <key> [--nur-erlauben]] [--force] | suspend <alias> | resume <alias> | delete <alias> --confirm <alias>';
+const list = (v: string | undefined) => (v ?? '').split(',').map(x => x.trim()).filter(Boolean);
 
 export async function runCli(app: PlatformApp, argv: string[] = process.argv.slice(2), env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const read = (k: string) => env[k] || (env[`${k}_FILE`] ? readFileSync(env[`${k}_FILE`]!, 'utf8').trim() : '');
@@ -31,7 +40,10 @@ export async function runCli(app: PlatformApp, argv: string[] = process.argv.sli
   const ssl = pgSsl(sslMode);
   const { values: a, positionals: [cmd, sub, alias] } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { name: { type: 'string' }, reason: { type: 'string' }, confirm: { type: 'string' }, 'dry-run': { type: 'boolean' } },
+    options: {
+      name: { type: 'string' }, reason: { type: 'string' }, confirm: { type: 'string' }, 'dry-run': { type: 'boolean' },
+      paket: { type: 'string' }, erlauben: { type: 'string' }, entziehen: { type: 'string' }, 'nur-erlauben': { type: 'boolean' }, force: { type: 'boolean' },
+    },
   });
 
   switch (cmd) {
@@ -47,20 +59,28 @@ export async function runCli(app: PlatformApp, argv: string[] = process.argv.sli
       return;
     }
     case 'tenant': {
-      if (!sub || !['list', 'create', 'suspend', 'resume', 'delete'].includes(sub)) fail('tenant: list | create <alias> | suspend <alias> | resume <alias> | delete <alias> --confirm <alias>', 64);
+      if (!sub || !['list', 'create', 'modules', 'suspend', 'resume', 'delete'].includes(sub)) fail(TENANT_USAGE, 64);
       if (sub !== 'list' && !alias) fail(`tenant ${sub}: Alias fehlt`, 64);
+      const model = app.platform.model;
+      if ((a.paket !== undefined || sub === 'modules') && !model.features.modules) fail(`tenant ${sub}: Das Modell der App hat keine Produktmodule (modules)`, 64);
+      if (a.paket !== undefined && !model.packages.some(x => x.key === a.paket)) fail(`Paket «${a.paket}» nicht im Modell (bekannt: ${model.packages.map(x => x.key).join(', ') || 'keine'})`, 64);
+      if (a.paket !== undefined && sub !== 'create' && sub !== 'modules') fail(`tenant ${sub}: --paket nur mit create oder modules`, 64);
       const adminUrl = read('DATABASE_ADMIN_URL') || fail('DATABASE_ADMIN_URL (bzw. _FILE) fehlt', 78);
       const runtimeUrl = read('DATABASE_URL') || (sub === 'list' || sub === 'delete' ? adminUrl : fail('DATABASE_URL (bzw. _FILE) fehlt', 78));
       const d = { admin: new pg.Pool({ connectionString: adminUrl, max: 2, ssl }), runtime: new pg.Pool({ connectionString: runtimeUrl, max: 2, ssl }) };
       try {
         const out = sub === 'list' ? await app.tenants.list(d)
-          : sub === 'create' ? await app.tenants.create(d, alias!, a.name)
+          : sub === 'create' ? await app.tenants.create(d, alias!, a.name, a.paket ? { paket: a.paket } : {})
+          : sub === 'modules' ? await app.tenants.modules(d, alias!, {
+            erlauben: list(a.erlauben), entziehen: list(a.entziehen), ...(a.paket ? { paket: a.paket } : {}),
+            nurErlauben: a['nur-erlauben'] ?? false, force: a.force ?? false,
+          })
           : sub === 'suspend' ? await app.tenants.suspend(d, alias!, a.reason ?? '')
           : sub === 'resume' ? await app.tenants.resume(d, alias!)
           : await app.tenants.delete(d, alias!, a.confirm ?? '');
         console.log(JSON.stringify(out, null, 2));
       } catch (e) {
-        fail((e as Error).message, 1);
+        fail((e as Error).message, e instanceof TenantUsageError ? 64 : 1);
       } finally { await Promise.all([d.admin.end(), d.runtime.end()]); }
       return;
     }

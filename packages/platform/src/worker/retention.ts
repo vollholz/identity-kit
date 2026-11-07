@@ -15,7 +15,7 @@ export const retentionTask: PeriodicTask = {
   name: 'retention',
   intervalMs: () => 60 * 60_000,
   async run({ db, cfg, log, platform }) {
-    const jobs = await db.query(`DELETE FROM ${platform.schema}.job WHERE status IN ('done', 'failed') AND finished_at < now() - make_interval(secs => $1)`, [cfg.app.worker.jobRetentionMs / 1000]);
+    const jobs = await db.query(`DELETE FROM ${platform.schema}.job WHERE status IN ('done', 'failed', 'skipped') AND finished_at < now() - make_interval(secs => $1)`, [cfg.app.worker.jobRetentionMs / 1000]);
     const idem = await db.query(`DELETE FROM ${platform.schema}.idempotency_key WHERE expires_at < now()`);
     const events = await db.query(`DELETE FROM ${platform.schema}.outbox_event WHERE dispatched_at < now() - make_interval(secs => $1)`, [cfg.app.events.outboxRetentionMs / 1000]);
     log.info({ jobs: jobs.rowCount, idempotency: idem.rowCount, events: events.rowCount }, 'Aufbewahrung: gelöscht');

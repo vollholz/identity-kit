@@ -22,6 +22,7 @@ export async function startApi(a: PlatformApp, env: NodeJS.ProcessEnv = process.
   const { app, iam } = await a.createApi(cfg, db, { ready: () => runtime.ready });
   runtime = createRuntime({ service: 'api', shutdownDelayMs: cfg.app.ops.shutdownDelayMs, shutdownTimeoutMs: cfg.app.ops.shutdownTimeoutMs, log: app.log });
   for (const w of iamWarnings(cfg, 'api')) app.log.warn({}, w);
+  for (const w of a.warnings) app.log.warn({}, w);
 
   const checks = readinessChecks(iam);
   const ops = await startOpsServer({
@@ -42,6 +43,7 @@ export async function startWorker(a: PlatformApp, env: NodeJS.ProcessEnv = proce
   const cfg = a.configOrExit(env, 'worker');
   const log = pino({ level: cfg.app.logLevel, redact: { paths: REDACT_PATHS, censor: '[entfernt]' }, base: { service: 'worker' } });
   for (const w of iamWarnings(cfg, 'worker')) log.warn({}, w);
+  for (const w of a.warnings) log.warn({}, w);
 
   const db = createPool(cfg.db.workerUrl, cfg, `${a.platform.context.product}-worker`);
   const runtime = createRuntime({ service: 'worker', shutdownDelayMs: cfg.app.ops.shutdownDelayMs, shutdownTimeoutMs: cfg.app.ops.shutdownTimeoutMs, log });

@@ -17,6 +17,7 @@ export async function issueAbo(tx: Tx, principalId: string): Promise<string> {
 
 export const aboRoute: PublicRoute = {
   name: 'notiz-abo',
+  modul: 'notizen.abo',
   url: '/abo/notizen/:datei',
   credentials: req => aliasToken((req.params as { datei?: string }).datei, { suffix: '.txt' }),
   scopes: ['probe:read'],

@@ -3,7 +3,7 @@
  * Migrationen, OpenAPI-Export, Doku der Konfiguration, Mandanten und Rotation – je aus denselben Modulen. Die
  * Einstiegspunkte der App sind damit eine Zeile (`await app.startApi()`).
  */
-import { createIam, type DbSsl, type IamEvents, type IamOptions, type Keyring, type MigrationResult, type Service, type VarSpec } from '@vollholz/iam';
+import { createIam, type DbSsl, type IamEvents, type IamOptions, type Keyring, type MigrationResult, type ModuleHooks, type Service, type VarSpec } from '@vollholz/iam';
 import type { FastifyServerOptions } from 'fastify';
 import { configOrExit, loadPlatformConfig, platformVars, type ConfigCheck, type PlatformConfig } from './config/env.ts';
 import { envDocs, type EnvDocsOptions } from './config/docs.ts';
@@ -17,7 +17,8 @@ import { buildMcpApp, checkTools } from './mcp/server.ts';
 import type { ToolDef } from './mcp/tools.ts';
 import { checkModules, type PlatformModule } from './module.ts';
 import { entraRewrapper, rotateKeys } from './ops/rotation.ts';
-import { tenantCreate, tenantDelete, tenantList, tenantResume, tenantSuspend, type TenantDbs } from './ops/tenants.ts';
+import { tenantCreate, tenantDelete, tenantList, tenantModules, tenantResume, tenantSuspend, type TenantDbs, type TenantModulesChange, type TenantModulesResult } from './ops/tenants.ts';
+import { moduleHooksFor, nachholenJob } from './worker/module-hooks.ts';
 import type { Platform } from './platform.ts';
 import { outboxTask } from './worker/outbox.ts';
 import { Worker, type Log } from './worker/queue.ts';
@@ -45,6 +46,13 @@ export interface AppSpec {
    * (`MemberSync`). Für die Outbox: `after: (tx, e) => platform.emit(tx, 'iam.' + e.type, e.subject, e.data)`.
    */
   iamEvents?: IamEvents;
+  /**
+   * Haken der App je Produktmodul bzw. Teilfunktion `modul.teil` (nur mit `modules` im Modell), alle in der Transaktion
+   * der Änderung im Kontext der Organisation: `einrichten` beim ersten Aktivieren, `hindernisse` vor dem Deaktivieren
+   * (409 mit den Hindernissen), `nachholen` beim erneuten Aktivieren – als Auftrag `platform.module-nachholen` im Worker
+   * (mit `seit` = letztes Deaktivieren). Gilt in API, Worker und Befehlen (`tenant create --paket`, `tenant modules`).
+   */
+  moduleHooks?: ModuleHooks;
 }
 
 export interface CreateApiOptions {
@@ -74,49 +82,71 @@ export interface PlatformApp {
   migrate(adminUrl: string, o?: ((m: string) => void) | { log?: (m: string) => void; ssl?: DbSsl }): Promise<MigrationResult>;
   /** Haken der App an den Baukasten (AppSpec.iamEvents) oder null. */
   readonly iamEvents: IamEvents | null;
+  /**
+   * Haken je Produktmodul, wie `createIam` sie erhält (`nachholen` reiht den Auftrag `platform.module-nachholen` ein), oder
+   * null ohne `moduleHooks`.
+   */
+  readonly moduleHooks: ModuleHooks | null;
+  /** Hinweise aus der Prüfung der Module (z. B. Produktmodul ohne Code); API und Worker melden sie beim Start. */
+  readonly warnings: readonly string[];
   openApi(): Promise<Record<string, unknown>>;
   envDocs(o?: EnvDocsOptions): { env: string; md: string };
   rotateKeys(o: { db: Db; keys: Keyring; dryRun?: boolean }): Promise<Record<string, number>>;
   readonly tenants: {
     list: typeof tenantList;
-    create(d: TenantDbs, alias: string, name?: string): ReturnType<typeof tenantCreate>;
+    /** Anlegen; mit `paket` nur dessen Module erlaubt und aktiv (sonst wie bisher: alle beim ersten Laden). */
+    create(d: TenantDbs, alias: string, name?: string, o?: { paket?: string }): ReturnType<typeof tenantCreate>;
+    /** Module einer Organisation lesen bzw. freigeben, entziehen oder ein Paket anwenden (Betrieb). */
+    modules(d: TenantDbs, alias: string, change?: TenantModulesChange): Promise<TenantModulesResult>;
     suspend(d: TenantDbs, alias: string, reason?: string): ReturnType<typeof tenantSuspend>;
     resume(d: TenantDbs, alias: string): ReturnType<typeof tenantResume>;
     delete(d: TenantDbs, alias: string, confirm: string): ReturnType<typeof tenantDelete>;
   };
 }
 
+/** Teil eines Code-Moduls mit dessen `modul`, sofern der Teil keines nennt. */
+const withModul = <T extends { modul?: string }>(x: T, modul: string | undefined): T => (x.modul === undefined && modul !== undefined ? { ...x, modul } : x);
+
 export function defineApp(spec: AppSpec): PlatformApp {
   const { platform } = spec;
   const ctx = platform.context;
   const events = spec.iamEvents ?? null;
+  if (spec.moduleHooks && Object.keys(spec.moduleHooks).length && !platform.model.features.modules) throw new Error('moduleHooks ohne modules im Modell');
+  const hooks = moduleHooksFor(ctx, spec.moduleHooks ?? null);
+  const hookOpts = hooks ? { moduleHooks: hooks } : {};
   // Verwaltung im Worker über dessen Pool; ohne Zugang zu Keycloak (der Worker bekommt das Geheimnis nur, wenn er es braucht) null
   const workerAdmin = (cfg: PlatformConfig, db: Db, o: CreateWorkerOptions) => {
     const m = cfg.mgmt;
     if (!m.clientId || !(m.privateKey || m.clientSecret)) return null;
-    return createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, bff: false, ...o.iam }).admin;
+    return createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, bff: false, ...hookOpts, ...o.iam }).admin;
   };
-  checkModules(spec.modules);
+  const warnings = checkModules(spec.modules, platform.model);
   checkPublicRoutes(spec.modules.flatMap(m => m.publicRoutes ?? []), platform.model.scopes);
   const modules = spec.ui === false ? [...spec.modules] : [...spec.modules, uiModule];
   const vars = platformVars(ctx.product, spec.vars);
-  const tools: Record<string, ToolDef> = Object.assign({}, ...spec.modules.map(m => m.mcpTools ?? {}));
+  const tools: Record<string, ToolDef> = Object.assign({}, ...spec.modules.map(m => Object.fromEntries(Object.entries(m.mcpTools ?? {}).map(([k, t]) => [k, withModul(t, m.modul)]))));
+  const modulesCtx = () => ({ model: platform.model, audit: platform.audit, events, hooks });
   if (Object.keys(platform.model.mcpTools).length || Object.keys(tools).length) checkTools({ model: platform.model, tools });
   const people = spec.people ? { people: spec.people } : {};
 
   return {
-    platform, modules, vars, tools, iamEvents: events,
+    platform, modules, vars, tools, iamEvents: events, moduleHooks: hooks, warnings,
     loadConfig: (env, service) => loadPlatformConfig(env, service, vars, spec.check),
     configOrExit: (env, service) => configOrExit(env, service, vars, spec.check),
     async createApi(cfg, db, o = {}) {
-      const iam = createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, ...o.iam });
+      const iam = createIam({ cfg, model: platform.model, resources: platform.resources, db, schema: ctx.schema, audit: platform.audit, events, ...hookOpts, ...o.iam });
       const app = await buildApp({ platform: ctx, cfg, db, iam, ready: o.ready ?? (() => true) }, { modules, ...people, ...(o.fastify ? { fastify: o.fastify } : {}) });
       return { app, iam };
     },
     createWorker: (cfg, db, log, o = {}) => new Worker({
-      platform: ctx, fullTx: platform.fullTx, db, cfg, log, admin: workerAdmin(cfg, db, o),
-      jobs: spec.modules.flatMap(m => m.jobs ?? []),
-      tasks: [purgeSharedStateTask, retentionTask, outboxTask(spec.modules.flatMap(m => m.consumers ?? [])), ...spec.modules.flatMap(m => m.tasks ?? [])],
+      platform: ctx, fullTx: platform.fullTx, db, cfg, log, admin: workerAdmin(cfg, db, o), model: platform.model,
+      // Teile ohne eigenes modul erhalten das des Code-Moduls (auch ohne defineModule)
+      jobs: [...spec.modules.flatMap(m => (m.jobs ?? []).map(j => withModul(j, m.modul))), ...(hooks ? [nachholenJob(ctx, spec.moduleHooks ?? {}, platform.model)] : [])],
+      tasks: [
+        purgeSharedStateTask, retentionTask,
+        outboxTask(spec.modules.flatMap(m => (m.consumers ?? []).map(c => withModul(c, m.modul))), platform.model),
+        ...spec.modules.flatMap(m => (m.tasks ?? []).map(t => withModul(t, m.modul))),
+      ],
     }),
     buildMcp: (cfg, o = {}) => buildMcpApp({ platform: ctx, model: platform.model, tools }, cfg, o),
     migrate: (adminUrl, o = {}) => runMigrations(adminUrl, ctx, platform.model, { ...spec.migrations, ...(typeof o === 'function' ? { log: o } : o) }),
@@ -132,7 +162,8 @@ export function defineApp(spec: AppSpec): PlatformApp {
     }),
     tenants: {
       list: tenantList,
-      create: (d, alias, name) => tenantCreate(ctx, d, alias, name),
+      create: (d, alias, name, o = {}) => tenantCreate(ctx, d, alias, name, { ...modulesCtx(), ...(o.paket ? { paket: o.paket } : {}) }),
+      modules: (d, alias, change = {}) => tenantModules(ctx, d, alias, modulesCtx(), change),
       suspend: (d, alias, reason) => tenantSuspend(ctx, d, alias, reason),
       resume: (d, alias) => tenantResume(ctx, d, alias),
       delete: (d, alias, confirm) => tenantDelete(ctx, d, alias, confirm),

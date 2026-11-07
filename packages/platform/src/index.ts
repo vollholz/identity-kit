@@ -10,8 +10,10 @@
 // Deklaration bleibt in dist/index.d.ts, die App braucht @fastify/swagger nicht selbst.
 /// <reference types="@fastify/swagger" preserve="true" />
 export { definePlatform, type Platform, type PlatformSpec } from './platform.ts';
+// Haken der App je Produktmodul (`defineApp({ moduleHooks })`), Typen aus @vollholz/iam
+export type { ModuleBlocker, ModuleHook, ModuleHooks, ModuleState } from '@vollholz/iam';
 export { defineApp, type AppSpec, type CreateApiOptions, type CreateWorkerOptions, type PlatformApp } from './app.ts';
-export { defineModule, checkModules, type ApiTag, type PlatformModule } from './module.ts';
+export { defineModule, checkModules, modulOf, type ApiTag, type PlatformModule } from './module.ts';
 export { platformContext, type ContextSpec, type PlatformContext } from './context.ts';
 
 // Konfiguration
@@ -42,7 +44,7 @@ export { platformMigrations, runMigrations, PLATFORM_MIGRATIONS_DIR, type Platfo
 export { fullTxOf, type FullTx } from './authz/view.ts';
 
 // HTTP
-export { API_CSP, DOCS_CSP, apiPaths, apiTags, buildApp, fastifyOptions, setSpanContext, type App, type BuildOptions, type Deps } from './http/app.ts';
+export { API_CSP, DOCS_CSP, apiPaths, apiTags, buildApp, fastifyOptions, moduleInactive, setSpanContext, type App, type BuildOptions, type Deps } from './http/app.ts';
 export { registerIdempotency } from './http/idempotency.ts';
 export {
   PUBLIC_TOKEN, aliasToken, checkPublicRoutes, publicNotFound, publicToken, publicTokenHash, registerPublicRoutes,
@@ -56,7 +58,9 @@ export {
 export { registerUi, safePath, uiCsp, uiModule } from './http/ui.ts';
 
 // Worker
-export { Worker, PermanentJobError, backoffMs, claimLockKey, enqueue, type JobContext, type JobDefinition, type Log, type PeriodicTask } from './worker/queue.ts';
+export { Worker, PermanentJobError, backoffMs, claimLockKey, enqueue, type JobContext, type JobDefinition, type Log, type PeriodicTask, type TaskContext, type TaskTenant } from './worker/queue.ts';
+export { activeModulesIn, activeModulesOf, tenantsWith } from './worker/modules.ts';
+export { NACHHOLEN_JOB, moduleHooksFor, nachholenJob, type NachholenPayload } from './worker/module-hooks.ts';
 export { outboxTask, type OutboxConsumer, type OutboxEvent } from './worker/outbox.ts';
 export { purgeSharedStateTask, retentionTask } from './worker/retention.ts';
 export { startMemberSync } from './worker/member-sync.ts';
@@ -67,7 +71,10 @@ export { createRuntime, type Runtime, type RuntimeLog, type RuntimeOptions } fro
 export { startOpsServer, type OpsServerOptions } from './ops/server.ts';
 export { meter, shutdownTelemetry, startTelemetry, telemetryEnabled, tracer, TRACER_NAME, type TelemetryOptions } from './ops/telemetry.ts';
 export { entraRewrapper, rotateKeys, type Rewrapper } from './ops/rotation.ts';
-export { tenantCreate, tenantDelete, tenantList, tenantResume, tenantSuspend, type TenantDbs } from './ops/tenants.ts';
+export {
+  TenantUsageError, tenantCreate, tenantDelete, tenantList, tenantModules, tenantResume, tenantSuspend,
+  type TenantDbs, type TenantModulesChange, type TenantModulesContext, type TenantModulesResult,
+} from './ops/tenants.ts';
 
 // MCP
 export { buildMcpApp, buildToolServer, checkTools, type McpOptions } from './mcp/server.ts';

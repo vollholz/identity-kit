@@ -298,6 +298,11 @@
             "minLength": 1,
             "type": "string"
           },
+          "package": {
+            "pattern": "^[a-z][a-z0-9-]{1,30}$",
+            "description": "Paket des Modells (packages) beim Anlegen: nur dessen Module erlaubt und aktiv; ohne Angabe alle Module",
+            "type": "string"
+          },
           "admins": {
             "minItems": 1,
             "description": "org-admin der Organisation, nie die Plattform-Administration",

@@ -9,10 +9,20 @@ der Version ist der Text des GitHub Release zum Tag `create-iam-app-v<version>`.
 
 ## [Unveröffentlicht]
 
+## [0.9.0] – 2026-11-07
+
+### Hinzugefügt
+
+- Manifest: `organizations[].package` (Paket des Modells für die erste Belegung der Organisation; Schema aus
+  `@vollholz/iam-testkit` 2.10.0). `npm run identity:first-org` (`iam-org-bootstrap --manifest`, `@vollholz/iam` 6.2)
+  übergibt es; der Konformitätstest prüft, dass das Paket im Modell steht. Die verwaltete Datei
+  `docs/identity-kit.md` beschreibt das Feld und die Reihenfolge mit dem Befehl der App.
+
 ### Geändert
 
-- Abhängigkeit `@vollholz/iam-testkit` 2.9.0 (Konformität mit den Produktmodulen aus `@vollholz/iam` 6.1); erscheint
-  mit der nächsten Version.
+- Vorlagen für `@vollholz/iam` 6.2.0 und `@vollholz/iam-testkit` 2.10.0 (Konformität mit den Produktmodulen aus
+  `@vollholz/iam` 6.1); bestehende Apps heben die Pakete an und schreiben die verwalteten Dateien mit
+  `npx @vollholz/create-iam-app@0.9.0 sync` neu.
 
 ## [0.8.0] – 2026-11-05
 

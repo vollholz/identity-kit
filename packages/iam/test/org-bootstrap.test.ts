@@ -120,6 +120,50 @@ describe('Ersteinrichtung einer Organisation', () => {
       assert.deepEqual((await row('probe')).map(x => x.tuples), [['org-admin@org']]);
     });
 
+    test('Paket (package): vor der Einladung an applyPackage, nur ohne Module; sonst offen bzw. unverändert', async () => {
+      const fake = new KeycloakFake();
+      fake.smtp = true;
+      const database = { url: t.adminUrl, schema: 'notes' };
+      const kern = (tenantId: string) => t.inspect.query("INSERT INTO notes.tenant_module (tenant_id, module, allowed, active) VALUES ($1, 'kern', true, true)", [tenantId]);
+      // ohne applyPackage: offen, Hinweis auf den Befehl der App, keine Module
+      const open = await orgBootstrap(admin(fake), { alias: 'paket-offen', email: 'pia@offen.example', database, package: 'planung' });
+      assert.deepEqual([open.alias, open.package], ['paket-offen', { key: 'planung', status: 'pending' }]);
+      assert.ok(open.steps.includes('Paket «planung» für paket-offen noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): tenant create paket-offen --paket planung'), open.steps.join('\n'));
+      assert.equal((await t.inspect.query('SELECT 1 FROM notes.tenant_module WHERE tenant_id = $1', [open.tenantId])).rowCount, 0);
+      // mit applyPackage: einmal, mit Mandant, Alias, Name und Paket, vor der Einladung
+      const calls: unknown[] = [];
+      const applyPackage = async (x: { tenantId: string }) => { calls.push({ ...x, mails: fake.mails.length }); await kern(x.tenantId); };
+      const mails = fake.mails.length;
+      const r = await orgBootstrap(admin(fake), { alias: 'paket', name: 'Paket AG', email: 'paul@paket.example', database, package: 'planung', applyPackage });
+      assert.deepEqual(calls, [{ tenantId: r.tenantId, alias: 'paket', name: 'Paket AG', package: 'planung', mails }], 'vor der Einladung');
+      assert.deepEqual([r.package, r.invitation], [{ key: 'planung', status: 'applied' }, 'sent']);
+      assert.equal(fake.mails.length, mails + 1, 'Einladung danach');
+      // Organisation hat schon Module: nichts angewendet (idempotent), Hinweis auf tenant modules
+      const again = await orgBootstrap(admin(fake), { alias: 'paket', email: 'paul@paket.example', database, package: 'planung', applyPackage });
+      assert.deepEqual([calls.length, again.package], [1, { key: 'planung', status: 'present' }]);
+      assert.ok(again.steps.some(x => /hat schon Module – unverändert \(erneut anwenden: tenant modules paket --paket planung\)/.test(x)), again.steps.join('\n'));
+      // Probelauf: kein Aufruf, kein Stand
+      const dry = await orgBootstrap(admin(fake), { alias: 'paket-probe', email: 'pia@probe.example', database, package: 'planung', applyPackage, dryRun: true });
+      assert.deepEqual([calls.length, dry.package], [1, { key: 'planung', status: null }]);
+      assert.ok(dry.steps.some(x => /Paket «planung» für paket-probe/.test(x)), dry.steps.join('\n'));
+      // Scheitert die App, bricht der Lauf ab (ohne Einladung); der nächste Lauf versucht es erneut
+      const n = fake.mails.length;
+      await assert.rejects(orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', applyPackage: async () => { throw new Error('Haken scheitert'); } }), /Haken scheitert/);
+      assert.equal(fake.mails.length, n, 'keine Einladung');
+      // auch kein temporäres Passwort: sonst bliebe ein Zugang ohne Paket zurück
+      const secretDir = join(dir, 'paket-secrets');
+      await assert.rejects(orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', initialPassword: { realm: 'notes', secretDir }, applyPackage: async () => { throw new Error('Haken scheitert'); } }), /Haken scheitert/);
+      assert.ok(!existsSync(join(secretDir, 'initial-password-notes-fia@fehler.example.txt')), 'kein Passwort');
+      assert.equal(fake.byEmail('fia@fehler.example')!.password, false, 'kein Passwort in Keycloak');
+      const retry = await orgBootstrap(admin(fake), { alias: 'paket-fehler', email: 'fia@fehler.example', database, package: 'planung', applyPackage });
+      assert.equal(retry.package?.status, 'applied');
+      // ohne Paket: wie bisher
+      const plain = await orgBootstrap(admin(fake), { alias: 'ohne-paket', email: 'otto@ohne.example', database, applyPackage });
+      assert.deepEqual([plain.package, calls.length], [null, 2]);
+      assert.match(orgBootstrapErrors({ alias: 'a', email: 'a@b.ch', package: 'Gross' }).join(), /Paket «Gross»/);
+      await assert.rejects(orgBootstrap(admin(fake), { alias: 'x', email: 'x@x.example', database, package: 'Gross' }), /Paket «Gross»/);
+    });
+
     test('Mandant an eine andere Organisation gebunden: Abbruch, nichts geschrieben', async () => {
       await t.inspect.query("INSERT INTO notes.tenant (alias, kc_org_id, name) VALUES ('fremd', 'andere-org-id', 'Fremd')");
       const fake = new KeycloakFake();
@@ -272,6 +316,8 @@ describe('Ersteinrichtung einer Organisation', () => {
 
     test('Format: Fehler mit Pfad (unbekanntes Feld, Alias, leere Admins, E-Mail, doppelt)', () => {
       const e = (x: unknown) => initFileErrors(x).join('\n');
+      assert.equal(e({ organizations: [{ alias: 'a', package: 'planung', admins: [{ email: 'a@a.example' }] }] }), '');
+      assert.match(e({ organizations: [{ alias: 'a', package: 'Planung', admins: [{ email: 'a@a.example' }] }] }), /\/organizations\/0\/package/);
       assert.match(e({}), /operators oder organizations/);
       assert.match(e({ organizations: [] }), /operators oder organizations/);
       assert.deepEqual(initFileErrors({ operators: [{ email: 'b@betrieb.ch' }] }), [], 'nur Betrieb');
@@ -303,6 +349,28 @@ describe('Ersteinrichtung einer Organisation', () => {
       await orgBootstrapFile(admin(fake), init, { platformAdminRole: 'platform-admin', database: null });
       assert.equal(fake.calls.filter(c => !c.startsWith('GET ')).length, writes, 'idempotent');
       await assert.rejects(orgBootstrapFile(admin(fake), { organizations: [] }, { platformAdminRole: 'platform-admin', database: null }), /operators oder organizations/);
+    });
+
+    test('Paket je Organisation: an applyPackage einmal je Organisation; nur Keycloak offen', { skip }, async () => {
+      const db = productDb({ model: notesModel });
+      const t = await db.create();
+      try {
+        const fake = new KeycloakFake();
+        const file: InitFile = { organizations: [
+          { alias: 'plan', package: 'planung', admins: [{ email: 'a@plan.example' }, { email: 'b@plan.example' }] },
+          { alias: 'voll', admins: [{ email: 'c@voll.example' }] },
+        ] };
+        const calls: string[] = [];
+        const applyPackage = async (x: { tenantId: string; alias: string; package: string }) => {
+          calls.push(`${x.alias}:${x.package}`);
+          await t.inspect.query("INSERT INTO notes.tenant_module (tenant_id, module, allowed, active) VALUES ($1, 'kern', true, true)", [x.tenantId]);
+        };
+        const r = await orgBootstrapFile(admin(fake), file, { platformAdminRole: 'platform-admin', database: { url: t.adminUrl, schema: 'notes' }, sendEmail: false, applyPackage });
+        assert.deepEqual(calls, ['plan:planung']);
+        assert.deepEqual(r.map(x => [x.alias, x.package?.status ?? null]), [['plan', 'applied'], ['plan', 'present'], ['voll', null]]);
+        const kc = await orgBootstrapFile(admin(new KeycloakFake()), file, { platformAdminRole: 'platform-admin', database: null, sendEmail: false, applyPackage });
+        assert.deepEqual([calls.length, kc.map(x => x.package?.status ?? null)], [1, ['pending', 'pending', null]]);
+      } finally { await t.drop(); }
     });
 
     test('mit Datenbank: je Admin org-admin an org und Freigabestufe 2', { skip }, async () => {
@@ -421,6 +489,23 @@ describe('Ersteinrichtung einer Organisation', () => {
         assert.match(x.err, m);
       }
       assert.equal(fake.calls.length, n, 'nichts angelegt');
+    });
+
+    test('--manifest mit Paket: Zusammenfassung nennt den Befehl der App; Organisation mit Modulen unverändert', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'iam-manifest-'));
+      const manifest = join(dir, 'identity.app.json');
+      writeFileSync(manifest, JSON.stringify({ product: 'notes', organizations: [{ alias: 'mitpaket', package: 'planung', admins: [{ email: 'mo@mitpaket.example' }, { email: 'max@mitpaket.example' }] }] }));
+      const r = await run(['--manifest', manifest, '--no-email']);
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.out, /Paket noch anwenden, vor der ersten Anmeldung und dem nächsten migrate \(Befehl der App\): tenant create mitpaket --paket planung\n/);
+      assert.equal(r.out.match(/^Paket noch anwenden.*$/gm)?.join(), 'Paket noch anwenden, vor der ersten Anmeldung und dem nächsten migrate (Befehl der App): tenant create mitpaket --paket planung', 'einmal je Organisation');
+      await t.inspect.query("INSERT INTO notes.tenant_module (tenant_id, module, allowed, active) SELECT id, 'kern', true, true FROM notes.tenant WHERE alias = 'mitpaket'");
+      const again = await run(['--manifest', manifest, '--no-email']);
+      assert.equal(again.code, 0, again.err);
+      assert.ok(!/Paket noch anwenden/.test(again.out) && /hat schon Module/.test(again.out), again.out);
+      writeFileSync(manifest, JSON.stringify({ product: 'notes', organizations: [{ alias: 'mitpaket', package: 'Gross', admins: [{ email: 'mo@mitpaket.example' }] }] }));
+      const bad = await run(['--manifest', manifest]);
+      assert.deepEqual([bad.code, /\/organizations\/0\/package/.test(bad.err)], [64, true]);
     });
 
     test('--manifest: Organisationen aus identity.app.json (übrige Felder unbeachtet); --keycloak-only nur ausdrücklich', async () => {

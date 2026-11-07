@@ -1,12 +1,12 @@
 /**
  * @vollholz/iam-web – Oberfläche des IAM-Baukastens (Spezifikation Kap. 11, docs/entwurf.md).
  * Vertragstypen, Client, Organisation je Tab, Texte, Grundkomponenten, Provider und Sitzung, Rechte-Bausteine, Zugriff
- * (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit und Break-Glass.
+ * (`AccessSheet`, `GrantDialog`, `WhyDialog`), Vertraulichkeit, Break-Glass und Produktmodule (`hasModule`, `moduleApi`).
  */
 export type * from './contract.ts';
 export { ApiError, describeError, errorFrom, fieldErrorText, networkError, statusText, type ErrorText } from './problem.ts';
 export {
-  authFetch, currentTenant, iamFetch, iamMiddleware, ifMatch, isLocalPath, loginUrl, onForbidden, onSessionExpired, origin, reportStatus,
+  authFetch, currentTenant, iamFetch, iamFetchWithEtag, iamMiddleware, ifMatch, isLocalPath, loginUrl, onForbidden, onSessionExpired, origin, reportStatus,
   setCsrfToken, setTenant, tenantHeaders, withQuery, withTenant, type IamRequest, type QueryValue,
 } from './client.ts';
 export { adoptLegacyTabOrg, readTabOrg, TAB_ORG_KEY, tabOrgFor, writeTabOrg, type TabOrg } from './tabOrg.ts';
@@ -27,6 +27,10 @@ export { IamProvider, type IamProviderProps } from './provider.tsx';
 export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } from './session.tsx';
 export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAccessFeature, useAuthz, useAuthzCatalog, type Authz } from './authz.ts';
 export { useResourceCan } from './resourceCan.ts';
+export {
+  activationPlan, choiceKey, dependentsOf, hasModules, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requirementText, requiresText,
+  useModules, useModulesFeature, usedBy, type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
+} from './modules.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamResources, type RoleGroup } from './config.tsx';
 export { defaultPeople, isPrincipalId, PersonName, PersonPick, searchPeople, usePeople, usePerson, type IamPeople, type IamPerson } from './people.tsx';
 export { accountApi, useAccount } from './account.ts';

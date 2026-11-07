@@ -173,6 +173,7 @@ Aus `@vollholz/iam-web/pages`; jede Seite prüft ihr Recht selbst nicht, das mac
 |---|---|---|
 | `MembersPage` | `/verwalten/mitglieder` | `members:admin` |
 | `RolesPage` | `/verwalten/rollen` | `members:admin` (Seite und Navigation; `GET /v1/roles` bleibt mit `tenant:read` lesbar) |
+| `ModulesPage` | `/einstellungen/module` (nur mit Modulen im Modell bzw. `features.modules`) | `tenant:read` (sehen), `tenant:admin` (schalten) |
 | `ClientsPage` | `/verwalten/maschinen-clients` | `members:admin` |
 | `EntraPage`, `EntraConsentReturn`, `EntraTestReturn` | `/verwalten/anmeldung`, `…/zustimmung`, `…/test` (nur mit `features.entra`) | `members:admin` bzw. API prüft |
 | `AccessPage` | `/verwalten/zugriff` | `acl:read` |
@@ -189,7 +190,7 @@ die Seite liest den Alias selbst aus dem Pfad oder nimmt ihn als Prop.
 
 ```ts
 interface IamRoute {
-  id: 'members' | 'roles' | 'clients' | 'entra' | 'entraConsent' | 'entraTest' | 'access' | 'organizations' | 'organization';
+  id: 'members' | 'roles' | 'modules' | 'clients' | 'entra' | 'entraConsent' | 'entraTest' | 'access' | 'organizations' | 'organization';
   path: string;                                  // aus `paths`
   need: { perm: Permission } | { platformAdmin: true } | null;   // null: die API prüft (Rückkehrseiten von Entra)
   readonly title: string;                        // in der Sprache der Texte (beim Lesen)

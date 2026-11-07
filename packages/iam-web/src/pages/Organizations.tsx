@@ -3,7 +3,8 @@
  * umbenennen, Domänen pflegen, sperren und entsperren sowie Mitglieder (inklusive org-admin und Maschinen-Clients) jeder
  * Organisation verwalten. Die Detailansicht sagt, welche Organisation bearbeitet wird und in welcher die Person
  * angemeldet ist; Kopfzeile und Kontomenü zeigen die eigene.
- * Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)».
+ * Mit `features.entra` dazu der Abschnitt «Anmeldung (Microsoft Entra ID)», mit Modulen im Modell der Abschnitt «Module»
+ * (freigeben, entziehen).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';
@@ -23,6 +24,7 @@ import { useIamUi } from '../ui/context.tsx';
 import { Empty, ErrorBox, ErrorState, SkeletonRows } from '../ui/states.tsx';
 import { EntraSection } from './Entra.tsx';
 import { MemberList } from './Members.tsx';
+import { ModulesSection } from './Modules.tsx';
 
 const ALIAS = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const splitDomains = (s: string) => s.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
@@ -181,6 +183,8 @@ export function OrganizationPage({ alias: given }: { alias?: string }) {
             <OrgForm org={q.data} />
             {/* Personen und freigegebene Maschinen-Clients; Rollen aus dem Modell der App, gleich in jeder Organisation */}
             <MemberList alias={q.data.alias} platform orgLabel={q.data.name} />
+            {/* Produktmodule freigeben und entziehen (nur mit Modulen im Modell, nur wenn die Organisation genutzt wird) */}
+            {q.data.tenant ? <ModulesSection alias={q.data.alias} orgLabel={q.data.name} /> : null}
             {features.entra ? <EntraSection alias={q.data.alias} orgLabel={q.data.name} /> : null}
           </>
         ))}

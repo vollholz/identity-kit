@@ -4,11 +4,11 @@
  * dafür liefert.
  */
 import type {
-  AccessEntry, AccessInput, AccessList, AdminStatus, ApiMe, AuthzCatalog, BreakGlassInput, BreakGlassResult, Client, ClientInput, Explain, Member,
+  AccessEntry, AccessInput, AccessList, AdminStatus, ApiMe, AuthzCatalog, BreakGlassInput, BreakGlassResult, Client, ClientInput, Explain, Member, TenantModule,
 } from '../../src/contract.ts';
 
 export const CATALOG_FIXTURE = {
-  permissions: [{ key: 'note:read', label: 'Notizen lesen', group: 'notes', description: '…', resources: ['org', 'folder', 'note'], adminOnly: false, personOnly: true as const }],
+  permissions: [{ key: 'note:read', label: 'Notizen lesen', group: 'notes', description: '…', resources: ['org', 'folder', 'note'], adminOnly: false, personOnly: true as const, modul: 'notizen' }],
   groups: [{ key: 'notes', label: 'Notizen', match: 'notiz' }],
   roles: [{ key: 'viewer', label: 'Leser:in', description: 'Notizen lesen.', permissions: ['note:read'], adminOnly: false }],
   scopes: [{ key: 'notes:read', text: 'Notizen lesen', permissions: ['note:read'] }],
@@ -21,13 +21,25 @@ export const CATALOG_FIXTURE = {
   ],
   classifications: [{ level: 0 as const, label: 'intern' }],
   mcpTools: [{ name: 'notes_search', title: 'Notizen suchen', permission: 'note:read', scope: 'notes:read', readOnly: true, openWorld: false }],
+  // ab iam 6.1 (Module je Organisation)
+  modules: [
+    { key: 'kern', label: 'Kern', description: '', core: true, requires: [], parts: [] },
+    { key: 'notizen', label: 'Notizen', description: 'Notizen und Ordner.', core: false, requires: [['kern', 'archiv']], parts: [{ key: 'notizen.export', label: 'Export', description: 'Als PDF exportieren.' }] },
+  ],
+  packages: [{ key: 'basis', label: 'Basis', description: 'Notizen ohne Export.', modules: ['notizen'], off: ['notizen.export'] }],
 } satisfies AuthzCatalog;
+
+/** `GET /v1/tenant/modules` (ab iam 6.1), Eintrag mit Hindernissen (nur mit tenant:admin). */
+export const TENANT_MODULE_FIXTURE = {
+  key: 'notizen', label: 'Notizen', description: 'Notizen und Ordner.', core: false, requires: [['kern', 'archiv']], module: null,
+  allowed: true, active: true, activeSince: '2026-11-01T08:00:00.000Z', blockers: [{ key: 'offen', text: '3 offene Freigaben – zuerst entscheiden', anzahl: 3 }],
+} satisfies TenantModule;
 
 export const API_ME_FIXTURE = {
   tenant: { id: 't1', alias: 'demo' },
   principal: { id: 'p1', kind: 'client' as const, name: 'notiz-import', email: null, clientId: 'notiz-import' },
   roles: ['editor'], scopes: ['notes:read'], permissions: ['note:read'], somewhere: ['note:read'],
-  clearance: 0 as const, breakGlassUntil: null, tokenBinding: 'dpop',
+  clearance: 0 as const, breakGlassUntil: null, tokenBinding: 'dpop', modules: ['kern', 'notizen'],
 } satisfies ApiMe;
 
 export const ACCESS_SCOPE_FIXTURE = {

@@ -151,6 +151,11 @@ export function withQuery(path: string, query?: Record<string, QueryValue>): str
  * Aufruf an `/v1/…` des Vertrags: JSON hin und zurück, Fehler als ApiError (401/403 gemeldet), 204 → `undefined`.
  */
 export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T> {
+  return (await iamFetchWithEtag<T>(path, req)).data;
+}
+
+/** Wie `iamFetch`, dazu der `ETag` der Antwort (für `If-Match` beim nächsten Schreiben, z. B. Module). */
+export async function iamFetchWithEtag<T>(path: string, req: IamRequest = {}): Promise<{ data: T; etag: string | null }> {
   const method = req.method ?? 'GET';
   const url = sameOrigin(withQuery(path, req.query));
   const headers = new Headers(req.headers);
@@ -171,9 +176,10 @@ export async function iamFetch<T>(path: string, req: IamRequest = {}): Promise<T
     if (!req.anonymous) reportStatus(res.status);
     throw await errorFrom(res);
   }
-  if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as T;
+  const etag = res.headers.get('etag');
+  if (res.status === 204 || res.headers.get('content-length') === '0') return { data: undefined as T, etag };
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return { data: (text ? JSON.parse(text) : undefined) as T, etag };
 }
 
 /**

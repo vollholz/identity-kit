@@ -8,6 +8,7 @@ export { EntraConsentReturn, EntraPage, EntraSection, EntraTestReturn } from './
 export { EntraHandoverPage, EntraHandoverReturn } from './EntraHandover.tsx';
 export { ConsentLinkDialog, ConsentLinkList } from './EntraLinks.tsx';
 export { OwnAppDialog, OwnAppFields, OwnAppGuideSteps, ownAppErrorText, type OwnAppDraft } from './EntraOwnApp.tsx';
-export { EntraScreen, MembersScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
+export { EntraScreen, MembersScreen, ModulesScreen, OrganizationScreen, OrganizationsScreen, RolesScreen } from './screens.tsx';
+export { ModulesPage, ModulesSection } from './Modules.tsx';
 export { RolesPage, type RolesPageProps } from './Roles.tsx';
 export { AccountHome, PlatformShell, SignupPage, type AccountHomeProps } from './Account.tsx';

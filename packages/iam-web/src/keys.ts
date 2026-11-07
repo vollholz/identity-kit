@@ -13,6 +13,8 @@ export const iamKeys = {
   clients: (alias: string | null) => ['iam', 'admin', 'clients', alias ?? '_own'] as const,
   /** Eigene Rollen der Organisation (`/v1/admin/roles`). */
   customRoles: (alias: string | null) => ['iam', 'admin', 'roles', alias ?? '_own'] as const,
+  /** Produktmodule (`/v1/tenant/modules` bzw. `/v1/platform/organizations/{alias}/modules`). */
+  modules: (alias: string | null) => ['iam', 'admin', 'modules', alias ?? '_own'] as const,
   entra: (alias: string | null) => ['iam', 'admin', 'entra', alias ?? '_own'] as const,
   consentLinks: (alias: string | null) => ['iam', 'admin', 'entra', alias ?? '_own', 'links'] as const,
   orgs: ['iam', 'admin', 'orgs'] as const,

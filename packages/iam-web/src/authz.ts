@@ -88,11 +88,12 @@ export function makeAuthz(catalog: AuthzCatalog | undefined, roleGroups?: RoleGr
   };
 }
 
-export function useAuthzCatalog() {
+/** Katalog in der Sprache der Texte; `enabled = false` ruft nichts ab (der Cache gilt trotzdem). */
+export function useAuthzCatalog(enabled = true) {
   const { locale } = useIamText();
   // Ändert sich mit einer neuen Version der App oder mit eigenen Rollen der Organisation (Seite «Rollen» invalidiert)
   return useQuery({
-    queryKey: iamKeys.catalog(locale), staleTime: 60 * 60_000, gcTime: Infinity,
+    queryKey: iamKeys.catalog(locale), staleTime: 60 * 60_000, gcTime: Infinity, enabled,
     queryFn: ({ signal }) => iamFetch<AuthzCatalog>('/v1/authz/catalog', { signal, headers: { 'Accept-Language': locale || currentLocale() } }),
   });
 }

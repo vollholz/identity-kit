@@ -28,7 +28,7 @@ export { Can, Gate, LoggedOut, orgName, tenantName, useIam, type IamSession } fr
 export { defaultRoleGroups, groupRoles, makeAuthz, roleGroupProblems, useAccessFeature, useAuthz, useAuthzCatalog, type Authz } from './authz.ts';
 export { useResourceCan } from './resourceCan.ts';
 export {
-  activationPlan, choiceKey, dependentsOf, hasModules, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requirementText, requiresText,
+  activationPlan, choiceKey, dependentsOf, hasModules, moduleApi, moduleErrorText, modulesChanged, moduleLabel, moduleRights, partsOf, requirementText, requiresText,
   useModules, useModulesFeature, usedBy, type ActivationPlan, type ModuleChoice, type ModuleErrorText, type ModuleListResult,
 } from './modules.ts';
 export { DEFAULT_PATHS, useIamConfig, type IamConfig, type IamFeatures, type IamPaths, type IamResources, type RoleGroup } from './config.tsx';

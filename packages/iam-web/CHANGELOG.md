@@ -27,7 +27,8 @@ der Version ist der Text des GitHub Release zum Tag `iam-web-v<version>`.
 - `useIam().modules` (aktive Module und Teilfunktionen aus `/auth/me`) und `useIam().hasModule(key)` zum Ein- und
   Ausblenden von Arbeitsflächen der App; ältere Server ohne `modules`: `hasModule` immer `true`.
 - `features.modules` (Standard: das Modell hat Module laut Katalog; `false` blendet Seite und Abschnitt aus).
-- `moduleApi(alias)`, `useModules(alias)`, `useModulesFeature()`, `iamKeys.modules(alias)`, Regeln für die Anzeige
+- `moduleApi(alias)`, `useModules(alias)`, `useModulesFeature()`, `modulesChanged(qc, alias)` (nach einer Schaltung
+  Liste, Sitzung und Katalog neu laden; der Katalog enthält nur Rechte aktiver Module), `iamKeys.modules(alias)`, Regeln für die Anzeige
   (`activationPlan`, `dependentsOf`, `usedBy`, `partsOf`, `moduleRights`, `requiresText`, `moduleErrorText`, …),
   `iamFetchWithEtag`; `useAuthzCatalog(enabled)`.
 - Typen `TenantModule`, `TenantModuleList`, `ModuleBlocker`, `ModuleRequirement`, `ModuleActiveInput`,

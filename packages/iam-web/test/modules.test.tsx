@@ -67,6 +67,7 @@ function setup(o: { me?: Partial<Me>; srv?: ReturnType<typeof server>; routes?: 
   render(<StaticIam me={o.me}><ModulesPage /></StaticIam>);
   return { api, srv };
 }
+const catalogCalls = (api: { calls: Request[] }) => api.calls.filter(c => new URL(c.url).pathname === '/v1/authz/catalog').length;
 const row = (name: string) => screen.getByRole('switch', { name: `${name} aktiv` }).closest('.iam-mod-row') as HTMLElement;
 
 describe('Regeln', () => {
@@ -129,7 +130,7 @@ describe('Seite Module', () => {
   });
 
   it('Deaktivieren: Rückfrage mit Wirkung (Teilfunktionen, Rechte, Daten bleiben), Fokus auf «Abbrechen»; dann PUT', async () => {
-    const { srv } = setup();
+    const { srv, api } = setup();
     await userEvent.click(await screen.findByRole('switch', { name: 'Zeiterfassung aktiv' }));
     const dlg = await screen.findByRole('alertdialog', { name: '«Zeiterfassung» deaktivieren' });
     expect(dlg).toHaveTextContent('«Zeiterfassung» verschwindet für alle in «Demo AG»:');
@@ -142,6 +143,18 @@ describe('Seite Module', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     expect(srv.state.puts).toEqual([{ key: 'zeit', active: false, ifMatch: 'W/"7"' }]);
     expect(await screen.findByText('«Zeiterfassung» ist deaktiviert. Die Daten bleiben erhalten.')).toBeInTheDocument();
+    // Katalog neu: er enthält nur die Rechte aktiver Module
+    await waitFor(() => expect(catalogCalls(api)).toBeGreaterThan(1));
+  });
+
+  it('Katalog nicht ladbar: Fehler mit «Erneut versuchen» statt «Keine Module»', async () => {
+    let fail = true;
+    setup({ routes: { 'GET /v1/authz/catalog': () => (fail ? json({ title: 'Interner Fehler', status: 500 }, 500) : json(catalog)) } });
+    expect(await screen.findByRole('heading', { name: 'Interner Fehler' })).toBeInTheDocument();
+    expect(screen.queryByText('Keine Module')).toBeNull();
+    fail = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
+    expect(await screen.findByRole('switch', { name: 'Zeiterfassung aktiv' })).toBeInTheDocument();
   });
 
   it('Hindernisse: bekannte zeigt die Rückfrage ohne «Deaktivieren»; 409 hindernisse des Servers ebenso', async () => {
@@ -262,6 +275,7 @@ describe('Sitzung, Route und Navigation', () => {
 });
 
 describe('Plattform-Administration: Module einer Organisation', () => {
+  let lastApi: { calls: Request[] } | null = null;
   function platform(items: TenantModule[], put?: (key: string, allowed: boolean, force: boolean) => Response | null) {
     let state = items;
     const puts: { key: string; allowed: boolean; force: boolean }[] = [];
@@ -280,6 +294,7 @@ describe('Plattform-Administration: Module einer Organisation', () => {
     const api = mockIamApi(routes, { catalog });
     vi.stubGlobal('fetch', api.fetch);
     render(<StaticIam><ModulesSection alias="muster" orgLabel="Muster GmbH" /></StaticIam>);
+    lastApi = api;
     return puts;
   }
 
@@ -291,6 +306,8 @@ describe('Plattform-Administration: Module einer Organisation', () => {
     expect(await axeProblems()).toEqual([]);
     await userEvent.click(within(table).getByRole('button', { name: 'Projekte freigeben' }));
     await waitFor(() => expect(puts).toEqual([{ key: 'projekte', allowed: true, force: false }]));
+    // auch Katalog (und Sitzung) neu: es kann die Organisation dieses Tabs sein
+    await waitFor(() => expect(catalogCalls(lastApi!)).toBeGreaterThan(1));
     expect(await screen.findByText('«Projekte» ist für «Muster GmbH» freigegeben.')).toBeInTheDocument();
 
     await userEvent.click(within(table).getByRole('button', { name: 'Zeiterfassung entziehen' }));

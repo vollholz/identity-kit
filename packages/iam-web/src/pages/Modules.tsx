@@ -15,12 +15,11 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useState, type ReactNode } from 'react';
-import { useAuthz } from '../authz.ts';
+import { useAuthz, useAuthzCatalog } from '../authz.ts';
 import type { ModuleBlocker, TenantModule } from '../contract.ts';
 import { fmtDate } from '../format.ts';
-import { iamKeys } from '../keys.ts';
 import {
-  activationPlan, choiceKey, dependentsOf, moduleApi, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, useModulesFeature, usedBy,
+  activationPlan, choiceKey, dependentsOf, moduleApi, modulesChanged, moduleErrorText, moduleLabel, moduleRights, partsOf, requiresText, useModules, useModulesFeature, usedBy,
   type ModuleChoice, type ModuleListResult,
 } from '../modules.ts';
 import { AdminHead } from '../rights/AdminHead.tsx';
@@ -75,6 +74,7 @@ export function ModulesPage() {
   const authz = useAuthz();
   useIamText();
   const feature = useModulesFeature();
+  const cat = useAuthzCatalog();
   const admin = iam.can('tenant:admin');
   const q = useModules(null, feature === true);
   const [sheet, setSheet] = useState<string | null>(null);
@@ -94,7 +94,8 @@ export function ModulesPage() {
     <>
       <AdminHead icon="layers" title={t('iam.modules.title')} sub={t('iam.modules.sub', { org: iam.orgName })} />
       <div className="iam-body"><div className="iam-int">
-        {feature === undefined || (feature && q.isPending) ? <SkeletonRows rows={4} cols={3} />
+        {feature === undefined && cat.error ? <ErrorState error={cat.error} onRetry={() => void cat.refetch()} />
+          : feature === undefined || (feature && q.isPending) ? <SkeletonRows rows={4} cols={3} />
           : !feature ? <Empty icon="layers" title={t('iam.modules.none')}>{t('iam.modules.noneText')}</Empty>
           : q.error ? <ErrorState error={q.error} onRetry={() => void q.refetch()} />
           : (
@@ -178,7 +179,7 @@ function useSwitchFlow(data: ModuleListResult | undefined) {
     },
     onSettled: async (_d, e) => {
       setBusy(null);
-      await Promise.all([qc.invalidateQueries({ queryKey: iamKeys.modules(null) }), qc.invalidateQueries({ queryKey: iamKeys.me })]);
+      await modulesChanged(qc, null);
       if (!e) setErrorKey(null);
     },
   });
@@ -324,6 +325,7 @@ export function ModulesSection({ alias, orgLabel }: { alias: string; orgLabel: s
   const fid = useId();
   useIamText();
   const feature = useModulesFeature();
+  const cat = useAuthzCatalog();
   const q = useModules(alias, feature === true);
   const qc = useQueryClient();
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -335,8 +337,12 @@ export function ModulesSection({ alias, orgLabel }: { alias: string; orgLabel: s
       toast.show(t(v.allowed ? 'iam.modules.platform.allowed' : 'iam.modules.platform.revoked', { name: quote(moduleLabel(items, v.key)), org: orgLabel }));
       setRevoking(null);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: iamKeys.modules(alias) }),
+    // Auch Sitzung und Katalog: ist es die Organisation dieses Tabs, ändern sich `modules` und Rechte
+    onSettled: () => modulesChanged(qc, alias),
   });
+  if (feature === undefined && cat.error) {
+    return <section aria-labelledby={`${fid}-h`}><div className="iam-sec-h"><h2 id={`${fid}-h`}>{t('iam.modules.title')}</h2></div><ErrorState error={cat.error} onRetry={() => void cat.refetch()} /></section>;
+  }
   if (feature !== true) return null;
   const items = q.data?.items ?? [];
   return (

@@ -9,7 +9,7 @@
  * `If-Match` mit dem `ETag` der Liste (`W/"<acl_version>"`): Hat sich inzwischen etwas geändert, antwortet der Server
  * mit 412 und die Oberfläche lädt neu.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type QueryClient } from '@tanstack/react-query';
 import { iamFetchWithEtag } from './client.ts';
 import { useAuthzCatalog } from './authz.ts';
 import { useIamConfig } from './config.tsx';
@@ -54,13 +54,25 @@ export const hasModules = (catalog: AuthzCatalog | undefined): boolean => !!cata
 
 /**
  * Seite «Module» und Abschnitt der Plattform-Administration zeigen: `features.modules`, sonst ob das Modell Module hat.
- * `undefined`, solange der Katalog lädt.
+ * `undefined`, solange der Katalog lädt oder nicht geladen werden konnte (nie «keine Module» wegen eines Fehlers; den
+ * Fehler zeigt die Seite mit `useAuthzCatalog().error`).
  */
 export function useModulesFeature(enabled = true): boolean | undefined {
   const { features } = useIamConfig();
   const q = useAuthzCatalog(enabled && features.modules === undefined);
   if (features.modules !== undefined) return features.modules;
-  return q.data ? hasModules(q.data) : q.error ? false : undefined;
+  return q.data ? hasModules(q.data) : undefined;
+}
+
+/**
+ * Nach einer Schaltung neu laden: Liste, Sitzung (`modules`, Rechte) und Katalog – er enthält nur die Rechte aktiver
+ * Module der Organisation.
+ */
+export function modulesChanged(qc: QueryClient, alias: string | null): Promise<unknown> {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: iamKeys.modules(alias) }), qc.invalidateQueries({ queryKey: iamKeys.me }),
+    qc.invalidateQueries({ queryKey: ['iam', 'catalog'] }),
+  ]);
 }
 
 // ------------------------------------------------------------------------------------------------ Regeln (Anzeige)

@@ -24,8 +24,10 @@ const CASES: Record<string, (ids: { a: string }) => { method: string; url: strin
   'PATCH /v1/notizen/:id': i => ({ method: 'PATCH', url: `/v1/notizen/${i.a}`, body: { label: 'gehackt' }, headers: { 'if-match': 'W/"1"' }, kind: 'foreign' }),
   'DELETE /v1/notizen/:id': i => ({ method: 'DELETE', url: `/v1/notizen/${i.a}`, headers: { 'if-match': 'W/"1"' }, kind: 'foreign' }),
   'GET /v1/notizen/:id/history': i => ({ method: 'GET', url: `/v1/notizen/${i.a}/history`, kind: 'foreign' }),
+  'POST /v1/notizen/abo': () => ({ method: 'POST', url: '/v1/notizen/abo', kind: 'create' }),
+  'GET /v1/berichte': () => ({ method: 'GET', url: '/v1/berichte', kind: 'list' }),
 };
-const APP_TAGS = new Set(['Notizen']);
+const APP_TAGS = new Set(['Notizen', 'Berichte']);
 
 describe('Mandantentrennung über die API', { skip }, () => {
   let api: TestApi;

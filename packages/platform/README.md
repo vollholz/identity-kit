@@ -15,13 +15,14 @@ meinen Abschnitte der Vorgabe `docs/konzepte/app-boilerplate.md` (Repository vol
 | Teil | Was |
 |---|---|
 | `definePlatform` | Kontext der App (Produkt, Schema, Rollen, Titel, Präfix der Ereignisse) mit Modell und Ressourcen; gebundene Bausteine für die Module: `record` (optional mit `subject`), `auditSearch`, `emit`, `enqueue`, `fullTx`, `seal`/`unseal`/`reseal`, `audit`; Rückfall der Suche nach Person: `audit.subjectFallback` |
-| `defineModule` | Fachmodul: Routen, öffentliche Routen mit Token (`publicRoutes`), Tags der API-Doku, Jobs, feste Aufgaben, Abnehmer der Outbox, Rotation eigener Geheimnisse, MCP-Werkzeuge |
+| `defineModule` | Fachmodul: Routen, öffentliche Routen mit Token (`publicRoutes`), Tags der API-Doku, Jobs, feste Aufgaben, Abnehmer der Outbox, Rotation eigener Geheimnisse, MCP-Werkzeuge; Produktmodul `modul` (siehe unten) |
 | `defineApp` | Kompositionswurzel: Konfiguration (`IAM_VARS` + Plattform + App, Exit 78), API (Fastify, OpenAPI 3.1, Rate-Limit, Idempotenz, CSP, Oberfläche mit SPA-Fallback), Worker, MCP-Dienst, Migrationen, OpenAPI-Export, `.env.example` und Doku der Konfiguration, Mandanten, Rotation |
 | `startApi`, `startWorker`, `startMcp`, `runCli` | Prozesse mit Betriebs-Endpunkt (`/healthz`, `/readyz`, `/metrics`) und geordnetem Beenden; Befehle `migrate`, `tenant …`, `rotate-keys` |
 | `PublicRoute`, `publicToken`, `publicTokenHash`, `aliasToken`, `publicNotFound` | Öffentliche Routen ohne Sitzung (z. B. Kalender-Abo): Organisation aus dem Alias, Kontext genau dieser Organisation, Lesesicht der Person des Tokens, Rate-Limit je IP, einheitlich 404 (siehe unten) |
 | `createMailer`, `smtpMailer`, `protokollMailer`, `MailError` | E-Mail-Versand nach `MAIL_ADAPTER`: SMTP mit TLS-Pflicht, Zeitlimit und Schutz gegen Header-Injection; «protokoll» für Entwicklung und Tests (siehe unten) |
 | `safeRequest`, `resolveTarget`, `isPublicAddress` | Abrufe an Adressen aus Daten mit SSRF-Schutz, fester Frist und begrenzter Antwort; Inhalt als Text oder Bytes |
 | `migrations/platform_001_core.sql` | Warteschlange (`job`), Idempotenz (`idempotency_key`), Outbox (`outbox_event`) mit RLS; Scheduler liest über alle Mandanten und schreibt mit gesetztem Kontext nur dort |
+| `migrations/platform_002_job_skipped.sql` | Status `skipped` und Spalte `result` der Warteschlange (Aufträge inaktiver Produktmodule) |
 | `@vollholz/platform/preload` | OpenTelemetry (Traces, Metriken über OTLP und/oder Prometheus) vor allen anderen Modulen |
 
 ## Verwendung
@@ -85,6 +86,57 @@ export const schichtartModule = defineModule({
   mcpTools: { list_schichtarten: { description: '…', input: { … }, call: async (org, a) => … } },
 });
 ```
+
+### Produktmodule je Organisation
+
+Mit `modules` im Modell (`defineModel({ modules, packages })`, [Konzept](../../docs/module-je-organisation.md)) setzt
+die Plattform durch, was eine Organisation aktiviert hat. Ohne `modules` ändert sich nichts.
+
+```ts
+export const schichtplanungModule = defineModule({
+  name: 'schichtplanung',
+  modul: 'schichtplanung',                    // Pflicht mit modules im Modell (sonst Fehler beim Start)
+  register: app => {
+    app.get('/v1/plaene', { schema: { … } }, …);                                    // Modul des Code-Moduls
+    app.get('/v1/boerse', { config: { modul: 'schichtplanung.boerse' }, schema: { … } }, …);   // Teilfunktion
+  },
+  jobs: [planJob], tasks: [aufraeumen], consumers: [webhook],  // ohne eigenes modul: das des Code-Moduls
+});
+
+export const app = defineApp({
+  platform, modules: [kernModule, schichtplanungModule],
+  moduleHooks: {
+    abwesenheiten: {
+      einrichten: (tx, tenantId) => absenzartenStandard(tx),          // erstes Aktivieren, in der Transaktion
+      hindernisse: (tx, tenantId) => offeneAntraege(tx),              // vor dem Deaktivieren: [{ key, text, anzahl? }] → 409
+      nachholen: (tx, tenantId, seit) => tageNeuBerechnen(tx, seit),  // erneutes Aktivieren: Auftrag im Worker
+    },
+  },
+});
+```
+
+| Ort | Wirkung, wenn das Modul in der Organisation nicht aktiv ist |
+|---|---|
+| Routen | 403 problem+json `reason: 'modul-inaktiv'`, `modul`, `detail` «Das Modul ‹…› ist in deiner Organisation nicht aktiv.» – nach der Anmeldung, vor Rechten und Validierung (Zwischenspeicher `iam.access.modulesOf`) |
+| Öffentliche Routen | 404 wie ein unbekannter Link (ein 403 verriete ohne gültiges Token, dass es die Organisation gibt) |
+| Jobs | Auftrag endet `skipped` mit `result: { modul: 'inaktiv' }`, ohne Fehler und ohne neuen Versuch |
+| Feste Aufgaben | `ctx.tenants()` liefert nur Organisationen, in denen das Modul der Aufgabe aktiv ist (ohne Modul: alle nicht gesperrten) |
+| Outbox | Abnehmer mit Modul erhalten Ereignisse solcher Organisationen nicht; verteilt sind sie trotzdem |
+| MCP | `tools/list` ohne die Werkzeuge (`modules` aus `GET /v1/me`); Rechte inaktiver Module fehlen ohnehin |
+| OpenAPI | je Route `x-modul`; die Beschreibung des Tags nennt das Produktmodul |
+
+- `checkModules(modules, model)` (in `defineApp`): jedes `modul` existiert im Verzeichnis (Modul oder `modul.teil`),
+  Routen mit unbekanntem `config.modul` scheitern beim Einhängen; Module ohne Code, Job oder Recht ergeben eine Warnung
+  (`app.warnings`, beim Start von API und Worker im Log).
+- `moduleHooks` gehen an `createIam` (API, Worker, Befehle). `nachholen` läuft nicht in der Transaktion des Aktivierens:
+  dort reiht die Plattform den Auftrag `platform.module-nachholen` ein (höchstens einer offen je Modul), den der Worker
+  mit dem Haken der App ausführt (`seit` = letztes Deaktivieren; inzwischen wieder inaktiv: ohne Wirkung).
+- Befehle (Betrieb): `tenant create <alias> --paket <key>` legt nur die Module des Pakets erlaubt und aktiv an
+  (`einrichten` je Modul, `off`-Teilfunktionen erlaubt und aus; ohne Paket wie bisher alles beim ersten Laden);
+  `tenant modules <alias>` listet, `--erlauben a,b` gibt frei (aktiviert nichts), `--entziehen c` entzieht (deaktiviert
+  mit; `--force` übergeht Hindernisse), `--paket <key>` wendet ein Paket erneut an (andere Module entzogen),
+  `--nur-erlauben` lässt aktiv unverändert. Unbekanntes Paket oder Modul: Exit 64. Alles in einer Transaktion, mit
+  Audit (`tenant.module_allowed`, `tenant.module_active`, `tenant.module_package`) und Ereignissen `module.*`.
 
 ### Öffentliche Route mit Token
 
@@ -195,7 +247,8 @@ Metriken heissen `platform.job.duration` und `platform.outbox.dispatched` (die A
 
 ## Tests
 
-`npm test` im Paket: Test-App «probe» mit Modul «notiz» (`test/fixture/`) – Konfiguration, Warteschlange, RLS-Matrix
+`npm test` im Paket: Test-App «probe» mit den Modulen «notiz» und «bericht» (Produktmodule `notizen` mit Teilfunktion
+`abo` und `berichte`, `test/fixture/`) – Produktmodule je Organisation, Konfiguration, Warteschlange, RLS-Matrix
 und Policies, Mandantentrennung über die API, problem+json, Pfade, Oberfläche und OpenAPI, MCP mit Token Exchange,
 Betrieb und Mandanten, Übernahme der Migrationen. Datenbank-Tests brauchen `POSTGRES_SUPERUSER_PASSWORD` (und
 `POSTGRES_PORT`) oder `TEST_POSTGRES_URL`; ohne Datenbank übersprungen, in CI nie.

@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import { ConfigError, EXIT_CONFIG, MailError, createMailer, defineApp, definePlatform, envDocs, platformVars } from '../src/index.ts';
 import { app } from './fixture/app.ts';
 import { notizModule } from './fixture/notiz/index.ts';
+import { berichtModule } from './fixture/bericht/index.ts';
 
 const VARS = app.vars;
 const loadPlatformConfig = app.loadConfig;
@@ -82,7 +83,7 @@ test('Variablen der App: ergänzt, geprüft und in der Doku; doppelte Namen sind
   const { model } = app.platform;
   const extra = { name: 'PROBE_LIMIT', kind: 'int' as const, group: 'Probe', default: '3', description: 'Grenze der Probe.' };
   const withVar = defineApp({
-    platform: definePlatform({ product: 'probe', title: 'Probe', model }), modules: [notizModule], vars: [extra],
+    platform: definePlatform({ product: 'probe', title: 'Probe', model }), modules: [notizModule, berichtModule], vars: [extra],
     check: raw => (raw.PROBE_LIMIT === '0' ? ['PROBE_LIMIT: mindestens 1'] : []),
   });
   assert.equal(withVar.loadConfig(base, 'api').raw.PROBE_LIMIT, '3');

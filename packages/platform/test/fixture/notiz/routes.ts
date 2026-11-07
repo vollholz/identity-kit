@@ -12,6 +12,7 @@ import {
 import { enqueue, record } from '../platform.ts';
 import { ListQuery, Notiz, NotizCreate, NotizHistory, NotizList, NotizPatch, NotizVersion, type NotizOut } from './schemas.ts';
 import * as store from './store.ts';
+import { issueAbo } from './abo.ts';
 import { PRUEF_JOB } from './jobs.ts';
 
 const TAG = 'Notizen';
@@ -50,6 +51,16 @@ export function registerRoutes(app: FastifyInstance, _deps: Deps): void {
     const can = await req.capabilities(page.map(r => ref(r.id)));
     const last = page[page.length - 1];
     return { items: page.map(r => out(r, can('notiz', r.id))), nextCursor: rows.length > limit && last ? encodeCursor({ l: last.label, i: last.id, q: q.q ?? '' }) : null };
+  });
+
+  // Teilfunktion je Route: eigener Link für das Abo nur mit aktiver Teilfunktion `notizen.abo`
+  app.post('/v1/notizen/abo', {
+    config: { modul: 'notizen.abo' },
+    schema: { tags: [TAG], summary: 'Abo-Link erzeugen', description: 'Neues Token für das Abo der eigenen Notizen (ersetzt das alte).', response: { 200: Type.Object({ token: Type.String() }) } },
+  }, async req => {
+    await req.needSomewhere('notiz:read');
+    const p = req.requirePrincipal();
+    return { token: await req.tx(tx => issueAbo(tx, p.principalId)) };
   });
 
   app.get('/v1/notizen/:id', {

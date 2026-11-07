@@ -67,6 +67,21 @@ describe('MCP-Dienst', { skip }, () => {
     assert.ok(idp.exchanges >= 1, 'Token Exchange');
   });
 
+  test('Produktmodule: tools/list ohne Werkzeuge inaktiver Module der Organisation', async () => {
+    await login(api, 'mcp-an', 'mcp-an-editor', 'editor');
+    const admin = await login(api, 'mcp-aus', 'mcp-aus-admin', 'org-admin');
+    await login(api, 'mcp-aus', 'mcp-aus-editor', 'editor');
+    const off = await api.app.inject({ method: 'PUT', url: '/v1/tenant/modules/berichte', headers: admin, payload: { active: false } });
+    assert.equal(off.statusCode, 200, off.body);
+    const names = async (sub: string, org: string) => {
+      const r = await rpc(await hostToken(sub, org), 'tools/list');
+      assert.equal(r.statusCode, 200, r.body);
+      return (r.json().result.tools as { name: string }[]).map(t => t.name).sort();
+    };
+    assert.deepEqual(await names('mcp-an-editor', 'mcp-an'), ['get_bericht', 'get_notiz', 'list_notizen']);
+    assert.deepEqual(await names('mcp-aus-editor', 'mcp-aus'), ['get_notiz', 'list_notizen']);
+  });
+
   test('ohne Recht keine Werkzeuge; fremde Hosts abgewiesen', async () => {
     await login(api, 'demo', 'mcp-niemand', null);
     const none = await rpc(await hostToken('mcp-niemand', 'demo'), 'tools/list');
